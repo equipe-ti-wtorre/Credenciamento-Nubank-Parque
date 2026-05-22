@@ -96,3 +96,14 @@ exports.me = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.profilePhoto = async (req, res, next) => {
+  try {
+    const { buffer, contentType } = await authService.getProfilePhoto(req.user.id);
+    res.set("Cache-Control", "private, max-age=3600");
+    res.type(contentType);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+};

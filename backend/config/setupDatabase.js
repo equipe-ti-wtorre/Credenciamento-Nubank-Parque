@@ -3,6 +3,89 @@ const bcrypt = require("bcryptjs");
 const env = require("./env");
 const { logger } = require("./logger");
 
+async function columnExists(connection, table, column) {
+  const [rows] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+    [env.db.name, table, column],
+  );
+  return rows.length > 0;
+}
+
+async function columnIsNullable(connection, table, column) {
+  const [rows] = await connection.query(
+    `SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+    [env.db.name, table, column],
+  );
+  return rows[0]?.IS_NULLABLE === "YES";
+}
+
+/** Atualiza tabelas criadas antes da integração Teams por usuário. */
+async function migrateTeamsIntegrations(connection) {
+  const [tables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'teams_integrations' LIMIT 1`,
+    [env.db.name],
+  );
+  if (tables.length === 0) return;
+
+  if (!(await columnExists(connection, "teams_integrations", "tipo"))) {
+    await connection.query(`
+      ALTER TABLE teams_integrations
+      ADD COLUMN tipo ENUM('user', 'channel') NOT NULL DEFAULT 'user' AFTER nome
+    `);
+    logger.info("Migration: teams_integrations.tipo adicionada");
+  }
+
+  if (!(await columnExists(connection, "teams_integrations", "destinatario_email"))) {
+    await connection.query(`
+      ALTER TABLE teams_integrations
+      ADD COLUMN destinatario_email VARCHAR(255) NULL AFTER channel_id
+    `);
+    logger.info("Migration: teams_integrations.destinatario_email adicionada");
+  }
+
+  if (!(await columnIsNullable(connection, "teams_integrations", "team_id"))) {
+    await connection.query(`
+      ALTER TABLE teams_integrations MODIFY COLUMN team_id VARCHAR(64) NULL
+    `);
+    logger.info("Migration: teams_integrations.team_id agora nullable");
+  }
+
+  if (!(await columnIsNullable(connection, "teams_integrations", "channel_id"))) {
+    await connection.query(`
+      ALTER TABLE teams_integrations MODIFY COLUMN channel_id VARCHAR(128) NULL
+    `);
+    logger.info("Migration: teams_integrations.channel_id agora nullable");
+  }
+
+  if (!(await columnExists(connection, "teams_integrations", "activity_web_url"))) {
+    await connection.query(`
+      ALTER TABLE teams_integrations
+      ADD COLUMN activity_web_url VARCHAR(500) NULL AFTER destinatario_email
+    `);
+    logger.info("Migration: teams_integrations.activity_web_url adicionada");
+  }
+
+  if (!(await columnExists(connection, "teams_integrations", "teams_app_id"))) {
+    await connection.query(`
+      ALTER TABLE teams_integrations
+      ADD COLUMN teams_app_id VARCHAR(64) NULL AFTER activity_web_url
+    `);
+    logger.info("Migration: teams_integrations.teams_app_id adicionada");
+  }
+
+  await connection.query(`
+    UPDATE teams_integrations
+    SET tipo = 'channel'
+    WHERE tipo = 'user'
+      AND team_id IS NOT NULL
+      AND channel_id IS NOT NULL
+      AND (destinatario_email IS NULL OR destinatario_email = '')
+  `);
+}
+
 async function initializeDatabase() {
   logger.info("Verificando banco de dados Credenciamento...");
   let connection;
@@ -84,6 +167,58 @@ async function initializeDatabase() {
     `);
 
     await connection.query(`
+      CREATE TABLE IF NOT EXISTS smtp_settings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        host VARCHAR(255) NOT NULL,
+        port INT NOT NULL DEFAULT 587,
+        secure TINYINT(1) NOT NULL DEFAULT 0,
+        user VARCHAR(255) NOT NULL,
+        password_ciphertext TEXT NULL,
+        from_email VARCHAR(255) NOT NULL,
+        from_name VARCHAR(100) NULL,
+        ativo TINYINT(1) NOT NULL DEFAULT 1,
+        criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      );
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS smtp_send_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        destinatario VARCHAR(255) NOT NULL,
+        assunto VARCHAR(500) NOT NULL,
+        corpo_resumo VARCHAR(500) NULL,
+        status ENUM('sent', 'failed') NOT NULL,
+        erro_mensagem TEXT NULL,
+        usuario_id INT NULL,
+        request_id VARCHAR(64) NULL,
+        criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_status (status),
+        INDEX idx_criado_em (criado_em),
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+      );
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS teams_integrations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nome VARCHAR(100) NOT NULL,
+        tipo ENUM('user', 'channel') NOT NULL DEFAULT 'user',
+        azure_tenant_ref_id INT NOT NULL,
+        team_id VARCHAR(64) NULL,
+        channel_id VARCHAR(128) NULL,
+        destinatario_email VARCHAR(255) NULL,
+        activity_web_url VARCHAR(500) NULL,
+        teams_app_id VARCHAR(64) NULL,
+        ativo TINYINT(1) NOT NULL DEFAULT 1,
+        criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_azure_tenant_ref (azure_tenant_ref_id),
+        FOREIGN KEY (azure_tenant_ref_id) REFERENCES azure_tenants(id) ON DELETE RESTRICT
+      );
+    `);
+
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS app_error_logs (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         level VARCHAR(10) NOT NULL DEFAULT 'error',
@@ -105,6 +240,8 @@ async function initializeDatabase() {
         INDEX idx_request_id (request_id)
       );
     `);
+
+    await migrateTeamsIntegrations(connection);
 
     if (env.adminEmail && env.adminPassword) {
       const [existing] = await connection.query(

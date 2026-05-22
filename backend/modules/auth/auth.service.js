@@ -1,6 +1,8 @@
 const bcrypt = require("bcryptjs");
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
+const { decrypt } = require("../../config/cryptoSecrets");
+const { fetchUserPhotoBuffer } = require("../../utils/microsoftGraph");
 const { createTokenPair } = require("./token.service");
 
 function mapUserResponse(user) {
@@ -101,10 +103,50 @@ async function getMe(userId) {
   return mapUserResponse(user);
 }
 
+async function getProfilePhoto(userId) {
+  const [users] = await db.execute(
+    "SELECT * FROM usuarios WHERE id = ? AND ativo = 1 LIMIT 1",
+    [userId],
+  );
+  const user = users[0];
+  if (!user) throw new AppError("Usuário não encontrado.", 404);
+  if (!user.is_ad_user || !user.microsoft_id) {
+    throw new AppError("Foto de perfil não disponível.", 404);
+  }
+
+  const [tenants] = await db.execute(
+    `SELECT azure_tenant_id, client_id, client_secret_ciphertext
+     FROM azure_tenants
+     WHERE ativo = 1 AND client_secret_ciphertext IS NOT NULL
+     ORDER BY eh_principal DESC, id ASC`,
+  );
+
+  for (const tenant of tenants) {
+    let clientSecret;
+    try {
+      clientSecret = decrypt(tenant.client_secret_ciphertext);
+    } catch {
+      continue;
+    }
+    if (!clientSecret) continue;
+
+    const photo = await fetchUserPhotoBuffer(
+      tenant.azure_tenant_id,
+      tenant.client_id,
+      clientSecret,
+      user.microsoft_id,
+    );
+    if (photo) return photo;
+  }
+
+  throw new AppError("Foto de perfil não encontrada no Microsoft 365.", 404);
+}
+
 module.exports = {
   mapUserResponse,
   buildAuthResponse,
   loginLocal,
   loginMicrosoft,
   getMe,
+  getProfilePhoto,
 };

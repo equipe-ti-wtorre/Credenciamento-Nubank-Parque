@@ -96,7 +96,7 @@ export class MsalConfigService {
       this.loaded = true;
     } catch {
       this.loadError =
-        'Nenhum tenant Azure principal configurado. Entre como admin e cadastre em Administração > Tenants Azure.';
+        'Nenhum tenant Azure principal configurado. Entre como admin e cadastre em Administração > Configurações > Status Tenants Azure.';
       this.loaded = true;
     }
   }
@@ -111,7 +111,7 @@ export class MsalConfigService {
     if (!this.msalInstance) {
       throw new Error(
         this.loadError ||
-          'MSAL não configurado. Cadastre um tenant Azure principal em Administração > Tenants Azure.',
+          'MSAL não configurado. Cadastre um tenant Azure principal em Administração > Configurações > Status Tenants Azure.',
       );
     }
     return this.msalInstance;

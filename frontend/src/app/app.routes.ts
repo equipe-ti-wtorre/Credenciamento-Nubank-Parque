@@ -1,9 +1,13 @@
 import { Routes } from '@angular/router';
 import { AuthLayoutComponent } from './layouts/auth-layout.component';
 import { MainLayoutComponent } from './layouts/main-layout.component';
+import { SettingsLayoutComponent } from './layouts/settings-layout.component';
 import { LoginComponent } from './pages/login/login.component';
 import { DashboardComponent } from './pages/dashboard/dashboard.component';
 import { TenantListComponent } from './pages/admin/tenants/tenant-list.component';
+import { SmtpSettingsComponent } from './pages/admin/smtp/smtp-settings.component';
+import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
+import { AboutComponent } from './pages/admin/about/about.component';
 import { AuthGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -24,10 +28,38 @@ export const routes: Routes = [
         data: { roles: ['ADMIN', 'USER'] },
       },
       {
-        path: 'admin/tenants',
-        component: TenantListComponent,
+        path: 'admin/configuracoes',
+        component: SettingsLayoutComponent,
         canActivate: [AuthGuard],
         data: { roles: ['ADMIN'] },
+        children: [
+          { path: '', redirectTo: 'tenants-azure', pathMatch: 'full' },
+          {
+            path: 'tenants-azure',
+            component: TenantListComponent,
+            runGuardsAndResolvers: 'always',
+          },
+          {
+            path: 'smtp',
+            component: SmtpSettingsComponent,
+            runGuardsAndResolvers: 'always',
+          },
+          {
+            path: 'teams',
+            component: TeamsIntegrationComponent,
+            runGuardsAndResolvers: 'always',
+          },
+          {
+            path: 'sobre',
+            component: AboutComponent,
+            runGuardsAndResolvers: 'always',
+          },
+        ],
+      },
+      {
+        path: 'admin/tenants',
+        redirectTo: 'admin/configuracoes/tenants-azure',
+        pathMatch: 'full',
       },
     ],
   },

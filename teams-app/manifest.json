@@ -1,0 +1,66 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.2",
+  "id": "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c",
+  "packageName": "com.wtorre.credenciamento",
+  "developer": {
+    "name": "WTORRE",
+    "websiteUrl": "https://cred.allianzparque.intra",
+    "privacyUrl": "https://cred.allianzparque.intra/",
+    "termsOfUseUrl": "https://cred.allianzparque.intra/"
+  },
+  "name": {
+    "short": "Credenciamento",
+    "full": "WTORRE Credenciamento"
+  },
+  "description": {
+    "short": "Notificações do credenciamento",
+    "full": "Alertas do sistema de credenciamento no feed de atividades do Teams."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#2563EB",
+  "staticTabs": [
+    {
+      "entityId": "home",
+      "name": "Início",
+      "contentUrl": "https://cred.allianzparque.intra",
+      "websiteUrl": "https://cred.allianzparque.intra",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity"
+  ],
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "TeamsActivity.Send.User",
+          "type": "Application"
+        }
+      ]
+    }
+  },
+  "validDomains": [
+    "cred.allianzparque.intra"
+  ],
+  "webApplicationInfo": {
+    "id": "90ac8301-8401-4287-9e69-287a4cdcbc2b",
+    "resource": "api://90ac8301-8401-4287-9e69-287a4cdcbc2b"
+  },
+  "activities": {
+    "activityTypes": [
+      {
+        "type": "credenciamentoAlert",
+        "description": "Alerta do credenciamento",
+        "templateText": "{actor}: {message}"
+      }
+    ]
+  }
+}

@@ -1,70 +1,220 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { AuthService } from '../core/services/auth.service';
+import { StorageService } from '../core/services/storage.service';
+import { ADMIN_MENU_ITEMS, AdminMenuItem } from '../config/admin-menu.config';
+
+const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
 
 @Component({
   selector: 'app-main-layout',
   standalone: true,
   imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
   template: `
-    <div class="flex h-screen bg-[var(--app-bg)] text-[var(--app-text)] overflow-hidden">
+    <div class="flex h-screen bg-[var(--app-bg)] text-[var(--app-text)]">
       <aside
-        class="w-64 bg-[var(--color-bg-surface)] border-r border-[var(--app-border)] flex flex-col shadow-sm shrink-0"
+        class="sidebar-root relative z-30 bg-[var(--color-bg-surface)] border-r border-[var(--app-border)] flex flex-col shadow-sm shrink-0 transition-[width] duration-200"
+        [class.w-72]="!sidebarCollapsed"
+        [class.w-[4.5rem]]="sidebarCollapsed"
       >
-        <div class="h-16 flex items-center justify-center border-b border-[var(--app-border)]">
-          <img src="assets/wtorre.svg" alt="WTorre" class="h-5 w-auto object-contain" />
+        <!-- Logo empresa -->
+        <div class="sidebar-logo-header shrink-0 border-b border-[var(--app-border)]">
+          <div
+            class="flex items-center bg-slate-900"
+            [class.h-[4.25rem]]="!sidebarCollapsed"
+            [class.h-14]="sidebarCollapsed"
+            [class.px-4]="!sidebarCollapsed"
+            [class.px-2]="sidebarCollapsed"
+            [class.justify-between]="!sidebarCollapsed"
+            [class.justify-center]="sidebarCollapsed"
+            [class.gap-2]="!sidebarCollapsed"
+          >
+            <a routerLink="/dashboard" class="flex items-center min-w-0 shrink" [title]="'WTorre — Início'">
+              <img
+                src="assets/wtorre.svg"
+                alt="WTorre"
+                class="sidebar-logo-img object-contain object-left transition-all duration-200"
+                [class.h-7]="!sidebarCollapsed"
+                [class.h-5]="sidebarCollapsed"
+                [class.w-auto]="!sidebarCollapsed"
+                [class.max-w-[11rem]]="!sidebarCollapsed"
+                [class.max-w-full]="sidebarCollapsed"
+              />
+            </a>
+            <button
+              *ngIf="!sidebarCollapsed"
+              type="button"
+              (click)="toggleSidebar()"
+              class="p-1.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+              title="Recolher menu"
+              aria-label="Recolher menu"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+              </svg>
+            </button>
+          </div>
         </div>
-        <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+
+        <div *ngIf="sidebarCollapsed" class="flex justify-center py-1 border-b border-[var(--app-border)]">
+          <button
+            type="button"
+            (click)="toggleSidebar()"
+            class="p-1.5 rounded-lg hover:bg-[var(--app-nav-hover-bg)] text-[var(--app-text-muted)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+            title="Expandir menu"
+            aria-label="Expandir menu"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Usuário logado -->
+        <div
+          class="border-b border-[var(--app-border)] flex items-center gap-3 shrink-0"
+          [class.p-4]="!sidebarCollapsed"
+          [class.p-2]="sidebarCollapsed"
+          [class.justify-center]="sidebarCollapsed"
+          [title]="sidebarCollapsed ? userName : ''"
+        >
+          <img
+            *ngIf="userPhotoUrl"
+            [src]="userPhotoUrl"
+            alt=""
+            (error)="onPhotoError()"
+            class="w-10 h-10 rounded-full object-cover shrink-0 border border-[var(--app-border)]"
+          />
+          <div
+            *ngIf="!userPhotoUrl"
+            class="w-10 h-10 rounded-full bg-[var(--app-nav-active-bg)] text-[var(--app-nav-active-text)] flex items-center justify-center text-sm font-bold shrink-0"
+            aria-hidden="true"
+          >
+            {{ userInitials }}
+          </div>
+          <div *ngIf="!sidebarCollapsed" class="min-w-0 flex-1">
+            <button
+              type="button"
+              disabled
+              title="Perfil em breve"
+              class="block w-full text-left text-sm font-semibold truncate text-[var(--app-text)] opacity-60 cursor-not-allowed"
+            >
+              {{ userName }}
+            </button>
+            <span class="text-[10px] text-[var(--app-text-muted)]">Perfil em breve</span>
+          </div>
+        </div>
+
+        <nav class="flex-1 min-h-0 p-3 space-y-0.5 overflow-y-auto">
           <a
             routerLink="/dashboard"
-            routerLinkActive="bg-[var(--app-nav-active-bg)] text-[var(--app-nav-active-text)]"
-            class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium hover:bg-[var(--app-nav-hover-bg)]"
+            routerLinkActive="sidebar-nav-active"
+            class="sidebar-nav-link"
+            [class.px-3]="!sidebarCollapsed"
+            [class.py-2.5]="!sidebarCollapsed"
+            [class.justify-center]="sidebarCollapsed"
+            [class.p-2.5]="sidebarCollapsed"
+            [title]="sidebarCollapsed ? 'Início' : ''"
           >
-            Início
+            <span class="sidebar-nav-icon" aria-hidden="true">🏠</span>
+            <span *ngIf="!sidebarCollapsed" class="truncate">Início</span>
           </a>
+
           <div *ngIf="isAdmin" class="pt-4">
-            <p class="px-3 text-[10px] font-bold uppercase tracking-wider text-[var(--app-text-muted)] mb-2">
+            <p
+              *ngIf="!sidebarCollapsed"
+              class="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2"
+            >
               Administração
             </p>
+
             <a
-              routerLink="/admin/tenants"
-              routerLinkActive="bg-[var(--app-nav-active-bg)] text-[var(--app-nav-active-text)]"
-              class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium hover:bg-[var(--app-nav-hover-bg)]"
+              *ngFor="let item of adminMenuItems"
+              [routerLink]="item.route"
+              routerLinkActive="sidebar-nav-active"
+              [routerLinkActiveOptions]="{ exact: false }"
+              class="sidebar-nav-link"
+              [class.px-3]="!sidebarCollapsed"
+              [class.py-2.5]="!sidebarCollapsed"
+              [class.justify-center]="sidebarCollapsed"
+              [class.p-2.5]="sidebarCollapsed"
+              [title]="sidebarCollapsed ? item.label : ''"
             >
-              Tenants Azure
+              <span class="sidebar-nav-icon" aria-hidden="true">{{ item.icon }}</span>
+              <span *ngIf="!sidebarCollapsed" class="truncate">{{ item.label }}</span>
             </a>
           </div>
         </nav>
-        <div class="p-3 border-t border-[var(--app-border)]">
-          <p class="text-xs text-[var(--app-text-muted)] truncate px-2 mb-2">{{ userName }}</p>
+
+        <div class="p-3 border-t border-[var(--app-border)] shrink-0">
           <button
             type="button"
             (click)="logout()"
             [disabled]="loggingOut"
-            class="w-full text-sm py-2 rounded-lg border border-[var(--app-border)] hover:bg-[var(--app-nav-hover-bg)] disabled:opacity-50"
+            class="sidebar-nav-link w-full border border-[var(--app-border)] disabled:opacity-50"
+            [class.px-3]="!sidebarCollapsed"
+            [class.py-2]="!sidebarCollapsed"
+            [class.justify-center]="sidebarCollapsed"
+            [class.p-2.5]="sidebarCollapsed"
+            [title]="sidebarCollapsed ? (loggingOut ? 'Saindo...' : 'Sair') : ''"
           >
-            {{ loggingOut ? 'Saindo...' : 'Sair' }}
+            <span class="sidebar-nav-icon" aria-hidden="true">🚪</span>
+            <span *ngIf="!sidebarCollapsed">{{ loggingOut ? 'Saindo...' : 'Sair' }}</span>
           </button>
         </div>
       </aside>
-      <main class="flex-1 overflow-auto p-6">
+
+      <main class="flex-1 min-h-0 overflow-auto p-6 min-w-0">
         <router-outlet></router-outlet>
       </main>
     </div>
   `,
 })
 export class MainLayoutComponent implements OnInit {
+  readonly adminMenuItems: AdminMenuItem[] = ADMIN_MENU_ITEMS;
+
   userName = '';
+  userPhotoUrl: string | null = null;
   isAdmin = false;
   loggingOut = false;
+  sidebarCollapsed = false;
 
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private storage: StorageService,
+    private cdr: ChangeDetectorRef,
+  ) {}
+
+  get userInitials(): string {
+    const name = this.userName.trim();
+    if (!name) return '?';
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  }
 
   async ngOnInit() {
+    const collapsed = await this.storage.get(SIDEBAR_COLLAPSED_KEY);
+    this.sidebarCollapsed = collapsed === '1';
+
     const user = await this.authService.getCurrentUser();
     this.userName = user?.nome_completo || user?.email || 'Usuário';
     this.isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
+    this.userPhotoUrl = await this.authService.resolveUserPhoto();
+    this.cdr.detectChanges();
+  }
+
+  onPhotoError(): void {
+    this.userPhotoUrl = null;
+    this.cdr.detectChanges();
+  }
+
+  async toggleSidebar() {
+    this.sidebarCollapsed = !this.sidebarCollapsed;
+    await this.storage.set(SIDEBAR_COLLAPSED_KEY, this.sidebarCollapsed ? '1' : '0');
   }
 
   async logout() {

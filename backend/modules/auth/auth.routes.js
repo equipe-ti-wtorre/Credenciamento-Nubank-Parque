@@ -16,5 +16,6 @@ router.post(
 router.post("/refresh", authController.refresh);
 router.post("/logout", authController.logout);
 router.get("/me", authMiddleware, authController.me);
+router.get("/profile-photo", authMiddleware, authController.profilePhoto);
 
 module.exports = router;

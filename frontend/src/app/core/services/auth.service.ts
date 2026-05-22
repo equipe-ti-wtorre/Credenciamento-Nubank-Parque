@@ -2,27 +2,37 @@ import { Injectable } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
-import { BrowserAuthError, IPublicClientApplication } from '@azure/msal-browser';
+import {
+  AccountInfo,
+  AuthenticationResult,
+  BrowserAuthError,
+  InteractionRequiredAuthError,
+  IPublicClientApplication,
+} from '@azure/msal-browser';
 import { ApiService } from './api.service';
 import { NotificationService } from './notification.service';
 import { StorageService } from './storage.service';
 import { MsalConfigService } from '../../services/msal-config.service';
 import { LoggerService } from './logger.service';
+import { MicrosoftProfileService } from './microsoft-profile.service';
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  nome_completo: string;
+  email: string;
+  role: string;
+  perfil?: string;
+  is_ad_user: boolean;
+  foto_url?: string;
+}
 
 export interface AuthSession {
   auth?: boolean;
   accessToken?: string;
   refreshToken?: string;
   token?: string;
-  user?: {
-    id: number;
-    username: string;
-    nome_completo: string;
-    email: string;
-    role: string;
-    perfil?: string;
-    is_ad_user: boolean;
-  };
+  user?: AuthUser;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -35,6 +45,7 @@ export class AuthService {
   private lastProcessedRedirectId: string | null = null;
   private logoutPromise: Promise<void> | null = null;
   private msalHandlingPaused = false;
+  private cachedPhotoObjectUrl: string | null = null;
 
   private static readonly MSAL_INTERACTION_KEY = 'msal.interaction.status';
   private static readonly MSAL_REDIRECT_PROCESSED_KEY = 'msal.redirect.processed';
@@ -46,6 +57,7 @@ export class AuthService {
     private msalConfigService: MsalConfigService,
     private logger: LoggerService,
     private notification: NotificationService,
+    private microsoftProfile: MicrosoftProfileService,
   ) {
     this.tokensReady = this.loadTokensFromStorage();
   }
@@ -146,6 +158,10 @@ export class AuthService {
         return;
       }
 
+      if (result.account) {
+        this.msalConfigService.getInstance().setActiveAccount(result.account);
+      }
+
       this.backendValidationInFlight = this.validarNoBackend(result, fingerprint).finally(
         () => {
           this.backendValidationInFlight = null;
@@ -199,7 +215,7 @@ export class AuthService {
   }
 
   private async validarNoBackend(
-    azureResult: { idToken?: string; accessToken?: string },
+    azureResult: AuthenticationResult,
     fingerprint: string,
   ) {
     const tokenParaEnviar = azureResult.idToken || azureResult.accessToken;
@@ -216,6 +232,9 @@ export class AuthService {
       this.markRedirectProcessed(fingerprint);
       this.clearAuthHashFromUrl();
       await this.saveSession(res);
+      if (res.user?.is_ad_user) {
+        await this.attachMicrosoftPhoto(azureResult.account);
+      }
       this.router.navigate(['/dashboard']);
     } catch (err: unknown) {
       if (err instanceof HttpErrorResponse && err.status === 429) {
@@ -236,9 +255,88 @@ export class AuthService {
     }
   }
 
-  async getCurrentUser() {
+  async getCurrentUser(): Promise<AuthUser | null> {
     const u = await this.storage.get('currentUser');
-    return u ? JSON.parse(u) : null;
+    return u ? (JSON.parse(u) as AuthUser) : null;
+  }
+
+  /** Foto do perfil Microsoft (API ou Graph). */
+  async resolveUserPhoto(): Promise<string | null> {
+    await this.ensureTokensLoaded();
+    const user = await this.getCurrentUser();
+    if (!this.isMicrosoftUser(user)) return null;
+    if (this.cachedPhotoObjectUrl) return this.cachedPhotoObjectUrl;
+
+    return this.fetchAndCacheMicrosoftPhoto();
+  }
+
+  private isMicrosoftUser(user: AuthUser | null): boolean {
+    if (!user) return false;
+    return user.is_ad_user === true || Number(user.is_ad_user) === 1;
+  }
+
+  private revokeCachedPhotoUrl(): void {
+    if (this.cachedPhotoObjectUrl) {
+      URL.revokeObjectURL(this.cachedPhotoObjectUrl);
+      this.cachedPhotoObjectUrl = null;
+    }
+  }
+
+  private async attachMicrosoftPhoto(account?: AccountInfo | null): Promise<void> {
+    await this.ensureTokensLoaded();
+    await this.fetchAndCacheMicrosoftPhoto(account);
+  }
+
+  private async fetchAndCacheMicrosoftPhoto(
+    account?: AccountInfo | null,
+  ): Promise<string | null> {
+    this.revokeCachedPhotoUrl();
+
+    let foto = await this.microsoftProfile.fetchPhotoObjectUrlFromApi();
+    if (!foto) {
+      const graphToken = await this.acquireMicrosoftGraphToken(account);
+      if (graphToken) {
+        foto = await this.microsoftProfile.fetchPhotoObjectUrlFromGraph(graphToken);
+      }
+    }
+    if (foto) this.cachedPhotoObjectUrl = foto;
+    return foto;
+  }
+
+  private async acquireMicrosoftGraphToken(
+    preferredAccount?: AccountInfo | null,
+  ): Promise<string | null> {
+    if (!this.msalConfigService.hasClientId()) return null;
+    try {
+      await this.msalConfigService.load();
+      const msal = this.msalConfigService.getInstance();
+      const account =
+        preferredAccount ||
+        msal.getActiveAccount() ||
+        msal.getAllAccounts()[0] ||
+        null;
+      if (!account) return null;
+
+      msal.setActiveAccount(account);
+
+      try {
+        const result = await msal.acquireTokenSilent({
+          scopes: ['User.Read'],
+          account,
+        });
+        return result.accessToken;
+      } catch (error) {
+        if (!(error instanceof InteractionRequiredAuthError)) throw error;
+        const popup = await msal.acquireTokenPopup({
+          scopes: ['User.Read'],
+          account,
+        });
+        return popup.accessToken;
+      }
+    } catch (error) {
+      this.logger.error('Não foi possível obter token Graph para foto', { error });
+      return null;
+    }
   }
 
   async isLoggedIn(): Promise<boolean> {
@@ -294,6 +392,7 @@ export class AuthService {
 
     this.accessTokenCache = null;
     this.refreshTokenCache = null;
+    this.revokeCachedPhotoUrl();
     await this.storage.remove('token');
     await this.storage.remove('refreshToken');
     await this.storage.remove('currentUser');

@@ -826,6 +826,11 @@ negotiator@0.6.3:
   resolved "https://registry.npmmirror.com/negotiator/-/negotiator-0.6.3.tgz"
   integrity sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg==
 
+nodemailer@^8.0.7:
+  version "8.0.7"
+  resolved "https://registry.npmmirror.com/nodemailer/-/nodemailer-8.0.7.tgz"
+  integrity sha512-pkjE4mkBzQjdJT4/UmlKl3pX0rC9fZmjh7c6C9o7lv66Ac6w9WCnzPzhbPNxwZAzlF4mdq4CSWB5+FbK6FWCow==
+
 nodemon@^3.1.9:
   version "3.1.14"
   resolved "https://registry.npmmirror.com/nodemon/-/nodemon-3.1.14.tgz"

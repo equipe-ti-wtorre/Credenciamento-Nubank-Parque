@@ -16,6 +16,7 @@ router.get("/", async (req, res) => {
   res.status(dbStatus === "ok" ? 200 : 503).json({
     status,
     db: dbStatus,
+    appName: "WTORRE Credenciamento",
     version: packageJson.version,
     timestamp: new Date().toISOString(),
     requestId: req.requestId,

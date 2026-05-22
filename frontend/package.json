@@ -2,7 +2,7 @@
   "name": "credenciamento-frontend",
   "version": "0.0.0",
   "scripts": {
-    "start": "PATH=/www/server/nodejs/v24.11.1/bin:$PATH ng serve --port 4207 --host 127.0.0.1 --proxy-config proxy.conf.json",
+    "start": "bash -c 'fuser -k 4207/tcp 2>/dev/null || true; sleep 1; exec env PATH=/www/server/nodejs/v24.11.1/bin:$PATH node ./node_modules/@angular/cli/bin/ng.js serve --port 4207 --host 127.0.0.1 --proxy-config proxy.conf.json'",
     "build": "PATH=/www/server/nodejs/v24.11.1/bin:$PATH ng build --configuration development",
     "build:prod": "PATH=/www/server/nodejs/v24.11.1/bin:$PATH ng build --configuration production",
     "build:mobile": "ng build --configuration mobile && npx cap sync",

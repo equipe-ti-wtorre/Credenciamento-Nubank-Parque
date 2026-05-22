@@ -34,7 +34,9 @@ Os tenants do **Azure AD** são configurados pelo painel administrativo e armaze
 |---------|-----------|
 | Login local | E-mail/senha com JWT de acesso + refresh token |
 | Login Microsoft | MSAL no cliente; API valida token contra tenants cadastrados no MySQL |
-| Multi-tenant Azure | CRUD em **Administração → Tenants Azure** |
+| Multi-tenant Azure | CRUD em **Configurações → Tenants Azure** |
+| SMTP | Configuração de e-mail + histórico de envios |
+| Microsoft Teams | Notificações em canais via Graph API |
 | API versionada | Prefixo `/api/v1` (rotas em `/api` mantidas com aviso de depreciação) |
 | Auditoria | Tabela `audit_logs` para ações sensíveis |
 | Logs | Pino (estruturado) + `app_error_logs` no banco |
@@ -75,6 +77,8 @@ Credenciamento/
 │   ├── modules/
 │   │   ├── auth/              # login, refresh, logout, me
 │   │   ├── tenants/           # CRUD Azure + msal-config
+│   │   ├── smtp/              # Config SMTP + logs de envio
+│   │   ├── teams/             # Integração Teams (Graph)
 │   │   └── health/            # health check
 │   ├── middleware/            # auth, rate-limit, erros, MS token
 │   ├── migrations/            # SQL opcionais
@@ -175,7 +179,7 @@ openssl rand -hex 32
 1. Suba o **backend** (cria o banco `credenciamento`, tabelas e admin seed).
 2. Suba o **frontend**.
 3. Em `/login`, use **Login sem Microsoft** com `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
-4. Menu **Administração → Tenants Azure**:
+4. Menu **Configurações** (sidebar) → **Tenants Azure**:
    - Cadastre cada tenant (nome, Azure Tenant ID, Client ID, Client Secret).
    - Marque **um** como **tenant principal** (fornece o `clientId` ao MSAL).
    - Use **Testar conexões** para validar OAuth + Microsoft Graph.
@@ -219,6 +223,26 @@ Rotas legadas em `/api` respondem igualmente, com header de depreciação.
 | DELETE | `/api/v1/tenants/:id` | ADMIN | Desativar (soft delete) |
 | GET | `/api/v1/tenants/status` | ADMIN | Diagnóstico OAuth + Graph |
 
+### SMTP (ADMIN)
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/api/v1/smtp/settings` | Configuração ativa |
+| PUT | `/api/v1/smtp/settings` | Salvar/atualizar configuração |
+| POST | `/api/v1/smtp/test` | Enviar e-mail de teste (body: `destinatario`, opcional `assunto`, `corpo`) |
+| GET | `/api/v1/smtp/logs` | Histórico de envios (`?page=1&limit=20`) |
+
+### Microsoft Teams (ADMIN)
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/api/v1/teams` | Lista integrações |
+| POST | `/api/v1/teams` | Criar integração (tenant ref, team_id, channel_id) |
+| PUT | `/api/v1/teams/:id` | Atualizar |
+| DELETE | `/api/v1/teams/:id` | Desativar |
+| POST | `/api/v1/teams/:id/test` | Teste (body opcional: `email`, `mensagem`) |
+| POST | `/api/v1/teams/:id/send` | Enviar notificação a um usuário (`email`, `mensagem`) |
+
 ### Health
 
 | Método | Rota | Descrição |
@@ -244,8 +268,44 @@ curl -X POST http://127.0.0.1:3007/api/v1/auth/login \
    - Dev web: `http://localhost:4207` ou `http://127.0.0.1:4207`
    - Android: `msauth://<package>/<hash>`
    - iOS: `msal<client-id>://auth`
-4. Permissão Graph para diagnóstico/sync: `User.Read.All` com consentimento de administrador.
+4. Permissões Graph recomendadas (consentimento de administrador):
+   - `User.Read.All` — diagnóstico de tenants e foto de perfil
+   - `TeamsActivity.Send`, `User.Read.All` (aplicação) — notificação ao **usuário** no feed do Teams
+   - `ChannelMessage.Send` (aplicação) — opcional, envio a **canal** do Teams
 5. Cada combinação **Tenant ID + Client ID** usada no login deve existir em `azure_tenants` com `ativo = 1`.
+
+### SMTP
+
+Configure em **Configurações → Envios SMTP**: host, porta, TLS, usuário, senha e remetente. Use **Testar envio** para validar; todos os envios (sucesso ou falha) são registrados em `smtp_send_logs`.
+
+### Microsoft Teams (Graph)
+
+**Notificação ao usuário (recomendado)** — feed de atividades do Teams (ícone de sino):
+
+1. Cadastre o tenant em **Tenants Azure** com client secret.
+2. No portal Azure → Microsoft Graph → **Permissões de aplicativo**:
+   - **TeamsActivity.Send** (enviar notificação ao usuário)
+   - **User.Read.All** (localizar usuário pelo e-mail)
+   
+   > **Não use** `ChatMessage.Read.All` (só leitura). **`ChatMessage.Send`** existe apenas como permissão **Delegada** — não entra no token do servidor.
+   > Permissões **Delegadas** não funcionam com client credentials; o backend usa somente permissões de **Aplicação**.
+3. **Grant admin consent** no tenant.
+4. **App Teams obrigatório** (mesmo Client ID do Azure):
+   - Ajuste e empacote o manifest em [`teams-app/`](teams-app/README.md) (`webApplicationInfo.id` = Client ID do tenant).
+   - Publique no tenant e **instale o app no escopo pessoal** de cada destinatário (Teams → Apps → Credenciamento → Adicionar).
+   - Configure `TEAMS_APP_ID` no `.env` ou o campo **Teams App ID** na integração (ID retornado por `appCatalogs/teamsApps` após publicar).
+5. Em **Integração Teams**, tipo **Usuário**: e-mail + **URL https** do sistema (o backend gera o deep link `teams.microsoft.com/l/…`).
+6. Opcional: `TEAMS_ACTIVITY_WEB_URL` e `TEAMS_APP_EXTERNAL_ID` (GUID do `id` no manifest; padrão do repositório) no `.env`.
+7. **Testar** — o usuário vê a notificação no **sino** do Teams.
+
+**Notificação a canal** (opcional): tipo **Canal**, permissão **ChannelMessage.Send**, Team ID e Channel ID.
+
+API para enviar a qualquer usuário (integração tipo `user`):
+
+```bash
+POST /api/v1/teams/{id}/send
+{ "email": "usuario@empresa.com", "mensagem": "Sua credencial foi aprovada." }
+```
 
 O backend valida o token Microsoft conferindo `tid` e `aud` no banco e a assinatura via JWKS do tenant.
 
@@ -259,12 +319,18 @@ O backend valida o token Microsoft conferindo `tid` e `aud` no banco e a assinat
 |------|--------|-----------|
 | `/login` | Público | Tela de login (layout BID) |
 | `/dashboard` | ADMIN, USER | Início |
-| `/admin/tenants` | ADMIN | Gestão de tenants Azure |
+| `/admin/configuracoes` | ADMIN | Configurações do sistema (layout com menu lateral interno) |
+| `/admin/configuracoes/tenants-azure` | ADMIN | Tenants Azure |
+| `/admin/configuracoes/smtp` | ADMIN | Envios SMTP e histórico |
+| `/admin/configuracoes/teams` | ADMIN | Integração Microsoft Teams |
+| `/admin/configuracoes/sobre` | ADMIN | Sobre o sistema |
+| `/admin/tenants` | ADMIN | Redireciona para `tenants-azure` |
 
 ### Layouts
 
 - **Login:** vídeo/imagem à esquerda + painel escuro à direita (`auth-layout`).
 - **Sistema:** sidebar + área de conteúdo (`main-layout`).
+- **Configurações:** menu lateral interno + painel full-height (`settings-layout`).
 
 ### MSAL dinâmico
 
@@ -375,6 +441,8 @@ Crie em `frontend/src/app/features/<nome>/` ou `pages/<nome>/`:
 | `Access denied` MySQL | Confira `DB_USER` e `DB_PASSWORD` no `.env` |
 | Login Microsoft recusado | Tenant com `tid`/`aud` do token deve estar cadastrado e ativo |
 | MSAL sem clientId | Cadastre tenant principal em **Tenants Azure** |
+| SMTP falha no teste | Verifique host/porta/TLS, credenciais e firewall; consulte histórico em Envios SMTP |
+| Teams teste falha | Confirme `ChannelMessage.Send` + admin consent e IDs corretos de team/canal |
 | Angular CLI exige Node 20.19+ | Use Node 24 do servidor ou atualize o Node local |
 | Aviso `lmdb` no build | Opcional: `npm install lmdb --save-dev` no frontend |
 | API 404 em `/api/auth` | Use `/api/v1/auth` (versão atual) |
