@@ -11,6 +11,7 @@ const authRoutes = require("./modules/auth/auth.routes");
 const tenantRoutes = require("./modules/tenants/tenant.routes");
 const smtpRoutes = require("./modules/smtp/smtp.routes");
 const teamsRoutes = require("./modules/teams/teams.routes");
+const systemReportsRoutes = require("./modules/system-reports/system-reports.routes");
 const healthRoutes = require("./modules/health/health.routes");
 
 const app = express();
@@ -38,6 +39,7 @@ v1Router.use("/auth", authRoutes);
 v1Router.use("/tenants", tenantRoutes);
 v1Router.use("/smtp", smtpRoutes);
 v1Router.use("/teams", teamsRoutes);
+v1Router.use("/system-reports", systemReportsRoutes);
 v1Router.use("/health", healthRoutes);
 
 app.use("/api/v1", v1Router);

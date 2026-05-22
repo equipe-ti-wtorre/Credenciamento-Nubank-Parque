@@ -19,5 +19,11 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: 'tenants-azure', label: 'Tenants Azure', icon: '🔗', subtitle: 'Autenticação AD' },
   { path: 'smtp', label: 'Envios SMTP', icon: '📧', subtitle: 'E-mail e histórico' },
   { path: 'teams', label: 'Integração Teams', icon: '💬', subtitle: 'Microsoft Graph' },
+  {
+    path: 'relatorios-sistema',
+    label: 'Relatórios do sistema',
+    icon: '📋',
+    subtitle: 'Auditoria e erros',
+  },
   { path: 'sobre', label: 'Sobre', icon: 'ℹ️', subtitle: 'Versão do sistema' },
 ];

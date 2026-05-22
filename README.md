@@ -243,6 +243,15 @@ Rotas legadas em `/api` respondem igualmente, com header de depreciação.
 | POST | `/api/v1/teams/:id/test` | Teste (body opcional: `email`, `mensagem`) |
 | POST | `/api/v1/teams/:id/send` | Enviar notificação a um usuário (`email`, `mensagem`) |
 
+### Relatórios do sistema (ADMIN)
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/api/v1/system-reports/audit` | Logs de auditoria (`?page=1&limit=20`, filtros: `module`, `action`, `user_id`, `from`, `to`) |
+| GET | `/api/v1/system-reports/audit/export` | Exportar auditoria em Excel (mesmos filtros, até 10.000 linhas) |
+| GET | `/api/v1/system-reports/errors` | Logs de erros (`?page=1&limit=20`, filtros: `module`, `level`, `status_code`, `from`, `to`) |
+| GET | `/api/v1/system-reports/errors/export` | Exportar erros em Excel (mesmos filtros, até 10.000 linhas) |
+
 ### Health
 
 | Método | Rota | Descrição |

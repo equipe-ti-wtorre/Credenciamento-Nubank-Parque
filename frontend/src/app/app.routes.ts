@@ -8,6 +8,7 @@ import { TenantListComponent } from './pages/admin/tenants/tenant-list.component
 import { SmtpSettingsComponent } from './pages/admin/smtp/smtp-settings.component';
 import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
 import { AboutComponent } from './pages/admin/about/about.component';
+import { SystemReportsComponent } from './pages/admin/system-reports/system-reports.component';
 import { AuthGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -47,6 +48,11 @@ export const routes: Routes = [
           {
             path: 'teams',
             component: TeamsIntegrationComponent,
+            runGuardsAndResolvers: 'always',
+          },
+          {
+            path: 'relatorios-sistema',
+            component: SystemReportsComponent,
             runGuardsAndResolvers: 'always',
           },
           {
