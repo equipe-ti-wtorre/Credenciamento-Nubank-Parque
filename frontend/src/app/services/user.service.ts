@@ -3,13 +3,15 @@ import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
+export type UserRole = 'ADMIN' | 'USER' | 'PRODUTORA' | 'PADRAO' | 'CONTROLADOR';
+
 export interface UserItem {
   id: number;
   username: string;
   nome_completo: string;
   email: string;
   departamento: string | null;
-  role: 'ADMIN' | 'USER';
+  role: UserRole;
   is_ad_user: boolean;
   ativo: boolean;
   criado_em: string;
@@ -32,7 +34,7 @@ export interface UserListResponse {
 }
 
 export interface UserUpdatePayload {
-  perfil?: 'ADMIN' | 'USER';
+  perfil?: UserRole;
   ativo?: boolean;
   email?: string;
   password?: string;
@@ -87,7 +89,13 @@ export class UserService {
   private buildParams(page: number, limit: number, filters: UserListFilters): HttpParams {
     let params = new HttpParams().set('page', String(page)).set('limit', String(limit));
     if (filters.search?.trim()) params = params.set('search', filters.search.trim());
-    if (filters.perfil === 'ADMIN' || filters.perfil === 'USER') {
+    if (
+      filters.perfil === 'ADMIN' ||
+      filters.perfil === 'USER' ||
+      filters.perfil === 'PRODUTORA' ||
+      filters.perfil === 'PADRAO' ||
+      filters.perfil === 'CONTROLADOR'
+    ) {
       params = params.set('perfil', filters.perfil);
     }
     return params;

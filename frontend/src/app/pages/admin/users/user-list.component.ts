@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import Swal from 'sweetalert2';
-import { UserItem, UserService } from '../../../services/user.service';
+import { UserItem, UserRole, UserService } from '../../../services/user.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { SettingsReloadable } from '../settings-reloadable';
@@ -240,6 +240,9 @@ import { ActionMenuComponent } from '../../../shared/actions/action-menu.compone
           >
             <option value="USER">Usuário</option>
             <option value="ADMIN">Administrador</option>
+            <option value="PRODUTORA">Produtora</option>
+            <option value="PADRAO">Empresa Padrão</option>
+            <option value="CONTROLADOR">Controlador (Portaria)</option>
           </select>
           <div class="flex justify-end gap-2">
             <button type="button" (click)="fecharModal()" class="btn-secondary">Cancelar</button>
@@ -274,7 +277,7 @@ export class UserListComponent implements SettingsReloadable {
 
   showEditModal = false;
   editingUser: UserItem | null = null;
-  editRole: 'ADMIN' | 'USER' = 'USER';
+  editRole: UserRole = 'USER';
   editNome = '';
   editEmail = '';
   editDepartamento = '';
@@ -364,7 +367,7 @@ export class UserListComponent implements SettingsReloadable {
     if (!this.editingUser) return;
 
     const payload: {
-      perfil: 'ADMIN' | 'USER';
+      perfil: UserRole;
       email?: string;
       password?: string;
       nome_completo?: string;

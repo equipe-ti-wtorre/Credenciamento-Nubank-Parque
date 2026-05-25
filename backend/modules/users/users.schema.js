@@ -1,7 +1,7 @@
 const Joi = require("joi");
 
 const userUpdateSchema = Joi.object({
-  perfil: Joi.string().valid("ADMIN", "USER", "PRODUTORA", "PADRAO").optional(),
+  perfil: Joi.string().valid("ADMIN", "USER", "PRODUTORA", "PADRAO", "CONTROLADOR").optional(),
   ativo: Joi.boolean().optional(),
   email: Joi.string().email().max(200).optional(),
   password: Joi.string().min(6).max(128).allow("").optional(),

@@ -7,7 +7,9 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "sync-ad-users": "node scripts/sync-ad-users.js",
-    "archive-audit-logs": "node scripts/archive-audit-logs.js"
+    "archive-audit-logs": "node scripts/archive-audit-logs.js",
+    "reset-database": "node scripts/reset-database.js",
+    "reset-database-data": "node scripts/reset-database-data.js"
   },
   "license": "ISC",
   "dependencies": {

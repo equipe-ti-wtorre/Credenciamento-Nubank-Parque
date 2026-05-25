@@ -522,6 +522,29 @@ Banco padrão: **`credenciamento`**
 
 Migrations adicionais em `backend/migrations/` (opcional se `setupDatabase.js` já criou as tabelas).
 
+### Scripts de reset (desenvolvimento / homologação)
+
+**Pare a API** antes de executar (`npm run dev` / `start`), para evitar conflito com o pool de conexões.
+
+| Comando | Efeito |
+|---------|--------|
+| `npm run reset-database -- --force` | `DROP DATABASE` + recria schema, seeds de lookup e admin (se `ADMIN_EMAIL`/`ADMIN_PASSWORD` no `.env`) |
+| `npm run reset-database-data -- --force` | Apaga dados operacionais e logs; **preserva** tenants Azure, SMTP, Teams, usuários e tabelas de referência |
+
+Proteções: sem `--force` o script não roda; em `NODE_ENV=production` é necessário `DB_RESET_ALLOW_PRODUCTION=true` no `.env`.
+
+Simulação (sem alterar o banco): adicione `--dry-run` após `--force` ou sozinho (dry-run não exige `--force`).
+
+```bash
+cd backend
+npm run reset-database -- --dry-run
+npm run reset-database-data -- --force
+```
+
+**Reset parcial** — tabelas zeradas: empresas, colaboradores, eventos, credenciamento/portaria, `refresh_tokens`, `audit_logs`, `smtp_send_logs`, `app_error_logs`. Sessões ativas são invalidadas (re-login necessário).
+
+**Reset total** — remove tudo; tenants, SMTP e Teams precisam ser cadastrados de novo. Arquivos em `AUDIT_ARCHIVE_DIR` não são apagados por esses scripts.
+
 ---
 
 ## Segurança

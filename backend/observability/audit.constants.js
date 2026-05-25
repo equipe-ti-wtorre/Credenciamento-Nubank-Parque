@@ -9,6 +9,7 @@ const AUDIT_MODULES = {
   COLLABORATORS: "collaborators",
   EVENTS: "events",
   CREDENTIALS: "credentials",
+  GATE: "gate",
 };
 
 const AUDIT_ACTIONS = {

@@ -5,6 +5,7 @@ const COMPANIES_API = /^\/api\/(?:v1\/)?companies(?:\/|$)/;
 const COLLABORATORS_API = /^\/api\/(?:v1\/)?collaborators(?:\/|$)/;
 const EVENTS_API = /^\/api\/(?:v1\/)?events(?:\/|$)/;
 const CREDENTIALS_API = /^\/api\/(?:v1\/)?credentials(?:\/|$)/;
+const GATE_API = /^\/api\/(?:v1\/)?gate(?:\/|$)/;
 
 function cleanPath(originalUrl) {
   return (originalUrl || "").split("?")[0];
@@ -366,6 +367,48 @@ function resolveCredentialsPolicy(method, path) {
   return null;
 }
 
+function resolveGatePolicy(method, path) {
+  if (!GATE_API.test(path)) return null;
+
+  if (method === "POST" && /\/gate\/events\/validate\/?$/.test(path)) {
+    return {
+      module: AUDIT_MODULES.GATE,
+      action: AUDIT_ACTIONS.UPDATE,
+      event: "gate.event.validate",
+      resourceType: "credential",
+    };
+  }
+
+  if (method === "POST" && /\/gate\/events\/substitute\/?$/.test(path)) {
+    return {
+      module: AUDIT_MODULES.GATE,
+      action: AUDIT_ACTIONS.UPDATE,
+      event: "gate.event.substitute",
+      resourceType: "credential",
+    };
+  }
+
+  if (method === "POST" && /\/gate\/services\/validate\/?$/.test(path)) {
+    return {
+      module: AUDIT_MODULES.GATE,
+      action: AUDIT_ACTIONS.READ,
+      event: "gate.service.validate",
+      resourceType: "service_access",
+    };
+  }
+
+  if (method === "POST" && /\/gate\/services\/substitute\/?$/.test(path)) {
+    return {
+      module: AUDIT_MODULES.GATE,
+      action: AUDIT_ACTIONS.UPDATE,
+      event: "gate.service.substitute",
+      resourceType: "service_access",
+    };
+  }
+
+  return null;
+}
+
 function resolveAuditPolicy(req) {
   const path = cleanPath(req.originalUrl);
   const method = req.method;
@@ -374,7 +417,8 @@ function resolveAuditPolicy(req) {
     resolveCompaniesPolicy(method, path) ||
     resolveCollaboratorsPolicy(method, path) ||
     resolveEventsPolicy(method, path) ||
-    resolveCredentialsPolicy(method, path)
+    resolveCredentialsPolicy(method, path) ||
+    resolveGatePolicy(method, path)
   );
 }
 

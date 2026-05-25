@@ -1,0 +1,112 @@
+const AppError = require("../../utils/AppError");
+const { attachAudit } = require("../../utils/auditLogger");
+const gateService = require("./gate.service");
+const { eventValidateSchema, eventSubstituteSchema } = require("./gate.schema");
+
+function respondDenial(res, req, denial) {
+  if (denial.critical) {
+    attachAudit(req, {
+      action: "READ",
+      module: "gate",
+      event: "gate.event.denied",
+      resource: {
+        type: "credential",
+        id: denial.credentialId,
+        access_id: req.body?.access_id,
+      },
+      metadata: {
+        alertLevel: "critical",
+        error_code: denial.error_code,
+        id_collaborator: denial.id_collaborator,
+      },
+    });
+  }
+
+  return res.status(denial.statusCode).json({
+    access_allowed: false,
+    reason: denial.reason,
+    error_code: denial.error_code,
+  });
+}
+
+exports.validateEvent = async (req, res, next) => {
+  try {
+    const { error, value } = eventValidateSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await gateService.validateEventAccess(value.access_id);
+    if (!result.allowed) {
+      return respondDenial(res, req, result);
+    }
+
+    const actionEvent =
+      result.data.action_registered === "CHECK_IN"
+        ? "gate.event.check_in"
+        : "gate.event.check_out";
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "gate",
+      event: actionEvent,
+      resource: {
+        type: "credential",
+        id: result.data.id_event_day_company_collaborator,
+        access_id: value.access_id,
+      },
+      changes: { action_registered: result.data.action_registered },
+    });
+
+    res.json(result.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.substituteEvent = async (req, res, next) => {
+  try {
+    const { error, value } = eventSubstituteSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await gateService.substituteEventCollaborator(
+      value.access_id,
+      value.id_substitute_collaborator,
+    );
+    if (!result.allowed) {
+      return respondDenial(res, req, result);
+    }
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "gate",
+      event: "gate.event.substitute",
+      resource: {
+        type: "credential",
+        id: result.data.id_event_day_company_collaborator,
+        access_id: value.access_id,
+      },
+      changes: {
+        id_substitute_collaborator: value.id_substitute_collaborator,
+      },
+    });
+
+    res.json(result.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.validateService = async (req, res, next) => {
+  try {
+    gateService.validateServiceAccess();
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.substituteService = async (req, res, next) => {
+  try {
+    gateService.substituteServiceAccess();
+  } catch (err) {
+    next(err);
+  }
+};

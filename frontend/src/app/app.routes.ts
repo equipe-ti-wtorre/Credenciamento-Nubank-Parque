@@ -14,6 +14,7 @@ import { CompanyListComponent } from './pages/admin/companies/company-list.compo
 import { CollaboratorListComponent } from './pages/admin/collaborators/collaborator-list.component';
 import { EventListComponent } from './pages/admin/events/event-list.component';
 import { EventDetailComponent } from './pages/admin/events/event-detail.component';
+import { GateControlComponent } from './pages/gate/gate-control.component';
 import { AuthGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -31,7 +32,14 @@ export const routes: Routes = [
       {
         path: 'dashboard',
         component: DashboardComponent,
-        data: { roles: ['ADMIN', 'USER'] },
+        data: { roles: ['ADMIN', 'USER', 'CONTROLADOR'] },
+      },
+      {
+        path: 'portaria',
+        component: GateControlComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['CONTROLADOR', 'ADMIN'] },
+        runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/usuarios',

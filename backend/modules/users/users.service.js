@@ -36,7 +36,7 @@ function buildListWhere(filters) {
     params.push(term, term, term);
   }
 
-  const allowedPerfis = ["ADMIN", "USER", "PRODUTORA", "PADRAO"];
+  const allowedPerfis = ["ADMIN", "USER", "PRODUTORA", "PADRAO", "CONTROLADOR"];
   if (allowedPerfis.includes(filters.perfil)) {
     conditions.push("perfil = ?");
     params.push(filters.perfil);

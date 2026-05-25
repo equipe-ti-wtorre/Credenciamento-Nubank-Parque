@@ -18,6 +18,7 @@ const companyRoutes = require("./modules/companies/company.routes");
 const collaboratorRoutes = require("./modules/collaborators/collaborator.routes");
 const eventRoutes = require("./modules/events/event.routes");
 const credentialsRoutes = require("./modules/credentials/credentials.routes");
+const gateRoutes = require("./modules/gate/gate.routes");
 const healthRoutes = require("./modules/health/health.routes");
 
 const app = express();
@@ -52,6 +53,7 @@ v1Router.use("/companies", companyRoutes);
 v1Router.use("/collaborators", collaboratorRoutes);
 v1Router.use("/events", eventRoutes);
 v1Router.use("/credentials", credentialsRoutes);
+v1Router.use("/gate", gateRoutes);
 v1Router.use("/health", healthRoutes);
 
 app.use("/api/v1", v1Router);

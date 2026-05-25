@@ -78,6 +78,8 @@ const env = {
   auditArchiveMaxBatches: Math.max(1, Number(process.env.AUDIT_ARCHIVE_MAX_BATCHES) || 50),
   auditArchiveDryRun:
     String(process.env.AUDIT_ARCHIVE_DRY_RUN || "false").toLowerCase() === "true",
+  /** Tolerância em horas para acesso fora da meia-noite (montagem/desmontagem). */
+  gateAccessToleranceHours: Math.max(0, Number(process.env.GATE_ACCESS_TOLERANCE_HOURS) || 6),
 };
 
 requireInProduction("JWT_SECRET", env.jwtSecret);

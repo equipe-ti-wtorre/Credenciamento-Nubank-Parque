@@ -43,6 +43,14 @@ function assertCanWriteCollaborator(req) {
   throw new AppError("Perfil sem permissão para cadastrar colaboradores.", 403);
 }
 
+function assertCanSearchCollaborator(req) {
+  const role = getUserRole(req);
+  if (role === "ADMIN" || role === "CONTROLADOR") {
+    return;
+  }
+  assertCanWriteCollaborator(req);
+}
+
 function assertAdminForUpdate(req) {
   if (!isAdmin(req)) {
     throw new AppError(
@@ -247,7 +255,7 @@ async function listCollaborators(req, { page, limit, filters }) {
 }
 
 async function searchByDocument(req, { document, id_collaborator_document_type }) {
-  assertCanWriteCollaborator(req);
+  assertCanSearchCollaborator(req);
   const row = await findCollaboratorByDocument(document, id_collaborator_document_type);
   if (!row) {
     throw new AppError("Colaborador não encontrado.", 404);

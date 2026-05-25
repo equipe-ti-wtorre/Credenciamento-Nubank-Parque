@@ -121,6 +121,28 @@ const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
             <span *ngIf="!sidebarCollapsed" class="truncate">Início</span>
           </a>
 
+          <div *ngIf="canAccessGate" class="pt-4">
+            <p
+              *ngIf="!sidebarCollapsed"
+              class="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2"
+            >
+              Operação
+            </p>
+            <a
+              routerLink="/portaria"
+              routerLinkActive="sidebar-nav-active"
+              class="sidebar-nav-link"
+              [class.px-3]="!sidebarCollapsed"
+              [class.py-2.5]="!sidebarCollapsed"
+              [class.justify-center]="sidebarCollapsed"
+              [class.p-2.5]="sidebarCollapsed"
+              [title]="sidebarCollapsed ? 'Portaria' : ''"
+            >
+              <span class="sidebar-nav-icon" aria-hidden="true">🚪</span>
+              <span *ngIf="!sidebarCollapsed" class="truncate">Portaria</span>
+            </a>
+          </div>
+
           <div *ngIf="canAccessEvents && !isAdmin" class="pt-4">
             <p
               *ngIf="!sidebarCollapsed"
@@ -200,6 +222,7 @@ export class MainLayoutComponent implements OnInit {
   userPhotoUrl: string | null = null;
   isAdmin = false;
   canAccessEvents = false;
+  canAccessGate = false;
   loggingOut = false;
   sidebarCollapsed = false;
 
@@ -228,6 +251,7 @@ export class MainLayoutComponent implements OnInit {
     const role = String(user?.role || user?.perfil || '').toUpperCase();
     this.isAdmin = role === 'ADMIN';
     this.canAccessEvents = role === 'ADMIN' || role === 'PRODUTORA' || role === 'PADRAO';
+    this.canAccessGate = role === 'ADMIN' || role === 'CONTROLADOR';
     this.userPhotoUrl = await this.authService.resolveUserPhoto();
     this.cdr.detectChanges();
   }

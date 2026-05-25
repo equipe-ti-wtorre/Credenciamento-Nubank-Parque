@@ -451,6 +451,80 @@ async function migrateCredentials(connection) {
   `);
 }
 
+async function indexExists(connection, table, indexName) {
+  const [rows] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1`,
+    [env.db.name, table, indexName],
+  );
+  return rows.length > 0;
+}
+
+async function migrateGate(connection) {
+  const [credTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'event_day_company_collaborator' LIMIT 1`,
+    [env.db.name],
+  );
+  if (credTables.length === 0) return;
+
+  if (!(await columnExists(connection, "event_day_company_collaborator", "access_check_in"))) {
+    await connection.query(`
+      ALTER TABLE event_day_company_collaborator
+      ADD COLUMN access_check_in DATETIME NULL AFTER access_id
+    `);
+    logger.info("Migration: event_day_company_collaborator.access_check_in adicionada");
+  }
+
+  if (!(await columnExists(connection, "event_day_company_collaborator", "access_check_out"))) {
+    await connection.query(`
+      ALTER TABLE event_day_company_collaborator
+      ADD COLUMN access_check_out DATETIME NULL AFTER access_check_in
+    `);
+    logger.info("Migration: event_day_company_collaborator.access_check_out adicionada");
+  }
+
+  if (!(await columnExists(connection, "event_day_company_collaborator", "id_substitute"))) {
+    await connection.query(`
+      ALTER TABLE event_day_company_collaborator
+      ADD COLUMN id_substitute INT NULL AFTER access_check_out,
+      ADD CONSTRAINT fk_edcc_substitute
+        FOREIGN KEY (id_substitute) REFERENCES collaborator(id_collaborator) ON DELETE RESTRICT
+    `);
+    logger.info("Migration: event_day_company_collaborator.id_substitute adicionada");
+  }
+
+  if (!(await indexExists(connection, "event_day_company_collaborator", "uk_edcc_access_id"))) {
+    await connection.query(`
+      ALTER TABLE event_day_company_collaborator
+      ADD UNIQUE INDEX uk_edcc_access_id (access_id)
+    `);
+    logger.info("Migration: índice uk_edcc_access_id criado");
+  }
+
+  if (!(await indexExists(connection, "event_day_company_collaborator", "idx_edcc_check_in"))) {
+    await connection.query(`
+      ALTER TABLE event_day_company_collaborator
+      ADD INDEX idx_edcc_check_in (access_check_in)
+    `);
+    logger.info("Migration: índice idx_edcc_check_in criado");
+  }
+
+  const [colType] = await connection.query(
+    `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = 'perfil' LIMIT 1`,
+    [env.db.name],
+  );
+  const columnType = colType[0]?.COLUMN_TYPE || "";
+  if (columnType && !columnType.includes("CONTROLADOR")) {
+    await connection.query(`
+      ALTER TABLE usuarios
+      MODIFY COLUMN perfil ENUM('ADMIN', 'USER', 'PRODUTORA', 'PADRAO', 'CONTROLADOR') NOT NULL DEFAULT 'USER'
+    `);
+    logger.info("Migration: usuarios.perfil estendido com CONTROLADOR");
+  }
+}
+
 async function migrateUsuariosCompanyLink(connection) {
   const [tables] = await connection.query(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
@@ -693,6 +767,7 @@ async function initializeDatabase() {
     await migrateCollaborators(connection);
     await migrateEvents(connection);
     await migrateCredentials(connection);
+    await migrateGate(connection);
     await migrateUsuarios(connection);
 
     if (env.adminEmail && env.adminPassword) {
