@@ -283,6 +283,21 @@ async function testIntegration(id, options = {}) {
   });
 }
 
+/** Alerta operacional no canal Teams (credenciamento / Allianz). */
+async function notifyOperationsChannel(mensagem) {
+  if (env.teamsCredentialsIntegrationId) {
+    return sendNotification(env.teamsCredentialsIntegrationId, { mensagem });
+  }
+
+  const [rows] = await db.execute(
+    `SELECT id FROM teams_integrations WHERE ativo = 1 AND tipo = 'channel' ORDER BY id ASC LIMIT 1`,
+  );
+  if (rows.length === 0) {
+    return { ok: false, message: "Nenhuma integração Teams (canal) ativa configurada." };
+  }
+  return sendNotification(rows[0].id, { mensagem });
+}
+
 /** Envia notificação ao usuário usando a primeira integração ativa do tipo user. */
 async function notifyUser(email, mensagem) {
   const [rows] = await db.execute(
@@ -303,5 +318,6 @@ module.exports = {
   deactivateIntegration,
   testIntegration,
   sendNotification,
+  notifyOperationsChannel,
   notifyUser,
 };

@@ -1,34 +1,74 @@
-const rateLimit = require("express-rate-limit");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
+const env = require("../config/env");
+const { createAuthRateLimitHandler } = require("../observability/rateLimit.handler");
+
+/** IP do cliente (requer app.set('trust proxy', 1) atrás de Nginx/aaPanel). */
+function clientKey(req) {
+  return ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown");
+}
+
+function isAuthRoute(req) {
+  const path = (req.originalUrl || req.path || "").split("?")[0];
+  return /^\/api\/(?:v1\/)?auth\/(login|login-microsoft|refresh)(?:\/|$)/.test(path);
+}
+
+const noopLimiter = (_req, _res, next) => next();
 
 const limiterOptions = {
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false },
+  keyGenerator: clientKey,
 };
 
-const globalLimiter = rateLimit({
-  ...limiterOptions,
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: { message: "Muitas requisições. Tente novamente mais tarde." },
-});
+function buildGlobalLimiter() {
+  if (env.rateLimitDisabled) return noopLimiter;
 
-const authLimiter = rateLimit({
-  ...limiterOptions,
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  skipSuccessfulRequests: true,
-  message: { message: "Muitas tentativas de login. Tente novamente mais tarde." },
-});
+  return rateLimit({
+    ...limiterOptions,
+    windowMs: env.rateLimitGlobalWindowMs,
+    max: env.rateLimitGlobalMax,
+    message: { message: "Muitas requisições. Tente novamente mais tarde." },
+    skip: (req) => isAuthRoute(req),
+  });
+}
 
-const microsoftAuthLimiter = rateLimit({
-  ...limiterOptions,
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  skipSuccessfulRequests: true,
-  message: {
-    message: "Muitas tentativas de login Microsoft. Aguarde alguns minutos.",
-  },
-});
+function buildAuthLimiter() {
+  if (env.rateLimitDisabled) return noopLimiter;
 
-module.exports = { globalLimiter, authLimiter, microsoftAuthLimiter };
+  return rateLimit({
+    ...limiterOptions,
+    windowMs: env.rateLimitAuthWindowMs,
+    max: env.rateLimitAuthMax,
+    skipSuccessfulRequests: true,
+    message: { message: "Muitas tentativas de login. Tente novamente mais tarde." },
+    handler: createAuthRateLimitHandler(
+      "local",
+      "Muitas tentativas de login. Tente novamente mais tarde.",
+    ),
+  });
+}
+
+function buildMicrosoftAuthLimiter() {
+  if (env.rateLimitDisabled) return noopLimiter;
+
+  return rateLimit({
+    ...limiterOptions,
+    windowMs: env.rateLimitAuthWindowMs,
+    max: env.rateLimitMicrosoftAuthMax,
+    skipSuccessfulRequests: true,
+    message: {
+      message: "Muitas tentativas de login Microsoft. Aguarde alguns minutos.",
+    },
+    handler: createAuthRateLimitHandler(
+      "microsoft",
+      "Muitas tentativas de login Microsoft. Aguarde alguns minutos.",
+    ),
+  });
+}
+
+const globalLimiter = buildGlobalLimiter();
+const authLimiter = buildAuthLimiter();
+const microsoftAuthLimiter = buildMicrosoftAuthLimiter();
+
+module.exports = { globalLimiter, authLimiter, microsoftAuthLimiter, clientKey, isAuthRoute };

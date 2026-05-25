@@ -54,6 +54,47 @@ async function resolveUserByEmail(accessToken, email) {
   return { ok: true, user };
 }
 
+async function fetchUserProfileById(accessToken, microsoftUserId) {
+  const url =
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(microsoftUserId)}` +
+    `?$select=id,displayName,mail,department,jobTitle,companyName,officeLocation`;
+
+  const response = await axios.get(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    validateStatus: () => true,
+  });
+
+  if (response.status !== 200) {
+    return { ok: false, message: graphErrorMessage(response) };
+  }
+
+  return { ok: true, profile: response.data };
+}
+
+const AD_USER_SELECT =
+  "id,displayName,mail,userPrincipalName,department,jobTitle,companyName,officeLocation,accountEnabled,userType";
+
+async function listDirectoryUsersPage(accessToken, nextUrl = null) {
+  const url =
+    nextUrl ||
+    `https://graph.microsoft.com/v1.0/users?$select=${AD_USER_SELECT}&$top=999`;
+
+  const response = await axios.get(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    validateStatus: () => true,
+  });
+
+  if (response.status !== 200) {
+    return { ok: false, message: graphErrorMessage(response) };
+  }
+
+  return {
+    ok: true,
+    users: response.data?.value || [],
+    nextLink: response.data?.["@odata.nextLink"] || null,
+  };
+}
+
 async function createOneOnOneChat(accessToken, userId) {
   const response = await axios.post(
     "https://graph.microsoft.com/v1.0/chats",
@@ -518,6 +559,8 @@ async function postChannelMessage(accessToken, teamId, channelId, content) {
 module.exports = {
   getApplicationToken,
   fetchUserPhotoBuffer,
+  fetchUserProfileById,
+  listDirectoryUsersPage,
   postChannelMessage,
   resolveUserByEmail,
   normalizeHttpsAppUrl,

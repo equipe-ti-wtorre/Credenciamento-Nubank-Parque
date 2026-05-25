@@ -5,6 +5,10 @@ export interface AdminMenuItem {
 }
 
 export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
+  { label: 'Usuários', icon: '👥', route: '/admin/usuarios' },
+  { label: 'Empresas', icon: '🏢', route: '/admin/empresas' },
+  { label: 'Colaboradores', icon: '🪪', route: '/admin/colaboradores' },
+  { label: 'Eventos', icon: '📅', route: '/admin/eventos' },
   { label: 'Configurações', icon: '⚙️', route: '/admin/configuracoes' },
 ];
 

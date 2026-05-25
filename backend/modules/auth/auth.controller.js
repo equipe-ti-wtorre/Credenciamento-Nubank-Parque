@@ -1,14 +1,14 @@
 const AppError = require("../../utils/AppError");
-const { logAudit } = require("../../utils/auditLogger");
-const { child } = require("../../config/logger");
+const { logAudit, markAuditLogged } = require("../../utils/auditLogger");
+const { AUDIT_MODULES, AUDIT_ACTIONS } = require("../../observability/audit.constants");
+const { buildAuditMetadata, buildHttpContext } = require("../../observability/audit.metadata");
+const { setAuditLoginContext } = require("../../observability/audit.auth");
 const authService = require("./auth.service");
 const { loginSchema, refreshSchema, logoutSchema } = require("./auth.schema");
 const {
   refreshAccessToken,
   revokeRefreshToken,
 } = require("./token.service");
-
-const logger = child({ module: "auth" });
 
 exports.login = async (req, res, next) => {
   try {
@@ -18,30 +18,47 @@ exports.login = async (req, res, next) => {
     const result = await authService.loginLocal(value.username, value.password, req);
     await logAudit({
       userId: result.user.id,
-      action: "LOGIN",
-      module: "auth",
+      action: AUDIT_ACTIONS.LOGIN,
+      module: AUDIT_MODULES.AUTH,
       req,
+      metadata: buildAuditMetadata({
+        event: "auth.login",
+        outcome: "success",
+        provider: "local",
+        resource: { type: "user", id: result.user.id, email: result.user.email },
+        http: buildHttpContext(req, { statusCode: 200 }),
+      }),
     });
+    markAuditLogged(req);
     res.json(result);
   } catch (err) {
-    logger.error({ err, requestId: req.requestId }, "Falha no login");
     next(err);
   }
 };
 
 exports.loginMicrosoft = async (req, res, next) => {
   try {
-    if (!req.azureUser) throw new AppError("Token inválido.", 401);
+    if (!req.azureUser) {
+      setAuditLoginContext(req, { provider: "microsoft" });
+      throw new AppError("Token inválido.", 401);
+    }
     const result = await authService.loginMicrosoft(req.azureUser, req);
     await logAudit({
       userId: result.user.id,
-      action: "LOGIN_MICROSOFT",
-      module: "auth",
+      action: AUDIT_ACTIONS.LOGIN_MICROSOFT,
+      module: AUDIT_MODULES.AUTH,
       req,
+      metadata: buildAuditMetadata({
+        event: "auth.login_microsoft",
+        outcome: "success",
+        provider: "microsoft",
+        resource: { type: "user", id: result.user.id, email: result.user.email },
+        http: buildHttpContext(req, { statusCode: 200 }),
+      }),
     });
+    markAuditLogged(req);
     res.json(result);
   } catch (err) {
-    logger.error({ err, requestId: req.requestId }, "Falha no login Microsoft");
     next(err);
   }
 };
@@ -76,10 +93,17 @@ exports.logout = async (req, res, next) => {
     if (req.user?.id) {
       await logAudit({
         userId: req.user.id,
-        action: "LOGOUT",
-        module: "auth",
+        action: AUDIT_ACTIONS.LOGOUT,
+        module: AUDIT_MODULES.AUTH,
         req,
+        metadata: buildAuditMetadata({
+          event: "auth.logout",
+          outcome: "success",
+          resource: { type: "user", id: req.user.id },
+          http: buildHttpContext(req, { statusCode: 200 }),
+        }),
       });
+      markAuditLogged(req);
     }
 
     res.json({ auth: false, message: "Logout realizado." });

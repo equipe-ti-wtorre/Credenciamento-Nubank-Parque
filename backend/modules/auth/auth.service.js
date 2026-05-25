@@ -2,8 +2,13 @@ const bcrypt = require("bcryptjs");
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const { decrypt } = require("../../config/cryptoSecrets");
-const { fetchUserPhotoBuffer } = require("../../utils/microsoftGraph");
+const {
+  fetchUserPhotoBuffer,
+} = require("../../utils/microsoftGraph");
+const { fetchMicrosoftProfile } = require("../../utils/userProfileSync");
+const { assertUserCanAccess, hasValidDepartment, DEPARTMENT_REQUIRED_MESSAGE } = require("../../utils/userDepartment");
 const { createTokenPair } = require("./token.service");
+const { setAuditLoginContext } = require("../../observability/audit.auth");
 
 function mapUserResponse(user) {
   return {
@@ -12,6 +17,8 @@ function mapUserResponse(user) {
     nome_completo: user.nome_completo,
     email: user.email,
     role: user.perfil,
+    perfil: user.perfil,
+    id_company: user.id_company != null ? user.id_company : null,
     is_ad_user: !!user.is_ad_user,
   };
 }
@@ -27,6 +34,8 @@ function buildAuthResponse(tokens, user) {
 }
 
 async function loginLocal(username, password, req) {
+  setAuditLoginContext(req, { provider: "local", loginHint: username });
+
   const [users] = await db.execute(
     `SELECT * FROM usuarios WHERE (username = ? OR email = ?) AND ativo = 1 LIMIT 1`,
     [username, username],
@@ -39,19 +48,45 @@ async function loginLocal(username, password, req) {
   if (!user.senha_hash) throw new AppError("Senha não definida.", 401);
 
   const senhaValida = await bcrypt.compare(password, user.senha_hash);
-  if (!senhaValida) throw new AppError("Senha incorreta.", 401);
+  if (!senhaValida) {
+    setAuditLoginContext(req, {
+      provider: "local",
+      userId: user.id,
+      loginHint: username,
+    });
+    throw new AppError("Senha incorreta.", 401);
+  }
+
+  try {
+    assertUserCanAccess(user);
+  } catch (err) {
+    setAuditLoginContext(req, { provider: "local", userId: user.id, loginHint: username });
+    throw err;
+  }
 
   const tokens = await createTokenPair(user, req);
   return buildAuthResponse(tokens, user);
 }
 
 async function loginMicrosoft(azureUser, req) {
+  setAuditLoginContext(req, { provider: "microsoft" });
+
   const oid = azureUser.oid;
   const email = azureUser.preferred_username || azureUser.upn || azureUser.email;
   const nome = azureUser.name || azureUser.displayName;
   if (!oid || !email) {
     throw new AppError("Dados não retornados pela Microsoft.", 400);
   }
+
+  setAuditLoginContext(req, { provider: "microsoft", loginHint: email });
+
+  const graphProfile = await fetchMicrosoftProfile(oid, azureUser.tid || null);
+  if (!graphProfile.ok || !hasValidDepartment(graphProfile.departamento)) {
+    throw new AppError(DEPARTMENT_REQUIRED_MESSAGE, 403);
+  }
+
+  const departamento = graphProfile.departamento;
+  const nomeCompleto = graphProfile.displayName || nome || email.split("@")[0];
 
   let userLocal = null;
   const [byOid] = await db.execute(
@@ -68,8 +103,8 @@ async function loginMicrosoft(azureUser, req) {
     if (byEmail.length > 0) {
       userLocal = byEmail[0];
       await db.execute(
-        "UPDATE usuarios SET microsoft_id = ?, is_ad_user = 1 WHERE id = ?",
-        [oid, userLocal.id],
+        `UPDATE usuarios SET microsoft_id = ?, is_ad_user = 1, departamento = ?, nome_completo = ? WHERE id = ?`,
+        [oid, departamento, nomeCompleto, userLocal.id],
       );
     }
   }
@@ -77,17 +112,36 @@ async function loginMicrosoft(azureUser, req) {
   if (!userLocal) {
     const username = email.split("@")[0];
     const [result] = await db.execute(
-      `INSERT INTO usuarios (username, nome_completo, email, is_ad_user, senha_hash, perfil, ativo, microsoft_id)
-       VALUES (?, ?, ?, 1, NULL, 'USER', 1, ?)`,
-      [username, nome || username, email, oid],
+      `INSERT INTO usuarios (username, nome_completo, email, departamento, is_ad_user, senha_hash, perfil, ativo, microsoft_id)
+       VALUES (?, ?, ?, ?, 1, NULL, 'USER', 1, ?)`,
+      [username, nomeCompleto, email, departamento, oid],
     );
     const [newUsers] = await db.execute("SELECT * FROM usuarios WHERE id = ?", [
       result.insertId,
     ]);
     userLocal = newUsers[0];
+  } else {
+    await db.execute(
+      `UPDATE usuarios SET departamento = ?, nome_completo = COALESCE(?, nome_completo) WHERE id = ?`,
+      [departamento, nomeCompleto, userLocal.id],
+    );
+    const [refreshed] = await db.execute("SELECT * FROM usuarios WHERE id = ? LIMIT 1", [
+      userLocal.id,
+    ]);
+    if (refreshed[0]) userLocal = refreshed[0];
   }
 
-  if (!userLocal.ativo) throw new AppError("Usuário inativo.", 403);
+  if (!userLocal.ativo) {
+    setAuditLoginContext(req, { provider: "microsoft", userId: userLocal.id, loginHint: email });
+    throw new AppError("Usuário inativo.", 403);
+  }
+
+  try {
+    assertUserCanAccess(userLocal);
+  } catch (err) {
+    setAuditLoginContext(req, { provider: "microsoft", userId: userLocal.id, loginHint: email });
+    throw err;
+  }
 
   const tokens = await createTokenPair(userLocal, req);
   return buildAuthResponse(tokens, userLocal);
@@ -100,6 +154,7 @@ async function getMe(userId) {
   );
   const user = users[0];
   if (!user) throw new AppError("Usuário não encontrado.", 404);
+  assertUserCanAccess(user);
   return mapUserResponse(user);
 }
 

@@ -23,6 +23,7 @@ export interface AuthUser {
   email: string;
   role: string;
   perfil?: string;
+  id_company?: number | null;
   is_ad_user: boolean;
   foto_url?: string;
 }

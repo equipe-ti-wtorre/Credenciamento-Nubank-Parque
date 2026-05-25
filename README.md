@@ -38,8 +38,8 @@ Os tenants do **Azure AD** são configurados pelo painel administrativo e armaze
 | SMTP | Configuração de e-mail + histórico de envios |
 | Microsoft Teams | Notificações em canais via Graph API |
 | API versionada | Prefixo `/api/v1` (rotas em `/api` mantidas com aviso de depreciação) |
-| Auditoria | Tabela `audit_logs` para ações sensíveis |
-| Logs | Pino (estruturado) + `app_error_logs` no banco |
+| Observabilidade | Interceptor de auditoria + error handler global; `audit_logs` (JSON) e `app_error_logs` |
+| Logs | Pino (HTTP) + `audit_logs` (ações) + `app_error_logs` (erros) |
 | Mobile | Mesmo frontend Angular empacotado com Capacitor |
 
 ---
@@ -252,6 +252,29 @@ Rotas legadas em `/api` respondem igualmente, com header de depreciação.
 | GET | `/api/v1/system-reports/errors` | Logs de erros (`?page=1&limit=20`, filtros: `module`, `level`, `status_code`, `from`, `to`) |
 | GET | `/api/v1/system-reports/errors/export` | Exportar erros em Excel (mesmos filtros, até 10.000 linhas) |
 
+### Usuários (ADMIN)
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/api/v1/users` | Lista paginada (`?page=1&limit=20`, filtros: `search`, `perfil`) — somente ativos com departamento |
+| GET | `/api/v1/users/:id` | Detalhe do usuário |
+| PATCH | `/api/v1/users/:id` | Atualizar `perfil`, `ativo`; usuários **locais** também: `email`, `password`, `nome_completo` |
+| POST | `/api/v1/users/sync-departments` | Sincronizar departamentos do Azure AD para usuários Microsoft sem departamento |
+| POST | `/api/v1/users/sync-ad-users` | Importar/atualizar todos os usuários do Azure AD (mesma rotina da cron) |
+| POST | `/api/v1/users/:id/sync-ad` | Sincronizar departamento de um usuário Microsoft |
+
+Ao bloquear (`ativo: false`), refresh tokens do usuário são revogados imediatamente e o usuário deixa de aparecer na listagem. **Somente usuários ativos com departamento** podem logar e são exibidos na administração.
+
+### Cron — sync Azure AD
+
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `AD_USERS_SYNC_ENABLED` | `true` | Ativa cron interna ao iniciar a API |
+| `AD_USERS_SYNC_CRON` | `0 2 * * *` | Expressão cron (todo dia às 02:00) |
+| `AD_USERS_SYNC_TIMEZONE` | `America/Sao_Paulo` | Timezone da cron |
+
+Execução manual: `npm run sync-ad-users` na pasta `backend`. Requer permissão **User.Read.All** (aplicação) em cada tenant Azure.
+
 ### Health
 
 | Método | Rota | Descrição |
@@ -328,12 +351,14 @@ O backend valida o token Microsoft conferindo `tid` e `aud` no banco e a assinat
 |------|--------|-----------|
 | `/login` | Público | Tela de login (layout BID) |
 | `/dashboard` | ADMIN, USER | Início |
+| `/admin/usuarios` | ADMIN | Gestão de usuários |
 | `/admin/configuracoes` | ADMIN | Configurações do sistema (layout com menu lateral interno) |
 | `/admin/configuracoes/tenants-azure` | ADMIN | Tenants Azure |
 | `/admin/configuracoes/smtp` | ADMIN | Envios SMTP e histórico |
 | `/admin/configuracoes/teams` | ADMIN | Integração Microsoft Teams |
 | `/admin/configuracoes/sobre` | ADMIN | Sobre o sistema |
 | `/admin/tenants` | ADMIN | Redireciona para `tenants-azure` |
+| `/admin/configuracoes/usuarios` | ADMIN | Redireciona para `/admin/usuarios` |
 
 ### Layouts
 
@@ -372,6 +397,114 @@ npx cap open android   # ou: npx cap open ios
 ```
 
 Tokens da aplicação em plataformas nativas podem usar `@capacitor/preferences`. O endpoint `msal-config` retorna `redirectUris` por tipo de cliente (`web`, `android`, `ios`).
+
+---
+
+## Observabilidade e auditoria
+
+Pipeline em três camadas:
+
+| Camada | Destino | Conteúdo |
+|--------|---------|----------|
+| HTTP (Pino) | stdout / arquivos de log | Todas as requisições (`requestLogger`) |
+| Auditoria | `audit_logs` | Ações de negócio (CRUD usuários, login/logout, sync) |
+| Erros | `app_error_logs` | Exceções e falhas técnicas (`errorHandler` global) |
+
+Código em `backend/observability/`:
+
+- `audit.interceptor.js` — grava automaticamente rotas de **usuários** (GET list/read, PATCH, POST sync) ao final da requisição.
+- `error.middleware.js` — mantém `app_error_logs` e grava `LOGIN_FAILED` em `audit_logs` para `POST /auth/login` e `/auth/login-microsoft` com status **401** ou **403**.
+- `audit.metadata.js` — contrato JSON estável no campo `metadata` (coluna `JSON` no MySQL).
+
+### Ações auditadas (usuários e auth)
+
+| `module` | `action` | Quando |
+|----------|----------|--------|
+| `users` | `LIST`, `READ` | GET listagem / detalhe |
+| `users` | `UPDATE`, `DEACTIVATE`, `ACTIVATE` | PATCH usuário |
+| `users` | `SYNC` | sync departamentos, AD, usuário |
+| `auth` | `LOGIN`, `LOGIN_MICROSOFT` | login com sucesso |
+| `auth` | `LOGIN_FAILED` | credencial inválida, inativo, sem departamento |
+| `auth` | `LOGOUT` | logout |
+
+`user_id` em `audit_logs` é **apenas índice** (sem FK), para não impedir exclusão de usuários.
+
+### Exemplo de `metadata` (Grafana / SQL)
+
+```json
+{
+  "event": "users.update",
+  "outcome": "success",
+  "resource": { "type": "user", "id": 12, "email": "user@empresa.com" },
+  "changes": { "ativo": 0, "wasDeactivated": true },
+  "http": { "method": "PATCH", "path": "/api/v1/users/12", "status": 200, "durationMs": 34 }
+}
+```
+
+Consultas úteis para dashboards:
+
+```sql
+SELECT
+  DATE(created_at) AS dia,
+  JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.event')) AS evento,
+  JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.outcome')) AS resultado,
+  COUNT(*) AS total
+FROM audit_logs
+WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+GROUP BY dia, evento, resultado
+ORDER BY dia DESC, total DESC;
+```
+
+Relatórios admin: **Configurações → Relatórios do sistema** (`/admin/configuracoes/relatorios-sistema`).
+
+### Retenção e cold storage (`audit_logs`)
+
+Leituras (`LIST`, `READ`) geram muito volume. Registros antigos são exportados para **JSONL.gz** e removidos da tabela quente.
+
+| Classe | `action` | Retenção quente (padrão) |
+|--------|----------|--------------------------|
+| Leitura | `LIST`, `READ` | 90 dias |
+| Demais | login, PATCH, SYNC, etc. | 365 dias |
+
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `AUDIT_RETENTION_ENABLED` | `true` | Cron interna ao iniciar a API |
+| `AUDIT_RETENTION_CRON` | `0 3 * * *` | Após sync AD (`02:00`) |
+| `AUDIT_RETENTION_TIMEZONE` | `America/Sao_Paulo` | Timezone IANA |
+| `AUDIT_RETENTION_READ_DAYS` | `90` | Hot storage LIST/READ |
+| `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Hot storage demais ações |
+| `AUDIT_ARCHIVE_DIR` | `./storage/audit-archive` | Pasta cold storage (relativa a `backend/`) |
+| `AUDIT_ARCHIVE_BATCH_SIZE` | `2000` | Linhas por lote |
+| `AUDIT_ARCHIVE_MAX_BATCHES` | `50` | Máx. lotes por execução (~100k linhas/passagem) |
+| `AUDIT_ARCHIVE_DRY_RUN` | `false` | Exporta sem apagar (homologação) |
+
+Layout dos arquivos:
+
+```text
+backend/storage/audit-archive/
+  2026/05/audit-2026-05-01.jsonl.gz
+```
+
+Execução manual:
+
+```bash
+cd backend
+npm run archive-audit-logs
+```
+
+Homologação sem delete:
+
+```bash
+AUDIT_ARCHIVE_DRY_RUN=true npm run archive-audit-logs
+```
+
+Consulta offline (exemplo):
+
+```bash
+zcat storage/audit-archive/2026/05/audit-2026-05-01.jsonl.gz | head
+```
+
+Inclua `backend/storage/audit-archive/` no backup do servidor. Histórico além da janela quente não aparece em Relatórios do sistema (somente na tabela `audit_logs` recente).
 
 ---
 

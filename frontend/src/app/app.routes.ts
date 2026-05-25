@@ -9,6 +9,11 @@ import { SmtpSettingsComponent } from './pages/admin/smtp/smtp-settings.componen
 import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
 import { AboutComponent } from './pages/admin/about/about.component';
 import { SystemReportsComponent } from './pages/admin/system-reports/system-reports.component';
+import { UserListComponent } from './pages/admin/users/user-list.component';
+import { CompanyListComponent } from './pages/admin/companies/company-list.component';
+import { CollaboratorListComponent } from './pages/admin/collaborators/collaborator-list.component';
+import { EventListComponent } from './pages/admin/events/event-list.component';
+import { EventDetailComponent } from './pages/admin/events/event-detail.component';
 import { AuthGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -27,6 +32,41 @@ export const routes: Routes = [
         path: 'dashboard',
         component: DashboardComponent,
         data: { roles: ['ADMIN', 'USER'] },
+      },
+      {
+        path: 'admin/usuarios',
+        component: UserListComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/empresas',
+        component: CompanyListComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/colaboradores',
+        component: CollaboratorListComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/eventos',
+        component: EventListComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN', 'PRODUTORA', 'PADRAO'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/eventos/:id',
+        component: EventDetailComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN', 'PRODUTORA', 'PADRAO'] },
+        runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/configuracoes',
@@ -65,6 +105,11 @@ export const routes: Routes = [
       {
         path: 'admin/tenants',
         redirectTo: 'admin/configuracoes/tenants-azure',
+        pathMatch: 'full',
+      },
+      {
+        path: 'admin/configuracoes/usuarios',
+        redirectTo: 'admin/usuarios',
         pathMatch: 'full',
       },
     ],

@@ -1,7 +1,35 @@
 const db = require("../config/db");
 const { child } = require("../config/logger");
+const {
+  buildAuditMetadata,
+  buildHttpContext,
+  truncateMetadata,
+} = require("../observability/audit.metadata");
 
 const auditLog = child({ module: "audit" });
+
+function attachAudit(req, { action, module, event, resource, changes, metadata } = {}) {
+  if (!req) return;
+  if (!req.audit) req.audit = {};
+  if (action) req.audit.action = action;
+  if (module) req.audit.module = module;
+  if (event) req.audit.event = event;
+  if (resource) req.audit.resource = resource;
+  if (changes != null) req.audit.changes = changes;
+  if (metadata && typeof metadata === "object") {
+    req.audit.metadata = { ...(req.audit.metadata || {}), ...metadata };
+  }
+}
+
+function markAuditLogged(req) {
+  if (req) req.auditLogged = true;
+}
+
+function skipAudit(req) {
+  if (!req) return;
+  if (!req.audit) req.audit = {};
+  req.audit.skip = true;
+}
 
 async function logAudit({ userId, action, module, req, metadata = null }) {
   const requestId = req?.requestId || null;
@@ -12,6 +40,9 @@ async function logAudit({ userId, action, module, req, metadata = null }) {
     req?.socket?.remoteAddress ||
     null;
 
+  let normalized = normalizeAuditPayload(metadata, req);
+  normalized = truncateMetadata(normalized);
+
   auditLog.info({
     userId,
     action,
@@ -19,7 +50,7 @@ async function logAudit({ userId, action, module, req, metadata = null }) {
     requestId,
     clientType,
     ip,
-    metadata,
+    metadata: normalized,
   });
 
   try {
@@ -33,7 +64,7 @@ async function logAudit({ userId, action, module, req, metadata = null }) {
         ip,
         clientType,
         requestId,
-        metadata ? JSON.stringify(metadata) : null,
+        normalized ? JSON.stringify(normalized) : null,
       ],
     );
   } catch (err) {
@@ -41,4 +72,55 @@ async function logAudit({ userId, action, module, req, metadata = null }) {
   }
 }
 
-module.exports = { logAudit };
+function normalizeAuditPayload(metadata, req) {
+  if (metadata == null) return null;
+
+  if (metadata.event || metadata.outcome) {
+    return truncateMetadata(metadata);
+  }
+
+  const event =
+    metadata.event ||
+    (metadata.module && metadata.action
+      ? `${metadata.module}.${String(metadata.action).toLowerCase()}`
+      : null);
+
+  return truncateMetadata(
+    buildAuditMetadata({
+      event,
+      outcome: metadata.outcome || "success",
+      resource: metadata.resource || null,
+      changes: metadata.changes ?? metadata.changesDetail ?? null,
+      http: metadata.http || (req ? buildHttpContext(req, { statusCode: 200 }) : null),
+      provider: metadata.provider || null,
+      reason: metadata.reason || null,
+      loginHint: metadata.loginHint || null,
+      extra: stripStructuredKeys(metadata),
+    }),
+  );
+}
+
+function stripStructuredKeys(metadata) {
+  const {
+    event,
+    outcome,
+    resource,
+    changes,
+    changesDetail,
+    http,
+    provider,
+    reason,
+    loginHint,
+    module: _m,
+    action: _a,
+    ...rest
+  } = metadata;
+  return Object.keys(rest).length ? rest : null;
+}
+
+module.exports = {
+  logAudit,
+  attachAudit,
+  markAuditLogged,
+  skipAudit,
+};

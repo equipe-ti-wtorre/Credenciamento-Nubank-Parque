@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const db = require("../../config/db");
 const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
+const { assertUserCanAccess } = require("../../utils/userDepartment");
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -10,7 +11,12 @@ function hashToken(token) {
 
 function generateAccessToken(user) {
   const role = user.perfil || user.role || "USER";
-  return jwt.sign({ id: user.id, role }, env.jwtSecret, {
+  const payload = {
+    id: user.id,
+    role,
+    id_company: user.id_company != null ? user.id_company : null,
+  };
+  return jwt.sign(payload, env.jwtSecret, {
     expiresIn: env.jwtAccessExpires,
   });
 }
@@ -60,7 +66,7 @@ async function refreshAccessToken(refreshToken, req) {
 
   const tokenHash = hashToken(refreshToken);
   const [rows] = await db.execute(
-    `SELECT rt.*, u.id AS uid, u.perfil, u.ativo
+    `SELECT rt.*, u.id AS uid, u.perfil, u.ativo, u.departamento, u.id_company
      FROM refresh_tokens rt
      JOIN usuarios u ON u.id = rt.user_id
      WHERE rt.token_hash = ? AND rt.revoked_at IS NULL AND rt.expires_at > NOW()
@@ -76,7 +82,13 @@ async function refreshAccessToken(refreshToken, req) {
     throw new AppError("Usuário inativo.", 403);
   }
 
-  const user = { id: row.user_id, perfil: row.perfil };
+  assertUserCanAccess({ departamento: row.departamento });
+
+  const user = {
+    id: row.user_id,
+    perfil: row.perfil,
+    id_company: row.id_company != null ? row.id_company : null,
+  };
   const accessToken = generateAccessToken(user);
   return { accessToken, user };
 }
