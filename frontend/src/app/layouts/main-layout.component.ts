@@ -32,14 +32,16 @@ const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
           >
             <a routerLink="/dashboard" class="flex items-center min-w-0 shrink" [title]="'WTorre — Início'">
               <img
-                src="assets/wtorre.svg"
+                [src]="sidebarCollapsed ? 'assets/wt-logo.png' : 'assets/wtorre.svg'"
                 alt="WTorre"
-                class="sidebar-logo-img object-contain object-left transition-all duration-200"
+                class="sidebar-logo-img object-contain transition-all duration-200"
+                [class.object-left]="!sidebarCollapsed"
+                [class.object-center]="sidebarCollapsed"
                 [class.h-7]="!sidebarCollapsed"
-                [class.h-5]="sidebarCollapsed"
-                [class.w-auto]="!sidebarCollapsed"
+                [class.h-6]="sidebarCollapsed"
+                [class.w-auto]="true"
                 [class.max-w-[11rem]]="!sidebarCollapsed"
-                [class.max-w-full]="sidebarCollapsed"
+                [class.max-w-[2.5rem]]="sidebarCollapsed"
               />
             </a>
             <button
