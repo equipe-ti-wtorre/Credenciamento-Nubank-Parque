@@ -8,6 +8,8 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
   { label: 'Usuários', icon: '👥', route: '/admin/usuarios' },
   { label: 'Empresas', icon: '🏢', route: '/admin/empresas' },
   { label: 'Colaboradores', icon: '🪪', route: '/admin/colaboradores' },
+  { label: 'Aprovações documento', icon: '📝', route: '/admin/aprovacoes-documento' },
+  { label: 'Frota', icon: '🚗', route: '/admin/frota' },
   { label: 'Eventos', icon: '📅', route: '/admin/eventos' },
   { label: 'Configurações', icon: '⚙️', route: '/admin/configuracoes' },
 ];
@@ -22,6 +24,7 @@ export interface SettingsNavItem {
 export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: 'tenants-azure', label: 'Tenants Azure', icon: '🔗', subtitle: 'Autenticação AD' },
   { path: 'smtp', label: 'Envios SMTP', icon: '📧', subtitle: 'E-mail e histórico' },
+  { path: 'sessao', label: 'Sessão', icon: '🔒', subtitle: 'Inatividade e login' },
   { path: 'teams', label: 'Integração Teams', icon: '💬', subtitle: 'Microsoft Graph' },
   {
     path: 'relatorios-sistema',

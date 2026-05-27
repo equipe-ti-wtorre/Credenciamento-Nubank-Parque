@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS system_settings (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  session_idle_minutes INT NOT NULL DEFAULT 30,
+  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT INTO system_settings (session_idle_minutes)
+SELECT 30
+WHERE NOT EXISTS (SELECT 1 FROM system_settings LIMIT 1);

@@ -22,6 +22,8 @@ import {
   GateNextAction,
   GateService,
   GateTodayCredential,
+  GateTodayService,
+  GateServiceValidateResponse,
   GateValidateResponse,
   GateValidateSuccess,
 } from '../../services/gate.service';
@@ -77,6 +79,27 @@ type FeedbackState = 'idle' | 'success' | 'denied';
         <p class="text-xs text-slate-500" *ngIf="processing()">Processando leitura...</p>
       </div>
 
+      <div class="flex gap-2 mb-4">
+        <button
+          type="button"
+          class="text-sm px-4 py-2 rounded-xl border"
+          [class.btn-primary]="gateMode() === 'events'"
+          [class.btn-secondary]="gateMode() !== 'events'"
+          (click)="setGateMode('events')"
+        >
+          Eventos
+        </button>
+        <button
+          type="button"
+          class="text-sm px-4 py-2 rounded-xl border"
+          [class.btn-primary]="gateMode() === 'patrimonial'"
+          [class.btn-secondary]="gateMode() !== 'patrimonial'"
+          (click)="setGateMode('patrimonial')"
+        >
+          Patrimonial
+        </button>
+      </div>
+
       <!-- UX primária: input discreto para scanner -->
       <label class="gate-scan-sr">
         Leitura de código de acesso
@@ -95,7 +118,9 @@ type FeedbackState = 'idle' | 'success' | 'denied';
       <!-- UX secundária: lista manual -->
       <div class="card-surface p-4 mb-6" data-gate-manual>
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-          <h3 class="text-sm font-bold text-slate-600 uppercase">Credenciais de hoje</h3>
+          <h3 class="text-sm font-bold text-slate-600 uppercase">
+            {{ gateMode() === 'events' ? 'Credenciais de hoje' : 'Serviços de hoje' }}
+          </h3>
           <button
             type="button"
             class="btn-secondary text-xs shrink-0"
@@ -114,12 +139,21 @@ type FeedbackState = 'idle' | 'success' | 'denied';
           data-gate-manual-search
         />
 
-        <p *ngIf="todayLoading()" class="text-sm text-slate-500 py-6 text-center">Carregando credenciais...</p>
-        <p *ngIf="!todayLoading() && todayCredentials().length === 0" class="text-sm text-slate-500 py-6 text-center">
+        <p *ngIf="todayLoading()" class="text-sm text-slate-500 py-6 text-center">Carregando...</p>
+        <p
+          *ngIf="!todayLoading() && gateMode() === 'events' && todayCredentials().length === 0"
+          class="text-sm text-slate-500 py-6 text-center"
+        >
           Nenhuma credencial aprovada para o dia operacional atual.
         </p>
+        <p
+          *ngIf="!todayLoading() && gateMode() === 'patrimonial' && todayServices().length === 0"
+          class="text-sm text-slate-500 py-6 text-center"
+        >
+          Nenhum serviço patrimonial aprovado para hoje.
+        </p>
 
-        <div *ngIf="!todayLoading() && todayCredentials().length > 0" class="overflow-x-auto">
+        <div *ngIf="!todayLoading() && gateMode() === 'events' && todayCredentials().length > 0" class="overflow-x-auto">
           <table class="w-full text-sm text-left">
             <thead>
               <tr class="border-b border-[var(--app-border)] text-xs uppercase text-slate-500">
@@ -180,6 +214,40 @@ type FeedbackState = 'idle' | 'success' | 'denied';
           <p class="text-xs text-slate-500 mt-2">
             Exibindo {{ filteredTodayCredentials().length }} de {{ todayCredentials().length }} credencial(is)
           </p>
+        </div>
+
+        <div *ngIf="!todayLoading() && gateMode() === 'patrimonial' && todayServices().length > 0" class="overflow-x-auto">
+          <table class="w-full text-sm text-left">
+            <thead>
+              <tr class="border-b border-[var(--app-border)] text-xs uppercase text-slate-500">
+                <th class="py-2 pr-2 font-bold">Placa</th>
+                <th class="py-2 pr-2 font-bold">Empresa</th>
+                <th class="py-2 pr-2 font-bold">Serviço</th>
+                <th class="py-2 pr-2 font-bold">Entrada</th>
+                <th class="py-2 pr-2 font-bold">Saída</th>
+                <th class="py-2 font-bold text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let row of filteredTodayServices()" class="border-b border-[var(--app-border)] last:border-0">
+                <td class="py-2 pr-2 font-mono font-semibold">{{ row.vehicle.plate }}</td>
+                <td class="py-2 pr-2">{{ row.company.name }}</td>
+                <td class="py-2 pr-2">{{ row.service_type }}</td>
+                <td class="py-2 pr-2 text-xs">{{ formatTimestamp(row.check_in) }}</td>
+                <td class="py-2 pr-2 text-xs">{{ formatTimestamp(row.check_out) }}</td>
+                <td class="py-2 text-right">
+                  <button
+                    type="button"
+                    class="btn-primary text-xs py-1 px-2"
+                    [disabled]="row.next_action === 'COMPLETED' || processing()"
+                    (click)="onManualValidateService(row)"
+                  >
+                    {{ manualActionLabel(row.next_action) }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -293,7 +361,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   denyReason = signal('');
   denyCode = signal('');
 
+  gateMode = signal<'events' | 'patrimonial'>('events');
   todayCredentials = signal<GateTodayCredential[]>([]);
+  todayServices = signal<GateTodayService[]>([]);
   todayLoading = signal(false);
 
   filteredTodayCredentials = computed(() => {
@@ -312,6 +382,15 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         .toLowerCase();
       return haystack.includes(q);
     });
+  });
+
+  filteredTodayServices = computed(() => {
+    const q = this.manualSearch.trim().toLowerCase();
+    const list = this.todayServices();
+    if (!q) return list;
+    return list.filter((row) =>
+      [row.vehicle.plate, row.company.name, row.service_type].join(' ').toLowerCase().includes(q),
+    );
   });
 
   showSubstituteModal = signal(false);
@@ -371,8 +450,30 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   }
 
+  setGateMode(mode: 'events' | 'patrimonial'): void {
+    this.gateMode.set(mode);
+    this.manualSearch = '';
+    this.loadTodayList();
+    this.focusScanInput();
+  }
+
   loadTodayList(): void {
     this.todayLoading.set(true);
+    if (this.gateMode() === 'patrimonial') {
+      this.gateService.listTodayServices().subscribe({
+        next: (res) => {
+          this.todayServices.set(res.services);
+          this.todayLoading.set(false);
+          this.cdr.markForCheck();
+        },
+        error: (err: HttpErrorResponse) => {
+          this.todayLoading.set(false);
+          this.notify.error(err.error?.message || 'Falha ao carregar serviços do dia.');
+          this.cdr.markForCheck();
+        },
+      });
+      return;
+    }
     this.gateService.listToday().subscribe({
       next: (res) => {
         this.todayCredentials.set(res.credentials);
@@ -401,13 +502,45 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.processScan(row.access_id);
   }
 
+  onManualValidateService(row: GateTodayService): void {
+    if (this.processing() || row.next_action === 'COMPLETED') return;
+    this.skipNextFocusRestore = true;
+    this.processScan(row.access_id);
+  }
+
   private processScan(accessId: string): void {
     if (this.processing()) return;
     this.processing.set(true);
+    if (this.gateMode() === 'patrimonial') {
+      this.gateService.validateService(accessId).subscribe({
+        next: (res) => this.handleServiceValidateResponse(res),
+        error: (err: HttpErrorResponse) => this.handleValidateError(err),
+      });
+      return;
+    }
     this.gateService.validateEvent(accessId).subscribe({
       next: (res) => this.handleValidateResponse(accessId, res),
       error: (err: HttpErrorResponse) => this.handleValidateError(err),
     });
+  }
+
+  private handleServiceValidateResponse(res: GateServiceValidateResponse): void {
+    this.processing.set(false);
+    this.scanValue = '';
+    if (res.access_allowed) {
+      this.denyReason.set('');
+      this.feedback.set('success');
+      this.clearFeedbackTimer();
+      this.feedbackTimer = setTimeout(() => {
+        this.feedback.set('idle');
+        this.focusScanInput();
+        this.cdr.markForCheck();
+      }, 2000);
+      this.loadTodayList();
+      this.cdr.markForCheck();
+      return;
+    }
+    this.showDenied(res.reason || 'Acesso negado.', res.error_code || 'DENIED');
   }
 
   private handleValidateResponse(accessId: string, res: GateValidateResponse): void {

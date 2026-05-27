@@ -8,6 +8,7 @@ const gateControl = [authMiddleware, authorizeRoles("ADMIN", "CONTROLADOR")];
 router.get("/events/today", ...gateControl, gateController.listTodayEvents);
 router.post("/events/validate", ...gateControl, gateController.validateEvent);
 router.post("/events/substitute", ...gateControl, gateController.substituteEvent);
+router.get("/services/today", ...gateControl, gateController.listTodayServices);
 router.post("/services/validate", ...gateControl, gateController.validateService);
 router.post("/services/substitute", ...gateControl, gateController.substituteService);
 

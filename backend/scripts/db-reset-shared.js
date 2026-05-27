@@ -4,6 +4,7 @@ const env = require("../config/env");
 const TABLES_PRESERVE = [
   "azure_tenants",
   "smtp_settings",
+  "system_settings",
   "teams_integrations",
   "usuarios",
   "company_type",

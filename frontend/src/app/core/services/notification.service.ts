@@ -1,6 +1,7 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Injector } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import Swal, { type SweetAlertIcon } from 'sweetalert2';
+import { AuthService } from './auth.service';
 
 const Toast = Swal.mixin({
   toast: true,
@@ -19,11 +20,16 @@ const Toast = Swal.mixin({
 
 @Injectable({ providedIn: 'root' })
 export class NotificationService {
+  constructor(private injector: Injector) {}
+
   success(title: string, text?: string) {
     return this.fire('success', title, text);
   }
 
-  error(title: string, text?: string) {
+  error(title: string, text?: string, err?: unknown) {
+    if (!this.shouldNotifyHttpError(err)) {
+      return Promise.resolve();
+    }
     return this.fire('error', title, text);
   }
 
@@ -33,6 +39,27 @@ export class NotificationService {
 
   info(title: string, text?: string) {
     return this.fire('info', title, text);
+  }
+
+  shouldNotifyHttpError(err: unknown): boolean {
+    if (err instanceof HttpErrorResponse && err.status === 401) {
+      return false;
+    }
+    try {
+      if (this.injector.get(AuthService).isLoggingOut()) {
+        return false;
+      }
+    } catch {
+      /* AuthService indisponível */
+    }
+    return true;
+  }
+
+  notifyHttpError(err: unknown, fallback: string, text?: string) {
+    if (!this.shouldNotifyHttpError(err)) {
+      return Promise.resolve();
+    }
+    return this.error(this.extractErrorMessage(err, fallback), text, err);
   }
 
   extractErrorMessage(err: unknown, fallback: string): string {

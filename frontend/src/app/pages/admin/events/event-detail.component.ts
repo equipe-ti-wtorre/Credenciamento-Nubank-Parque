@@ -28,6 +28,7 @@ import {
 } from '../../../services/credential.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { DocumentChangeService } from '../../../services/document-change.service';
 
 const TYPE_PRODUTORA = 'Produtora';
 const TYPE_EMPRESA_PADRAO = 'Empresa Padrão';
@@ -315,6 +316,14 @@ function maskDocument(document: string): string {
                   </option>
                 </select>
               </div>
+              <button
+                *ngIf="canRequestDocumentChange()"
+                type="button"
+                class="btn-secondary w-full text-sm mb-3"
+                (click)="solicitarCorrecaoDocumento()"
+              >
+                Corrigir documento
+              </button>
               <div class="flex gap-2 mt-6">
                 <button type="button" (click)="voltarParaBusca()" class="btn-secondary flex-1">Voltar</button>
                 <button
@@ -376,6 +385,7 @@ export class EventDetailComponent implements OnInit {
     private credentialService: CredentialService,
     private collaboratorService: CollaboratorService,
     private authService: AuthService,
+    private documentChangeService: DocumentChangeService,
     private notification: NotificationService,
     private router: Router,
   ) {}
@@ -465,7 +475,7 @@ export class EventDetailComponent implements OnInit {
     if (this.roles().length === 0) {
       this.collaboratorService.listRoles().subscribe({
         next: (res) => this.roles.set(res.roles),
-        error: () => this.notification.error('Falha ao carregar funções.'),
+        error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar funções.'),
       });
     }
 
@@ -486,6 +496,57 @@ export class EventDetailComponent implements OnInit {
     this.foundCollaborator.set(null);
     this.credentialRequestForm.get('id_collaborator_role')?.clearValidators();
     this.credentialRequestForm.get('id_collaborator_role')?.updateValueAndValidity();
+  }
+
+  canRequestDocumentChange(): boolean {
+    const col = this.foundCollaborator();
+    return !!col && (this.userRole === 'PADRAO' || this.userRole === 'PRODUTORA');
+  }
+
+  solicitarCorrecaoDocumento() {
+    const col = this.foundCollaborator();
+    if (!col) return;
+    Swal.fire({
+      title: 'Corrigir documento',
+      html: `<p class="text-sm text-slate-600 mb-2">Colaborador: <strong>${col.name}</strong></p>`,
+      input: 'text',
+      inputLabel: 'Novo documento (correto)',
+      inputPlaceholder: 'CPF ou documento',
+      showCancelButton: true,
+      confirmButtonText: 'Continuar',
+      inputValidator: (v) => {
+        if (!v?.trim()) return 'Informe o novo documento.';
+        return null;
+      },
+    }).then((step1) => {
+      if (!step1.isConfirmed || !step1.value) return;
+      Swal.fire({
+        title: 'Motivo da correção',
+        input: 'textarea',
+        inputLabel: 'Mínimo 10 caracteres',
+        showCancelButton: true,
+        confirmButtonText: 'Solicitar',
+        inputValidator: (v) => {
+          if (!v || v.trim().length < 10) return 'Descreva o motivo (mín. 10 caracteres).';
+          return null;
+        },
+      }).then((step2) => {
+        if (!step2.isConfirmed || !step2.value) return;
+        this.documentChangeService
+          .create(col.id_collaborator, {
+            new_document: String(step1.value),
+            reason: step2.value.trim(),
+          })
+          .subscribe({
+            next: () => {
+              this.notification.success('Solicitação enviada para aprovação do administrador.');
+              this.fecharModalCredencial();
+            },
+            error: (err) =>
+              this.notification.notifyHttpError(err, 'Falha ao solicitar correção de documento.'),
+          });
+      });
+    });
   }
 
   onCredentialModalSubmit() {
@@ -586,7 +647,7 @@ export class EventDetailComponent implements OnInit {
         });
         this.companies.set(allowed);
       },
-      error: () => this.notification.error('Falha ao carregar empresas.'),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
     });
   }
 
@@ -617,7 +678,7 @@ export class EventDetailComponent implements OnInit {
         this.credentials.set(res.credentials);
         this.cdr.markForCheck();
       },
-      error: () => this.notification.error('Falha ao carregar credenciais.'),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar credenciais.'),
     });
   }
 

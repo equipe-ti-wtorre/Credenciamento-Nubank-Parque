@@ -1,7 +1,12 @@
 const AppError = require("../../utils/AppError");
 const { attachAudit } = require("../../utils/auditLogger");
 const gateService = require("./gate.service");
-const { eventValidateSchema, eventSubstituteSchema } = require("./gate.schema");
+const {
+  eventValidateSchema,
+  eventSubstituteSchema,
+  serviceValidateSchema,
+  serviceSubstituteSchema,
+} = require("./gate.schema");
 
 function respondDenial(res, req, denial) {
   if (denial.critical) {
@@ -104,9 +109,43 @@ exports.substituteEvent = async (req, res, next) => {
   }
 };
 
+exports.listTodayServices = async (req, res, next) => {
+  try {
+    const services = await gateService.listTodayExpectedServices();
+    res.json({ services });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.validateService = async (req, res, next) => {
   try {
-    gateService.validateServiceAccess();
+    const { error, value } = serviceValidateSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await gateService.validateServiceAccess(value.access_id);
+    if (!result.allowed) {
+      return respondDenial(res, req, result);
+    }
+
+    const actionEvent =
+      result.data.action_registered === "CHECK_IN"
+        ? "gate.service.check_in"
+        : "gate.service.check_out";
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "gate",
+      event: actionEvent,
+      resource: {
+        type: "service_access",
+        id: result.data.id_service_access_vehicle,
+        access_id: value.access_id,
+      },
+      changes: { action_registered: result.data.action_registered },
+    });
+
+    res.json(result.data);
   } catch (err) {
     next(err);
   }
@@ -114,7 +153,30 @@ exports.validateService = async (req, res, next) => {
 
 exports.substituteService = async (req, res, next) => {
   try {
-    gateService.substituteServiceAccess();
+    const { error, value } = serviceSubstituteSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await gateService.substituteServiceAccess(
+      value.access_id,
+      value.id_substitute_vehicle,
+    );
+    if (!result.allowed) {
+      return respondDenial(res, req, result);
+    }
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "gate",
+      event: "gate.service.substitute",
+      resource: {
+        type: "service_access",
+        id: result.data.id_service_access_vehicle,
+        access_id: value.access_id,
+      },
+      changes: { id_substitute_vehicle: value.id_substitute_vehicle },
+    });
+
+    res.json(result.data);
   } catch (err) {
     next(err);
   }

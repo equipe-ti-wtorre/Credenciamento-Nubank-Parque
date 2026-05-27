@@ -319,10 +319,10 @@ export class TeamsIntegrationComponent implements SettingsReloadable {
         this.loading.set(false);
         this.cdr.markForCheck();
       },
-      error: () => {
+      error: (err) => {
         this.loading.set(false);
         this.cdr.markForCheck();
-        this.notification.error('Falha ao carregar integrações Teams.');
+        this.notification.notifyHttpError(err, 'Falha ao carregar integrações Teams.');
       },
     });
   }

@@ -223,7 +223,8 @@ export class SmtpSettingsComponent implements SettingsReloadable {
         }
         this.cdr.markForCheck();
       },
-      error: () => this.notification.error('Falha ao carregar configuração SMTP.'),
+      error: (err) =>
+        this.notification.notifyHttpError(err, 'Falha ao carregar configuração SMTP.'),
     });
   }
 
@@ -236,10 +237,10 @@ export class SmtpSettingsComponent implements SettingsReloadable {
         this.loadingLogs = false;
         this.cdr.markForCheck();
       },
-      error: () => {
+      error: (err) => {
         this.loadingLogs = false;
         this.cdr.markForCheck();
-        this.notification.error('Falha ao carregar histórico de envios.');
+        this.notification.notifyHttpError(err, 'Falha ao carregar histórico de envios.');
       },
     });
   }

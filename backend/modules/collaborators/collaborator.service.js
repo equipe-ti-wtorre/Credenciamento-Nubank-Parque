@@ -6,7 +6,8 @@ const {
   mapRole,
   toMaskedCollaborator,
 } = require("../../utils/privacy");
-const { validateDocumentByType } = require("./collaborator.schema");
+const { validateDocumentByType, validateAndNormalizeCollaboratorPayload } = require("./collaborator.schema");
+const { parseBulkFile, normalizeBulkRow, isEmptyBulkRow } = require("./collaborator.bulk");
 
 const COLLABORATOR_SELECT = `
   SELECT c.*,
@@ -69,6 +70,7 @@ function mapCollaboratorRow(row, { isBlacklisted = false } = {}) {
     name: row.name,
     rg: row.rg || null,
     phone: row.phone || null,
+    picture: row.picture || null,
     status: !!row.status,
     is_blacklisted: !!isBlacklisted,
     criado_em: row.criado_em,
@@ -292,8 +294,7 @@ async function getCollaboratorDetailById(id) {
   return mapCollaboratorRow(row, { isBlacklisted });
 }
 
-async function createCollaborator(req, data) {
-  assertCanWriteCollaborator(req);
+async function insertCollaboratorRecord(data) {
   await assertDocumentTypeExists(data.id_collaborator_document_type);
   await assertRoleExists(data.id_collaborator_role);
   await assertNotDuplicate(data.document, data.id_collaborator_document_type);
@@ -315,6 +316,71 @@ async function createCollaborator(req, data) {
   );
 
   return getCollaboratorDetailById(result.insertId);
+}
+
+async function createCollaborator(req, data) {
+  assertCanWriteCollaborator(req);
+  return insertCollaboratorRecord(data);
+}
+
+async function bulkCreateCollaborators(req, file) {
+  assertCanWriteCollaborator(req);
+  const rawRows = await parseBulkFile(file.buffer, file.mimetype, file.originalname);
+  const errors = [];
+  let successCount = 0;
+  let totalProcessed = 0;
+
+  for (let i = 0; i < rawRows.length; i++) {
+    if (isEmptyBulkRow(rawRows[i])) continue;
+    const line = i + 2;
+    totalProcessed += 1;
+    const payload = normalizeBulkRow(rawRows[i]);
+
+    const validated = await validateAndNormalizeCollaboratorPayload(payload);
+    if (validated.error) {
+      errors.push({ line, reason: validated.error });
+      continue;
+    }
+
+    try {
+      await insertCollaboratorRecord(validated.value);
+      successCount += 1;
+    } catch (err) {
+      if (err instanceof AppError) {
+        errors.push({ line, reason: err.message });
+      } else if (err.code === "ER_DUP_ENTRY") {
+        errors.push({ line, reason: "Colaborador já cadastrado com este documento." });
+      } else {
+        errors.push({ line, reason: "Erro ao inserir registro." });
+      }
+    }
+  }
+
+  if (totalProcessed === 0) {
+    throw new AppError(
+      "Nenhuma linha de dados encontrada. Cabeçalho: document, id_collaborator_document_type, name, id_collaborator_role.",
+      400,
+    );
+  }
+
+  return { totalProcessed, successCount, errors };
+}
+
+async function updateCollaboratorPicture(id, filename) {
+  const existing = await findCollaboratorById(id);
+  if (!existing) throw new AppError("Colaborador não encontrado.", 404);
+  await db.execute("UPDATE collaborator SET picture = ? WHERE id_collaborator = ?", [
+    filename,
+    id,
+  ]);
+  return getCollaboratorDetailById(id);
+}
+
+async function clearCollaboratorPicture(id) {
+  const existing = await findCollaboratorById(id);
+  if (!existing) throw new AppError("Colaborador não encontrado.", 404);
+  await db.execute("UPDATE collaborator SET picture = NULL WHERE id_collaborator = ?", [id]);
+  return getCollaboratorDetailById(id);
 }
 
 async function updateCollaborator(req, id, data) {
@@ -438,6 +504,10 @@ module.exports = {
   searchByDocument,
   getCollaboratorById,
   createCollaborator,
+  bulkCreateCollaborators,
+  insertCollaboratorRecord,
+  updateCollaboratorPicture,
+  clearCollaboratorPicture,
   updateCollaborator,
   updateCollaboratorStatus,
   addToBlacklist,

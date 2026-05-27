@@ -381,7 +381,7 @@ export class TenantListComponent implements SettingsReloadable {
             this.tenants.set(res.tenants);
             this.notification.error('Não foi possível testar as conexões. Lista carregada sem diagnóstico.');
           },
-          error: () => this.notification.error('Falha ao carregar tenants.'),
+          error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar tenants.'),
         });
       },
     });

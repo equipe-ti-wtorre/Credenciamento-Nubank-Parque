@@ -39,6 +39,12 @@ export class ApiService {
     });
   }
 
+  postFormData<T>(path: string, body: FormData): Observable<T> {
+    return this.http.post<T>(this.buildUrl(path), body, {
+      headers: this.defaultHeaders(),
+    });
+  }
+
   post<T>(
     path: string,
     body?: unknown,

@@ -434,9 +434,9 @@ export class SystemReportsComponent implements SettingsReloadable {
             this.loading = false;
             this.cdr.markForCheck();
           },
-          error: () => {
+          error: (err) => {
             this.loading = false;
-            this.notification.error('Falha ao carregar logs de auditoria.');
+            this.notification.notifyHttpError(err, 'Falha ao carregar logs de auditoria.');
             this.cdr.markForCheck();
           },
         });
@@ -450,9 +450,9 @@ export class SystemReportsComponent implements SettingsReloadable {
             this.loading = false;
             this.cdr.markForCheck();
           },
-          error: () => {
+          error: (err) => {
             this.loading = false;
-            this.notification.error('Falha ao carregar logs de erros.');
+            this.notification.notifyHttpError(err, 'Falha ao carregar logs de erros.');
             this.cdr.markForCheck();
           },
         });

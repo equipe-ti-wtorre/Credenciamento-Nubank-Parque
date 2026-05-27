@@ -78,4 +78,42 @@ export class GateService {
   listToday(): Observable<GateTodayListResponse> {
     return this.api.get<GateTodayListResponse>('/gate/events/today');
   }
+
+  listTodayServices(): Observable<{
+    services: GateTodayService[];
+  }> {
+    return this.api.get('/gate/services/today');
+  }
+
+  validateService(access_id: string): Observable<GateServiceValidateResponse> {
+    return this.api.post<GateServiceValidateResponse>('/gate/services/validate', { access_id });
+  }
+
+  substituteService(payload: {
+    access_id: string;
+    id_substitute_vehicle: number;
+  }): Observable<unknown> {
+    return this.api.post('/gate/services/substitute', payload);
+  }
+}
+
+export interface GateTodayService {
+  id: number;
+  access_id: string;
+  vehicle: { plate: string; description?: string };
+  company: { name: string };
+  service_type: string;
+  check_in: string | null;
+  check_out: string | null;
+  next_action: GateNextAction;
+}
+
+export interface GateServiceValidateResponse {
+  access_allowed: boolean;
+  type?: 'SERVICE';
+  vehicle?: { plate: string };
+  company?: { fancy_name: string };
+  action_registered?: 'CHECK_IN' | 'CHECK_OUT';
+  reason?: string;
+  error_code?: string;
 }

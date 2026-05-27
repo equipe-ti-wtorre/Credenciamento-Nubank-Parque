@@ -13,6 +13,12 @@ export interface CollaboratorRole {
   description: string;
 }
 
+export interface CollaboratorBulkUploadResult {
+  totalProcessed: number;
+  successCount: number;
+  errors: { line: number; reason: string }[];
+}
+
 export interface CollaboratorItem {
   id_collaborator: number;
   id_collaborator_document_type: number;
@@ -21,6 +27,7 @@ export interface CollaboratorItem {
   name: string;
   rg: string | null;
   phone: string | null;
+  picture?: string | null;
   status: boolean;
   is_blacklisted: boolean;
   criado_em: string;
@@ -123,6 +130,25 @@ export class CollaboratorService {
 
   removeBlacklist(id: number): Observable<{ collaborator: CollaboratorItem }> {
     return this.api.delete<{ collaborator: CollaboratorItem }>(`/collaborators/${id}/blacklist`);
+  }
+
+  bulkUpload(file: File): Observable<CollaboratorBulkUploadResult> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.api.postFormData<CollaboratorBulkUploadResult>('/collaborators/bulk', form);
+  }
+
+  uploadPicture(id: number, file: File): Observable<{ collaborator: CollaboratorItem; picture: string }> {
+    const form = new FormData();
+    form.append('picture', file, file.name);
+    return this.api.postFormData<{ collaborator: CollaboratorItem; picture: string }>(
+      `/collaborators/${id}/picture`,
+      form,
+    );
+  }
+
+  getPictureBlob(filename: string): Observable<Blob> {
+    return this.api.getBlob(`/storage/pictures/${filename}`);
   }
 
   private buildParams(

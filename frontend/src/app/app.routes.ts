@@ -6,6 +6,7 @@ import { LoginComponent } from './pages/login/login.component';
 import { DashboardComponent } from './pages/dashboard/dashboard.component';
 import { TenantListComponent } from './pages/admin/tenants/tenant-list.component';
 import { SmtpSettingsComponent } from './pages/admin/smtp/smtp-settings.component';
+import { SessionSettingsComponent } from './pages/admin/session/session-settings.component';
 import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
 import { AboutComponent } from './pages/admin/about/about.component';
 import { SystemReportsComponent } from './pages/admin/system-reports/system-reports.component';
@@ -15,6 +16,9 @@ import { CollaboratorListComponent } from './pages/admin/collaborators/collabora
 import { EventListComponent } from './pages/admin/events/event-list.component';
 import { EventDetailComponent } from './pages/admin/events/event-detail.component';
 import { GateControlComponent } from './pages/gate/gate-control.component';
+import { VehicleListComponent } from './pages/patrimonial/vehicle-list.component';
+import { ServiceRequestListComponent } from './pages/patrimonial/service-request-list.component';
+import { DocumentApprovalsComponent } from './pages/admin/document-approvals/document-approvals.component';
 import { AuthGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -63,6 +67,27 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
+        path: 'admin/aprovacoes-documento',
+        component: DocumentApprovalsComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/frota',
+        component: VehicleListComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN', 'PRODUTORA', 'PADRAO'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/solicitacoes-servico',
+        component: ServiceRequestListComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN', 'PRODUTORA', 'PADRAO'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
         path: 'admin/eventos',
         component: EventListComponent,
         canActivate: [AuthGuard],
@@ -91,6 +116,11 @@ export const routes: Routes = [
           {
             path: 'smtp',
             component: SmtpSettingsComponent,
+            runGuardsAndResolvers: 'always',
+          },
+          {
+            path: 'sessao',
+            component: SessionSettingsComponent,
             runGuardsAndResolvers: 'always',
           },
           {

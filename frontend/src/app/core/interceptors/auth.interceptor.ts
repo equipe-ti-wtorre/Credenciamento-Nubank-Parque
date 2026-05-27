@@ -6,13 +6,23 @@ import {
   HttpEvent,
   HttpErrorResponse,
 } from '@angular/common/http';
-import { Observable, throwError, from, switchMap, catchError } from 'rxjs';
+import {
+  Observable,
+  throwError,
+  from,
+  switchMap,
+  catchError,
+  shareReplay,
+  finalize,
+  take,
+} from 'rxjs';
 import { AuthService } from '../services/auth.service';
 import { ApiService } from '../services/api.service';
+import { SessionIdleService } from '../services/session-idle.service';
 
 @Injectable()
 export class AuthInterceptor implements HttpInterceptor {
-  private refreshing = false;
+  private refreshInFlight$: Observable<string | null> | null = null;
 
   constructor(
     private injector: Injector,
@@ -36,6 +46,8 @@ export class AuthInterceptor implements HttpInterceptor {
     }
 
     const authService = this.injector.get(AuthService);
+    const sessionIdle = this.injector.get(SessionIdleService);
+
     return from(authService.ensureTokensLoaded()).pipe(
       switchMap(() => {
         let authReq = req;
@@ -47,40 +59,61 @@ export class AuthInterceptor implements HttpInterceptor {
         }
 
         return next.handle(authReq).pipe(
-          catchError((error: HttpErrorResponse) => {
-            if (error.status !== 401 || !isApi || req.url.includes('/auth/refresh')) {
-              return throwError(() => error);
-            }
-
-            if (this.refreshing) {
-              return throwError(() => error);
-            }
-
-            this.refreshing = true;
-            return from(authService.refreshSession()).pipe(
-              switchMap((newToken) => {
-                this.refreshing = false;
-                if (!newToken) {
-                  if (!authService.isLoggingOut()) {
-                    void authService.logout();
-                  }
-                  return throwError(() => error);
-                }
-                const retry = req.clone({
-                  setHeaders: { Authorization: `Bearer ${newToken}` },
-                });
-                return next.handle(retry);
-              }),
-              catchError((refreshErr) => {
-                this.refreshing = false;
-                if (!authService.isLoggingOut()) {
-                  void authService.logout();
-                }
-                return throwError(() => refreshErr);
-              }),
-            );
-          }),
+          catchError((error: HttpErrorResponse) =>
+            this.handleError(error, req, next, authService, sessionIdle, isApi),
+          ),
         );
+      }),
+    );
+  }
+
+  private handleError(
+    error: HttpErrorResponse,
+    req: HttpRequest<unknown>,
+    next: HttpHandler,
+    authService: AuthService,
+    sessionIdle: SessionIdleService,
+    isApi: boolean,
+  ): Observable<HttpEvent<unknown>> {
+    if (error.status !== 401 || !isApi || req.url.includes('/auth/refresh')) {
+      return throwError(() => error);
+    }
+
+    if (sessionIdle.isIdleExpired() || sessionIdle.hasExceededIdleLimit()) {
+      if (!authService.isLoggingOut()) {
+        void authService.logout({ reason: 'idle' });
+      }
+      return throwError(() => error);
+    }
+
+    if (!this.refreshInFlight$) {
+      this.refreshInFlight$ = from(authService.refreshSession()).pipe(
+        shareReplay(1),
+        finalize(() => {
+          this.refreshInFlight$ = null;
+        }),
+      );
+    }
+
+    return this.refreshInFlight$.pipe(
+      take(1),
+      switchMap((newToken) => {
+        if (!newToken) {
+          if (!authService.isLoggingOut()) {
+            void authService.logout();
+          }
+          return throwError(() => error);
+        }
+        const retry = req.clone({
+          setHeaders: { Authorization: `Bearer ${newToken}` },
+        });
+        return next.handle(retry);
+      }),
+      catchError((refreshErr) => {
+        if (!authService.isLoggingOut()) {
+          void authService.logout();
+        }
+        return throwError(() => refreshErr);
       }),
     );
   }

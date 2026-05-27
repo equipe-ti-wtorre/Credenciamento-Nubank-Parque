@@ -4,7 +4,9 @@ const { child } = require("../../config/logger");
 const AppError = require("../../utils/AppError");
 const { maskDocument } = require("../../utils/privacy");
 const collaboratorService = require("../collaborators/collaborator.service");
+const vehicleService = require("../patrimonial/vehicle.service");
 const { STATUS_APROVADO } = require("../credentials/credentials.schema");
+const { normalizePlate } = require("../../utils/plate");
 
 const logger = child({ module: "gate" });
 
@@ -306,12 +308,208 @@ async function substituteEventCollaborator(accessId, idSubstituteCollaborator) {
   };
 }
 
-function validateServiceAccess() {
-  throw new AppError("Módulo patrimonial ainda não disponível.", 501);
+const SERVICE_VEHICLE_SELECT = `
+  SELECT sav.*,
+         sa.id_service_access,
+         sa.id_company,
+         sa.id_access_status,
+         sa.service_type,
+         ast.description AS access_status_description,
+         v.plate AS vehicle_plate,
+         v.description AS vehicle_description,
+         sub.plate AS substitute_plate,
+         co.fancy_name AS company_fancy_name
+  FROM service_access_vehicle sav
+  INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
+  INNER JOIN access_status ast ON ast.id_access_status = sa.id_access_status
+  INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
+  INNER JOIN company co ON co.id_company = sa.id_company
+  LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
+  WHERE sav.access_id = ?
+  LIMIT 1
+`;
+
+const SERVICE_DENIAL_MESSAGES = {
+  SERVICE_NOT_FOUND: "Acesso de serviço não encontrado.",
+  SERVICE_NOT_APPROVED: "Solicitação de serviço não aprovada.",
+  INVALID_SERVICE_DATE: "Data não autorizada para este serviço.",
+  SERVICE_ACCESS_COMPLETED: "Entrada e saída já registradas para este veículo.",
+};
+
+function buildServiceDenial(errorCode, statusCode = 403) {
+  return {
+    allowed: false,
+    statusCode,
+    error_code: errorCode,
+    reason: SERVICE_DENIAL_MESSAGES[errorCode] || "Acesso negado.",
+  };
 }
 
-function substituteServiceAccess() {
-  throw new AppError("Módulo patrimonial ainda não disponível.", 501);
+async function findServiceVehicleByAccessId(accessId) {
+  const [rows] = await db.execute(SERVICE_VEHICLE_SELECT, [accessId]);
+  return rows[0] || null;
+}
+
+async function isServiceDateAllowed(idServiceAccess) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [rows] = await db.execute(
+    `SELECT 1 FROM service_access_date
+     WHERE id_service_access = ? AND access_date = ? LIMIT 1`,
+    [idServiceAccess, today],
+  );
+  return rows.length > 0;
+}
+
+function resolveEffectiveVehicle(row) {
+  if (row.id_substitute_vehicle) {
+    return { plate: row.substitute_plate };
+  }
+  return { plate: row.vehicle_plate };
+}
+
+function resolveServiceNextAction(row) {
+  if (!row.check_in) return "CHECK_IN";
+  if (!row.check_out) return "CHECK_OUT";
+  return null;
+}
+
+function mapTodayServiceRow(row) {
+  const effective = resolveEffectiveVehicle(row);
+  const next = resolveServiceNextAction(row);
+  return {
+    id: row.id_service_access_vehicle,
+    access_id: row.access_id,
+    vehicle: {
+      plate: effective.plate,
+      description: row.vehicle_description,
+    },
+    company: { name: row.company_fancy_name },
+    service_type: row.service_type,
+    check_in: row.check_in || null,
+    check_out: row.check_out || null,
+    next_action: next || "COMPLETED",
+  };
+}
+
+const GATE_TODAY_SERVICES_SELECT = `
+  SELECT sav.id_service_access_vehicle,
+         sav.access_id,
+         sav.check_in,
+         sav.check_out,
+         sav.id_substitute_vehicle,
+         sa.service_type,
+         v.plate AS vehicle_plate,
+         v.description AS vehicle_description,
+         sub.plate AS substitute_plate,
+         co.fancy_name AS company_fancy_name
+  FROM service_access_vehicle sav
+  INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
+  INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
+  INNER JOIN company co ON co.id_company = sa.id_company
+  LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
+  INNER JOIN service_access_date sad ON sad.id_service_access = sa.id_service_access
+  WHERE sa.id_access_status = ?
+    AND sav.access_id IS NOT NULL
+    AND sad.access_date = CURDATE()
+  ORDER BY COALESCE(sub.plate, v.plate) ASC
+`;
+
+async function listTodayExpectedServices() {
+  const [rows] = await db.execute(GATE_TODAY_SERVICES_SELECT, [STATUS_APROVADO]);
+  return rows.map(mapTodayServiceRow);
+}
+
+function buildServiceSuccessPayload(row, actionRegistered) {
+  const effective = resolveEffectiveVehicle(row);
+  return {
+    allowed: true,
+    data: {
+      access_allowed: true,
+      type: "SERVICE",
+      vehicle: {
+        plate: normalizePlate(effective.plate),
+        description: row.vehicle_description,
+      },
+      company: { fancy_name: row.company_fancy_name },
+      action_registered: actionRegistered,
+      access_id: row.access_id,
+      id_service_access_vehicle: row.id_service_access_vehicle,
+      service_type: row.service_type,
+    },
+  };
+}
+
+async function validateServiceAccess(accessId) {
+  const row = await findServiceVehicleByAccessId(accessId);
+  if (!row) {
+    return buildServiceDenial("SERVICE_NOT_FOUND", 404);
+  }
+  if (Number(row.id_access_status) !== STATUS_APROVADO) {
+    return buildServiceDenial("SERVICE_NOT_APPROVED");
+  }
+  if (!(await isServiceDateAllowed(row.id_service_access))) {
+    return buildServiceDenial("INVALID_SERVICE_DATE");
+  }
+
+  const action = resolveServiceNextAction(row);
+  if (!action) {
+    return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
+  }
+
+  const column = action === "CHECK_IN" ? "check_in" : "check_out";
+  await db.execute(
+    `UPDATE service_access_vehicle SET ${column} = NOW() WHERE id_service_access_vehicle = ?`,
+    [row.id_service_access_vehicle],
+  );
+
+  const updated = await findServiceVehicleByAccessId(accessId);
+  logger.info(
+    { accessId, action, id: row.id_service_access_vehicle },
+    "Fluxo patrimonial registrado na portaria",
+  );
+  return buildServiceSuccessPayload(updated, action);
+}
+
+async function substituteServiceAccess(accessId, idSubstituteVehicle) {
+  const row = await findServiceVehicleByAccessId(accessId);
+  if (!row) {
+    return buildServiceDenial("SERVICE_NOT_FOUND", 404);
+  }
+  if (Number(row.id_access_status) !== STATUS_APROVADO) {
+    return buildServiceDenial("SERVICE_NOT_APPROVED");
+  }
+  if (!(await isServiceDateAllowed(row.id_service_access))) {
+    return buildServiceDenial("INVALID_SERVICE_DATE");
+  }
+
+  const substitute = await vehicleService.findVehicleById(idSubstituteVehicle);
+  if (!substitute || !substitute.status) {
+    throw new AppError("Veículo substituto inválido ou inativo.", 400);
+  }
+  if (substitute.id_company !== row.id_company) {
+    throw new AppError("Veículo substituto deve ser da mesma empresa.", 400);
+  }
+  if (Number(idSubstituteVehicle) === Number(row.id_vehicle)) {
+    throw new AppError("Selecione um veículo diferente do titular.", 400);
+  }
+
+  await db.execute(
+    `UPDATE service_access_vehicle SET id_substitute_vehicle = ? WHERE id_service_access_vehicle = ?`,
+    [idSubstituteVehicle, row.id_service_access_vehicle],
+  );
+
+  const updated = await findServiceVehicleByAccessId(accessId);
+  const effective = resolveEffectiveVehicle(updated);
+
+  return {
+    allowed: true,
+    data: {
+      access_id: accessId,
+      id_service_access_vehicle: row.id_service_access_vehicle,
+      id_substitute_vehicle: idSubstituteVehicle,
+      substitute: { plate: normalizePlate(effective.plate) },
+    },
+  };
 }
 
 module.exports = {
@@ -320,5 +518,6 @@ module.exports = {
   listTodayExpectedCredentials,
   validateServiceAccess,
   substituteServiceAccess,
+  listTodayExpectedServices,
   DENIAL_MESSAGES,
 };

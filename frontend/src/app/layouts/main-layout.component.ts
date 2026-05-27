@@ -2,6 +2,7 @@ import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { AuthService } from '../core/services/auth.service';
+import { SessionIdleService } from '../core/services/session-idle.service';
 import { StorageService } from '../core/services/storage.service';
 import { ADMIN_MENU_ITEMS, AdminMenuItem } from '../config/admin-menu.config';
 
@@ -165,6 +166,32 @@ const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
               <span class="sidebar-nav-icon" aria-hidden="true">📅</span>
               <span *ngIf="!sidebarCollapsed" class="truncate">Eventos</span>
             </a>
+            <a
+              routerLink="/admin/frota"
+              routerLinkActive="sidebar-nav-active"
+              class="sidebar-nav-link"
+              [class.px-3]="!sidebarCollapsed"
+              [class.py-2.5]="!sidebarCollapsed"
+              [class.justify-center]="sidebarCollapsed"
+              [class.p-2.5]="sidebarCollapsed"
+              [title]="sidebarCollapsed ? 'Frota' : ''"
+            >
+              <span class="sidebar-nav-icon" aria-hidden="true">🚗</span>
+              <span *ngIf="!sidebarCollapsed" class="truncate">Frota</span>
+            </a>
+            <a
+              routerLink="/admin/solicitacoes-servico"
+              routerLinkActive="sidebar-nav-active"
+              class="sidebar-nav-link"
+              [class.px-3]="!sidebarCollapsed"
+              [class.py-2.5]="!sidebarCollapsed"
+              [class.justify-center]="sidebarCollapsed"
+              [class.p-2.5]="sidebarCollapsed"
+              [title]="sidebarCollapsed ? 'Serviços' : ''"
+            >
+              <span class="sidebar-nav-icon" aria-hidden="true">🔧</span>
+              <span *ngIf="!sidebarCollapsed" class="truncate">Serviços</span>
+            </a>
           </div>
 
           <div *ngIf="isAdmin" class="pt-4">
@@ -230,6 +257,7 @@ export class MainLayoutComponent implements OnInit {
 
   constructor(
     private authService: AuthService,
+    private sessionIdle: SessionIdleService,
     private storage: StorageService,
     private cdr: ChangeDetectorRef,
   ) {}
@@ -247,6 +275,8 @@ export class MainLayoutComponent implements OnInit {
   async ngOnInit() {
     const collapsed = await this.storage.get(SIDEBAR_COLLAPSED_KEY);
     this.sidebarCollapsed = collapsed === '1';
+
+    void this.sessionIdle.startMonitoring();
 
     const user = await this.authService.getCurrentUser();
     this.userName = user?.nome_completo || user?.email || 'Usuário';

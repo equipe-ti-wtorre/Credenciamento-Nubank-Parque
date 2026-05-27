@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Injector } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { firstValueFrom, tap } from 'rxjs';
@@ -15,6 +15,7 @@ import { StorageService } from './storage.service';
 import { MsalConfigService } from '../../services/msal-config.service';
 import { LoggerService } from './logger.service';
 import { MicrosoftProfileService } from './microsoft-profile.service';
+import { SessionIdleService } from './session-idle.service';
 
 export interface AuthUser {
   id: number;
@@ -45,6 +46,7 @@ export class AuthService {
   private backendValidationInFlight: Promise<void> | null = null;
   private lastProcessedRedirectId: string | null = null;
   private logoutPromise: Promise<void> | null = null;
+  private logoutReason: 'idle' | null = null;
   private msalHandlingPaused = false;
   private cachedPhotoObjectUrl: string | null = null;
 
@@ -59,6 +61,7 @@ export class AuthService {
     private logger: LoggerService,
     private notification: NotificationService,
     private microsoftProfile: MicrosoftProfileService,
+    private injector: Injector,
   ) {
     this.tokensReady = this.loadTokensFromStorage();
   }
@@ -90,6 +93,8 @@ export class AuthService {
     if (response.user) {
       await this.storage.set('currentUser', JSON.stringify(response.user));
     }
+
+    void this.injector.get(SessionIdleService).resetAfterLogin();
   }
 
   loginManual(credentials: { username: string; password: string }) {
@@ -361,7 +366,10 @@ export class AuthService {
     }
   }
 
-  logout(): Promise<void> {
+  logout(options?: { reason?: 'idle' }): Promise<void> {
+    if (options?.reason) {
+      this.logoutReason = options.reason;
+    }
     if (this.logoutPromise) {
       return this.logoutPromise;
     }
@@ -400,7 +408,11 @@ export class AuthService {
     this.clearRedirectProcessedMarker();
     this.clearStuckMsalInteraction();
 
-    await this.router.navigateByUrl('/login', { replaceUrl: true });
+    this.injector.get(SessionIdleService).clearOnLogout();
+
+    const loginUrl = this.logoutReason === 'idle' ? '/login?reason=idle' : '/login';
+    this.logoutReason = null;
+    await this.router.navigateByUrl(loginUrl, { replaceUrl: true });
 
     if (refreshToken) {
       void firstValueFrom(this.api.post('/auth/logout', { refreshToken })).catch(() => {

@@ -197,11 +197,62 @@ function resolveCollaboratorsPolicy(method, path) {
     };
   }
 
+  if (method === "POST" && /\/collaborators\/bulk\/?$/.test(path)) {
+    return {
+      module: AUDIT_MODULES.COLLABORATORS,
+      action: AUDIT_ACTIONS.CREATE,
+      event: "collaborators.bulk_create",
+      resourceType: "collaborator_bulk",
+    };
+  }
+
   if (method === "POST" && /\/collaborators\/?$/.test(path)) {
     return {
       module: AUDIT_MODULES.COLLABORATORS,
       action: AUDIT_ACTIONS.CREATE,
       event: "collaborators.create",
+      resourceType: "collaborator",
+    };
+  }
+
+  if (method === "GET" && /\/collaborators\/document-change\/pending\/?$/.test(path)) {
+    return {
+      module: AUDIT_MODULES.COLLABORATORS,
+      action: AUDIT_ACTIONS.LIST,
+      event: "collaborators.document_change.pending",
+      resourceType: "document_change_request",
+    };
+  }
+
+  const docChangeStatusMatch = path.match(/\/collaborators\/document-change\/(\d+)\/status\/?$/);
+  if (method === "PATCH" && docChangeStatusMatch) {
+    return {
+      module: AUDIT_MODULES.COLLABORATORS,
+      action: AUDIT_ACTIONS.UPDATE,
+      event: "collaborators.document_change.status",
+      resourceId: Number(docChangeStatusMatch[1]),
+      resourceType: "document_change_request",
+    };
+  }
+
+  const docChangeCreateMatch = path.match(/\/collaborators\/(\d+)\/document-change\/?$/);
+  if (method === "POST" && docChangeCreateMatch) {
+    return {
+      module: AUDIT_MODULES.COLLABORATORS,
+      action: AUDIT_ACTIONS.CREATE,
+      event: "collaborators.document_change.request",
+      resourceId: Number(docChangeCreateMatch[1]),
+      resourceType: "document_change_request",
+    };
+  }
+
+  const pictureMatch = path.match(/\/collaborators\/(\d+)\/picture\/?$/);
+  if (method === "POST" && pictureMatch) {
+    return {
+      module: AUDIT_MODULES.COLLABORATORS,
+      action: AUDIT_ACTIONS.UPDATE,
+      event: "collaborators.picture.upload",
+      resourceId: Number(pictureMatch[1]),
       resourceType: "collaborator",
     };
   }

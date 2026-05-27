@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import Swal from 'sweetalert2';
 import {
+  CollaboratorBulkUploadResult,
   CollaboratorDocumentType,
   CollaboratorItem,
   CollaboratorRole,
@@ -40,6 +41,9 @@ interface CollaboratorFormState {
         <div class="flex flex-wrap gap-2 shrink-0">
           <button type="button" (click)="carregar()" [disabled]="loading()" class="btn-secondary disabled:opacity-50">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
+          </button>
+          <button type="button" (click)="abrirBulkModal()" class="btn-secondary">
+            Upload em Lote (Excel/CSV)
           </button>
           <button type="button" (click)="novoColaborador()" class="btn-primary">+ Novo colaborador</button>
         </div>
@@ -323,6 +327,18 @@ interface CollaboratorFormState {
                 class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
               />
             </div>
+            <div *ngIf="editingId()" class="md:col-span-2">
+              <label class="text-xs font-bold text-slate-500 uppercase">Foto</label>
+              <div class="mt-1 flex items-center gap-4">
+                <img
+                  *ngIf="picturePreviewUrl()"
+                  [src]="picturePreviewUrl()"
+                  alt="Preview"
+                  class="w-16 h-16 rounded-full object-cover border border-slate-200"
+                />
+                <input type="file" accept="image/jpeg,image/png,image/webp" (change)="onPictureSelected($event)" />
+              </div>
+            </div>
           </div>
 
           <div class="flex justify-end gap-2 pt-2">
@@ -332,6 +348,48 @@ interface CollaboratorFormState {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div *ngIf="showBulkModal()" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button type="button" class="absolute inset-0 bg-slate-900/50" (click)="fecharBulkModal()"></button>
+      <div class="relative card-surface p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+        <h3 class="text-lg font-bold text-slate-800 mb-2">Upload em lote</h3>
+        <p class="text-sm text-slate-500 mb-4">
+          Colunas: document, id_collaborator_document_type, name, id_collaborator_role (rg, phone opcionais).
+        </p>
+        <input
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          (change)="onBulkFileSelected($event)"
+          class="w-full text-sm"
+        />
+        <div *ngIf="bulkUploading()" class="mt-4 text-sm text-slate-600">Processando arquivo...</div>
+        <table *ngIf="bulkResult()?.errors?.length" class="w-full text-sm mt-4 border border-slate-200 rounded-lg overflow-hidden">
+          <thead class="bg-slate-50">
+            <tr>
+              <th class="px-3 py-2 text-left">Linha</th>
+              <th class="px-3 py-2 text-left">Erro</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let e of bulkResult()!.errors" class="border-t border-slate-100">
+              <td class="px-3 py-2">{{ e.line }}</td>
+              <td class="px-3 py-2 text-rose-700">{{ e.reason }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="flex justify-end gap-2 mt-4">
+          <button type="button" class="btn-secondary" (click)="fecharBulkModal()">Fechar</button>
+          <button
+            type="button"
+            class="btn-primary disabled:opacity-50"
+            [disabled]="!bulkFile() || bulkUploading()"
+            (click)="enviarBulk()"
+          >
+            Enviar
+          </button>
+        </div>
       </div>
     </div>
   `,
@@ -345,6 +403,12 @@ export class CollaboratorListComponent {
   loading = signal(false);
   saving = signal(false);
   showModal = signal(false);
+  showBulkModal = signal(false);
+  bulkUploading = signal(false);
+  bulkFile = signal<File | null>(null);
+  bulkResult = signal<CollaboratorBulkUploadResult | null>(null);
+  picturePreviewUrl = signal<string | null>(null);
+  pendingPictureFile = signal<File | null>(null);
   editingId = signal<number | null>(null);
 
   pagination = signal({
@@ -400,11 +464,12 @@ export class CollaboratorListComponent {
   carregarDominios() {
     this.collaboratorService.listDocumentTypes().subscribe({
       next: (res) => this.documentTypes.set(res.types),
-      error: () => this.notification.error('Falha ao carregar tipos de documento.'),
+      error: (err) =>
+        this.notification.notifyHttpError(err, 'Falha ao carregar tipos de documento.'),
     });
     this.collaboratorService.listRoles().subscribe({
       next: (res) => this.roles.set(res.roles),
-      error: () => this.notification.error('Falha ao carregar funções.'),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar funções.'),
     });
   }
 
@@ -511,6 +576,14 @@ export class CollaboratorListComponent {
           phone: col.phone || '',
         };
         this.loading.set(false);
+        this.revokePicturePreview();
+        this.pendingPictureFile.set(null);
+        if (col.picture) {
+          this.collaboratorService.getPictureBlob(col.picture).subscribe({
+            next: (blob) => this.picturePreviewUrl.set(URL.createObjectURL(blob)),
+            error: () => this.picturePreviewUrl.set(null),
+          });
+        }
         this.showModal.set(true);
         this.cdr.markForCheck();
       },
@@ -525,6 +598,87 @@ export class CollaboratorListComponent {
     this.showModal.set(false);
     this.editingId.set(null);
     this.form = this.emptyForm();
+    this.revokePicturePreview();
+    this.pendingPictureFile.set(null);
+  }
+
+  abrirBulkModal() {
+    this.bulkFile.set(null);
+    this.bulkResult.set(null);
+    this.showBulkModal.set(true);
+  }
+
+  fecharBulkModal() {
+    this.showBulkModal.set(false);
+    this.bulkFile.set(null);
+    this.bulkResult.set(null);
+  }
+
+  onBulkFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    this.bulkFile.set(input.files?.[0] ?? null);
+    this.bulkResult.set(null);
+  }
+
+  enviarBulk() {
+    const file = this.bulkFile();
+    if (!file) return;
+    this.bulkUploading.set(true);
+    this.collaboratorService.bulkUpload(file).subscribe({
+      next: (res) => {
+        this.bulkUploading.set(false);
+        this.bulkResult.set(res);
+        if (res.errors.length === 0) {
+          Swal.fire({
+            icon: 'success',
+            title: 'Importação concluída',
+            text: `${res.successCount} colaborador(es) cadastrado(s).`,
+            timer: 2500,
+            showConfirmButton: false,
+          });
+          this.fecharBulkModal();
+          this.carregar(1);
+        } else {
+          this.notification.success(
+            `${res.successCount} de ${res.totalProcessed} importado(s). Verifique os erros.`,
+          );
+          if (res.successCount > 0) this.carregar(1);
+        }
+      },
+      error: (err) => {
+        this.bulkUploading.set(false);
+        this.notification.error(this.extractError(err) || 'Falha no upload em lote.');
+      },
+    });
+  }
+
+  onPictureSelected(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    this.revokePicturePreview();
+    this.pendingPictureFile.set(file);
+    this.picturePreviewUrl.set(URL.createObjectURL(file));
+  }
+
+  private revokePicturePreview() {
+    const url = this.picturePreviewUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.picturePreviewUrl.set(null);
+  }
+
+  private uploadPictureIfNeeded(id: number, onDone: () => void) {
+    const file = this.pendingPictureFile();
+    if (!file) {
+      onDone();
+      return;
+    }
+    this.collaboratorService.uploadPicture(id, file).subscribe({
+      next: () => onDone(),
+      error: (err) => {
+        this.notification.error(this.extractError(err) || 'Colaborador salvo, mas falha ao enviar foto.');
+        onDone();
+      },
+    });
   }
 
   salvar() {
@@ -575,11 +729,14 @@ export class CollaboratorListComponent {
       : this.collaboratorService.create(payload);
 
     req.subscribe({
-      next: () => {
-        this.saving.set(false);
-        this.notification.success(id ? 'Colaborador atualizado.' : 'Colaborador criado.');
-        this.fecharModal();
-        this.carregar(id ? this.pagination().page : 1);
+      next: (res) => {
+        const savedId = id ?? res.collaborator.id_collaborator;
+        this.uploadPictureIfNeeded(savedId, () => {
+          this.saving.set(false);
+          this.notification.success(id ? 'Colaborador atualizado.' : 'Colaborador criado.');
+          this.fecharModal();
+          this.carregar(id ? this.pagination().page : 1);
+        });
       },
       error: (err) => {
         this.saving.set(false);

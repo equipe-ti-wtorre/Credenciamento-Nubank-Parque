@@ -214,6 +214,14 @@
   optionalDependencies:
     lmdb "3.5.1"
 
+"@angular/cdk@>=20.0.0":
+  version "21.2.13"
+  resolved "https://registry.npmmirror.com/@angular/cdk/-/cdk-21.2.13.tgz"
+  integrity sha512-nQGGJ6Efqi8n0qhT/PllsaIIY+vz+TL7/tpR7F2QKiqzS/9l4m7ea0vvS6fSMGrjEbqbkzTHbjLDsIg6X2hK+w==
+  dependencies:
+    parse5 "^8.0.0"
+    tslib "^2.3.0"
+
 "@angular/cli@^21.1.3":
   version "21.2.12"
   resolved "https://registry.npmmirror.com/@angular/cli/-/cli-21.2.12.tgz"
@@ -238,7 +246,7 @@
     yargs "18.0.0"
     zod "4.3.6"
 
-"@angular/common@^21.1.0", "@angular/common@21.2.14":
+"@angular/common@^21.0.0 || ^22.0.0", "@angular/common@^21.1.0", "@angular/common@>=20.0.0", "@angular/common@21.2.14":
   version "21.2.14"
   resolved "https://registry.npmmirror.com/@angular/common/-/common-21.2.14.tgz"
   integrity sha512-J6K7cE7uKOKmg4+sxLeGfsmaYDjP5l1XCiMMI0WPT0t68uxLk8g3MzV5Trqfb6ZnRxWcfp9c4c+XxAvMBB7ymA==
@@ -266,7 +274,7 @@
   dependencies:
     tslib "^2.3.0"
 
-"@angular/core@^21.0.0", "@angular/core@^21.1.0", "@angular/core@21.2.14":
+"@angular/core@^21.0.0", "@angular/core@^21.0.0 || ^22.0.0", "@angular/core@^21.1.0", "@angular/core@>=20.0.0", "@angular/core@21.2.14":
   version "21.2.14"
   resolved "https://registry.npmmirror.com/@angular/core/-/core-21.2.14.tgz"
   integrity sha512-Z1Ivjh7L2lT//8LA7vQ3tj7Rg6wl2XRA5kPSAukgn8u0Yu0XxG8NE8KG0Eypb3v9CEcbwATwpgnxzbJFZ8TFcw==
@@ -281,7 +289,7 @@
     "@standard-schema/spec" "^1.0.0"
     tslib "^2.3.0"
 
-"@angular/platform-browser@^21.0.0", "@angular/platform-browser@^21.1.0", "@angular/platform-browser@21.2.14":
+"@angular/platform-browser@^21.0.0", "@angular/platform-browser@^21.0.0 || ^22.0.0", "@angular/platform-browser@^21.1.0", "@angular/platform-browser@>=20.0.0", "@angular/platform-browser@21.2.14":
   version "21.2.14"
   resolved "https://registry.npmmirror.com/@angular/platform-browser/-/platform-browser-21.2.14.tgz"
   integrity sha512-34tBwxh86yN2YifBDhCesm6N+nn9WcbuXjRwfo0mTme15OZ/zt56yw7v1mcK3UFLegIIALtsIgpXXrPWWQoKkA==
@@ -806,6 +814,11 @@
   dependencies:
     "@jridgewell/resolve-uri" "^3.1.0"
     "@jridgewell/sourcemap-codec" "^1.4.14"
+
+"@kurkle/color@^0.3.0":
+  version "0.3.4"
+  resolved "https://registry.npmmirror.com/@kurkle/color/-/color-0.3.4.tgz"
+  integrity sha512-M5UknZPHRu3DEDWoipU6sE8PdkZ6Z/S+v4dD+Ke8IaNlpdSQah50lz1KtcFBa2vsdOnwbbnxJwVM4wty6udA5w==
 
 "@listr2/prompt-adapter-inquirer@3.0.5":
   version "3.0.5"
@@ -1421,6 +1434,13 @@ chardet@^2.1.1:
   version "2.1.1"
   resolved "https://registry.npmmirror.com/chardet/-/chardet-2.1.1.tgz"
   integrity sha512-PsezH1rqdV9VvyNhxxOW32/d75r01NY7TQCmOqomRo15ZSOKbpTFVsfjghxo6JloQUCGnH4k1LGu0R4yCLlWQQ==
+
+"chart.js@^3.4.0 || ^4.0.0", chart.js@^4.5.1:
+  version "4.5.1"
+  resolved "https://registry.npmmirror.com/chart.js/-/chart.js-4.5.1.tgz"
+  integrity sha512-GIjfiT9dbmHRiYi6Nl2yFCq7kkwdkp1W/lp2J99rX0yo9tgJGn3lKQATztIjb5tVtevcBtIdICNWqlq5+E8/Pw==
+  dependencies:
+    "@kurkle/color" "^0.3.0"
 
 chokidar@^3.6.0:
   version "3.6.0"
@@ -2373,6 +2393,11 @@ listr2@9.0.5:
     rfdc "^1.4.1"
     wrap-ansi "^9.0.0"
 
+lodash-es@^4.17.15:
+  version "4.18.1"
+  resolved "https://registry.npmmirror.com/lodash-es/-/lodash-es-4.18.1.tgz"
+  integrity sha512-J8xewKD/Gk22OZbhpOVSwcs60zhd95ESDwezOFuA3/099925PdHJ7OFHNTGtajL3AlZkykD32HykiMo+BIBI8A==
+
 log-symbols@^7.0.1:
   version "7.0.1"
   resolved "https://registry.npmmirror.com/log-symbols/-/log-symbols-7.0.1.tgz"
@@ -2589,6 +2614,14 @@ negotiator@^1.0.0:
   version "1.0.0"
   resolved "https://registry.npmmirror.com/negotiator/-/negotiator-1.0.0.tgz"
   integrity sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==
+
+ng2-charts@^9.0.0:
+  version "9.0.0"
+  resolved "https://registry.npmmirror.com/ng2-charts/-/ng2-charts-9.0.0.tgz"
+  integrity sha512-oG4VLbwDmWtSCaBoiuoi14LZR2DrOgG5WKtGm12eAQHrA32l0dc0XwKurY/dilc9bgKAiJgL/qy2hy/rcb8yog==
+  dependencies:
+    lodash-es "^4.17.15"
+    tslib "^2.3.0"
 
 node-addon-api@^7.0.0:
   version "7.1.1"

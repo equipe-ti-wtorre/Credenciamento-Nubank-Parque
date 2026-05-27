@@ -25,6 +25,7 @@ import { MsalConfigService } from './services/msal-config.service';
 import { PlatformService } from './core/services/platform.service';
 import { AuthService } from './core/services/auth.service';
 import { bootstrapPlatform } from './core/platform-bootstrap';
+import { provideCharts, withDefaultRegisterables } from 'ng2-charts';
 
 export function platformInitializer(platform: PlatformService) {
   return () => bootstrapPlatform(platform);
@@ -60,6 +61,7 @@ export const appConfig: ApplicationConfig = {
     { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
     importProvidersFrom(BrowserModule, MsalModule),
     provideAnimations(),
+    provideCharts(withDefaultRegisterables()),
     {
       provide: APP_INITIALIZER,
       useFactory: msalConfigInitializer,

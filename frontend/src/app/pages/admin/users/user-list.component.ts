@@ -454,9 +454,9 @@ export class UserListComponent implements SettingsReloadable {
           this.loading.set(false);
           this.cdr.markForCheck();
         },
-        error: () => {
+        error: (err) => {
           this.loading.set(false);
-          this.notification.error('Falha ao carregar usuários.');
+          this.notification.notifyHttpError(err, 'Falha ao carregar usuários.');
           this.cdr.markForCheck();
         },
       });

@@ -368,7 +368,8 @@ export class CompanyListComponent {
   carregarTipos() {
     this.companyService.listTypes().subscribe({
       next: (res) => this.types.set(res.types),
-      error: () => this.notification.error('Falha ao carregar tipos de empresa.'),
+      error: (err) =>
+        this.notification.notifyHttpError(err, 'Falha ao carregar tipos de empresa.'),
     });
   }
 

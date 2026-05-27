@@ -65,6 +65,59 @@ exports.getById = async (req, res, next) => {
   }
 };
 
+exports.bulkCreate = async (req, res, next) => {
+  try {
+    const summary = await collaboratorService.bulkCreateCollaborators(req, req.file);
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "collaborators",
+      event: "collaborators.bulk_create",
+      resource: { type: "collaborator_bulk", id: null },
+      metadata: {
+        totalProcessed: summary.totalProcessed,
+        successCount: summary.successCount,
+        errorCount: summary.errors.length,
+      },
+    });
+
+    res.status(200).json(summary);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.uploadPicture = async (req, res, next) => {
+  try {
+    const path = require("path");
+    const fs = require("fs");
+    const { v4: uuidv4 } = require("uuid");
+    const storageDir = path.join(__dirname, "../../storage/pictures");
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const ext = path.extname(req.file.originalname || ".jpg").toLowerCase() || ".jpg";
+    const safeExt = [".jpg", ".jpeg", ".png", ".webp"].includes(ext) ? ext : ".jpg";
+    const filename = `${uuidv4()}${safeExt}`;
+    fs.writeFileSync(path.join(storageDir, filename), req.file.buffer);
+
+    const collaborator = await collaboratorService.updateCollaboratorPicture(
+      req.params.id,
+      filename,
+    );
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "collaborators",
+      event: "collaborator.picture.upload",
+      resource: { type: "collaborator", id: collaborator.id_collaborator },
+    });
+
+    res.json({ collaborator, picture: filename });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.create = async (req, res, next) => {
   try {
     const validated = await validateAndNormalizeCollaboratorPayload(req.body);

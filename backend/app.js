@@ -11,6 +11,7 @@ const errorHandler = require("./middleware/errorHandler");
 const authRoutes = require("./modules/auth/auth.routes");
 const tenantRoutes = require("./modules/tenants/tenant.routes");
 const smtpRoutes = require("./modules/smtp/smtp.routes");
+const systemSettingsRoutes = require("./modules/system-settings/system-settings.routes");
 const teamsRoutes = require("./modules/teams/teams.routes");
 const systemReportsRoutes = require("./modules/system-reports/system-reports.routes");
 const usersRoutes = require("./modules/users/users.routes");
@@ -19,6 +20,10 @@ const collaboratorRoutes = require("./modules/collaborators/collaborator.routes"
 const eventRoutes = require("./modules/events/event.routes");
 const credentialsRoutes = require("./modules/credentials/credentials.routes");
 const gateRoutes = require("./modules/gate/gate.routes");
+const vehicleRoutes = require("./modules/patrimonial/vehicle.routes");
+const serviceAccessRoutes = require("./modules/patrimonial/service-access.routes");
+const reportsRoutes = require("./modules/reports/reports.routes");
+const storageRoutes = require("./modules/storage/storage.routes");
 const healthRoutes = require("./modules/health/health.routes");
 
 const app = express();
@@ -46,6 +51,7 @@ const v1Router = express.Router();
 v1Router.use("/auth", authRoutes);
 v1Router.use("/tenants", tenantRoutes);
 v1Router.use("/smtp", smtpRoutes);
+v1Router.use("/system-settings", systemSettingsRoutes);
 v1Router.use("/teams", teamsRoutes);
 v1Router.use("/system-reports", systemReportsRoutes);
 v1Router.use("/users", usersRoutes);
@@ -54,6 +60,10 @@ v1Router.use("/collaborators", collaboratorRoutes);
 v1Router.use("/events", eventRoutes);
 v1Router.use("/credentials", credentialsRoutes);
 v1Router.use("/gate", gateRoutes);
+v1Router.use("/vehicles", vehicleRoutes);
+v1Router.use("/patrimonial/services", serviceAccessRoutes);
+v1Router.use("/reports", reportsRoutes);
+v1Router.use("/storage", storageRoutes);
 v1Router.use("/health", healthRoutes);
 
 app.use("/api/v1", v1Router);

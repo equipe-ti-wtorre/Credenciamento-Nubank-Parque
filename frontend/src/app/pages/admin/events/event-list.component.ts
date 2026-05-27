@@ -264,7 +264,8 @@ export class EventListComponent implements OnInit {
   carregarTipos() {
     this.eventService.listTypes().subscribe({
       next: (res) => this.types.set(res.types),
-      error: () => this.notification.error('Falha ao carregar tipos de dia.'),
+      error: (err) =>
+        this.notification.notifyHttpError(err, 'Falha ao carregar tipos de dia.'),
     });
   }
 

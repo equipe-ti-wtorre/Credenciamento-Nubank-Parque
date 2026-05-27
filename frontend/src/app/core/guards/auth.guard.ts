@@ -1,13 +1,25 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { StorageService } from '../services/storage.service';
+import { SessionIdleService } from '../services/session-idle.service';
+import { AuthService } from '../services/auth.service';
 
 export const AuthGuard: CanActivateFn = async (route) => {
   const router = inject(Router);
   const storage = inject(StorageService);
+  const sessionIdle = inject(SessionIdleService);
+  const authService = inject(AuthService);
+
   const token = await storage.get('token');
   if (!token) {
     router.navigate(['/login']);
+    return false;
+  }
+
+  if (sessionIdle.isIdleExpired() || sessionIdle.hasExceededIdleLimit()) {
+    if (!authService.isLoggingOut()) {
+      void authService.logout({ reason: 'idle' });
+    }
     return false;
   }
 

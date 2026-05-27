@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { MsalConfigService } from '../../services/msal-config.service';
 import { NotificationService } from '../../core/services/notification.service';
@@ -17,6 +17,7 @@ import { NotificationService } from '../../core/services/notification.service';
         <div class="mt-2 w-28 h-0.5 bg-blue-500 rounded-full" aria-hidden="true"></div>
       </div>
       <h2 class="text-xl font-medium text-white text-center">Credenciamento</h2>
+      <p *ngIf="idleMessage" class="text-amber-300 text-sm text-center px-2">{{ idleMessage }}</p>
       <p *ngIf="msalWarning" class="text-amber-300 text-xs text-center px-2">{{ msalWarning }}</p>
 
       <ng-container *ngIf="showAdminLogin">
@@ -90,15 +91,20 @@ export class LoginComponent implements OnInit {
   msalBusy = false;
   showAdminLogin = false;
   msalWarning: string | null = null;
+  idleMessage: string | null = null;
 
   constructor(
     private authService: AuthService,
     private router: Router,
+    private route: ActivatedRoute,
     private msalConfigService: MsalConfigService,
     private notification: NotificationService,
   ) {}
 
   async ngOnInit() {
+    if (this.route.snapshot.queryParamMap.get('reason') === 'idle') {
+      this.idleMessage = 'Sua sessão expirou por inatividade. Faça login novamente.';
+    }
     if (await this.authService.isLoggedIn()) {
       this.router.navigate(['/dashboard']);
       return;
