@@ -29,6 +29,15 @@ function respondDenial(res, req, denial) {
   });
 }
 
+exports.listTodayEvents = async (req, res, next) => {
+  try {
+    const credentials = await gateService.listTodayExpectedCredentials();
+    res.json({ credentials });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.validateEvent = async (req, res, next) => {
   try {
     const { error, value } = eventValidateSchema.validate(req.body);

@@ -31,6 +31,23 @@ export interface GateValidateDenied {
 
 export type GateValidateResponse = GateValidateSuccess | GateValidateDenied;
 
+export type GateNextAction = 'CHECK_IN' | 'CHECK_OUT' | 'COMPLETED';
+
+export interface GateTodayCredential {
+  id: number;
+  access_id: string;
+  collaborator: GateCollaboratorInfo;
+  company: { name: string };
+  event_name: string;
+  access_check_in: string | null;
+  access_check_out: string | null;
+  next_action: GateNextAction;
+}
+
+export interface GateTodayListResponse {
+  credentials: GateTodayCredential[];
+}
+
 export interface GateSubstitutePayload {
   access_id: string;
   id_substitute_collaborator: number;
@@ -56,5 +73,9 @@ export class GateService {
 
   substituteEvent(payload: GateSubstitutePayload): Observable<GateSubstituteResponse> {
     return this.api.post<GateSubstituteResponse>('/gate/events/substitute', payload);
+  }
+
+  listToday(): Observable<GateTodayListResponse> {
+    return this.api.get<GateTodayListResponse>('/gate/events/today');
   }
 }

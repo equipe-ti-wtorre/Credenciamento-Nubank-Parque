@@ -370,6 +370,15 @@ function resolveCredentialsPolicy(method, path) {
 function resolveGatePolicy(method, path) {
   if (!GATE_API.test(path)) return null;
 
+  if (method === "GET" && /\/gate\/events\/today\/?$/.test(path)) {
+    return {
+      module: AUDIT_MODULES.GATE,
+      action: AUDIT_ACTIONS.LIST,
+      event: "gate.event.today_list",
+      resourceType: "credential",
+    };
+  }
+
   if (method === "POST" && /\/gate\/events\/validate\/?$/.test(path)) {
     return {
       module: AUDIT_MODULES.GATE,

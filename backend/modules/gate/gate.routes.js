@@ -5,6 +5,7 @@ const { authMiddleware, authorizeRoles } = require("../../middleware/authMiddlew
 const router = express.Router();
 const gateControl = [authMiddleware, authorizeRoles("ADMIN", "CONTROLADOR")];
 
+router.get("/events/today", ...gateControl, gateController.listTodayEvents);
 router.post("/events/validate", ...gateControl, gateController.validateEvent);
 router.post("/events/substitute", ...gateControl, gateController.substituteEvent);
 router.post("/services/validate", ...gateControl, gateController.validateService);
