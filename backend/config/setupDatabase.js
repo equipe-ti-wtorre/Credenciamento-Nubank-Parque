@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
 const env = require("./env");
@@ -659,6 +661,30 @@ async function migratePhase2(connection) {
   }
 }
 
+async function migratePhase3(connection) {
+  const [slTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'storage_location' LIMIT 1`,
+    [env.db.name],
+  );
+  if (slTables.length > 0) {
+    logger.info("Migration Phase 3: já aplicada (storage_location existe)");
+    return;
+  }
+
+  const sqlPath = path.join(__dirname, "../migrations/014_merchandise.sql");
+  const sql = fs.readFileSync(sqlPath, "utf8");
+  const statements = sql
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !s.startsWith("--"));
+
+  for (const statement of statements) {
+    await connection.query(statement);
+  }
+  logger.info("Migration Phase 3: 014_merchandise.sql aplicado");
+}
+
 async function migrateUsuariosCompanyLink(connection) {
   const [tables] = await connection.query(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
@@ -920,6 +946,7 @@ async function initializeDatabase() {
     await migrateCredentials(connection);
     await migrateGate(connection);
     await migratePhase2(connection);
+    await migratePhase3(connection);
     await migrateUsuarios(connection);
 
     if (env.adminEmail && env.adminPassword) {

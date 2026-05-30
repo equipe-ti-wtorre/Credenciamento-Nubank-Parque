@@ -23,6 +23,7 @@ const gateRoutes = require("./modules/gate/gate.routes");
 const vehicleRoutes = require("./modules/patrimonial/vehicle.routes");
 const serviceAccessRoutes = require("./modules/patrimonial/service-access.routes");
 const reportsRoutes = require("./modules/reports/reports.routes");
+const materialsRoutes = require("./modules/materials/materials.routes");
 const storageRoutes = require("./modules/storage/storage.routes");
 const healthRoutes = require("./modules/health/health.routes");
 
@@ -63,6 +64,7 @@ v1Router.use("/gate", gateRoutes);
 v1Router.use("/vehicles", vehicleRoutes);
 v1Router.use("/patrimonial/services", serviceAccessRoutes);
 v1Router.use("/reports", reportsRoutes);
+v1Router.use("/materials", materialsRoutes);
 v1Router.use("/storage", storageRoutes);
 v1Router.use("/health", healthRoutes);
 

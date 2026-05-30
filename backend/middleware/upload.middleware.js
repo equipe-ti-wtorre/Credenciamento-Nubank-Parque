@@ -69,8 +69,45 @@ const pictureUploadMiddleware = createUploadMiddleware({
   invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
 });
 
+function createOptionalUploadMiddleware({ fieldName, extensions, mimetypes, maxSize, invalidMessage }) {
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: maxSize, files: 1 },
+    fileFilter(_req, file, cb) {
+      if (!matchesAllowed(file, extensions, mimetypes)) {
+        return cb(new AppError(invalidMessage, 400));
+      }
+      cb(null, true);
+    },
+  }).single(fieldName);
+
+  return (req, res, next) => {
+    upload(req, res, (err) => {
+      if (err) {
+        if (err instanceof AppError) return next(err);
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return next(
+            new AppError(`Arquivo excede o limite de ${Math.round(maxSize / 1024 / 1024)}MB.`, 400),
+          );
+        }
+        return next(new AppError(err.message || "Falha no upload.", 400));
+      }
+      next();
+    });
+  };
+}
+
+const merchandisePhotoMiddleware = createOptionalUploadMiddleware({
+  fieldName: "photo",
+  extensions: IMAGE_EXTENSIONS,
+  mimetypes: IMAGE_MIMETYPES,
+  maxSize: 2 * 1024 * 1024,
+  invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
+});
+
 module.exports = {
   bulkUploadMiddleware,
   pictureUploadMiddleware,
+  merchandisePhotoMiddleware,
   MAX_FILE_SIZE,
 };

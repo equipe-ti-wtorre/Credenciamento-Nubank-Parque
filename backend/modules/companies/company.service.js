@@ -391,6 +391,7 @@ module.exports = {
   parseListQuery,
   parseListFilters,
   buildCompanyScope,
+  applyScopeToWhere,
   listCompanyTypes,
   listCompanies,
   getCompanyById,

@@ -19,6 +19,10 @@ import { GateControlComponent } from './pages/gate/gate-control.component';
 import { VehicleListComponent } from './pages/patrimonial/vehicle-list.component';
 import { ServiceRequestListComponent } from './pages/patrimonial/service-request-list.component';
 import { DocumentApprovalsComponent } from './pages/admin/document-approvals/document-approvals.component';
+import { ProductListComponent } from './pages/admin/merchandise/product-list.component';
+import { StorageLocationListComponent } from './pages/admin/merchandise/storage-location-list.component';
+import { MerchandiseReportsComponent } from './pages/admin/merchandise/merchandise-reports.component';
+import { MerchandiseMovementPageComponent } from './pages/merchandise/merchandise-movement-page.component';
 import { AuthGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -43,6 +47,20 @@ export const routes: Routes = [
         component: GateControlComponent,
         canActivate: [AuthGuard],
         data: { roles: ['CONTROLADOR', 'ADMIN'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'mercadorias/entrada',
+        component: MerchandiseMovementPageComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['CONTROLADOR', 'ADMIN'], movementType: 'ENTRADA' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'mercadorias/saida',
+        component: MerchandiseMovementPageComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['CONTROLADOR', 'ADMIN'], movementType: 'SAIDA' },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -102,6 +120,13 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
+        path: 'admin/mercadorias/relatorios',
+        component: MerchandiseReportsComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN'] },
+        runGuardsAndResolvers: 'always',
+      },
+      {
         path: 'admin/configuracoes',
         component: SettingsLayoutComponent,
         canActivate: [AuthGuard],
@@ -131,6 +156,16 @@ export const routes: Routes = [
           {
             path: 'relatorios-sistema',
             component: SystemReportsComponent,
+            runGuardsAndResolvers: 'always',
+          },
+          {
+            path: 'mercadorias-produtos',
+            component: ProductListComponent,
+            runGuardsAndResolvers: 'always',
+          },
+          {
+            path: 'mercadorias-locais',
+            component: StorageLocationListComponent,
             runGuardsAndResolvers: 'always',
           },
           {

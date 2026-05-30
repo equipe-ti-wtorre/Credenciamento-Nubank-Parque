@@ -134,6 +134,7 @@ const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
             <a
               routerLink="/portaria"
               routerLinkActive="sidebar-nav-active"
+              [routerLinkActiveOptions]="{ exact: true }"
               class="sidebar-nav-link"
               [class.px-3]="!sidebarCollapsed"
               [class.py-2.5]="!sidebarCollapsed"
@@ -143,6 +144,32 @@ const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
             >
               <span class="sidebar-nav-icon" aria-hidden="true">🚪</span>
               <span *ngIf="!sidebarCollapsed" class="truncate">Portaria</span>
+            </a>
+            <a
+              routerLink="/mercadorias/entrada"
+              routerLinkActive="sidebar-nav-active"
+              class="sidebar-nav-link"
+              [class.px-3]="!sidebarCollapsed"
+              [class.py-2.5]="!sidebarCollapsed"
+              [class.justify-center]="sidebarCollapsed"
+              [class.p-2.5]="sidebarCollapsed"
+              [title]="sidebarCollapsed ? 'Registrar entrada' : ''"
+            >
+              <span class="sidebar-nav-icon" aria-hidden="true">📥</span>
+              <span *ngIf="!sidebarCollapsed" class="truncate">Registrar entrada</span>
+            </a>
+            <a
+              routerLink="/mercadorias/saida"
+              routerLinkActive="sidebar-nav-active"
+              class="sidebar-nav-link"
+              [class.px-3]="!sidebarCollapsed"
+              [class.py-2.5]="!sidebarCollapsed"
+              [class.justify-center]="sidebarCollapsed"
+              [class.p-2.5]="sidebarCollapsed"
+              [title]="sidebarCollapsed ? 'Registrar saída' : ''"
+            >
+              <span class="sidebar-nav-icon" aria-hidden="true">📤</span>
+              <span *ngIf="!sidebarCollapsed" class="truncate">Registrar saída</span>
             </a>
           </div>
 

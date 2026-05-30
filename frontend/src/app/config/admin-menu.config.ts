@@ -11,6 +11,13 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
   { label: 'Aprovações documento', icon: '📝', route: '/admin/aprovacoes-documento' },
   { label: 'Frota', icon: '🚗', route: '/admin/frota' },
   { label: 'Eventos', icon: '📅', route: '/admin/eventos' },
+  { label: 'Produtos', icon: '📦', route: '/admin/configuracoes/mercadorias-produtos' },
+  {
+    label: 'Locais de armazenagem',
+    icon: '🏪',
+    route: '/admin/configuracoes/mercadorias-locais',
+  },
+  { label: 'Relatórios mercadorias', icon: '📊', route: '/admin/mercadorias/relatorios' },
   { label: 'Configurações', icon: '⚙️', route: '/admin/configuracoes' },
 ];
 
@@ -31,6 +38,18 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     label: 'Relatórios do sistema',
     icon: '📋',
     subtitle: 'Auditoria e erros',
+  },
+  {
+    path: 'mercadorias-produtos',
+    label: 'Produtos',
+    icon: '📦',
+    subtitle: 'Cadastro de mercadorias',
+  },
+  {
+    path: 'mercadorias-locais',
+    label: 'Locais de armazenagem',
+    icon: '🏪',
+    subtitle: 'Depósitos e lojas',
   },
   { path: 'sobre', label: 'Sobre', icon: 'ℹ️', subtitle: 'Versão do sistema' },
 ];
