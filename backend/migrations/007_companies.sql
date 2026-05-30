@@ -34,10 +34,10 @@ CREATE TABLE IF NOT EXISTS company_contact (
   FOREIGN KEY (id_company) REFERENCES company(id_company) ON DELETE CASCADE
 );
 
-INSERT IGNORE INTO company_type (description) VALUES
-  ('Produtora'),
-  ('Empresa Padrão'),
-  ('Fornecedor de TI');
+INSERT INTO company_type (id_company_type, description) VALUES
+  (1, 'Empresa Padrão'),
+  (2, 'Produtora')
+ON DUPLICATE KEY UPDATE description = VALUES(description);
 
 -- id_company e perfis estendidos (aplicados também em setupDatabase.js em runtime)
 -- ALTER TABLE usuarios ADD COLUMN id_company INT NULL ...

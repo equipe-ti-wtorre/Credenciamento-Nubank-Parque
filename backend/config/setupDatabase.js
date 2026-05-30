@@ -178,13 +178,6 @@ async function migrateCompanies(connection) {
     `);
     logger.info("Migration: tabela company_contact criada");
   }
-
-  await connection.query(`
-    INSERT IGNORE INTO company_type (description) VALUES
-      ('Produtora'),
-      ('Empresa Padrão'),
-      ('Fornecedor de TI')
-  `);
 }
 
 async function migrateCollaborators(connection) {
@@ -268,21 +261,6 @@ async function migrateCollaborators(connection) {
     `);
     logger.info("Migration: tabela collaborator_black_list criada");
   }
-
-  await connection.query(`
-    INSERT IGNORE INTO collaborator_document_type (description) VALUES
-      ('CPF'),
-      ('RG'),
-      ('Passaporte')
-  `);
-
-  await connection.query(`
-    INSERT IGNORE INTO collaborator_role (description) VALUES
-      ('Técnico de Som'),
-      ('Limpeza'),
-      ('Segurança'),
-      ('Roadie')
-  `);
 }
 
 async function migrateEvents(connection) {
@@ -368,14 +346,6 @@ async function migrateEvents(connection) {
     `);
     logger.info("Migration: tabela event_day_company criada");
   }
-
-  await connection.query(`
-    INSERT IGNORE INTO event_day_type (description) VALUES
-      ('Montagem'),
-      ('Show'),
-      ('Desmontagem'),
-      ('Jogo')
-  `);
 }
 
 async function migrateCredentials(connection) {
@@ -443,14 +413,6 @@ async function migrateCredentials(connection) {
     `);
     logger.info("Migration: tabela event_day_company_collaborator_denied criada");
   }
-
-  await connection.query(`
-    INSERT IGNORE INTO access_status (id_access_status, description) VALUES
-      (1, 'Aguardando Produtora'),
-      (2, 'Aguardando Allianz'),
-      (3, 'Aprovado'),
-      (4, 'Negado')
-  `);
 }
 
 async function indexExists(connection, table, indexName) {
@@ -719,6 +681,90 @@ async function migrateUsuariosCompanyLink(connection) {
   }
 }
 
+async function seedCompanyTypes(connection) {
+  const expected = [
+    [1, "Empresa Padrão"],
+    [2, "Produtora"],
+  ];
+
+  const [rows] = await connection.query(
+    "SELECT id_company_type, description FROM company_type ORDER BY id_company_type",
+  );
+
+  const matchesExpected =
+    rows.length >= 2 &&
+    rows.some((r) => r.id_company_type === 1 && r.description === "Empresa Padrão") &&
+    rows.some((r) => r.id_company_type === 2 && r.description === "Produtora");
+
+  if (!matchesExpected && rows.length > 0) {
+    for (const row of rows) {
+      await connection.query(
+        "UPDATE company_type SET description = ? WHERE id_company_type = ?",
+        [`__seed__${row.id_company_type}`, row.id_company_type],
+      );
+    }
+  }
+
+  for (const [id, description] of expected) {
+    await connection.query(
+      `INSERT INTO company_type (id_company_type, description) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE description = VALUES(description)`,
+      [id, description],
+    );
+  }
+
+  await connection.query("DELETE FROM company_type WHERE description LIKE '__seed__%'");
+
+  await connection.query(`
+    DELETE ct FROM company_type ct
+    LEFT JOIN company c ON c.id_company_type = ct.id_company_type
+    WHERE ct.id_company_type NOT IN (1, 2) AND c.id_company IS NULL
+  `);
+
+  await connection.query("ALTER TABLE company_type AUTO_INCREMENT = 3");
+}
+
+async function seedDomainLookups(connection) {
+  await seedCompanyTypes(connection);
+
+  await connection.query(`
+    INSERT INTO collaborator_document_type (description) VALUES
+      ('CPF'),
+      ('RG'),
+      ('Passaporte')
+    ON DUPLICATE KEY UPDATE description = VALUES(description)
+  `);
+
+  await connection.query(`
+    INSERT INTO collaborator_role (description) VALUES
+      ('Técnico de Som'),
+      ('Limpeza'),
+      ('Segurança'),
+      ('Roadie')
+    ON DUPLICATE KEY UPDATE description = VALUES(description)
+  `);
+
+  await connection.query(`
+    INSERT INTO event_day_type (description) VALUES
+      ('Montagem'),
+      ('Show'),
+      ('Desmontagem'),
+      ('Jogo')
+    ON DUPLICATE KEY UPDATE description = VALUES(description)
+  `);
+
+  await connection.query(`
+    INSERT INTO access_status (id_access_status, description) VALUES
+      (1, 'Aguardando Produtora'),
+      (2, 'Aguardando Allianz'),
+      (3, 'Aprovado'),
+      (4, 'Negado')
+    ON DUPLICATE KEY UPDATE description = VALUES(description)
+  `);
+
+  logger.info("Seeds de domínio (company_type, colaboradores, eventos, access_status) aplicados");
+}
+
 async function initializeDatabase() {
   logger.info("Verificando banco de dados Credenciamento...");
   let connection;
@@ -910,13 +956,6 @@ async function initializeDatabase() {
     `);
 
     await connection.query(`
-      INSERT IGNORE INTO company_type (description) VALUES
-        ('Produtora'),
-        ('Empresa Padrão'),
-        ('Fornecedor de TI');
-    `);
-
-    await connection.query(`
       CREATE TABLE IF NOT EXISTS app_error_logs (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         level VARCHAR(10) NOT NULL DEFAULT 'error',
@@ -948,6 +987,7 @@ async function initializeDatabase() {
     await migratePhase2(connection);
     await migratePhase3(connection);
     await migrateUsuarios(connection);
+    await seedDomainLookups(connection);
 
     if (env.adminEmail && env.adminPassword) {
       const [existing] = await connection.query(

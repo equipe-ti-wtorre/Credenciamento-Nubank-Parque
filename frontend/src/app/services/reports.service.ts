@@ -2,8 +2,15 @@ import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
+export type CredentialStatusKey = 'ACTIVE' | 'PENDING' | 'EXPIRED' | string;
+
 export interface DashboardMetrics {
-  credentialsByStatus: { label: string; total: number }[];
+  /**
+   * `status` e a chave estavel (enum) usada para colorir o donut do dashboard.
+   * Enquanto a API nao a enviar, o front normaliza a partir de `label`.
+   * TODO(api): expor `status` no endpoint /reports/dashboard.
+   */
+  credentialsByStatus: { label: string; total: number; status?: CredentialStatusKey }[];
   accessesLast7Days: { day: string; total: number }[];
   kpis: {
     activeCompanies: number;

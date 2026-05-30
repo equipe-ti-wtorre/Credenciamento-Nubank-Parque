@@ -1,24 +1,42 @@
 export interface AdminMenuItem {
   label: string;
   icon: string;
+  /** Chave do registro de icones SVG (ver MainLayoutComponent). */
+  iconKey: string;
   route: string;
 }
 
 export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
-  { label: 'Usuários', icon: '👥', route: '/admin/usuarios' },
-  { label: 'Empresas', icon: '🏢', route: '/admin/empresas' },
-  { label: 'Colaboradores', icon: '🪪', route: '/admin/colaboradores' },
-  { label: 'Aprovações documento', icon: '📝', route: '/admin/aprovacoes-documento' },
-  { label: 'Frota', icon: '🚗', route: '/admin/frota' },
-  { label: 'Eventos', icon: '📅', route: '/admin/eventos' },
-  { label: 'Produtos', icon: '📦', route: '/admin/configuracoes/mercadorias-produtos' },
+  { label: 'Usuários', icon: '👥', iconKey: 'users', route: '/admin/usuarios' },
+  { label: 'Empresas', icon: '🏢', iconKey: 'building', route: '/admin/empresas' },
+  { label: 'Colaboradores', icon: '🪪', iconKey: 'badge', route: '/admin/colaboradores' },
+  {
+    label: 'Aprovações documento',
+    icon: '📝',
+    iconKey: 'doc',
+    route: '/admin/aprovacoes-documento',
+  },
+  { label: 'Frota', icon: '🚗', iconKey: 'truck', route: '/admin/frota' },
+  { label: 'Eventos', icon: '📅', iconKey: 'calendar', route: '/admin/eventos' },
+  {
+    label: 'Produtos',
+    icon: '📦',
+    iconKey: 'box',
+    route: '/admin/configuracoes/mercadorias-produtos',
+  },
   {
     label: 'Locais de armazenagem',
     icon: '🏪',
+    iconKey: 'warehouse',
     route: '/admin/configuracoes/mercadorias-locais',
   },
-  { label: 'Relatórios mercadorias', icon: '📊', route: '/admin/mercadorias/relatorios' },
-  { label: 'Configurações', icon: '⚙️', route: '/admin/configuracoes' },
+  {
+    label: 'Relatórios mercadorias',
+    icon: '📊',
+    iconKey: 'chart',
+    route: '/admin/mercadorias/relatorios',
+  },
+  { label: 'Configurações', icon: '⚙️', iconKey: 'settings', route: '/admin/configuracoes' },
 ];
 
 export interface SettingsNavItem {

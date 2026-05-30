@@ -1,0 +1,118 @@
+<div class="wt-dashboard">
+  <div class="welcome">
+    <h2>Bem-vindo, {{ userName }} 👋</h2>
+    <p>Aqui está um resumo da operação de acessos de hoje.</p>
+  </div>
+
+  @if (loading()) {
+    <div class="loading">Carregando indicadores...</div>
+  } @else if (metrics()) {
+    <!-- STATS -->
+    <section class="stats">
+      @for (s of stats(); track s.label) {
+        <div class="stat">
+          <div class="top">
+            <div class="ic" [class]="'ic ' + s.tone">
+              <span [innerHTML]="s.iconHtml" aria-hidden="true"></span>
+            </div>
+            @if (s.delta) {
+              <span class="delta" [class]="'delta ' + s.deltaType">
+                @if (s.deltaType === 'up') {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M7 17L17 7M17 7H8M17 7v9" /></svg>
+                } @else if (s.deltaType === 'down') {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M17 7L7 17M7 17h9M7 17V8" /></svg>
+                }
+                {{ s.delta }}
+              </span>
+            }
+          </div>
+          <div class="lbl">{{ s.label }}</div>
+          <div class="val">{{ s.value }}</div>
+        </div>
+      }
+    </section>
+
+    <!-- PANELS -->
+    <section class="grid2">
+      <!-- Credenciais por status -->
+      <div class="panel">
+        <div class="panel-head">
+          <div><h3>Credenciais por status</h3><div class="sub">Distribuição atual</div></div>
+        </div>
+        <div class="panel-body">
+          @if (totalCredenciais() > 0) {
+            <div class="donut-wrap">
+              <div class="donut">
+                <svg viewBox="0 0 36 36" width="150" height="150" aria-hidden="true">
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#eef0f5" stroke-width="4.2" />
+                  @for (s of slices(); track s.name; let i = $index) {
+                    <circle cx="18" cy="18" r="15.9" fill="none" [attr.stroke]="s.color"
+                            stroke-width="4.2" stroke-linecap="round"
+                            [attr.stroke-dasharray]="dashArray(s.value)"
+                            [attr.stroke-dashoffset]="dashOffset(i)"
+                            transform="rotate(-90 18 18)" />
+                  }
+                </svg>
+                <div class="center">
+                  <div><div class="n">{{ totalCredenciais() }}</div><div class="t">total</div></div>
+                </div>
+              </div>
+              <div class="legend">
+                @for (s of slices(); track s.name) {
+                  <div class="row">
+                    <span class="k" [style.background]="s.color"></span>
+                    <span class="name">{{ s.name }}</span>
+                    <span class="v">{{ s.value }}</span>
+                  </div>
+                }
+              </div>
+            </div>
+          } @else {
+            <div class="empty">
+              <div class="eic">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                  <path d="M3 3v18h18M8 14l3-3 3 2 4-5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </div>
+              <h4>Sem dados</h4>
+              <p>Nenhuma credencial registrada até o momento.</p>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Acessos últimos 7 dias -->
+      <div class="panel">
+        <div class="panel-head">
+          <div><h3>Acessos</h3><div class="sub">Últimos 7 dias</div></div>
+        </div>
+        <div class="panel-body">
+          @if (week().length > 0) {
+            <div class="bars">
+              @for (d of week(); track d.day) {
+                <div class="col">
+                  <div class="bar" [style.height.%]="(d.value / maxAcessos()) * 100">
+                    <span class="tip">{{ d.value }} acessos</span>
+                  </div>
+                  <span class="d">{{ d.day }}</span>
+                </div>
+              }
+            </div>
+          } @else {
+            <div class="empty">
+              <div class="eic">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                  <path d="M3 3v18h18M8 14l3-3 3 2 4-5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </div>
+              <h4>Sem dados</h4>
+              <p>Nenhum acesso registrado nos últimos 7 dias.</p>
+            </div>
+          }
+        </div>
+      </div>
+    </section>
+  }
+</div>

@@ -1,0 +1,141 @@
+<div class="wt-layout" [class.collapsed]="collapsed()">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="wt-sidebar">
+    <div class="brand">
+      <a routerLink="/dashboard" class="logo" title="WTORRE — Início">
+        <span class="dot"></span><span class="word">WTORRE</span>
+      </a>
+      <button
+        type="button"
+        class="collapse"
+        (click)="toggleSidebar()"
+        [title]="collapsed() ? 'Expandir menu' : 'Recolher menu'"
+        [attr.aria-label]="collapsed() ? 'Expandir menu' : 'Recolher menu'"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+          [style.transform]="collapsed() ? 'rotate(180deg)' : 'none'"
+        >
+          <path d="M15 6l-6 6 6 6" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="profile" [title]="collapsed() ? userName : ''">
+      <img
+        *ngIf="userPhotoUrl"
+        [src]="userPhotoUrl"
+        alt=""
+        (error)="onPhotoError()"
+        class="avatar avatar-img"
+      />
+      <div *ngIf="!userPhotoUrl" class="avatar" aria-hidden="true">{{ userInitials }}</div>
+      <div class="meta">
+        <div class="name">{{ userName }}</div>
+        <div class="role">{{ userRoleLabel }}</div>
+      </div>
+    </div>
+
+    <nav class="nav" aria-label="Navegação principal">
+      @for (group of navGroups; track $index) {
+        @if (group.title) {
+          <div class="nav-label">{{ group.title }}</div>
+        }
+        @for (item of group.items; track item.route) {
+          <a
+            class="wt-nav-item"
+            [routerLink]="item.route"
+            routerLinkActive="active"
+            [routerLinkActiveOptions]="{ exact: !!item.exact }"
+            [title]="collapsed() ? item.label : ''"
+          >
+            <span class="ico" [innerHTML]="item.iconHtml" aria-hidden="true"></span>
+            <span class="txt">{{ item.label }}</span>
+            @if (item.showBadge && pendingApprovals() > 0) {
+              <span class="badge" [attr.aria-label]="pendingApprovals() + ' pendências'">{{
+                pendingApprovals()
+              }}</span>
+            }
+          </a>
+        }
+      }
+    </nav>
+
+    <button
+      type="button"
+      class="logout"
+      (click)="logout()"
+      [disabled]="loggingOut"
+      [title]="collapsed() ? (loggingOut ? 'Saindo...' : 'Sair') : ''"
+      [attr.aria-label]="loggingOut ? 'Saindo' : 'Sair'"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.9"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+      </svg>
+      <span class="txt">{{ loggingOut ? 'Saindo...' : 'Sair' }}</span>
+    </button>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="wt-main">
+    <header class="wt-topbar">
+      <div>
+        <div class="crumbs">WTORRE <span aria-hidden="true">›</span> <b>{{ pageTitle() }}</b></div>
+        <h1>{{ pageTitle() }}</h1>
+      </div>
+      <div class="topbar-right">
+        <!-- TODO(busca-global): nao ha endpoint/rota de busca ainda. Disparar a busca aqui. -->
+        <div class="search">
+          <svg
+            viewBox="0 0 24 24"
+            width="17"
+            height="17"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="M21 21l-4-4" stroke-linecap="round" />
+          </svg>
+          <input placeholder="Buscar empresa, colaborador..." aria-label="Busca global" />
+        </div>
+        <!-- TODO(notificacoes): NotificationService so faz toasts; nao ha feed. Plugar a fonte do ping aqui. -->
+        <button type="button" class="icon-btn" aria-label="Notificações">
+          <span class="ping" aria-hidden="true"></span>
+          <svg
+            viewBox="0 0 24 24"
+            width="19"
+            height="19"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="wt-content">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>

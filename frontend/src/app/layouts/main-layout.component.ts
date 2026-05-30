@@ -1,293 +1,121 @@
-import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
-import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import {
+  ChangeDetectorRef,
+  Component,
+  OnDestroy,
+  OnInit,
+  ViewEncapsulation,
+  signal,
+} from '@angular/core';
+import {
+  ActivatedRoute,
+  NavigationEnd,
+  Router,
+  RouterLink,
+  RouterLinkActive,
+  RouterOutlet,
+} from '@angular/router';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { Subscription, filter } from 'rxjs';
 import { AuthService } from '../core/services/auth.service';
 import { SessionIdleService } from '../core/services/session-idle.service';
 import { StorageService } from '../core/services/storage.service';
-import { ADMIN_MENU_ITEMS, AdminMenuItem } from '../config/admin-menu.config';
+import { DocumentChangeService } from '../services/document-change.service';
+import { ADMIN_MENU_ITEMS } from '../config/admin-menu.config';
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
+const DEFAULT_TITLE = 'WTORRE';
+
+interface NavItem {
+  label: string;
+  route: string;
+  iconHtml: SafeHtml;
+  exact?: boolean;
+  /** Mostra o badge de pendencias (resolvido via signal pendingApprovals). */
+  showBadge?: boolean;
+}
+interface NavGroup {
+  title?: string;
+  items: NavItem[];
+}
 
 @Component({
   selector: 'app-main-layout',
   standalone: true,
+  encapsulation: ViewEncapsulation.None,
   imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
-  template: `
-    <div class="flex h-screen bg-[var(--app-bg)] text-[var(--app-text)]">
-      <aside
-        class="sidebar-root relative z-30 bg-[var(--color-bg-surface)] border-r border-[var(--app-border)] flex flex-col shadow-sm shrink-0 transition-[width] duration-200"
-        [class.w-72]="!sidebarCollapsed"
-        [class.w-[4.5rem]]="sidebarCollapsed"
-      >
-        <!-- Logo empresa -->
-        <div class="sidebar-logo-header shrink-0 border-b border-[var(--app-border)]">
-          <div
-            class="flex items-center bg-slate-900"
-            [class.h-[4.25rem]]="!sidebarCollapsed"
-            [class.h-14]="sidebarCollapsed"
-            [class.px-4]="!sidebarCollapsed"
-            [class.px-2]="sidebarCollapsed"
-            [class.justify-between]="!sidebarCollapsed"
-            [class.justify-center]="sidebarCollapsed"
-            [class.gap-2]="!sidebarCollapsed"
-          >
-            <a routerLink="/dashboard" class="flex items-center min-w-0 shrink" [title]="'WTorre — Início'">
-              <img
-                [src]="sidebarCollapsed ? 'assets/wt-logo.png' : 'assets/wtorre.svg'"
-                alt="WTorre"
-                class="sidebar-logo-img object-contain transition-all duration-200"
-                [class.object-left]="!sidebarCollapsed"
-                [class.object-center]="sidebarCollapsed"
-                [class.h-7]="!sidebarCollapsed"
-                [class.h-6]="sidebarCollapsed"
-                [class.w-auto]="true"
-                [class.max-w-[11rem]]="!sidebarCollapsed"
-                [class.max-w-[2.5rem]]="sidebarCollapsed"
-              />
-            </a>
-            <button
-              *ngIf="!sidebarCollapsed"
-              type="button"
-              (click)="toggleSidebar()"
-              class="p-1.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-              title="Recolher menu"
-              aria-label="Recolher menu"
-            >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        <div *ngIf="sidebarCollapsed" class="flex justify-center py-1 border-b border-[var(--app-border)]">
-          <button
-            type="button"
-            (click)="toggleSidebar()"
-            class="p-1.5 rounded-lg hover:bg-[var(--app-nav-hover-bg)] text-[var(--app-text-muted)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
-            title="Expandir menu"
-            aria-label="Expandir menu"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
-
-        <!-- Usuário logado -->
-        <div
-          class="border-b border-[var(--app-border)] flex items-center gap-3 shrink-0"
-          [class.p-4]="!sidebarCollapsed"
-          [class.p-2]="sidebarCollapsed"
-          [class.justify-center]="sidebarCollapsed"
-          [title]="sidebarCollapsed ? userName : ''"
-        >
-          <img
-            *ngIf="userPhotoUrl"
-            [src]="userPhotoUrl"
-            alt=""
-            (error)="onPhotoError()"
-            class="w-10 h-10 rounded-full object-cover shrink-0 border border-[var(--app-border)]"
-          />
-          <div
-            *ngIf="!userPhotoUrl"
-            class="w-10 h-10 rounded-full bg-[var(--app-nav-active-bg)] text-[var(--app-nav-active-text)] flex items-center justify-center text-sm font-bold shrink-0"
-            aria-hidden="true"
-          >
-            {{ userInitials }}
-          </div>
-          <div *ngIf="!sidebarCollapsed" class="min-w-0 flex-1">
-            <button
-              type="button"
-              disabled
-              title="Perfil em breve"
-              class="block w-full text-left text-sm font-semibold truncate text-[var(--app-text)] opacity-60 cursor-not-allowed"
-            >
-              {{ userName }}
-            </button>
-            <span class="text-[10px] text-[var(--app-text-muted)]">Perfil em breve</span>
-          </div>
-        </div>
-
-        <nav class="flex-1 min-h-0 p-3 space-y-0.5 overflow-y-auto">
-          <a
-            routerLink="/dashboard"
-            routerLinkActive="sidebar-nav-active"
-            class="sidebar-nav-link"
-            [class.px-3]="!sidebarCollapsed"
-            [class.py-2.5]="!sidebarCollapsed"
-            [class.justify-center]="sidebarCollapsed"
-            [class.p-2.5]="sidebarCollapsed"
-            [title]="sidebarCollapsed ? 'Início' : ''"
-          >
-            <span class="sidebar-nav-icon" aria-hidden="true">🏠</span>
-            <span *ngIf="!sidebarCollapsed" class="truncate">Início</span>
-          </a>
-
-          <div *ngIf="canAccessGate" class="pt-4">
-            <p
-              *ngIf="!sidebarCollapsed"
-              class="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2"
-            >
-              Operação
-            </p>
-            <a
-              routerLink="/portaria"
-              routerLinkActive="sidebar-nav-active"
-              [routerLinkActiveOptions]="{ exact: true }"
-              class="sidebar-nav-link"
-              [class.px-3]="!sidebarCollapsed"
-              [class.py-2.5]="!sidebarCollapsed"
-              [class.justify-center]="sidebarCollapsed"
-              [class.p-2.5]="sidebarCollapsed"
-              [title]="sidebarCollapsed ? 'Portaria' : ''"
-            >
-              <span class="sidebar-nav-icon" aria-hidden="true">🚪</span>
-              <span *ngIf="!sidebarCollapsed" class="truncate">Portaria</span>
-            </a>
-            <a
-              routerLink="/mercadorias/entrada"
-              routerLinkActive="sidebar-nav-active"
-              class="sidebar-nav-link"
-              [class.px-3]="!sidebarCollapsed"
-              [class.py-2.5]="!sidebarCollapsed"
-              [class.justify-center]="sidebarCollapsed"
-              [class.p-2.5]="sidebarCollapsed"
-              [title]="sidebarCollapsed ? 'Registrar entrada' : ''"
-            >
-              <span class="sidebar-nav-icon" aria-hidden="true">📥</span>
-              <span *ngIf="!sidebarCollapsed" class="truncate">Registrar entrada</span>
-            </a>
-            <a
-              routerLink="/mercadorias/saida"
-              routerLinkActive="sidebar-nav-active"
-              class="sidebar-nav-link"
-              [class.px-3]="!sidebarCollapsed"
-              [class.py-2.5]="!sidebarCollapsed"
-              [class.justify-center]="sidebarCollapsed"
-              [class.p-2.5]="sidebarCollapsed"
-              [title]="sidebarCollapsed ? 'Registrar saída' : ''"
-            >
-              <span class="sidebar-nav-icon" aria-hidden="true">📤</span>
-              <span *ngIf="!sidebarCollapsed" class="truncate">Registrar saída</span>
-            </a>
-          </div>
-
-          <div *ngIf="canAccessEvents && !isAdmin" class="pt-4">
-            <p
-              *ngIf="!sidebarCollapsed"
-              class="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2"
-            >
-              Operação
-            </p>
-            <a
-              routerLink="/admin/eventos"
-              routerLinkActive="sidebar-nav-active"
-              class="sidebar-nav-link"
-              [class.px-3]="!sidebarCollapsed"
-              [class.py-2.5]="!sidebarCollapsed"
-              [class.justify-center]="sidebarCollapsed"
-              [class.p-2.5]="sidebarCollapsed"
-              [title]="sidebarCollapsed ? 'Eventos' : ''"
-            >
-              <span class="sidebar-nav-icon" aria-hidden="true">📅</span>
-              <span *ngIf="!sidebarCollapsed" class="truncate">Eventos</span>
-            </a>
-            <a
-              routerLink="/admin/frota"
-              routerLinkActive="sidebar-nav-active"
-              class="sidebar-nav-link"
-              [class.px-3]="!sidebarCollapsed"
-              [class.py-2.5]="!sidebarCollapsed"
-              [class.justify-center]="sidebarCollapsed"
-              [class.p-2.5]="sidebarCollapsed"
-              [title]="sidebarCollapsed ? 'Frota' : ''"
-            >
-              <span class="sidebar-nav-icon" aria-hidden="true">🚗</span>
-              <span *ngIf="!sidebarCollapsed" class="truncate">Frota</span>
-            </a>
-            <a
-              routerLink="/admin/solicitacoes-servico"
-              routerLinkActive="sidebar-nav-active"
-              class="sidebar-nav-link"
-              [class.px-3]="!sidebarCollapsed"
-              [class.py-2.5]="!sidebarCollapsed"
-              [class.justify-center]="sidebarCollapsed"
-              [class.p-2.5]="sidebarCollapsed"
-              [title]="sidebarCollapsed ? 'Serviços' : ''"
-            >
-              <span class="sidebar-nav-icon" aria-hidden="true">🔧</span>
-              <span *ngIf="!sidebarCollapsed" class="truncate">Serviços</span>
-            </a>
-          </div>
-
-          <div *ngIf="isAdmin" class="pt-4">
-            <p
-              *ngIf="!sidebarCollapsed"
-              class="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2"
-            >
-              Administração
-            </p>
-
-            <a
-              *ngFor="let item of adminMenuItems"
-              [routerLink]="item.route"
-              routerLinkActive="sidebar-nav-active"
-              [routerLinkActiveOptions]="{ exact: false }"
-              class="sidebar-nav-link"
-              [class.px-3]="!sidebarCollapsed"
-              [class.py-2.5]="!sidebarCollapsed"
-              [class.justify-center]="sidebarCollapsed"
-              [class.p-2.5]="sidebarCollapsed"
-              [title]="sidebarCollapsed ? item.label : ''"
-            >
-              <span class="sidebar-nav-icon" aria-hidden="true">{{ item.icon }}</span>
-              <span *ngIf="!sidebarCollapsed" class="truncate">{{ item.label }}</span>
-            </a>
-          </div>
-        </nav>
-
-        <div class="p-3 border-t border-[var(--app-border)] shrink-0">
-          <button
-            type="button"
-            (click)="logout()"
-            [disabled]="loggingOut"
-            class="sidebar-nav-link w-full border border-[var(--app-border)] disabled:opacity-50"
-            [class.px-3]="!sidebarCollapsed"
-            [class.py-2]="!sidebarCollapsed"
-            [class.justify-center]="sidebarCollapsed"
-            [class.p-2.5]="sidebarCollapsed"
-            [title]="sidebarCollapsed ? (loggingOut ? 'Saindo...' : 'Sair') : ''"
-          >
-            <span class="sidebar-nav-icon" aria-hidden="true">🚪</span>
-            <span *ngIf="!sidebarCollapsed">{{ loggingOut ? 'Saindo...' : 'Sair' }}</span>
-          </button>
-        </div>
-      </aside>
-
-      <main class="flex-1 min-h-0 overflow-auto p-6 min-w-0">
-        <router-outlet></router-outlet>
-      </main>
-    </div>
-  `,
+  templateUrl: './main-layout.component.html',
+  styleUrls: ['./main-layout.component.scss'],
 })
-export class MainLayoutComponent implements OnInit {
-  readonly adminMenuItems: AdminMenuItem[] = ADMIN_MENU_ITEMS;
+export class MainLayoutComponent implements OnInit, OnDestroy {
+  collapsed = signal(false);
+  pageTitle = signal(DEFAULT_TITLE);
+  pendingApprovals = signal(0);
+
+  navGroups: NavGroup[] = [];
 
   userName = '';
+  userRoleLabel = '';
   userPhotoUrl: string | null = null;
   isAdmin = false;
   canAccessEvents = false;
   canAccessGate = false;
   loggingOut = false;
-  sidebarCollapsed = false;
+
+  /** Icones SVG sanitizados UMA vez (sem chamada de metodo por render). */
+  private readonly iconMap: Map<string, SafeHtml>;
+  private routerSub?: Subscription;
+
+  private readonly rawIcons: Record<string, string> = {
+    home: '<path d="M3 10l9-7 9 7v10a1 1 0 01-1 1h-5v-7H9v7H4a1 1 0 01-1-1z" stroke-linejoin="round"/>',
+    gate: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M9 21V9"/>',
+    in: '<path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" stroke-linecap="round" stroke-linejoin="round"/>',
+    out: '<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/>',
+    users:
+      '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke-linecap="round" stroke-linejoin="round"/>',
+    building:
+      '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h2M9 11h2M9 15h2M14 7h1M14 11h1M14 15h1"/>',
+    badge:
+      '<rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="11" r="2"/><path d="M5 16c.7-1.3 1.8-2 3-2s2.3.7 3 2M15 9h4M15 13h3"/>',
+    doc: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 2v6h6M9 14l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>',
+    truck:
+      '<path d="M3 13l2-5h11l3 4h2v4h-2M5 17a2 2 0 100-4 2 2 0 000 4zM17 17a2 2 0 100-4 2 2 0 000 4z" stroke-linecap="round" stroke-linejoin="round"/>',
+    calendar: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
+    box: '<path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8" stroke-linejoin="round"/>',
+    warehouse:
+      '<path d="M3 9l9-6 9 6v11a1 1 0 01-1 1H4a1 1 0 01-1-1z" stroke-linejoin="round"/><path d="M9 21v-8h6v8"/>',
+    chart:
+      '<path d="M3 3v18h18M7 14l3-3 3 2 5-6" stroke-linecap="round" stroke-linejoin="round"/>',
+    settings:
+      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke-linecap="round" stroke-linejoin="round"/>',
+    wrench:
+      '<path d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 005.4-5.4l-2.6 2.6-2.3-2.3 2.9-2.3z" stroke-linecap="round" stroke-linejoin="round"/>',
+  };
 
   constructor(
     private authService: AuthService,
     private sessionIdle: SessionIdleService,
     private storage: StorageService,
+    private documentChange: DocumentChangeService,
+    private router: Router,
+    private activatedRoute: ActivatedRoute,
+    private sanitizer: DomSanitizer,
     private cdr: ChangeDetectorRef,
-  ) {}
+  ) {
+    this.iconMap = new Map(
+      Object.entries(this.rawIcons).map(([key, path]) => [key, this.buildIcon(path)]),
+    );
+  }
+
+  private buildIcon(path: string): SafeHtml {
+    return this.sanitizer.bypassSecurityTrustHtml(
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">${path}</svg>`,
+    );
+  }
+
+  private iconFor(key: string): SafeHtml {
+    return this.iconMap.get(key) ?? '';
+  }
 
   get userInitials(): string {
     const name = this.userName.trim();
@@ -300,8 +128,8 @@ export class MainLayoutComponent implements OnInit {
   }
 
   async ngOnInit() {
-    const collapsed = await this.storage.get(SIDEBAR_COLLAPSED_KEY);
-    this.sidebarCollapsed = collapsed === '1';
+    const storedCollapsed = await this.storage.get(SIDEBAR_COLLAPSED_KEY);
+    this.collapsed.set(storedCollapsed === '1');
 
     void this.sessionIdle.startMonitoring();
 
@@ -311,8 +139,106 @@ export class MainLayoutComponent implements OnInit {
     this.isAdmin = role === 'ADMIN';
     this.canAccessEvents = role === 'ADMIN' || role === 'PRODUTORA' || role === 'PADRAO';
     this.canAccessGate = role === 'ADMIN' || role === 'CONTROLADOR';
+    this.userRoleLabel = this.roleLabel(role);
     this.userPhotoUrl = await this.authService.resolveUserPhoto();
+
+    this.buildNav();
+    if (this.isAdmin) {
+      this.loadPendingApprovals();
+    }
+
+    this.resolveTitle();
+    this.routerSub = this.router.events
+      .pipe(filter((e) => e instanceof NavigationEnd))
+      .subscribe(() => this.resolveTitle());
+
     this.cdr.detectChanges();
+  }
+
+  ngOnDestroy(): void {
+    this.routerSub?.unsubscribe();
+  }
+
+  private roleLabel(role: string): string {
+    switch (role) {
+      case 'ADMIN':
+        return 'Acesso total';
+      case 'CONTROLADOR':
+        return 'Controle de acesso';
+      case 'PRODUTORA':
+        return 'Produtora';
+      case 'PADRAO':
+        return 'Padrão';
+      default:
+        return 'Usuário';
+    }
+  }
+
+  private buildNav(): void {
+    const groups: NavGroup[] = [
+      {
+        items: [
+          { label: 'Início', route: '/dashboard', iconHtml: this.iconFor('home'), exact: true },
+        ],
+      },
+    ];
+
+    if (this.canAccessGate) {
+      groups.push({
+        title: 'Operação',
+        items: [
+          { label: 'Portaria', route: '/portaria', iconHtml: this.iconFor('gate'), exact: true },
+          { label: 'Registrar entrada', route: '/mercadorias/entrada', iconHtml: this.iconFor('in') },
+          { label: 'Registrar saída', route: '/mercadorias/saida', iconHtml: this.iconFor('out') },
+        ],
+      });
+    }
+
+    if (this.canAccessEvents && !this.isAdmin) {
+      groups.push({
+        title: 'Operação',
+        items: [
+          { label: 'Eventos', route: '/admin/eventos', iconHtml: this.iconFor('calendar') },
+          { label: 'Frota', route: '/admin/frota', iconHtml: this.iconFor('truck') },
+          { label: 'Serviços', route: '/admin/solicitacoes-servico', iconHtml: this.iconFor('wrench') },
+        ],
+      });
+    }
+
+    if (this.isAdmin) {
+      groups.push({
+        title: 'Administração',
+        items: ADMIN_MENU_ITEMS.map((item) => ({
+          label: item.label,
+          route: item.route,
+          iconHtml: this.iconFor(item.iconKey),
+          showBadge: item.route === '/admin/aprovacoes-documento',
+        })),
+      });
+    }
+
+    this.navGroups = groups;
+  }
+
+  private loadPendingApprovals(): void {
+    this.documentChange.listPending().subscribe({
+      next: (res) => this.pendingApprovals.set(res.requests?.length ?? 0),
+      error: () => this.pendingApprovals.set(0),
+    });
+  }
+
+  /** Desce ate a folha mais profunda da arvore de rotas; usa o ultimo title definido. */
+  private resolveTitle(): void {
+    let route = this.activatedRoute.root;
+    let title: string | undefined;
+    while (route.firstChild) {
+      route = route.firstChild;
+      const routeTitle = route.snapshot.data?.['title'];
+      if (typeof routeTitle === 'string' && routeTitle.trim()) {
+        title = routeTitle;
+      }
+    }
+    this.pageTitle.set(title || DEFAULT_TITLE);
   }
 
   onPhotoError(): void {
@@ -321,8 +247,9 @@ export class MainLayoutComponent implements OnInit {
   }
 
   async toggleSidebar() {
-    this.sidebarCollapsed = !this.sidebarCollapsed;
-    await this.storage.set(SIDEBAR_COLLAPSED_KEY, this.sidebarCollapsed ? '1' : '0');
+    const next = !this.collapsed();
+    this.collapsed.set(next);
+    await this.storage.set(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
   }
 
   async logout() {
