@@ -50,6 +50,7 @@ exports.create = async (req, res, next) => {
       },
       changes: {
         name: event.name,
+        id_producer: event.id_producer,
         start: event.start,
         end: event.end,
         daysCount: event.days?.length ?? 0,

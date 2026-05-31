@@ -127,6 +127,20 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
+        path: 'admin/mercadorias-produtos',
+        component: ProductListComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN'], title: 'Produtos' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/mercadorias-locais',
+        component: StorageLocationListComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN'], title: 'Locais de armazenagem' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
         path: 'admin/configuracoes',
         component: SettingsLayoutComponent,
         canActivate: [AuthGuard],
@@ -164,18 +178,6 @@ export const routes: Routes = [
             data: { title: 'Relatórios do sistema' },
           },
           {
-            path: 'mercadorias-produtos',
-            component: ProductListComponent,
-            runGuardsAndResolvers: 'always',
-            data: { title: 'Produtos' },
-          },
-          {
-            path: 'mercadorias-locais',
-            component: StorageLocationListComponent,
-            runGuardsAndResolvers: 'always',
-            data: { title: 'Locais de armazenagem' },
-          },
-          {
             path: 'sobre',
             component: AboutComponent,
             runGuardsAndResolvers: 'always',
@@ -191,6 +193,16 @@ export const routes: Routes = [
       {
         path: 'admin/configuracoes/usuarios',
         redirectTo: 'admin/usuarios',
+        pathMatch: 'full',
+      },
+      {
+        path: 'admin/configuracoes/mercadorias-produtos',
+        redirectTo: 'admin/mercadorias-produtos',
+        pathMatch: 'full',
+      },
+      {
+        path: 'admin/configuracoes/mercadorias-locais',
+        redirectTo: 'admin/mercadorias-locais',
         pathMatch: 'full',
       },
     ],

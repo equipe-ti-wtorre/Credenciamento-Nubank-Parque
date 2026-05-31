@@ -18,35 +18,26 @@ const eventDayItemSchema = Joi.object({
 });
 
 const eventCreateSchema = Joi.object({
-  name: Joi.string().max(200).required(),
-  start: Joi.alternatives()
-    .try(Joi.date().iso(), Joi.string().isoDate())
-    .required(),
-  end: Joi.alternatives()
-    .try(Joi.date().iso(), Joi.string().isoDate())
-    .required(),
-  days: Joi.array().items(eventDayItemSchema).optional(),
+  name: Joi.string().min(3).max(150).required(),
+  id_producer: Joi.number().integer().positive().required(),
+  description: Joi.string().allow("", null).optional(),
+  days: Joi.array().items(eventDayItemSchema).min(1).required(),
 })
   .custom((value, helpers) => {
-    const start = toDateOnly(value.start);
-    const end = toDateOnly(value.end);
-    if (start > end) {
-      return helpers.error("event.dateRange");
-    }
-    if (value.days && value.days.length > 0) {
-      for (let i = 0; i < value.days.length; i++) {
-        const dayDate = toDateOnly(value.days[i].date);
-        if (dayDate < start || dayDate > end) {
-          return helpers.error("event.dayOutOfRange", { index: i });
-        }
+    const seen = new Set();
+    for (let i = 0; i < value.days.length; i++) {
+      const dayDate = toDateOnly(value.days[i].date);
+      const key = `${dayDate}|${value.days[i].id_type}`;
+      if (seen.has(key)) {
+        return helpers.error("event.duplicateDay", { index: i });
       }
+      seen.add(key);
     }
     return value;
   })
   .messages({
-    "event.dateRange": "A data de início deve ser anterior ou igual à data de término.",
-    "event.dayOutOfRange":
-      "A data do dia {{#index}} deve estar entre a data de início e a data de término do evento.",
+    "event.duplicateDay":
+      "Não é permitido repetir a mesma combinação de data e tipo de dia (item {{#index}}).",
   });
 
 const eventDayCompanySchema = Joi.object({

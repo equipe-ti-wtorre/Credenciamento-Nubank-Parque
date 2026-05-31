@@ -13,6 +13,9 @@ export interface EventItem {
   name: string;
   start: string;
   end: string;
+  description?: string | null;
+  id_producer?: number | null;
+  producer?: EventDayCompanyBrief | null;
   criado_em?: string;
   atualizado_em?: string;
 }
@@ -63,9 +66,9 @@ export interface EventDayInput {
 
 export interface EventCreatePayload {
   name: string;
-  start: string;
-  end: string;
-  days?: EventDayInput[];
+  id_producer: number;
+  description?: string | null;
+  days: EventDayInput[];
 }
 
 export interface EventDayCompanyPayload {

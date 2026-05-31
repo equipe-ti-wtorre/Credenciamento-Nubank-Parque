@@ -1,28 +1,21 @@
-import { ChangeDetectorRef, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
-  EventDayInput,
-  EventDayType,
+  EventDetail,
   EventItem,
   EventService,
   formatDateBr,
 } from '../../../services/event.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { AuthService } from '../../../core/services/auth.service';
-
-interface EventFormState {
-  name: string;
-  start: string;
-  end: string;
-  days: EventDayInput[];
-}
+import { EventFormComponent } from './event-form.component';
 
 @Component({
   selector: 'app-event-list',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, EventFormComponent],
   template: `
     <div class="w-full">
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5 shrink-0">
@@ -133,87 +126,11 @@ interface EventFormState {
           <h3 class="text-lg font-bold text-slate-800">Novo evento</h3>
           <button type="button" (click)="fecharModal()" class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
         </div>
-
-        <form class="space-y-4" (ngSubmit)="salvar()">
-          <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Nome</label>
-            <input
-              [(ngModel)]="form.name"
-              name="eventName"
-              required
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-            />
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Data início</label>
-              <input
-                type="date"
-                [(ngModel)]="form.start"
-                name="eventStart"
-                required
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Data término</label>
-              <input
-                type="date"
-                [(ngModel)]="form.end"
-                name="eventEnd"
-                required
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-              />
-            </div>
-          </div>
-
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <label class="text-xs font-bold text-slate-500 uppercase">Dias do evento</label>
-              <button type="button" (click)="adicionarDia()" class="btn-secondary text-xs py-1 px-3">+ Dia</button>
-            </div>
-            <p class="text-xs text-slate-500 mb-2">Opcional. Cada data deve estar entre início e término.</p>
-            <div *ngIf="form.days.length === 0" class="text-sm text-slate-500 py-2">Nenhum dia adicionado.</div>
-            <div
-              *ngFor="let day of form.days; let i = index"
-              class="border border-[var(--app-border)] rounded-xl p-3 mb-2 grid grid-cols-1 md:grid-cols-2 gap-2"
-            >
-              <div class="md:col-span-2 flex justify-between items-center">
-                <span class="text-xs font-semibold text-slate-600">Dia {{ i + 1 }}</span>
-                <button type="button" (click)="removerDia(i)" class="text-xs text-rose-600 hover:underline">Remover</button>
-              </div>
-              <div>
-                <label class="text-xs text-slate-500">Data</label>
-                <input
-                  type="date"
-                  [(ngModel)]="day.date"
-                  [name]="'day_date_' + i"
-                  required
-                  class="w-full mt-0.5 border border-[var(--app-border)] rounded-lg px-2 py-1.5 text-sm"
-                />
-              </div>
-              <div>
-                <label class="text-xs text-slate-500">Tipo</label>
-                <select
-                  [(ngModel)]="day.id_type"
-                  [name]="'day_type_' + i"
-                  required
-                  class="w-full mt-0.5 border border-[var(--app-border)] rounded-lg px-2 py-1.5 text-sm bg-white"
-                >
-                  <option [ngValue]="0" disabled>Selecione</option>
-                  <option *ngFor="let t of types()" [ngValue]="t.id_event_day_type">{{ t.description }}</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" (click)="fecharModal()" class="btn-secondary">Cancelar</button>
-            <button type="submit" [disabled]="saving()" class="btn-primary disabled:opacity-50">
-              {{ saving() ? 'Salvando...' : 'Salvar' }}
-            </button>
-          </div>
-        </form>
+        <app-event-form
+          #eventFormRef
+          (saved)="onEventSaved($event)"
+          (cancelled)="fecharModal()"
+        />
       </div>
     </div>
   `,
@@ -223,12 +140,12 @@ export class EventListComponent implements OnInit {
   private readonly router = inject(Router);
   readonly formatDateBr = formatDateBr;
 
+  @ViewChild('eventFormRef') eventFormRef?: EventFormComponent;
+
   isAdmin = false;
 
   events = signal<EventItem[]>([]);
-  types = signal<EventDayType[]>([]);
   loading = signal(false);
-  saving = signal(false);
   showModal = signal(false);
 
   pagination = signal({
@@ -241,8 +158,6 @@ export class EventListComponent implements OnInit {
   filterName = '';
   appliedName = '';
 
-  form: EventFormState = this.emptyForm();
-
   constructor(
     private eventService: EventService,
     private notification: NotificationService,
@@ -253,20 +168,7 @@ export class EventListComponent implements OnInit {
     const user = await this.authService.getCurrentUser();
     this.isAdmin = String(user?.role || user?.perfil || '').toUpperCase() === 'ADMIN';
     this.cdr.markForCheck();
-    this.carregarTipos();
     this.carregar();
-  }
-
-  private emptyForm(): EventFormState {
-    return { name: '', start: '', end: '', days: [] };
-  }
-
-  carregarTipos() {
-    this.eventService.listTypes().subscribe({
-      next: (res) => this.types.set(res.types),
-      error: (err) =>
-        this.notification.notifyHttpError(err, 'Falha ao carregar tipos de dia.'),
-    });
   }
 
   carregar(page = this.pagination().page) {
@@ -307,83 +209,22 @@ export class EventListComponent implements OnInit {
   }
 
   novoEvento() {
-    this.form = this.emptyForm();
     this.showModal.set(true);
+    setTimeout(() => this.eventFormRef?.reset(), 0);
   }
 
   fecharModal() {
     this.showModal.set(false);
-    this.form = this.emptyForm();
   }
 
-  adicionarDia() {
-    const defaultType = this.types()[0]?.id_event_day_type ?? 0;
-    this.form.days.push({ date: this.form.start || '', id_type: defaultType });
-  }
-
-  removerDia(index: number) {
-    this.form.days.splice(index, 1);
+  onEventSaved(event: EventDetail) {
+    this.notification.success('Evento criado.');
+    this.fecharModal();
+    void this.router.navigate(['/admin/eventos', event.id_event]);
   }
 
   configurar(e: EventItem) {
     void this.router.navigate(['/admin/eventos', e.id_event]);
-  }
-
-  salvar() {
-    if (!this.form.name.trim()) {
-      this.notification.error('Nome do evento é obrigatório.');
-      return;
-    }
-    if (!this.form.start || !this.form.end) {
-      this.notification.error('Informe as datas de início e término.');
-      return;
-    }
-    if (this.form.start > this.form.end) {
-      this.notification.error('A data de início deve ser anterior ou igual à data de término.');
-      return;
-    }
-
-    for (let i = 0; i < this.form.days.length; i++) {
-      const d = this.form.days[i];
-      if (!d.date) {
-        this.notification.error(`Informe a data do dia ${i + 1}.`);
-        return;
-      }
-      if (d.date < this.form.start || d.date > this.form.end) {
-        this.notification.error(
-          `A data do dia ${i + 1} deve estar entre o início e o término do evento.`,
-        );
-        return;
-      }
-      if (!d.id_type || d.id_type <= 0) {
-        this.notification.error(`Selecione o tipo do dia ${i + 1}.`);
-        return;
-      }
-    }
-
-    const payload = {
-      name: this.form.name.trim(),
-      start: this.form.start,
-      end: this.form.end,
-      days:
-        this.form.days.length > 0
-          ? this.form.days.map((d) => ({ date: d.date, id_type: d.id_type }))
-          : undefined,
-    };
-
-    this.saving.set(true);
-    this.eventService.create(payload).subscribe({
-      next: (res) => {
-        this.saving.set(false);
-        this.notification.success('Evento criado.');
-        this.fecharModal();
-        void this.router.navigate(['/admin/eventos', res.event.id_event]);
-      },
-      error: (err) => {
-        this.saving.set(false);
-        this.notification.error(this.extractError(err) || 'Falha ao criar evento.');
-      },
-    });
   }
 
   private extractError(err: unknown): string | null {

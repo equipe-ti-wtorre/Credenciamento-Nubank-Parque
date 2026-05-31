@@ -1,13 +1,16 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { VehicleItem, VehicleService } from '../../services/vehicle.service';
+import { CompanyItem, CompanyService } from '../../services/company.service';
+import { AuthService } from '../../core/services/auth.service';
 import { NotificationService } from '../../core/services/notification.service';
 
 @Component({
   selector: 'app-vehicle-list',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div class="w-full">
       <div class="flex justify-between items-start gap-4 mb-5">
@@ -48,6 +51,26 @@ import { NotificationService } from '../../core/services/notification.service';
       <div class="relative card-surface p-6 w-full max-w-md shadow-xl">
         <h3 class="text-lg font-bold mb-4">Novo veículo</h3>
         <form class="space-y-3" (ngSubmit)="salvar()">
+          <div *ngIf="isAdmin">
+            <label class="text-xs font-bold text-slate-500 uppercase">Empresa</label>
+            <select
+              [(ngModel)]="form.id_company"
+              name="id_company"
+              required
+              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
+            >
+              <option [ngValue]="null">Selecione...</option>
+              <option *ngFor="let c of companies()" [ngValue]="c.id_company">
+                {{ c.fancy_name || c.company_name }}
+              </option>
+            </select>
+            <p class="text-xs text-slate-500 mt-1">
+              Não encontrou a empresa?
+              <a routerLink="/admin/empresas" class="text-[var(--color-primary-dark)] font-medium hover:underline">
+                Cadastrar empresa
+              </a>
+            </p>
+          </div>
           <div>
             <label class="text-xs font-bold text-slate-500 uppercase">Placa</label>
             <input [(ngModel)]="form.plate" name="plate" required class="w-full mt-1 border rounded-xl px-3 py-2 text-sm font-mono uppercase" />
@@ -67,18 +90,34 @@ import { NotificationService } from '../../core/services/notification.service';
 })
 export class VehicleListComponent implements OnInit {
   vehicles = signal<VehicleItem[]>([]);
+  companies = signal<CompanyItem[]>([]);
   loading = signal(false);
   saving = signal(false);
   showModal = signal(false);
-  form = { plate: '', description: '' };
+  isAdmin = false;
+  form = { plate: '', description: '', id_company: null as number | null };
 
   constructor(
     private vehicleService: VehicleService,
+    private companyService: CompanyService,
+    private authService: AuthService,
     private notification: NotificationService,
   ) {}
 
-  ngOnInit() {
+  async ngOnInit() {
+    const user = await this.authService.getCurrentUser();
+    this.isAdmin = String(user?.role || user?.perfil || '').toUpperCase() === 'ADMIN';
+    if (this.isAdmin) {
+      this.carregarEmpresas();
+    }
     this.carregar();
+  }
+
+  carregarEmpresas() {
+    this.companyService.list(1, 500, {}).subscribe({
+      next: (res) => this.companies.set(res.companies.filter((c) => c.status)),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
+    });
   }
 
   carregar() {
@@ -96,7 +135,10 @@ export class VehicleListComponent implements OnInit {
   }
 
   abrirModal() {
-    this.form = { plate: '', description: '' };
+    this.form = { plate: '', description: '', id_company: null };
+    if (this.isAdmin) {
+      this.carregarEmpresas();
+    }
     this.showModal.set(true);
   }
 
@@ -105,9 +147,17 @@ export class VehicleListComponent implements OnInit {
   }
 
   salvar() {
+    if (this.isAdmin && !this.form.id_company) {
+      this.notification.error('Selecione a empresa do veículo.');
+      return;
+    }
     this.saving.set(true);
     this.vehicleService
-      .create({ plate: this.form.plate.trim().toUpperCase(), description: this.form.description || null })
+      .create({
+        plate: this.form.plate.trim().toUpperCase(),
+        description: this.form.description || null,
+        ...(this.isAdmin && this.form.id_company ? { id_company: this.form.id_company } : {}),
+      })
       .subscribe({
         next: () => {
           this.saving.set(false);

@@ -22,13 +22,13 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
     label: 'Produtos',
     icon: '📦',
     iconKey: 'box',
-    route: '/admin/configuracoes/mercadorias-produtos',
+    route: '/admin/mercadorias-produtos',
   },
   {
     label: 'Locais de armazenagem',
     icon: '🏪',
     iconKey: 'warehouse',
-    route: '/admin/configuracoes/mercadorias-locais',
+    route: '/admin/mercadorias-locais',
   },
   {
     label: 'Relatórios mercadorias',
@@ -56,18 +56,6 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     label: 'Relatórios do sistema',
     icon: '📋',
     subtitle: 'Auditoria e erros',
-  },
-  {
-    path: 'mercadorias-produtos',
-    label: 'Produtos',
-    icon: '📦',
-    subtitle: 'Cadastro de mercadorias',
-  },
-  {
-    path: 'mercadorias-locais',
-    label: 'Locais de armazenagem',
-    icon: '🏪',
-    subtitle: 'Depósitos e lojas',
   },
   { path: 'sobre', label: 'Sobre', icon: 'ℹ️', subtitle: 'Versão do sistema' },
 ];

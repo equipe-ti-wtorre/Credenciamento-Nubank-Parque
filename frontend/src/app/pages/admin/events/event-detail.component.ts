@@ -57,10 +57,19 @@ function maskDocument(document: string): string {
 
       <ng-container *ngIf="!loading() && event(); else loadingState">
         <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5">
-          <div>
+          <div class="min-w-0">
             <h2 class="page-section-title">{{ event()!.name }}</h2>
             <p class="page-section-subtitle">
               Período: {{ formatDateBr(event()!.start) }} — {{ formatDateBr(event()!.end) }}
+            </p>
+            <p *ngIf="event()!.producer" class="text-sm text-slate-600 mt-1">
+              Produtora: <span class="font-medium text-slate-800">{{ event()!.producer!.company_name }}</span>
+            </p>
+            <p *ngIf="!event()!.producer && event()!.id_producer == null" class="text-sm text-slate-500 mt-1">
+              Produtora da capa não informada.
+            </p>
+            <p *ngIf="event()!.description" class="text-sm text-slate-600 mt-2 max-w-2xl">
+              {{ event()!.description }}
             </p>
           </div>
           <button type="button" (click)="carregar()" class="btn-secondary shrink-0">Atualizar</button>
