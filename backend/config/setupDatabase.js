@@ -276,31 +276,12 @@ async function migrateEvents(connection) {
         name VARCHAR(200) NOT NULL,
         start DATE NOT NULL,
         end DATE NOT NULL,
-        description TEXT NULL,
-        id_producer INT NULL,
         criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_event_dates (start, end),
-        INDEX idx_event_producer (id_producer),
-        FOREIGN KEY (id_producer) REFERENCES company(id_company) ON DELETE RESTRICT
+        INDEX idx_event_dates (start, end)
       )
     `);
     logger.info("Migration: tabela event criada");
-  }
-
-  if (await columnExists(connection, "event", "description") === false) {
-    await connection.query(`ALTER TABLE event ADD COLUMN description TEXT NULL AFTER end`);
-    logger.info("Migration: event.description adicionada");
-  }
-
-  if (await columnExists(connection, "event", "id_producer") === false) {
-    await connection.query(`
-      ALTER TABLE event
-        ADD COLUMN id_producer INT NULL AFTER description,
-        ADD INDEX idx_event_producer (id_producer),
-        ADD CONSTRAINT fk_event_producer FOREIGN KEY (id_producer) REFERENCES company(id_company) ON DELETE RESTRICT
-    `);
-    logger.info("Migration: event.id_producer adicionada");
   }
 
   const [typeTables] = await connection.query(

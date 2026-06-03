@@ -68,40 +68,15 @@ function formatDateField(value) {
   return String(value).slice(0, 10);
 }
 
-function mapEventRow(row, producer = undefined) {
-  const mapped = {
+function mapEventRow(row) {
+  return {
     id_event: row.id_event,
     name: row.name,
     start: formatDateField(row.start),
     end: formatDateField(row.end),
-    description: row.description ?? null,
-    id_producer: row.id_producer ?? null,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
   };
-  if (producer !== undefined) {
-    mapped.producer = producer;
-  }
-  return mapped;
-}
-
-function deriveEventDateRange(days) {
-  const dates = days.map((d) => toDateOnly(d.date)).sort();
-  return { start: dates[0], end: dates[dates.length - 1] };
-}
-
-async function assertEventCapaProducer(idProducer) {
-  const producer = await companyService.findActiveCompanyById(idProducer);
-  if (!producer) {
-    throw new AppError("Produtora responsável não encontrada ou inativa.", 400);
-  }
-  const produtoraTypeId = await getProdutoraTypeId();
-  if (producer.id_company_type !== produtoraTypeId) {
-    throw new AppError(
-      "A produtora responsável deve ser uma empresa do tipo Produtora.",
-      400,
-    );
-  }
 }
 
 function mapCompanyBrief(row) {
@@ -317,25 +292,11 @@ async function loadEventDaysWithCompanies(idEvent) {
   }));
 }
 
-async function resolveEventCapaProducer(idProducer) {
-  if (!idProducer) return null;
-  const row = await findCompanyWithType(idProducer);
-  if (!row) return null;
-  return mapCompanyBrief({
-    id_company: row.id_company,
-    company_name: row.company_name,
-    fancy_name: row.fancy_name,
-    id_company_type: row.id_company_type,
-    company_type_description: row.type_description,
-  });
-}
-
 async function getEventDetailById(id) {
   const row = await findEventById(id);
   if (!row) throw new AppError("Evento não encontrado.", 404);
   const days = await loadEventDaysWithCompanies(id);
-  const producer = await resolveEventCapaProducer(row.id_producer);
-  return { ...mapEventRow(row, producer), days };
+  return { ...mapEventRow(row), days };
 }
 
 async function listEvents(req, { page, limit, filters }) {
@@ -377,27 +338,35 @@ async function getEventById(req, id) {
 }
 
 async function createEvent(data) {
-  const days = data.days;
-  const { start, end } = deriveEventDateRange(days);
-  await assertEventCapaProducer(data.id_producer);
+  const start = toDateOnly(data.start);
+  const end = toDateOnly(data.end);
+  if (start > end) {
+    throw new AppError(
+      "A data de início deve ser anterior ou igual à data de término.",
+      400,
+    );
+  }
 
-  const description =
-    data.description != null && String(data.description).trim() !== ""
-      ? String(data.description).trim()
-      : null;
+  const days = data.days || [];
 
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
 
     const [result] = await conn.execute(
-      "INSERT INTO event (name, start, end, description, id_producer) VALUES (?, ?, ?, ?, ?)",
-      [data.name.trim(), start, end, description, data.id_producer],
+      "INSERT INTO event (name, start, end) VALUES (?, ?, ?)",
+      [data.name, start, end],
     );
     const eventId = result.insertId;
 
     for (const day of days) {
       const dayDate = toDateOnly(day.date);
+      if (dayDate < start || dayDate > end) {
+        throw new AppError(
+          "A data do dia deve estar entre a data de início e a data de término do evento.",
+          400,
+        );
+      }
       await assertEventDayTypeExists(day.id_type, conn);
       await conn.execute(
         "INSERT INTO event_day (id_event, id_type, date) VALUES (?, ?, ?)",

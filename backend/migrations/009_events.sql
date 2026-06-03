@@ -5,13 +5,9 @@ CREATE TABLE IF NOT EXISTS event (
   name VARCHAR(200) NOT NULL,
   start DATE NOT NULL,
   end DATE NOT NULL,
-  description TEXT NULL,
-  id_producer INT NULL,
   criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_event_dates (start, end),
-  INDEX idx_event_producer (id_producer),
-  FOREIGN KEY (id_producer) REFERENCES company(id_company) ON DELETE RESTRICT
+  INDEX idx_event_dates (start, end)
 );
 
 CREATE TABLE IF NOT EXISTS event_day_type (
