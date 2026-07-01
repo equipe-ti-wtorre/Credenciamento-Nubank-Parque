@@ -1,7 +1,7 @@
 const AppError = require("../../utils/AppError");
 const { attachAudit } = require("../../utils/auditLogger");
 const vehicleService = require("./vehicle.service");
-const { vehicleCreateSchema, vehicleUpdateSchema } = require("./vehicle.schema");
+const { vehicleCreateSchema, vehicleUpdateSchema, vehicleBlacklistSchema } = require("./vehicle.schema");
 
 exports.list = async (req, res, next) => {
   try {
@@ -65,6 +65,39 @@ exports.update = async (req, res, next) => {
     if (err.code === "ER_DUP_ENTRY") {
       return next(new AppError("Placa já cadastrada para esta empresa.", 409));
     }
+    next(err);
+  }
+};
+
+exports.addBlacklist = async (req, res, next) => {
+  try {
+    const { error, value } = vehicleBlacklistSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const vehicle = await vehicleService.addToBlacklist(req, req.params.id, value.reason);
+    attachAudit(req, {
+      action: "CREATE",
+      module: "patrimonial",
+      event: "vehicle.blacklist.add",
+      resource: { type: "vehicle", id: vehicle.id_vehicle, plate: vehicle.plate },
+      changes: { reason: value.reason },
+    });
+    res.json({ vehicle });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.removeBlacklist = async (req, res, next) => {
+  try {
+    const vehicle = await vehicleService.removeFromBlacklist(req, req.params.id);
+    attachAudit(req, {
+      action: "DEACTIVATE",
+      module: "patrimonial",
+      event: "vehicle.blacklist.remove",
+      resource: { type: "vehicle", id: vehicle.id_vehicle, plate: vehicle.plate },
+    });
+    res.json({ vehicle });
+  } catch (err) {
     next(err);
   }
 };

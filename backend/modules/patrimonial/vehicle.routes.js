@@ -4,10 +4,13 @@ const { authMiddleware, authorizeRoles } = require("../../middleware/authMiddlew
 
 const router = express.Router();
 const vehicleRoles = [authMiddleware, authorizeRoles("ADMIN", "PRODUTORA", "PADRAO")];
+const adminOnly = [authMiddleware, authorizeRoles("ADMIN")];
 
 router.get("/", ...vehicleRoles, vehicleController.list);
 router.get("/:id", ...vehicleRoles, vehicleController.getById);
 router.post("/", ...vehicleRoles, vehicleController.create);
 router.put("/:id", ...vehicleRoles, vehicleController.update);
+router.post("/:id/blacklist", ...adminOnly, vehicleController.addBlacklist);
+router.delete("/:id/blacklist", ...adminOnly, vehicleController.removeBlacklist);
 
 module.exports = router;

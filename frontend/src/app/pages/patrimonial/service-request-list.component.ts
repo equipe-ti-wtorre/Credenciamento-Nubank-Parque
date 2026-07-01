@@ -94,7 +94,7 @@ export class ServiceRequestListComponent implements OnInit {
     this.isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
     this.carregar();
     this.vehicleService.list(1, 200).subscribe({
-      next: (res) => this.fleet.set(res.vehicles.filter((v) => v.status)),
+      next: (res) => this.fleet.set(res.vehicles.filter((v) => v.status && !v.is_blacklisted)),
     });
   }
 

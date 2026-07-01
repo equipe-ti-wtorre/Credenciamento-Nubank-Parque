@@ -13,6 +13,8 @@ export interface VehicleItem {
   type: string | null;
   description: string | null;
   status: boolean;
+  is_blacklisted: boolean;
+  blacklist_reason?: string | null;
   company_fancy_name?: string;
 }
 
@@ -57,5 +59,13 @@ export class VehicleService {
     }>,
   ): Observable<{ vehicle: VehicleItem }> {
     return this.api.put<{ vehicle: VehicleItem }>(`/vehicles/${id}`, data);
+  }
+
+  addBlacklist(id: number, reason: string): Observable<{ vehicle: VehicleItem }> {
+    return this.api.post<{ vehicle: VehicleItem }>(`/vehicles/${id}/blacklist`, { reason });
+  }
+
+  removeBlacklist(id: number): Observable<{ vehicle: VehicleItem }> {
+    return this.api.delete<{ vehicle: VehicleItem }>(`/vehicles/${id}/blacklist`);
   }
 }

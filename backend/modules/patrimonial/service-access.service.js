@@ -156,6 +156,9 @@ async function createServiceAccess(req, data) {
     if (!vehicle.status) {
       throw new AppError(`Veículo ${vehicle.plate} está inativo.`, 400);
     }
+    if (vehicle.blacklist_reason) {
+      throw new AppError(`Veículo ${vehicle.plate} consta na lista de restrição.`, 400);
+    }
   }
 
   const conn = await db.getConnection();

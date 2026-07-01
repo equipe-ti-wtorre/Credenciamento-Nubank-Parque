@@ -4,9 +4,11 @@ const { normalizePlate, isValidPlate } = require("../../utils/plate");
 const { buildCompanyScope, applyScopeToWhere } = require("../companies/company.service");
 
 const VEHICLE_SELECT = `
-  SELECT v.*, c.fancy_name AS company_fancy_name, c.company_name
+  SELECT v.*, c.fancy_name AS company_fancy_name, c.company_name,
+         vbl.reason AS blacklist_reason
   FROM vehicle v
   INNER JOIN company c ON c.id_company = v.id_company
+  LEFT JOIN vehicle_black_list vbl ON vbl.id_vehicle = v.id_vehicle
 `;
 
 function getUserRole(req) {
@@ -49,10 +51,20 @@ function mapVehicleRow(row) {
     type: row.type || null,
     description: row.description || null,
     status: !!row.status,
+    is_blacklisted: !!row.blacklist_reason,
+    blacklist_reason: row.blacklist_reason || null,
     company_fancy_name: row.company_fancy_name || row.company_name,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
   };
+}
+
+async function checkVehicleBlacklist(idVehicle) {
+  const [rows] = await db.execute(
+    "SELECT 1 FROM vehicle_black_list WHERE id_vehicle = ? LIMIT 1",
+    [idVehicle],
+  );
+  return rows.length > 0;
 }
 
 function resolveCompanyIdForCreate(req, bodyCompanyId) {
@@ -172,6 +184,38 @@ async function findVehicleById(id) {
   return rows[0] || null;
 }
 
+async function addToBlacklist(req, id, reason) {
+  assertCanManageVehicles(req);
+  const [rows] = await db.execute(`${VEHICLE_SELECT} WHERE v.id_vehicle = ? LIMIT 1`, [id]);
+  if (!rows[0]) throw new AppError("Veículo não encontrado.", 404);
+  await assertVehicleInScope(req, rows[0]);
+
+  if (rows[0].blacklist_reason) {
+    throw new AppError("Veículo já está na lista de restrição.", 409);
+  }
+
+  await db.execute(
+    `INSERT INTO vehicle_black_list (id_vehicle, reason, id_usuario) VALUES (?, ?, ?)`,
+    [id, reason, req.user?.id || null],
+  );
+
+  return getVehicleById(req, id);
+}
+
+async function removeFromBlacklist(req, id) {
+  assertCanManageVehicles(req);
+  const [rows] = await db.execute(`${VEHICLE_SELECT} WHERE v.id_vehicle = ? LIMIT 1`, [id]);
+  if (!rows[0]) throw new AppError("Veículo não encontrado.", 404);
+  await assertVehicleInScope(req, rows[0]);
+
+  const [result] = await db.execute("DELETE FROM vehicle_black_list WHERE id_vehicle = ?", [id]);
+  if (result.affectedRows === 0) {
+    throw new AppError("Veículo não está na lista de restrição.", 404);
+  }
+
+  return getVehicleById(req, id);
+}
+
 module.exports = {
   assertCanManageVehicles,
   listVehicles,
@@ -180,4 +224,7 @@ module.exports = {
   updateVehicle,
   findVehicleById,
   mapVehicleRow,
+  checkVehicleBlacklist,
+  addToBlacklist,
+  removeFromBlacklist,
 };

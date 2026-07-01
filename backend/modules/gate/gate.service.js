@@ -318,13 +318,17 @@ const SERVICE_VEHICLE_SELECT = `
          v.plate AS vehicle_plate,
          v.description AS vehicle_description,
          sub.plate AS substitute_plate,
-         co.fancy_name AS company_fancy_name
+         co.fancy_name AS company_fancy_name,
+         bl_main.id_vehicle AS main_blacklisted_id,
+         bl_sub.id_vehicle AS sub_blacklisted_id
   FROM service_access_vehicle sav
   INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
   INNER JOIN access_status ast ON ast.id_access_status = sa.id_access_status
   INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
+  LEFT JOIN vehicle_black_list bl_main ON bl_main.id_vehicle = v.id_vehicle
+  LEFT JOIN vehicle_black_list bl_sub ON bl_sub.id_vehicle = sav.id_substitute_vehicle
   WHERE sav.access_id = ?
   LIMIT 1
 `;
@@ -334,6 +338,7 @@ const SERVICE_DENIAL_MESSAGES = {
   SERVICE_NOT_APPROVED: "Solicitação de serviço não aprovada.",
   INVALID_SERVICE_DATE: "Data não autorizada para este serviço.",
   SERVICE_ACCESS_COMPLETED: "Entrada e saída já registradas para este veículo.",
+  VEHICLE_BLACK_LIST_BLOCKED: "Veículo consta na lista de bloqueio de segurança da arena.",
 };
 
 function buildServiceDenial(errorCode, statusCode = 403) {
@@ -451,6 +456,16 @@ async function validateServiceAccess(accessId) {
     return buildServiceDenial("INVALID_SERVICE_DATE");
   }
 
+  const blacklisted = row.id_substitute_vehicle
+    ? row.sub_blacklisted_id != null
+    : row.main_blacklisted_id != null;
+  if (blacklisted) {
+    return {
+      ...buildServiceDenial("VEHICLE_BLACK_LIST_BLOCKED"),
+      critical: true,
+    };
+  }
+
   const action = resolveServiceNextAction(row);
   if (!action) {
     return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
@@ -491,6 +506,9 @@ async function substituteServiceAccess(accessId, idSubstituteVehicle) {
   }
   if (Number(idSubstituteVehicle) === Number(row.id_vehicle)) {
     throw new AppError("Selecione um veículo diferente do titular.", 400);
+  }
+  if (await vehicleService.checkVehicleBlacklist(idSubstituteVehicle)) {
+    throw new AppError("Veículo substituto consta na lista de restrição.", 400);
   }
 
   await db.execute(
