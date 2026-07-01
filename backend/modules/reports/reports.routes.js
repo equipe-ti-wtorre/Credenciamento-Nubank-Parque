@@ -11,4 +11,11 @@ router.get(
   reportsController.dashboard,
 );
 
+router.get(
+  "/denials",
+  authMiddleware,
+  authorizeRoles("ADMIN"),
+  reportsController.denials,
+);
+
 module.exports = router;

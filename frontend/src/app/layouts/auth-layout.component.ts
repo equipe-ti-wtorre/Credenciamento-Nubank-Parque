@@ -22,13 +22,14 @@ import { CommonModule } from '@angular/common';
           </div>
         </main>
         <footer class="py-4 text-center text-slate-300 text-xs px-4">
-          &copy; 2026 WTorre — Credenciamento
+          &copy; {{ currentYear }} Credenciamento
         </footer>
       </div>
     </div>
   `,
 })
 export class AuthLayoutComponent {
+  readonly currentYear = new Date().getFullYear();
   readonly loginSrc = 'assets/login.png';
 
   get loginBg(): string {

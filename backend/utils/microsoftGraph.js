@@ -1,5 +1,6 @@
 const axios = require("axios");
 const qs = require("qs");
+const env = require("../config/env");
 
 async function getApplicationToken(tenantId, clientId, clientSecret) {
   const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
@@ -179,7 +180,6 @@ const TEAMS_DEEP_LINK_RE =
 const TEAMS_HOST_RE = /^(teams\.microsoft\.com|teams\.live\.com)$/i;
 const TEAMS_MANIFEST_APP_ID_DEFAULT = "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c";
 const TEAMS_STATIC_TAB_ENTITY_ID = "home";
-const TEAMS_ACTIVITY_TOPIC_LABEL = "WTORRE Credenciamento";
 
 /** Normaliza URL do app (armazenamento / formulário) — apenas https. */
 function normalizeHttpsAppUrl(url) {
@@ -220,7 +220,7 @@ function buildTeamsActivityWebUrl(url, options = {}) {
   ).trim();
   const entityId = (options.entityId || TEAMS_STATIC_TAB_ENTITY_ID).trim();
   const entityBase = `https://teams.microsoft.com/l/entity/${manifestAppId}/${entityId}`;
-  const label = TEAMS_ACTIVITY_TOPIC_LABEL;
+  const label = env.organizationName;
 
   if (!appUrl) {
     return `${entityBase}?label=${encodeURIComponent(label)}`;
@@ -314,7 +314,7 @@ function buildActivityNotificationBody(content, safeWebUrl, catalogAppId) {
   return {
     topic: {
       source: "text",
-      value: TEAMS_ACTIVITY_TOPIC_LABEL,
+      value: env.organizationName,
       webUrl: safeWebUrl,
     },
     activityType: "systemDefault",

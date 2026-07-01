@@ -24,7 +24,7 @@ import { DocumentChangeService } from '../services/document-change.service';
 import { ADMIN_MENU_ITEMS } from '../config/admin-menu.config';
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
-const DEFAULT_TITLE = 'WTORRE';
+const DEFAULT_TITLE = 'Credenciamento';
 
 interface NavItem {
   label: string;
@@ -184,13 +184,21 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     ];
 
     if (this.canAccessGate) {
+      const operacaoItems: NavItem[] = [
+        { label: 'Portaria', route: '/portaria', iconHtml: this.iconFor('gate'), exact: true },
+        { label: 'Registrar entrada', route: '/mercadorias/entrada', iconHtml: this.iconFor('in') },
+        { label: 'Registrar saída', route: '/mercadorias/saida', iconHtml: this.iconFor('out') },
+      ];
+      if (this.isAdmin) {
+        operacaoItems.push({
+          label: 'Negações de credenciamento',
+          route: '/operacao/negacoes-credenciamento',
+          iconHtml: this.iconFor('chart'),
+        });
+      }
       groups.push({
         title: 'Operação',
-        items: [
-          { label: 'Portaria', route: '/portaria', iconHtml: this.iconFor('gate'), exact: true },
-          { label: 'Registrar entrada', route: '/mercadorias/entrada', iconHtml: this.iconFor('in') },
-          { label: 'Registrar saída', route: '/mercadorias/saida', iconHtml: this.iconFor('out') },
-        ],
+        items: operacaoItems,
       });
     }
 

@@ -1,4 +1,5 @@
 const AppError = require("../../utils/AppError");
+const env = require("../../config/env");
 const { logAudit } = require("../../utils/auditLogger");
 const { child } = require("../../config/logger");
 const smtpService = require("./smtp.service");
@@ -45,10 +46,10 @@ exports.testSend = async (req, res, next) => {
     const { error, value } = smtpTestSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const assunto = value.assunto || "Teste SMTP - WTORRE Credenciamento";
+    const assunto = value.assunto || `Teste SMTP - ${env.organizationName}`;
     const corpo =
       value.corpo ||
-      "Este é um e-mail de teste enviado pelo sistema de credenciamento WTORRE.";
+      `Este é um e-mail de teste enviado pelo sistema de credenciamento ${env.organizationName}.`;
 
     await smtpService.sendMail({
       to: value.destinatario,

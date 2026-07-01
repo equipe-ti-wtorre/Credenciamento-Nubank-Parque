@@ -445,7 +445,7 @@ function validateStatusTransition(req, row, targetStatus) {
 
   if (role === "ADMIN") {
     if (current !== STATUS_AGUARDANDO_ALLIANZ) {
-      throw new AppError("Credencial não está aguardando aprovação da Allianz.", 400);
+      throw new AppError("Credencial não está aguardando aprovação administrativa.", 400);
     }
     if (targetStatus !== STATUS_APROVADO && targetStatus !== STATUS_NEGADO) {
       throw new AppError("Transição de status inválida para administrador.", 400);
@@ -468,7 +468,7 @@ async function resolveCompanyContactEmail(idCompany) {
 
 function scheduleTeamsNotification(credential) {
   const msg = [
-    "<b>Nova credencial aguardando validação Allianz</b>",
+    `<b>Nova credencial aguardando validação — ${env.organizationName}</b>`,
     `<p>Evento: ${credential.event.name}</p>`,
     `<p>Dia: ${credential.event_day.date}</p>`,
     `<p>Empresa: ${credential.event_day_company.company_name}</p>`,

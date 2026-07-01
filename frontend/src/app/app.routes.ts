@@ -23,6 +23,7 @@ import { ProductListComponent } from './pages/admin/merchandise/product-list.com
 import { StorageLocationListComponent } from './pages/admin/merchandise/storage-location-list.component';
 import { MerchandiseReportsComponent } from './pages/admin/merchandise/merchandise-reports.component';
 import { MerchandiseMovementPageComponent } from './pages/merchandise/merchandise-movement-page.component';
+import { CredentialDenialsReportComponent } from './pages/operations/credential-denials-report.component';
 import { AuthGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -61,6 +62,13 @@ export const routes: Routes = [
         component: MerchandiseMovementPageComponent,
         canActivate: [AuthGuard],
         data: { roles: ['CONTROLADOR', 'ADMIN'], movementType: 'SAIDA', title: 'Registrar saída' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'operacao/negacoes-credenciamento',
+        component: CredentialDenialsReportComponent,
+        canActivate: [AuthGuard],
+        data: { roles: ['ADMIN'], title: 'Negações de credenciamento' },
         runGuardsAndResolvers: 'always',
       },
       {

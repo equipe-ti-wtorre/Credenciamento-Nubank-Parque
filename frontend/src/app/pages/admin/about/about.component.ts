@@ -14,9 +14,9 @@ import { SettingsReloadable } from '../settings-reloadable';
           <div
             class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-900 text-white text-2xl font-bold mb-4"
           >
-            W
+            C
           </div>
-          <h2 class="page-section-title">WTORRE Credenciamento</h2>
+          <h2 class="page-section-title">Credenciamento</h2>
           <p class="page-section-subtitle mt-1">Sistema de credenciamento e administração corporativa</p>
         </div>
 

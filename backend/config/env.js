@@ -36,6 +36,7 @@ const env = {
   },
   adminEmail: process.env.ADMIN_EMAIL,
   adminPassword: process.env.ADMIN_PASSWORD,
+  organizationName: process.env.ORGANIZATION_NAME || "Credenciamento",
   msalRedirectUriWeb: process.env.MSAL_REDIRECT_URI_WEB || "",
   msalRedirectUriAndroid: process.env.MSAL_REDIRECT_URI_ANDROID || "",
   msalRedirectUriIos: process.env.MSAL_REDIRECT_URI_IOS || "",

@@ -191,7 +191,7 @@ export class SmtpSettingsComponent implements SettingsReloadable {
     user: '',
     password: '',
     from_email: '',
-    from_name: 'WTORRE Credenciamento',
+    from_name: 'Credenciamento',
     ativo: true,
   };
 

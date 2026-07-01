@@ -21,11 +21,15 @@ import { NotificationService } from '../../core/services/notification.service';
         <button type="button" class="btn-primary" (click)="abrirModal()">+ Novo veículo</button>
       </div>
 
-      <div class="card-surface overflow-hidden">
-        <table class="w-full text-sm">
+      <div class="card-surface overflow-x-auto">
+        <table class="w-full text-sm min-w-[720px]">
           <thead class="table-head bg-slate-50">
             <tr>
               <th class="px-4 py-3 text-left">Placa</th>
+              <th class="px-4 py-3 text-left">Marca</th>
+              <th class="px-4 py-3 text-left">Modelo</th>
+              <th class="px-4 py-3 text-left">Cor</th>
+              <th class="px-4 py-3 text-left">Tipo</th>
               <th class="px-4 py-3 text-left">Empresa</th>
               <th class="px-4 py-3 text-left">Descrição</th>
               <th class="px-4 py-3 text-left">Status</th>
@@ -34,12 +38,16 @@ import { NotificationService } from '../../core/services/notification.service';
           <tbody>
             <tr *ngFor="let v of vehicles()" class="border-t border-slate-100">
               <td class="px-4 py-3 font-mono font-semibold">{{ v.plate }}</td>
+              <td class="px-4 py-3">{{ v.brand || '—' }}</td>
+              <td class="px-4 py-3">{{ v.model || '—' }}</td>
+              <td class="px-4 py-3">{{ v.color || '—' }}</td>
+              <td class="px-4 py-3">{{ v.type || '—' }}</td>
               <td class="px-4 py-3">{{ v.company_fancy_name || '—' }}</td>
               <td class="px-4 py-3">{{ v.description || '—' }}</td>
               <td class="px-4 py-3">{{ v.status ? 'Ativo' : 'Inativo' }}</td>
             </tr>
             <tr *ngIf="!loading() && vehicles().length === 0">
-              <td colspan="4" class="px-4 py-8 text-center text-slate-500">Nenhum veículo.</td>
+              <td colspan="8" class="px-4 py-8 text-center text-slate-500">Nenhum veículo.</td>
             </tr>
           </tbody>
         </table>
@@ -48,7 +56,7 @@ import { NotificationService } from '../../core/services/notification.service';
 
     <div *ngIf="showModal()" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" class="absolute inset-0 bg-slate-900/50" (click)="fecharModal()"></button>
-      <div class="relative card-surface p-6 w-full max-w-md shadow-xl">
+      <div class="relative card-surface p-6 w-full max-w-lg shadow-xl">
         <h3 class="text-lg font-bold mb-4">Novo veículo</h3>
         <form class="space-y-3" (ngSubmit)="salvar()">
           <div *ngIf="isAdmin">
@@ -75,6 +83,24 @@ import { NotificationService } from '../../core/services/notification.service';
             <label class="text-xs font-bold text-slate-500 uppercase">Placa</label>
             <input [(ngModel)]="form.plate" name="plate" required class="w-full mt-1 border rounded-xl px-3 py-2 text-sm font-mono uppercase" />
           </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs font-bold text-slate-500 uppercase">Marca</label>
+              <input [(ngModel)]="form.brand" name="brand" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" placeholder="Ex.: Toyota" />
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-500 uppercase">Modelo</label>
+              <input [(ngModel)]="form.model" name="model" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" placeholder="Ex.: Corolla" />
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-500 uppercase">Cor</label>
+              <input [(ngModel)]="form.color" name="color" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" placeholder="Ex.: Prata" />
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-500 uppercase">Tipo</label>
+              <input [(ngModel)]="form.type" name="type" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" placeholder="Ex.: Sedan" />
+            </div>
+          </div>
           <div>
             <label class="text-xs font-bold text-slate-500 uppercase">Descrição</label>
             <input [(ngModel)]="form.description" name="description" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" />
@@ -95,7 +121,15 @@ export class VehicleListComponent implements OnInit {
   saving = signal(false);
   showModal = signal(false);
   isAdmin = false;
-  form = { plate: '', description: '', id_company: null as number | null };
+  form = {
+    plate: '',
+    brand: '',
+    model: '',
+    color: '',
+    type: '',
+    description: '',
+    id_company: null as number | null,
+  };
 
   constructor(
     private vehicleService: VehicleService,
@@ -135,7 +169,15 @@ export class VehicleListComponent implements OnInit {
   }
 
   abrirModal() {
-    this.form = { plate: '', description: '', id_company: null };
+    this.form = {
+      plate: '',
+      brand: '',
+      model: '',
+      color: '',
+      type: '',
+      description: '',
+      id_company: null,
+    };
     if (this.isAdmin) {
       this.carregarEmpresas();
     }
@@ -155,7 +197,11 @@ export class VehicleListComponent implements OnInit {
     this.vehicleService
       .create({
         plate: this.form.plate.trim().toUpperCase(),
-        description: this.form.description || null,
+        brand: this.form.brand.trim() || null,
+        model: this.form.model.trim() || null,
+        color: this.form.color.trim() || null,
+        type: this.form.type.trim() || null,
+        description: this.form.description.trim() || null,
         ...(this.isAdmin && this.form.id_company ? { id_company: this.form.id_company } : {}),
       })
       .subscribe({

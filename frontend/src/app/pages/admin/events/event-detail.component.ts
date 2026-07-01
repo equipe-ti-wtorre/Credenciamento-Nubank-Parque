@@ -780,7 +780,7 @@ export class EventDetailComponent implements OnInit {
         })
         .subscribe({
           next: () => {
-            this.notification.success('Enviado para validação Allianz.');
+            this.notification.success('Enviado para validação administrativa.');
             this.refreshCredentials();
           },
           error: (err) => this.notification.error(this.extractError(err) || 'Falha ao aprovar.'),

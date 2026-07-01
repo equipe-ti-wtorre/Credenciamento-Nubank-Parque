@@ -1,6 +1,11 @@
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
-const { STATUS_AGUARDANDO_ALLIANZ, STATUS_APROVADO } = require("../credentials/credentials.schema");
+const {
+  STATUS_AGUARDANDO_PRODUTORA,
+  STATUS_AGUARDANDO_ALLIANZ,
+  STATUS_APROVADO,
+  STATUS_NEGADO,
+} = require("../credentials/credentials.schema");
 
 function getUserRole(req) {
   return String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
@@ -33,12 +38,28 @@ function credentialScopeSql(scope, aliasEdc = "edc") {
   };
 }
 
+function buildSummaryByStatus(rows) {
+  let aprovados = 0;
+  let aguardando = 0;
+  let negados = 0;
+
+  for (const row of rows) {
+    const id = Number(row.id_access_status);
+    const total = Number(row.total);
+    if (id === STATUS_APROVADO) aprovados += total;
+    else if (id === STATUS_AGUARDANDO_PRODUTORA || id === STATUS_AGUARDANDO_ALLIANZ) aguardando += total;
+    else if (id === STATUS_NEGADO) negados += total;
+  }
+
+  return { aprovados, aguardando, negados };
+}
+
 async function getDashboardMetrics(req) {
   const scope = buildDashboardScope(req);
   const credScope = credentialScopeSql(scope);
 
   const [statusRows] = await db.execute(
-    `SELECT ast.description AS label, COUNT(*) AS total
+    `SELECT ast.id_access_status, ast.description AS label, COUNT(*) AS total
      FROM event_day_company_collaborator edcc
      INNER JOIN access_status ast ON ast.id_access_status = edcc.id_access_status
      INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
@@ -47,6 +68,8 @@ async function getDashboardMetrics(req) {
      ORDER BY ast.id_access_status`,
     credScope.params,
   );
+
+  const summary_by_status = buildSummaryByStatus(statusRows);
 
   const [accessRows] = await db.execute(
     `SELECT DATE(d.access_day) AS day, COUNT(*) AS total
@@ -128,7 +151,74 @@ async function getDashboardMetrics(req) {
       accessesToday: Number(accessToday?.total || 0),
     },
     topCompanies,
+    summary_by_status,
   };
 }
 
-module.exports = { getDashboardMetrics };
+function parseDateOnly(value) {
+  if (!value || typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function buildDenialsWhere(filters = {}) {
+  const conditions = [];
+  const params = [];
+
+  if (filters.id_event != null && filters.id_event !== "") {
+    const idEvent = parseInt(filters.id_event, 10);
+    if (!Number.isNaN(idEvent)) {
+      conditions.push("e.id_event = ?");
+      params.push(idEvent);
+    }
+  }
+
+  const dateFrom = parseDateOnly(filters.date_from);
+  if (dateFrom) {
+    conditions.push("d.date >= ?");
+    params.push(`${dateFrom} 00:00:00`);
+  }
+
+  const dateTo = parseDateOnly(filters.date_to);
+  if (dateTo) {
+    conditions.push("d.date <= ?");
+    params.push(`${dateTo} 23:59:59`);
+  }
+
+  const sql = conditions.length ? ` AND ${conditions.join(" AND ")}` : "";
+  return { sql, params };
+}
+
+async function getDenials(filters = {}) {
+  const { sql: filterSql, params } = buildDenialsWhere(filters);
+
+  const [rows] = await db.execute(
+    `SELECT
+       d.id AS id_denial,
+       d.date AS denied_at,
+       c.name AS collaborator_name,
+       c.document AS collaborator_document,
+       e.name AS event_name,
+       co.fancy_name AS company_fancy_name,
+       ast.description AS status_at_denial,
+       d.reason AS reason
+     FROM event_day_company_collaborator_denied d
+     INNER JOIN event_day_company_collaborator edcc
+       ON edcc.id_event_day_company_collaborator = d.id_event_day_company_collaborator
+     INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
+     INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+     INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+     INNER JOIN event e ON e.id_event = ed.id_event
+     INNER JOIN company co ON co.id_company = edc.id_company
+     INNER JOIN access_status ast ON ast.id_access_status = d.id_access_status
+     WHERE 1=1${filterSql}
+     ORDER BY d.date DESC
+     LIMIT 500`,
+    params,
+  );
+
+  return rows;
+}
+
+module.exports = { getDashboardMetrics, getDenials };

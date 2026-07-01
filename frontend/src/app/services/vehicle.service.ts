@@ -7,6 +7,10 @@ export interface VehicleItem {
   id_vehicle: number;
   id_company: number;
   plate: string;
+  brand: string | null;
+  model: string | null;
+  color: string | null;
+  type: string | null;
   description: string | null;
   status: boolean;
   company_fancy_name?: string;
@@ -29,6 +33,10 @@ export class VehicleService {
 
   create(data: {
     plate: string;
+    brand?: string | null;
+    model?: string | null;
+    color?: string | null;
+    type?: string | null;
     description?: string | null;
     id_company?: number;
     status?: boolean;
@@ -38,7 +46,15 @@ export class VehicleService {
 
   update(
     id: number,
-    data: Partial<{ plate: string; description: string | null; status: boolean }>,
+    data: Partial<{
+      plate: string;
+      brand: string | null;
+      model: string | null;
+      color: string | null;
+      type: string | null;
+      description: string | null;
+      status: boolean;
+    }>,
   ): Observable<{ vehicle: VehicleItem }> {
     return this.api.put<{ vehicle: VehicleItem }>(`/vehicles/${id}`, data);
   }

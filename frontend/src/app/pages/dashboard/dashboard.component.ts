@@ -123,7 +123,7 @@ export class DashboardComponent implements OnInit {
         tone: 'violet',
       },
       {
-        label: 'Aguardando Allianz',
+        label: 'Aguardando Aprovação',
         value: m.kpis.pendingAllianz,
         iconHtml: this.icon('clock'),
         tone: 'amber',

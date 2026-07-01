@@ -37,6 +37,6 @@ CREATE TABLE IF NOT EXISTS event_day_company_collaborator_denied (
 
 INSERT IGNORE INTO access_status (id_access_status, description) VALUES
   (1, 'Aguardando Produtora'),
-  (2, 'Aguardando Allianz'),
+  (2, 'Aguardando Aprovação'),
   (3, 'Aprovado'),
   (4, 'Negado');

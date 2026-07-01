@@ -136,7 +136,7 @@ export class ServiceRequestListComponent implements OnInit {
       .subscribe({
         next: () => {
           this.saving.set(false);
-          this.notification.success('Solicitação enviada (Aguardando Allianz).');
+          this.notification.success('Solicitação enviada. Aguardando aprovação.');
           this.fecharModal();
           this.carregar();
         },

@@ -765,7 +765,7 @@ async function seedDomainLookups(connection) {
   await connection.query(`
     INSERT INTO access_status (id_access_status, description) VALUES
       (1, 'Aguardando Produtora'),
-      (2, 'Aguardando Allianz'),
+      (2, 'Aguardando Aprovação'),
       (3, 'Aprovado'),
       (4, 'Negado')
     ON DUPLICATE KEY UPDATE description = VALUES(description)

@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'br.com.wtorre.credenciamento',
+  appId: 'com.credenciamento.app',
   appName: 'Credenciamento',
   webDir: 'dist/frontend/browser',
   server: {

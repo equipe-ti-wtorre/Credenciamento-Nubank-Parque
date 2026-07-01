@@ -5,7 +5,7 @@ export const environment = {
     auth: {
       clientId: '',
       authority: 'https://login.microsoftonline.com/common',
-      redirectUri: 'br.com.wtorre.credenciamento://auth',
+      redirectUri: 'com.credenciamento.app://auth',
     },
   },
 };

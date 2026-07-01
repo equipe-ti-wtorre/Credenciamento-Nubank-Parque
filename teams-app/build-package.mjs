@@ -28,6 +28,7 @@ const baseUrl =
 const packageExternalId =
   arg("--external-id", process.env.TEAMS_APP_EXTERNAL_ID) ||
   "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c";
+const orgName = process.env.ORGANIZATION_NAME || "Credenciamento";
 
 let hostname;
 try {
@@ -43,16 +44,16 @@ const manifest = {
   manifestVersion: "1.16",
   version: "1.0.2",
   id: packageExternalId,
-  packageName: "com.wtorre.credenciamento",
+  packageName: "com.credenciamento.app",
   developer: {
-    name: "WTORRE",
+    name: orgName,
     websiteUrl: baseUrl,
     privacyUrl: `${baseUrl}/`,
     termsOfUseUrl: `${baseUrl}/`,
   },
   name: {
     short: "Credenciamento",
-    full: "WTORRE Credenciamento",
+    full: `${orgName} Credenciamento`,
   },
   description: {
     short: "Notificações do credenciamento",

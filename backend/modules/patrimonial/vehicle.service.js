@@ -43,6 +43,10 @@ function mapVehicleRow(row) {
     id_vehicle: row.id_vehicle,
     id_company: row.id_company,
     plate: row.plate,
+    brand: row.brand || null,
+    model: row.model || null,
+    color: row.color || null,
+    type: row.type || null,
     description: row.description || null,
     status: !!row.status,
     company_fancy_name: row.company_fancy_name || row.company_name,
@@ -120,8 +124,17 @@ async function createVehicle(req, data) {
   const idCompany = resolveCompanyIdForCreate(req, data.id_company);
 
   const [result] = await db.execute(
-    `INSERT INTO vehicle (id_company, plate, description, status) VALUES (?, ?, ?, ?)`,
-    [idCompany, plate, data.description || null, data.status !== false ? 1 : 0],
+    `INSERT INTO vehicle (id_company, plate, brand, model, color, type, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      idCompany,
+      plate,
+      data.brand || null,
+      data.model || null,
+      data.color || null,
+      data.type || null,
+      data.description || null,
+      data.status !== false ? 1 : 0,
+    ],
   );
 
   return getVehicleById(req, result.insertId);
@@ -139,12 +152,16 @@ async function updateVehicle(req, id, data) {
     }
   }
 
+  const brand = data.brand !== undefined ? data.brand || null : existing.brand;
+  const model = data.model !== undefined ? data.model || null : existing.model;
+  const color = data.color !== undefined ? data.color || null : existing.color;
+  const type = data.type !== undefined ? data.type || null : existing.type;
   const description = data.description !== undefined ? data.description || null : existing.description;
   const status = data.status !== undefined ? (data.status ? 1 : 0) : existing.status ? 1 : 0;
 
   await db.execute(
-    `UPDATE vehicle SET plate = ?, description = ?, status = ? WHERE id_vehicle = ?`,
-    [plate, description, status, id],
+    `UPDATE vehicle SET plate = ?, brand = ?, model = ?, color = ?, type = ?, description = ?, status = ? WHERE id_vehicle = ?`,
+    [plate, brand, model, color, type, description, status, id],
   );
 
   return getVehicleById(req, id);

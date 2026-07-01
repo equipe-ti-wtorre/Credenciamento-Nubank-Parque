@@ -216,7 +216,7 @@ async function sendNotification(integrationId, { email, mensagem } = {}) {
 
   const content =
     mensagem ||
-    `Notificação WTORRE Credenciamento — ${new Date().toLocaleString("pt-BR")}`;
+    `Notificação ${env.organizationName} — ${new Date().toLocaleString("pt-BR")}`;
 
   const tipo = row.tipo || "user";
 
@@ -283,7 +283,7 @@ async function testIntegration(id, options = {}) {
   });
 }
 
-/** Alerta operacional no canal Teams (credenciamento / Allianz). */
+/** Alerta operacional no canal Teams. */
 async function notifyOperationsChannel(mensagem) {
   if (env.teamsCredentialsIntegrationId) {
     return sendNotification(env.teamsCredentialsIntegrationId, { mensagem });
