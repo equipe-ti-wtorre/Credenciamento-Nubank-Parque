@@ -20,6 +20,8 @@ function mapUserResponse(user) {
     perfil: user.perfil,
     id_company: user.id_company != null ? user.id_company : null,
     is_ad_user: !!user.is_ad_user,
+    session_idle_minutes:
+      user.session_idle_minutes != null ? user.session_idle_minutes : null,
   };
 }
 

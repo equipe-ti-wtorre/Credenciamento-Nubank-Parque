@@ -16,7 +16,7 @@ export const AuthGuard: CanActivateFn = async (route) => {
     return false;
   }
 
-  if (sessionIdle.isIdleExpired() || sessionIdle.hasExceededIdleLimit()) {
+  if (!sessionIdle.isIdleDisabled() && (sessionIdle.isIdleExpired() || sessionIdle.hasExceededIdleLimit())) {
     if (!authService.isLoggingOut()) {
       void authService.logout({ reason: 'idle' });
     }

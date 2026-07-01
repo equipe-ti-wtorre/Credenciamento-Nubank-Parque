@@ -27,6 +27,7 @@ export interface AuthUser {
   id_company?: number | null;
   is_ad_user: boolean;
   foto_url?: string;
+  session_idle_minutes?: number | null;
 }
 
 export interface AuthSession {

@@ -9,6 +9,26 @@ const {
 const { SQL_HAS_DEPARTMENT, hasValidDepartment } = require("../../utils/userDepartment");
 const companyService = require("../companies/company.service");
 
+const MIN_SESSION_IDLE_MINUTES = 5;
+const MAX_SESSION_IDLE_MINUTES = 480;
+
+function normalizeSessionIdleMinutes(value) {
+  if (value === null || value === undefined) return null;
+  const minutes = Number(value);
+  if (minutes === 0) return 0;
+  if (
+    Number.isInteger(minutes) &&
+    minutes >= MIN_SESSION_IDLE_MINUTES &&
+    minutes <= MAX_SESSION_IDLE_MINUTES
+  ) {
+    return minutes;
+  }
+  throw new AppError(
+    "Logout por inatividade deve ser 0 (desativado), omitido (padrão do sistema) ou entre 5 e 480 minutos.",
+    400,
+  );
+}
+
 function mapUserRow(row) {
   if (!row) return null;
   return {
@@ -21,6 +41,8 @@ function mapUserRow(row) {
     role: row.perfil,
     is_ad_user: !!row.is_ad_user,
     ativo: !!row.ativo,
+    session_idle_minutes:
+      row.session_idle_minutes != null ? row.session_idle_minutes : null,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
   };
@@ -67,7 +89,7 @@ async function listUsers({ page = 1, limit = 20, filters = {} }) {
   const { where, params } = buildListWhere(filters);
 
   const [rows] = await db.execute(
-    `SELECT id, username, nome_completo, email, departamento, id_company, perfil, is_ad_user, ativo, criado_em, atualizado_em
+    `SELECT id, username, nome_completo, email, departamento, id_company, perfil, is_ad_user, ativo, session_idle_minutes, criado_em, atualizado_em
      FROM usuarios ${where}
      ORDER BY nome_completo ASC
      LIMIT ? OFFSET ?`,
@@ -129,6 +151,8 @@ async function updateUser(id, data, actorId) {
   let nextDepartamento = existing.departamento;
   let nextIdCompany =
     existing.id_company != null ? existing.id_company : null;
+  let nextSessionIdleMinutes =
+    existing.session_idle_minutes != null ? existing.session_idle_minutes : null;
   let passwordChanged = false;
 
   if (data.id_company !== undefined) {
@@ -167,6 +191,10 @@ async function updateUser(id, data, actorId) {
     nextNome = String(data.nome_completo).trim() || nextNome;
   }
 
+  if (data.session_idle_minutes !== undefined) {
+    nextSessionIdleMinutes = normalizeSessionIdleMinutes(data.session_idle_minutes);
+  }
+
   if (!hasValidDepartment(nextDepartamento)) {
     throw new AppError("Departamento é obrigatório para acesso ao sistema.", 400);
   }
@@ -195,7 +223,7 @@ async function updateUser(id, data, actorId) {
 
   if (isLocal) {
     await db.execute(
-      `UPDATE usuarios SET perfil = ?, ativo = ?, email = ?, username = ?, nome_completo = ?, departamento = ?, id_company = ?, senha_hash = ? WHERE id = ?`,
+      `UPDATE usuarios SET perfil = ?, ativo = ?, email = ?, username = ?, nome_completo = ?, departamento = ?, id_company = ?, session_idle_minutes = ?, senha_hash = ? WHERE id = ?`,
       [
         nextPerfil,
         nextAtivo,
@@ -204,14 +232,15 @@ async function updateUser(id, data, actorId) {
         nextNome,
         nextDepartamento,
         nextIdCompany,
+        nextSessionIdleMinutes,
         senhaHash,
         id,
       ],
     );
   } else {
     await db.execute(
-      "UPDATE usuarios SET perfil = ?, ativo = ?, id_company = ? WHERE id = ?",
-      [nextPerfil, nextAtivo, nextIdCompany, id],
+      "UPDATE usuarios SET perfil = ?, ativo = ?, id_company = ?, session_idle_minutes = ? WHERE id = ?",
+      [nextPerfil, nextAtivo, nextIdCompany, nextSessionIdleMinutes, id],
     );
   }
 
@@ -232,6 +261,8 @@ async function updateUser(id, data, actorId) {
       wasActivated: existing.ativo === 0 && nextAtivo === 1,
       wasDeactivated: existing.ativo === 1 && nextAtivo === 0,
       idCompanyChanged,
+      sessionIdleChanged:
+        (existing.session_idle_minutes ?? null) !== (nextSessionIdleMinutes ?? null),
     },
   };
 }

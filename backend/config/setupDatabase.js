@@ -112,6 +112,15 @@ async function migrateUsuarios(connection) {
   `);
 
   await migrateUsuariosCompanyLink(connection);
+
+  if (!(await columnExists(connection, "usuarios", "session_idle_minutes"))) {
+    await connection.query(`
+      ALTER TABLE usuarios
+      ADD COLUMN session_idle_minutes INT NULL DEFAULT NULL
+      COMMENT 'NULL=padrao sistema, 0=desativado, 5-480=personalizado'
+    `);
+    logger.info("Migration: usuarios.session_idle_minutes adicionada");
+  }
 }
 
 async function migrateCompanies(connection) {

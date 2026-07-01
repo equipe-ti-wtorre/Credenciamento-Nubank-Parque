@@ -6,6 +6,9 @@ import Swal from 'sweetalert2';
 import { UserItem, UserRole, UserService } from '../../../services/user.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
+import { SystemSettingsService } from '../../../services/system-settings.service';
+import { SessionIdleService } from '../../../core/services/session-idle.service';
+import { StorageService } from '../../../core/services/storage.service';
 import { SettingsReloadable } from '../settings-reloadable';
 import { ActionBtnComponent } from '../../../shared/actions/action-btn.component';
 import { ActionMenuComponent } from '../../../shared/actions/action-menu.component';
@@ -244,6 +247,35 @@ import { ActionMenuComponent } from '../../../shared/actions/action-menu.compone
             <option value="PADRAO">Empresa Padrão</option>
             <option value="CONTROLADOR">Controlador (Portaria)</option>
           </select>
+          <div class="mb-4">
+            <label class="text-xs font-bold text-slate-500 uppercase">Logout por inatividade</label>
+            <select
+              [(ngModel)]="editSessionIdleMode"
+              name="editSessionIdleMode"
+              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 bg-white"
+            >
+              <option value="default">Padrão do sistema ({{ systemDefaultIdleMinutes }} min)</option>
+              <option value="custom">Personalizado</option>
+              <option value="disabled">Desativado</option>
+            </select>
+            <div *ngIf="editSessionIdleMode === 'custom'" class="mt-2">
+              <input
+                type="number"
+                [(ngModel)]="editSessionIdleMinutes"
+                name="editSessionIdleMinutes"
+                [min]="minSessionIdleMinutes"
+                [max]="maxSessionIdleMinutes"
+                required
+                class="w-full border border-[var(--app-border)] rounded-xl px-3 py-2"
+              />
+              <p class="text-xs text-slate-500 mt-1">
+                Entre {{ minSessionIdleMinutes }} e {{ maxSessionIdleMinutes }} minutos.
+              </p>
+            </div>
+            <p *ngIf="editSessionIdleMode === 'disabled'" class="text-xs text-slate-500 mt-1">
+              O usuário não será deslogado por inatividade no navegador.
+            </p>
+          </div>
           <div class="flex justify-end gap-2">
             <button type="button" (click)="fecharModal()" class="btn-secondary">Cancelar</button>
             <button type="submit" [disabled]="saving()" class="btn-primary disabled:opacity-50">
@@ -260,6 +292,12 @@ export class UserListComponent implements SettingsReloadable {
   private readonly userService = inject(UserService);
   private readonly authService = inject(AuthService);
   private readonly notification = inject(NotificationService);
+  private readonly systemSettings = inject(SystemSettingsService);
+  private readonly sessionIdle = inject(SessionIdleService);
+  private readonly storage = inject(StorageService);
+
+  readonly minSessionIdleMinutes = 5;
+  readonly maxSessionIdleMinutes = 480;
 
   users = signal<UserItem[]>([]);
   loading = signal(true);
@@ -282,6 +320,9 @@ export class UserListComponent implements SettingsReloadable {
   editEmail = '';
   editDepartamento = '';
   editPassword = '';
+  editSessionIdleMode: 'default' | 'custom' | 'disabled' = 'default';
+  editSessionIdleMinutes = 30;
+  systemDefaultIdleMinutes = 30;
 
   constructor() {
     this.init();
@@ -290,8 +331,18 @@ export class UserListComponent implements SettingsReloadable {
   private async init() {
     const current = await this.authService.getCurrentUser();
     this.currentUserId = current?.id ?? null;
+    this.carregarSessionDefault();
     this.carregarStats();
     this.carregar(1);
+  }
+
+  private carregarSessionDefault() {
+    this.systemSettings.getSessionSettings().subscribe({
+      next: (res) => {
+        this.systemDefaultIdleMinutes = res.settings.session_idle_minutes;
+        this.cdr.markForCheck();
+      },
+    });
   }
 
   reloadPage() {
@@ -354,6 +405,16 @@ export class UserListComponent implements SettingsReloadable {
     this.editEmail = user.email;
     this.editDepartamento = user.departamento || '';
     this.editPassword = '';
+    if (user.session_idle_minutes === 0) {
+      this.editSessionIdleMode = 'disabled';
+      this.editSessionIdleMinutes = this.systemDefaultIdleMinutes;
+    } else if (user.session_idle_minutes != null && user.session_idle_minutes > 0) {
+      this.editSessionIdleMode = 'custom';
+      this.editSessionIdleMinutes = user.session_idle_minutes;
+    } else {
+      this.editSessionIdleMode = 'default';
+      this.editSessionIdleMinutes = this.systemDefaultIdleMinutes;
+    }
     this.showEditModal = true;
   }
 
@@ -366,13 +427,35 @@ export class UserListComponent implements SettingsReloadable {
   salvarEdicao() {
     if (!this.editingUser) return;
 
+    let sessionIdleMinutes: number | null;
+    if (this.editSessionIdleMode === 'disabled') {
+      sessionIdleMinutes = 0;
+    } else if (this.editSessionIdleMode === 'custom') {
+      const minutes = Number(this.editSessionIdleMinutes);
+      if (
+        !Number.isFinite(minutes) ||
+        minutes < this.minSessionIdleMinutes ||
+        minutes > this.maxSessionIdleMinutes
+      ) {
+        this.notification.warning(
+          'Valor inválido',
+          `Informe um tempo entre ${this.minSessionIdleMinutes} e ${this.maxSessionIdleMinutes} minutos.`,
+        );
+        return;
+      }
+      sessionIdleMinutes = minutes;
+    } else {
+      sessionIdleMinutes = null;
+    }
+
     const payload: {
       perfil: UserRole;
       email?: string;
       password?: string;
       nome_completo?: string;
       departamento?: string;
-    } = { perfil: this.editRole };
+      session_idle_minutes?: number | null;
+    } = { perfil: this.editRole, session_idle_minutes: sessionIdleMinutes };
 
     if (!this.editingUser.is_ad_user) {
       payload.nome_completo = this.editNome.trim();
@@ -385,9 +468,17 @@ export class UserListComponent implements SettingsReloadable {
 
     this.saving.set(true);
     this.userService.update(this.editingUser.id, payload).subscribe({
-      next: () => {
+      next: async (res) => {
         this.saving.set(false);
         this.notification.success('Usuário atualizado.');
+        if (this.editingUser?.id === this.currentUserId) {
+          const current = await this.authService.getCurrentUser();
+          if (current) {
+            const updatedUser = { ...current, session_idle_minutes: res.user.session_idle_minutes ?? null };
+            await this.storage.set('currentUser', JSON.stringify(updatedUser));
+            await this.sessionIdle.applyUserPreference(updatedUser.session_idle_minutes);
+          }
+        }
         this.fecharModal();
         this.reloadPage();
         this.cdr.markForCheck();

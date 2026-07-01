@@ -79,7 +79,7 @@ export class AuthInterceptor implements HttpInterceptor {
       return throwError(() => error);
     }
 
-    if (sessionIdle.isIdleExpired() || sessionIdle.hasExceededIdleLimit()) {
+    if (!sessionIdle.isIdleDisabled() && (sessionIdle.isIdleExpired() || sessionIdle.hasExceededIdleLimit())) {
       if (!authService.isLoggingOut()) {
         void authService.logout({ reason: 'idle' });
       }

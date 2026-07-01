@@ -14,6 +14,7 @@ export interface UserItem {
   role: UserRole;
   is_ad_user: boolean;
   ativo: boolean;
+  session_idle_minutes?: number | null;
   criado_em: string;
   atualizado_em: string;
 }
@@ -40,6 +41,7 @@ export interface UserUpdatePayload {
   password?: string;
   nome_completo?: string;
   departamento?: string;
+  session_idle_minutes?: number | null;
 }
 
 export interface AdUsersSyncResult {
