@@ -141,26 +141,6 @@
         margin-top: 1px;
         white-space: nowrap;
       }
-
-      .pref-gate {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-top: 8px;
-        font-size: 11px;
-        color: #9aa3bb;
-        cursor: pointer;
-        user-select: none;
-
-        input {
-          accent-color: var(--wt-primary);
-          margin: 0;
-        }
-
-        span {
-          white-space: nowrap;
-        }
-      }
     }
   }
 

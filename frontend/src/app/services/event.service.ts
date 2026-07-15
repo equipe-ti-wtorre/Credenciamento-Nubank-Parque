@@ -56,6 +56,7 @@ export interface EventDetail extends EventItem {
   id_aprovacao?: number | null;
   aprovacao_status?: string | null;
   id_setor?: number | null;
+  notificar_portaria?: boolean;
 }
 
 export interface EventListFilters {
@@ -119,6 +120,13 @@ export class EventService {
     data: { start: string; end: string },
   ): Observable<{ event: EventDetail }> {
     return this.api.patch<{ event: EventDetail }>(`/events/${id}/period`, data);
+  }
+
+  updatePreferences(
+    id: number,
+    data: { notificar_portaria: boolean },
+  ): Observable<{ event: EventDetail }> {
+    return this.api.patch<{ event: EventDetail }>(`/events/${id}/preferences`, data);
   }
 
   addCompanyToDay(

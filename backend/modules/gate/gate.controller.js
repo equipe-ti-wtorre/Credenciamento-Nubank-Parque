@@ -1,7 +1,10 @@
 const AppError = require("../../utils/AppError");
 const { attachAudit } = require("../../utils/auditLogger");
 const gateService = require("./gate.service");
-const { notifyServiceGateCheckIn } = require("./gate.notifications");
+const {
+  notifyServiceGateCheckIn,
+  notifyEventGateCheckIn,
+} = require("./gate.notifications");
 const {
   eventValidateSchema,
   eventSubstituteSchema,
@@ -70,6 +73,21 @@ exports.validateEvent = async (req, res, next) => {
       },
       changes: { action_registered: result.data.action_registered },
     });
+
+    if (result.data.action_registered === "CHECK_IN" && result.data.id_event) {
+      const idEvent = result.data.id_event;
+      const collaboratorName = result.data.collaborator?.name;
+      const eventName = result.data.event_name;
+      const credentialId = result.data.id_event_day_company_collaborator;
+      setImmediate(() => {
+        void notifyEventGateCheckIn({
+          idEvent,
+          credentialId,
+          collaboratorName,
+          eventName,
+        }).catch(() => {});
+      });
+    }
 
     res.json(result.data);
   } catch (err) {

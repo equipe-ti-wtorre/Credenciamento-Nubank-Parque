@@ -51,4 +51,12 @@ export class AlertsService {
   markAllRead(): Observable<{ updated: number }> {
     return this.api.post<{ updated: number }>('/alerts/read-all', {});
   }
+
+  delete(id: number): Observable<{ deleted: boolean; id: number }> {
+    return this.api.delete<{ deleted: boolean; id: number }>(`/alerts/${id}`);
+  }
+
+  deleteAll(): Observable<{ deleted: number }> {
+    return this.api.delete<{ deleted: number }>('/alerts/clear-all');
+  }
 }

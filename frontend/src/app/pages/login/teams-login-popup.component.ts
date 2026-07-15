@@ -59,7 +59,8 @@ export class TeamsLoginPopupComponent implements OnInit {
           postLogoutRedirectUri: redirectUri,
         },
         cache: {
-          cacheLocation: BrowserCacheLocation.SessionStorage,
+          // Mesmo critério de /auth/teams.html — sobrevive melhor no WebView Teams
+          cacheLocation: BrowserCacheLocation.LocalStorage,
         },
         system: {
           loggerOptions: {

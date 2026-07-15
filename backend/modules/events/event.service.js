@@ -348,11 +348,50 @@ async function listEvents(req, { page, limit, filters }) {
   };
 }
 
+async function getEventPortariaPreference(idUsuario, idEvent) {
+  const [rows] = await db.execute(
+    `SELECT notificar_portaria
+       FROM usuario_evento_preferencias
+      WHERE id_usuario = ? AND id_event = ?
+      LIMIT 1`,
+    [idUsuario, idEvent],
+  );
+  return !!rows[0]?.notificar_portaria;
+}
+
 async function getEventById(req, id) {
   const row = await findEventById(id);
   if (!row) throw new AppError("Evento não encontrado.", 404);
   await assertCanReadEvent(req, id);
-  return getEventDetailById(id);
+  const detail = await getEventDetailById(id);
+  const notificar_portaria = req.user?.id
+    ? await getEventPortariaPreference(req.user.id, id)
+    : false;
+  return { ...detail, notificar_portaria };
+}
+
+async function updateEventPreferences(req, id, prefs = {}) {
+  const eventId = Number(id);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+  const row = await findEventById(eventId);
+  if (!row) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+
+  const userId = req.user?.id;
+  if (!userId) throw new AppError("Usuário não autenticado.", 401);
+
+  if (prefs.notificar_portaria !== undefined) {
+    await db.execute(
+      `INSERT INTO usuario_evento_preferencias (id_usuario, id_event, notificar_portaria)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE notificar_portaria = VALUES(notificar_portaria)`,
+      [userId, eventId, prefs.notificar_portaria ? 1 : 0],
+    );
+  }
+
+  return getEventById(req, eventId);
 }
 
 async function createEvent(req, data) {
@@ -408,7 +447,7 @@ async function createEvent(req, data) {
 
     await conn.commit();
     const detail = await getEventDetailById(eventId);
-    return { ...detail, approvalCreated: approval };
+    return { ...detail, notificar_portaria: false, approvalCreated: approval };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -575,8 +614,12 @@ async function updateEventPeriod(req, id, data) {
 
     await conn.commit();
     const detail = await getEventDetailById(id);
+    const notificar_portaria = req.user?.id
+      ? await getEventPortariaPreference(req.user.id, id)
+      : false;
     return {
       ...detail,
+      notificar_portaria,
       periodChanged: datesChanged,
       approvalReopened: !!reopenResult.reopened,
       id_aprovacao: reopenResult.idAprovacao || detail.approval?.id || null,
@@ -723,6 +766,7 @@ module.exports = {
   listEventDayTypes,
   listEvents,
   getEventById,
+  updateEventPreferences,
   createEvent,
   updateEventPeriod,
   reopenEventForApproval,

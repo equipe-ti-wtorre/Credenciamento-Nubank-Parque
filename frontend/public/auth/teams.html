@@ -25,6 +25,7 @@
         color: #fcd34d;
         font-size: 0.9rem;
         max-width: 28rem;
+        white-space: pre-wrap;
       }
     </style>
     <script src="/auth/vendor/MicrosoftTeams.min.js"></script>
@@ -40,11 +41,15 @@
     <script>
       (function () {
         /**
-         * Redirect URI = origin (já cadastrado no Azure SPA).
-         * /auth/teams.html só inicia o fluxo; o retorno Azure cai no origin
-         * e o index.html devolve para cá via sessionStorage teams.auth.popup.
+         * Máquina fria (Teams desktop): sessionStorage pode se perder ao ir/voltar
+         * do login.microsoftonline.com. Por isso:
+         * - MSAL cache em localStorage
+         * - Flag do popup em cookie + localStorage
+         * - redirectUri = /auth/teams.html (retorno direto, sem bounce no Angular)
          */
         var POPUP_FLAG = "teams.auth.popup";
+        var COOKIE = "teams_auth_popup";
+        var REDIRECT_PATH = "/auth/teams.html";
         var statusEl = document.getElementById("status");
 
         function showError(msg) {
@@ -52,11 +57,35 @@
           statusEl.textContent = msg;
         }
 
-        function fail(msg) {
-          showError(msg);
+        function setPopupFlag() {
+          try {
+            localStorage.setItem(POPUP_FLAG, "1");
+          } catch (_) {}
+          try {
+            sessionStorage.setItem(POPUP_FLAG, "1");
+          } catch (_) {}
+          try {
+            document.cookie =
+              COOKIE + "=1; path=/; max-age=900; SameSite=Lax";
+          } catch (_) {}
+        }
+
+        function clearPopupFlag() {
+          try {
+            localStorage.removeItem(POPUP_FLAG);
+          } catch (_) {}
           try {
             sessionStorage.removeItem(POPUP_FLAG);
           } catch (_) {}
+          try {
+            document.cookie =
+              COOKIE + "=; path=/; max-age=0; SameSite=Lax";
+          } catch (_) {}
+        }
+
+        function fail(msg) {
+          showError(msg);
+          clearPopupFlag();
           try {
             microsoftTeams.authentication.notifyFailure(String(msg));
           } catch (_) {}
@@ -64,17 +93,19 @@
 
         function clearMsalInteraction() {
           try {
-            for (var i = sessionStorage.length - 1; i >= 0; i--) {
-              var k = sessionStorage.key(i);
-              if (
-                k &&
-                (k.indexOf("interaction.status") >= 0 ||
-                  k.indexOf("request.params") >= 0 ||
-                  k.indexOf("request.state") >= 0 ||
-                  k.indexOf("request.nonce") >= 0 ||
-                  k.indexOf("request.origin") >= 0)
-              ) {
-                sessionStorage.removeItem(k);
+            for (var store of [sessionStorage, localStorage]) {
+              for (var i = store.length - 1; i >= 0; i--) {
+                var k = store.key(i);
+                if (
+                  k &&
+                  (k.indexOf("interaction.status") >= 0 ||
+                    k.indexOf("request.params") >= 0 ||
+                    k.indexOf("request.state") >= 0 ||
+                    k.indexOf("request.nonce") >= 0 ||
+                    k.indexOf("request.origin") >= 0)
+                ) {
+                  store.removeItem(k);
+                }
               }
             }
           } catch (_) {}
@@ -86,6 +117,11 @@
           );
         }
 
+        function succeed(token) {
+          clearPopupFlag();
+          microsoftTeams.authentication.notifySuccess(token);
+        }
+
         async function main() {
           if (!window.microsoftTeams || !window.msal) {
             throw new Error("Bibliotecas Teams/MSAL não carregaram.");
@@ -93,8 +129,7 @@
 
           await microsoftTeams.app.initialize();
 
-          // Redirect cadastrado no Azure: origin (não /auth/teams.html)
-          var redirectUri = window.location.origin;
+          var redirectUri = window.location.origin + REDIRECT_PATH;
 
           var cfgRes = await fetch("/api/v1/tenants/msal-config", {
             credentials: "same-origin",
@@ -117,7 +152,8 @@
               navigateToLoginRequestUrl: false,
             },
             cache: {
-              cacheLocation: "sessionStorage",
+              // localStorage sobrevive ao hop Azure→Teams desktop melhor que sessionStorage
+              cacheLocation: "localStorage",
             },
           });
           await pca.initialize();
@@ -130,32 +166,26 @@
               (redirErr && redirErr.message) ||
               "Falha no retorno do Microsoft.";
             if (/AADSTS50011|redirect_uri|reply url/i.test(reMsg)) {
-              reMsg +=
-                " Cadastre SPA no Azure: " +
+              reMsg =
+                "Redirect URI não cadastrado no Azure.\n\nCadastre como SPA:\n" +
                 redirectUri +
-                " (e opcionalmente " +
-                redirectUri +
-                "/auth/teams.html).";
+                "\n" +
+                window.location.origin;
             }
             fail(reMsg);
             return;
           }
 
           if (redirected && (redirected.idToken || redirected.accessToken)) {
-            try {
-              sessionStorage.removeItem(POPUP_FLAG);
-            } catch (_) {}
-            microsoftTeams.authentication.notifySuccess(
-              redirected.idToken || redirected.accessToken
-            );
+            succeed(redirected.idToken || redirected.accessToken);
             return;
           }
 
           if (isAzureReturn()) {
             fail(
-              "Retorno Microsoft sem token. Cadastre SPA: " +
+              "Retorno Microsoft sem token.\nCadastre SPA:\n" +
                 redirectUri +
-                " e tente de novo."
+                "\ne tente de novo."
             );
             return;
           }
@@ -179,27 +209,19 @@
                 scopes: ["openid", "profile", "User.Read"],
                 redirectUri: redirectUri,
               });
-              try {
-                sessionStorage.removeItem(POPUP_FLAG);
-              } catch (_) {}
-              microsoftTeams.authentication.notifySuccess(
-                silent.idToken || silent.accessToken
-              );
+              succeed(silent.idToken || silent.accessToken);
               return;
             } catch (_) {}
           }
 
           clearMsalInteraction();
-          try {
-            sessionStorage.setItem(POPUP_FLAG, "1");
-          } catch (_) {}
+          setPopupFlag();
 
           var loginReq = {
             scopes: ["openid", "profile", "User.Read"],
             redirectUri: redirectUri,
           };
           if (loginHint) loginReq.loginHint = loginHint;
-          // Sem prompt forçado: máquina fria mostra login; com sessão Azure segue direto
           await pca.loginRedirect(loginReq);
         }
 

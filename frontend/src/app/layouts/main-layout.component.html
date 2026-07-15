@@ -39,15 +39,6 @@
       <div class="meta">
         <div class="name">{{ userName }}</div>
         <div class="role">{{ userRoleLabel }}</div>
-        <label class="pref-gate" [title]="'Receber alerta no Teams quando um colaborador entrar na portaria'">
-          <input
-            type="checkbox"
-            [checked]="notifyPortaria"
-            [disabled]="prefSaving"
-            (change)="toggleNotifyPortaria($event)"
-          />
-          <span>Alerta portaria</span>
-        </label>
       </div>
     </div>
 

@@ -20,8 +20,6 @@ import { Subscription, filter } from 'rxjs';
 import { AuthService, AuthUser, hasPermission, isSectorGestor } from '../core/services/auth.service';
 import { SessionIdleService } from '../core/services/session-idle.service';
 import { StorageService } from '../core/services/storage.service';
-import { ApiService } from '../core/services/api.service';
-import { NotificationService } from '../core/services/notification.service';
 import { ApprovalService } from '../services/approval.service';
 import { DocumentChangeService } from '../services/document-change.service';
 import { ADMIN_MENU_ITEMS, ADMIN_MENU_MODULE_MAP, AdminMenuItem, MenuIconLibrary } from '../config/admin-menu.config';
@@ -70,8 +68,6 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
   userPhotoUrl: string | null = null;
   currentUser: AuthUser | null = null;
   loggingOut = false;
-  notifyPortaria = false;
-  prefSaving = false;
 
   /** Icones SVG sanitizados UMA vez (sem chamada de metodo por render). */
   private readonly iconMap: Map<string, SafeHtml>;
@@ -107,8 +103,6 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     private authService: AuthService,
     private sessionIdle: SessionIdleService,
     private storage: StorageService,
-    private api: ApiService,
-    private notification: NotificationService,
     private approvalService: ApprovalService,
     private documentChangeService: DocumentChangeService,
     private router: Router,
@@ -190,9 +184,7 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     this.currentUser = user;
     this.userName = user?.nome_completo || user?.email || 'Usuário';
     this.userRoleLabel = user?.profile?.nome || this.roleLabel(String(user?.role || user?.perfil || ''));
-    this.notifyPortaria = !!user?.notificar_portaria;
     this.userPhotoUrl = await this.authService.resolveUserPhoto();
-    this.refreshPreferencesFromApi();
 
     this.buildNav();
     this.loadPendingBadges();
@@ -354,46 +346,6 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
   onPhotoError(): void {
     this.userPhotoUrl = null;
     this.cdr.detectChanges();
-  }
-
-  private refreshPreferencesFromApi(): void {
-    this.api.get<{ user: AuthUser }>('/auth/me').subscribe({
-      next: async (res) => {
-        if (!res.user) return;
-        this.currentUser = res.user;
-        this.notifyPortaria = !!res.user.notificar_portaria;
-        await this.storage.set('currentUser', JSON.stringify(res.user));
-        this.cdr.detectChanges();
-      },
-      error: () => {
-        /* preferência segue com valor local */
-      },
-    });
-  }
-
-  toggleNotifyPortaria(event: Event): void {
-    const checked = !!(event.target as HTMLInputElement)?.checked;
-    this.prefSaving = true;
-    this.api.patch<{ user: AuthUser }>('/auth/me/preferences', { notificar_portaria: checked }).subscribe({
-      next: async (res) => {
-        this.notifyPortaria = !!res.user?.notificar_portaria;
-        this.currentUser = res.user;
-        await this.storage.set('currentUser', JSON.stringify(res.user));
-        this.prefSaving = false;
-        this.notification.success(
-          this.notifyPortaria
-            ? 'Você receberá alertas de entrada na portaria.'
-            : 'Alertas de portaria desativados.',
-        );
-        this.cdr.detectChanges();
-      },
-      error: (err) => {
-        this.prefSaving = false;
-        this.notifyPortaria = !checked;
-        this.notification.notifyHttpError(err, 'Não foi possível salvar a preferência.');
-        this.cdr.detectChanges();
-      },
-    });
   }
 
   async toggleSidebar() {

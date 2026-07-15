@@ -1808,9 +1808,25 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   }
 
   abrirDecisao(mode: 'approve' | 'reject') {
-    if (!this.canDecideWorkflow()) return;
-    this.decisionComment = '';
-    this.decisionMode.set(mode);
+    // Revalida status ao entrar na solicitação antes de abrir o modal
+    this.patrimonialService.getById(this.serviceId).subscribe({
+      next: (res) => {
+        this.applyService(res.service);
+        if (!this.canDecideWorkflow()) {
+          this.notification.warning(
+            Number(res.service.id_access_status) === 3
+              ? 'Acesso já aprovado.'
+              : 'Solicitação já finalizada.',
+            'Não é possível uma nova decisão por outro membro.',
+          );
+          return;
+        }
+        this.decisionComment = '';
+        this.decisionMode.set(mode);
+      },
+      error: (err) =>
+        this.notification.notifyHttpError(err, 'Falha ao atualizar status do acesso.'),
+    });
   }
 
   fecharDecisao() {
@@ -1854,6 +1870,14 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
             err,
             mode === 'approve' ? 'Falha ao aprovar.' : 'Falha ao reprovar.',
           );
+          const status =
+            err && typeof err === 'object' && 'status' in err
+              ? Number((err as { status: number }).status)
+              : 0;
+          if (status === 409) {
+            this.fecharDecisao();
+            this.carregar({ silent: true });
+          }
         },
       });
   }

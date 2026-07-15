@@ -16,6 +16,7 @@ router.use(typesRoutes);
 router.get("/", ...canView, eventController.list);
 router.post("/", ...canCreate, eventController.create);
 router.patch("/:id/period", ...canEdit, eventController.updatePeriod);
+router.patch("/:id/preferences", ...canView, eventController.updatePreferences);
 router.post(
   "/days/:id_event_day/companies",
   ...canEdit,

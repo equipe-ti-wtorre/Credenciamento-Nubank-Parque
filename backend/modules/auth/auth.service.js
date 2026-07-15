@@ -35,7 +35,6 @@ async function mapUserResponse(user) {
     is_ad_user: !!user.is_ad_user,
     session_idle_minutes:
       user.session_idle_minutes != null ? user.session_idle_minutes : null,
-    notificar_portaria: !!user.notificar_portaria,
   };
 }
 
@@ -211,24 +210,6 @@ async function getMe(userId) {
   return enrichUserResponse(user);
 }
 
-async function updateMyPreferences(userId, prefs = {}) {
-  const [users] = await db.execute(
-    "SELECT * FROM usuarios WHERE id = ? AND ativo = 1 LIMIT 1",
-    [userId],
-  );
-  const user = users[0];
-  if (!user) throw new AppError("Usuário não encontrado.", 404);
-
-  if (prefs.notificar_portaria !== undefined) {
-    await db.execute(`UPDATE usuarios SET notificar_portaria = ? WHERE id = ?`, [
-      prefs.notificar_portaria ? 1 : 0,
-      userId,
-    ]);
-  }
-
-  return getMe(userId);
-}
-
 async function getProfilePhoto(userId) {
   const [users] = await db.execute(
     "SELECT * FROM usuarios WHERE id = ? AND ativo = 1 LIMIT 1",
@@ -274,6 +255,5 @@ module.exports = {
   loginLocal,
   loginMicrosoft,
   getMe,
-  updateMyPreferences,
   getProfilePhoto,
 };

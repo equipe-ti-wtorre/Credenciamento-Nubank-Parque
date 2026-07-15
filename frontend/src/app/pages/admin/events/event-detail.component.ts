@@ -72,7 +72,20 @@ function maskDocument(document: string): string {
               </span>
             </p>
           </div>
-          <div class="flex flex-wrap gap-2 shrink-0">
+          <div class="flex flex-wrap gap-2 shrink-0 items-center">
+            <label
+              class="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none mr-1"
+              title="Receber alerta no Teams quando um colaborador entrar na portaria neste evento"
+            >
+              <input
+                type="checkbox"
+                class="rounded border-slate-300"
+                [checked]="!!event()!.notificar_portaria"
+                [disabled]="prefSaving()"
+                (change)="toggleNotifyPortaria($event)"
+              />
+              <span>Alerta portaria</span>
+            </label>
             <button
               type="button"
               class="btn-secondary"
@@ -427,6 +440,7 @@ export class EventDetailComponent implements OnInit {
   submittingCredential = signal(false);
   showPeriodModal = signal(false);
   periodSaving = signal(false);
+  prefSaving = signal(false);
   periodForm = { start: '', end: '' };
 
   isAdmin = false;
@@ -795,6 +809,31 @@ export class EventDetailComponent implements OnInit {
         this.cdr.markForCheck();
         this.notification.error(this.extractError(err) || 'Falha ao carregar evento.');
         void this.router.navigate(['/admin/eventos']);
+      },
+    });
+  }
+
+  toggleNotifyPortaria(event: Event): void {
+    const ev = this.event();
+    if (!ev?.id_event) return;
+    const checked = !!(event.target as HTMLInputElement)?.checked;
+    this.prefSaving.set(true);
+    this.eventService.updatePreferences(ev.id_event, { notificar_portaria: checked }).subscribe({
+      next: (res) => {
+        this.event.set(res.event);
+        this.prefSaving.set(false);
+        this.notification.success(
+          res.event.notificar_portaria
+            ? 'Você receberá alertas de entrada na portaria deste evento.'
+            : 'Alertas de portaria desativados para este evento.',
+        );
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.prefSaving.set(false);
+        this.event.set({ ...ev, notificar_portaria: !checked });
+        this.notification.notifyHttpError(err, 'Não foi possível salvar a preferência.');
+        this.cdr.markForCheck();
       },
     });
   }

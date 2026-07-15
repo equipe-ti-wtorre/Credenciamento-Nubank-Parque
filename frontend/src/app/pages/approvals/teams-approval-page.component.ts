@@ -2,12 +2,14 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  HostListener,
   OnInit,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   ApprovalItem,
   ApprovalService,
@@ -90,6 +92,25 @@ import { TeamsContextService } from '../../services/teams-context.service';
                 {{ d.status }}
               </span>
               <span class="text-xs text-slate-500 ml-auto">#{{ d.id }}</span>
+            </div>
+
+            <div
+              *ngIf="d.status !== 'PENDENTE'"
+              class="mx-4 mt-4 rounded-lg border px-3 py-2.5 text-sm"
+              [class.border-emerald-200]="d.status === 'APROVADO'"
+              [class.bg-emerald-50]="d.status === 'APROVADO'"
+              [class.text-emerald-800]="d.status === 'APROVADO'"
+              [class.border-rose-200]="d.status === 'REPROVADO'"
+              [class.bg-rose-50]="d.status === 'REPROVADO'"
+              [class.text-rose-800]="d.status === 'REPROVADO'"
+              [class.border-slate-200]="d.status !== 'APROVADO' && d.status !== 'REPROVADO'"
+              [class.bg-slate-50]="d.status !== 'APROVADO' && d.status !== 'REPROVADO'"
+              [class.text-slate-700]="d.status !== 'APROVADO' && d.status !== 'REPROVADO'"
+            >
+              Esta solicitação já foi
+              {{ d.status === 'APROVADO' ? 'aprovada' : d.status === 'REPROVADO' ? 'reprovada' : 'finalizada' }}
+              <ng-container *ngIf="lastDecisionLabel() as who"> por {{ who }}</ng-container>.
+              Não é possível uma nova decisão.
             </div>
 
             <div class="px-4 py-4 space-y-4" *ngIf="d.entidade as ent">
@@ -178,61 +199,296 @@ import { TeamsContextService } from '../../services/teams-context.service';
               {{ mode === 'approve' ? 'Confirmar aprovação' : 'Confirmar reprovação' }}
             </p>
 
-            <ng-container *ngIf="mode === 'approve' && d.tipoEntidade === 'ACESSO_SERVICO'">
+            <div *ngIf="mode === 'approve' && d.tipoEntidade === 'ACESSO_SERVICO'" class="space-y-5">
               <p class="text-xs text-slate-500">
                 Marque quem recebe acesso. Desmarque para bloquear na portaria.
               </p>
-              <div class="space-y-2" *ngIf="d.entidade?.collaborators?.length">
-                <div class="flex justify-between items-center">
-                  <p class="text-xs font-bold text-slate-500 uppercase">Colaboradores</p>
-                  <div class="flex gap-2 text-xs">
-                    <button type="button" class="text-blue-600 font-semibold" (click)="markAllCollaborators(true)">
-                      Todos
+
+              <section>
+                <div class="flex items-center justify-between gap-3 mb-2.5">
+                  <div class="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-slate-500">
+                    <svg
+                      class="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                    Colaboradores
+                    <span
+                      *ngIf="(d.entidade?.collaborators?.length || 0) > 0"
+                      class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold normal-case tracking-normal"
+                      [ngClass]="
+                        selectedCollaboratorCount() > 0
+                          ? 'bg-[var(--wtorre-tonal-bg)] text-[var(--wtorre)]'
+                          : 'bg-red-50 text-red-600'
+                      "
+                    >
+                      {{ selectedCollaboratorCount() }} de {{ d.entidade?.collaborators?.length }}
+                    </span>
+                  </div>
+                  <div
+                    class="flex items-center gap-1 text-[12.5px] font-semibold"
+                    *ngIf="(d.entidade?.collaborators?.length || 0) > 0"
+                  >
+                    <button
+                      type="button"
+                      class="text-[var(--wtorre)] hover:underline px-1"
+                      (click)="markAllCollaborators(true)"
+                    >
+                      Liberar todos
                     </button>
-                    <button type="button" class="text-slate-500" (click)="markAllCollaborators(false)">
-                      Nenhum
+                    <span class="text-slate-300">·</span>
+                    <button
+                      type="button"
+                      class="text-[var(--wtorre)] hover:underline px-1"
+                      (click)="markAllCollaborators(false)"
+                    >
+                      Bloquear todos
                     </button>
                   </div>
                 </div>
-                <label
-                  *ngFor="let c of d.entidade?.collaborators"
-                  class="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    class="rounded border-slate-300"
-                    [checked]="isCollaboratorSelected(c.id)"
-                    (change)="toggleCollaborator(c.id)"
-                  />
-                  <span>{{ c.nome }}</span>
-                </label>
-              </div>
-              <div class="space-y-2" *ngIf="d.entidade?.vehicles?.length">
-                <div class="flex justify-between items-center">
-                  <p class="text-xs font-bold text-slate-500 uppercase">Veículos</p>
-                  <div class="flex gap-2 text-xs">
-                    <button type="button" class="text-blue-600 font-semibold" (click)="markAllVehicles(true)">
-                      Todos
+
+                <p *ngIf="!(d.entidade?.collaborators?.length)" class="text-sm text-slate-500">
+                  Nenhum colaborador neste acesso.
+                </p>
+
+                <div class="flex flex-col gap-2" *ngIf="d.entidade?.collaborators?.length">
+                  <button
+                    type="button"
+                    *ngFor="let c of d.entidade?.collaborators"
+                    class="flex items-center gap-3 w-full text-left px-3.5 py-2.5 rounded-xl border transition-colors"
+                    [ngClass]="
+                      isCollaboratorSelected(c.id)
+                        ? 'bg-white border-slate-200 hover:border-slate-300'
+                        : 'bg-slate-50/80 border-dashed border-slate-200'
+                    "
+                    (click)="toggleCollaborator(c.id)"
+                  >
+                    <span
+                      class="shrink-0 w-5 h-5 rounded-md border-[1.5px] grid place-items-center transition-colors"
+                      [ngClass]="
+                        isCollaboratorSelected(c.id)
+                          ? 'bg-[var(--wtorre)] border-[var(--wtorre)] text-white'
+                          : 'bg-white border-slate-300 text-transparent'
+                      "
+                    >
+                      <svg
+                        class="w-3 h-3"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    </span>
+                    <span
+                      class="shrink-0 w-[34px] h-[34px] rounded-full grid place-items-center text-[13px] font-semibold"
+                      [ngClass]="
+                        isCollaboratorSelected(c.id)
+                          ? 'bg-[var(--wtorre-tonal-bg)] text-[var(--wtorre)]'
+                          : 'bg-slate-100 text-slate-400'
+                      "
+                    >
+                      {{ initials(c.nome) }}
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span
+                        class="block text-sm font-medium truncate"
+                        [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-900' : 'text-slate-400'"
+                      >
+                        {{ c.nome }}
+                      </span>
+                      <span
+                        class="block text-[12.5px] truncate"
+                        [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-500' : 'text-slate-400'"
+                      >
+                        {{ c.documento }} · {{ c.funcao }}
+                      </span>
+                    </span>
+                    <span
+                      *ngIf="!isCollaboratorSelected(c.id)"
+                      class="shrink-0 text-[11px] font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full"
+                    >
+                      Bloqueado
+                    </span>
+                  </button>
+                </div>
+              </section>
+
+              <section>
+                <div class="flex items-center justify-between gap-3 mb-2.5">
+                  <div class="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-slate-500">
+                    <svg
+                      class="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"
+                      />
+                      <circle cx="7" cy="17" r="2" />
+                      <path d="M9 17h6" />
+                      <circle cx="17" cy="17" r="2" />
+                    </svg>
+                    Veículos
+                    <span
+                      *ngIf="(d.entidade?.vehicles?.length || 0) > 0"
+                      class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold normal-case tracking-normal"
+                      [ngClass]="
+                        selectedVehicleCount() > 0
+                          ? 'bg-[var(--wtorre-tonal-bg)] text-[var(--wtorre)]'
+                          : 'bg-red-50 text-red-600'
+                      "
+                    >
+                      {{ selectedVehicleCount() }} de {{ d.entidade?.vehicles?.length }}
+                    </span>
+                  </div>
+                  <div
+                    class="flex items-center gap-1 text-[12.5px] font-semibold"
+                    *ngIf="(d.entidade?.vehicles?.length || 0) > 0"
+                  >
+                    <button
+                      type="button"
+                      class="text-[var(--wtorre)] hover:underline px-1"
+                      (click)="markAllVehicles(true)"
+                    >
+                      Liberar todos
                     </button>
-                    <button type="button" class="text-slate-500" (click)="markAllVehicles(false)">
-                      Nenhum
+                    <span class="text-slate-300">·</span>
+                    <button
+                      type="button"
+                      class="text-[var(--wtorre)] hover:underline px-1"
+                      (click)="markAllVehicles(false)"
+                    >
+                      Bloquear todos
                     </button>
                   </div>
                 </div>
-                <label
-                  *ngFor="let v of d.entidade?.vehicles"
-                  class="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm cursor-pointer"
+
+                <p *ngIf="!(d.entidade?.vehicles?.length)" class="text-sm text-slate-500">
+                  Nenhum veículo neste acesso.
+                </p>
+
+                <div class="flex flex-col gap-2" *ngIf="d.entidade?.vehicles?.length">
+                  <button
+                    type="button"
+                    *ngFor="let v of d.entidade?.vehicles"
+                    class="flex items-center gap-3 w-full text-left px-3.5 py-2.5 rounded-xl border transition-colors"
+                    [ngClass]="
+                      isVehicleSelected(v.id)
+                        ? 'bg-white border-slate-200 hover:border-slate-300'
+                        : 'bg-slate-50/80 border-dashed border-slate-200'
+                    "
+                    (click)="toggleVehicle(v.id)"
+                  >
+                    <span
+                      class="shrink-0 w-5 h-5 rounded-md border-[1.5px] grid place-items-center transition-colors"
+                      [ngClass]="
+                        isVehicleSelected(v.id)
+                          ? 'bg-[var(--wtorre)] border-[var(--wtorre)] text-white'
+                          : 'bg-white border-slate-300 text-transparent'
+                      "
+                    >
+                      <svg
+                        class="w-3 h-3"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    </span>
+                    <span
+                      class="shrink-0 w-[34px] h-[34px] rounded-[9px] grid place-items-center"
+                      [ngClass]="
+                        isVehicleSelected(v.id) ? 'bg-slate-100 text-slate-700' : 'bg-slate-100 text-slate-400'
+                      "
+                    >
+                      <svg
+                        class="w-4 h-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"
+                        />
+                        <circle cx="7" cy="17" r="2" />
+                        <path d="M9 17h6" />
+                        <circle cx="17" cy="17" r="2" />
+                      </svg>
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span
+                        class="block text-sm font-medium truncate"
+                        [ngClass]="isVehicleSelected(v.id) ? 'text-slate-900' : 'text-slate-400'"
+                      >
+                        {{ v.placa }}
+                      </span>
+                      <span
+                        class="block text-[12.5px] truncate"
+                        *ngIf="v.marca || v.modelo"
+                        [ngClass]="isVehicleSelected(v.id) ? 'text-slate-500' : 'text-slate-400'"
+                      >
+                        {{ v.marca }} {{ v.modelo }}
+                      </span>
+                    </span>
+                    <span
+                      *ngIf="!isVehicleSelected(v.id)"
+                      class="shrink-0 text-[11px] font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full"
+                    >
+                      Bloqueado
+                    </span>
+                  </button>
+                </div>
+              </section>
+
+              <div class="flex gap-2.5 items-start text-[12.5px] text-slate-500 bg-slate-50 rounded-[10px] px-3.5 py-3">
+                <svg
+                  class="w-4 h-4 shrink-0 mt-0.5 text-slate-400"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
                 >
-                  <input
-                    type="checkbox"
-                    class="rounded border-slate-300"
-                    [checked]="isVehicleSelected(v.id)"
-                    (change)="toggleVehicle(v.id)"
-                  />
-                  <span>{{ v.placa }}</span>
-                </label>
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 16v-4M12 8h.01" />
+                </svg>
+                <span>
+                  Itens desmarcados são aprovados na solicitação, mas
+                  <span class="font-semibold text-slate-700">não recebem credencial</span>
+                  na portaria.
+                </span>
               </div>
-            </ng-container>
+            </div>
 
             <div>
               <label class="block text-xs font-semibold text-slate-500 mb-1">
@@ -306,6 +562,7 @@ export class TeamsApprovalPageComponent implements OnInit {
 
   comment = '';
   private approvalId = 0;
+  private lastSilentLoadAt = 0;
 
   constructor(
     private route: ActivatedRoute,
@@ -315,10 +572,17 @@ export class TeamsApprovalPageComponent implements OnInit {
     private cdr: ChangeDetectorRef,
   ) {}
 
+  /** Ao voltar à aba (ex.: outro membro aprovou no Teams), atualiza o status. */
+  @HostListener('document:visibilitychange')
+  onVisibilityChange() {
+    if (document.visibilityState === 'visible' && this.approvalId) {
+      this.carregar({ silent: true });
+    }
+  }
+
   async ngOnInit() {
     const inTeams = await this.teamsContext.ensureInitialized();
     this.inTeams.set(inTeams);
-    // Fora do MainLayout quando a rota for usada em shell próprio do Teams
     this.standaloneShell.set(inTeams || !document.querySelector('app-main-layout'));
 
     const id = Number(this.route.snapshot.paramMap.get('id'));
@@ -330,10 +594,12 @@ export class TeamsApprovalPageComponent implements OnInit {
     this.approvalId = id;
 
     const action = this.route.snapshot.queryParamMap.get('action');
-    this.carregar(() => {
-      if (action === 'reject' || action === 'approve' || action === 'decide') {
-        this.startAction(action === 'reject' ? 'reject' : 'approve');
-      }
+    this.carregar({
+      after: () => {
+        if (action === 'reject' || action === 'approve' || action === 'decide') {
+          this.startAction(action === 'reject' ? 'reject' : 'approve');
+        }
+      },
     });
   }
 
@@ -342,8 +608,21 @@ export class TeamsApprovalPageComponent implements OnInit {
     return d ? approvalItemTitle(d) : `Aprovação #${this.approvalId || ''}`;
   }
 
-  carregar(after?: () => void) {
-    this.loading.set(true);
+  lastDecisionLabel(): string | null {
+    const list = this.approval()?.decisoes ?? [];
+    if (!list.length) return null;
+    const last = list[list.length - 1];
+    return last.usuario?.nome || null;
+  }
+
+  carregar(options: { after?: () => void; silent?: boolean } = {}) {
+    if (options.silent) {
+      const now = Date.now();
+      if (now - this.lastSilentLoadAt < 2500) return;
+      this.lastSilentLoadAt = now;
+    } else {
+      this.loading.set(true);
+    }
     this.error.set(null);
     this.approvalService.get(this.approvalId).subscribe({
       next: (res) => {
@@ -351,14 +630,19 @@ export class TeamsApprovalPageComponent implements OnInit {
         this.approval.set(item);
         this.initSelection(item);
         this.loading.set(false);
-        after?.();
+        if (item.status !== 'PENDENTE') {
+          this.actionMode.set(null);
+        }
+        options.after?.();
         this.cdr.markForCheck();
       },
       error: (err) => {
         this.loading.set(false);
-        this.error.set(
-          this.notification.extractErrorMessage(err, 'Não foi possível carregar a aprovação.'),
-        );
+        if (!options.silent) {
+          this.error.set(
+            this.notification.extractErrorMessage(err, 'Não foi possível carregar a aprovação.'),
+          );
+        }
         this.cdr.markForCheck();
       },
     });
@@ -372,12 +656,25 @@ export class TeamsApprovalPageComponent implements OnInit {
   historyDotClass = approvalHistoryDotClass;
 
   startAction(mode: 'approve' | 'reject') {
-    const d = this.approval();
-    if (!d || d.status !== 'PENDENTE') return;
-    this.actionMode.set(mode);
-    this.comment = '';
-    this.initSelection(d);
-    this.cdr.markForCheck();
+    this.carregar({
+      after: () => {
+        const d = this.approval();
+        if (!d || d.status !== 'PENDENTE') {
+          this.notification.warning(
+            d?.status === 'APROVADO'
+              ? 'Solicitação já aprovada.'
+              : 'Solicitação já finalizada.',
+            'Outro membro da equipe já registrou a decisão.',
+          );
+          this.cdr.markForCheck();
+          return;
+        }
+        this.actionMode.set(mode);
+        this.comment = '';
+        this.initSelection(d);
+        this.cdr.markForCheck();
+      },
+    });
   }
 
   cancelAction() {
@@ -399,6 +696,24 @@ export class TeamsApprovalPageComponent implements OnInit {
 
   isVehicleSelected(id: number) {
     return this.selectedVehicleIds().has(id);
+  }
+
+  selectedCollaboratorCount(): number {
+    return this.selectedCollaboratorIds().size;
+  }
+
+  selectedVehicleCount(): number {
+    return this.selectedVehicleIds().size;
+  }
+
+  initials(nome: string): string {
+    const parts = (nome || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
   toggleCollaborator(id: number) {
@@ -474,6 +789,10 @@ export class TeamsApprovalPageComponent implements OnInit {
   private onDecisionError(err: unknown) {
     this.acting.set(false);
     this.notification.notifyHttpError(err, 'Falha ao registrar decisão.');
+    if (err instanceof HttpErrorResponse && err.status === 409) {
+      this.actionMode.set(null);
+      this.carregar();
+    }
     this.cdr.markForCheck();
   }
 }

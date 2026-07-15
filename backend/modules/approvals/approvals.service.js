@@ -993,7 +993,26 @@ async function loadAndAssertCanDecide(conn, idAprovacao, user) {
   const aprovacao = rows[0];
 
   if (aprovacao.status !== STATUS.PENDENTE) {
-    throw new AppError(`Aprovação já finalizada com status ${aprovacao.status}`, 409);
+    const [dec] = await conn.query(
+      `SELECT ad.decisao, u.nome_completo AS usuario_nome
+         FROM aprovacao_decisoes ad
+         LEFT JOIN usuarios u ON u.id = ad.id_usuario
+        WHERE ad.id_aprovacao = ?
+        ORDER BY ad.id DESC
+        LIMIT 1`,
+      [idAprovacao],
+    );
+    const who = dec[0]?.usuario_nome ? ` por ${dec[0].usuario_nome}` : '';
+    const label =
+      aprovacao.status === STATUS.APROVADO
+        ? 'aprovada'
+        : aprovacao.status === STATUS.REPROVADO
+          ? 'reprovada'
+          : 'finalizada';
+    throw new AppError(
+      `Esta solicitação já foi ${label}${who}. Atualize a tela — não é possível uma nova decisão.`,
+      409,
+    );
   }
 
   if (!user.is_super_admin) {
@@ -1107,7 +1126,10 @@ async function approve(idAprovacao, user, options = {}) {
   } catch (err) {
     await conn.rollback();
     if (err && err.code === 'ER_DUP_ENTRY') {
-      throw new AppError('Este nível já foi decidido por outro aprovador', 409);
+      throw new AppError(
+        'Este nível já foi decidido por outro membro da equipe. Atualize a tela.',
+        409,
+      );
     }
     throw err;
   } finally {

@@ -1198,8 +1198,16 @@ export class ApprovalsInboxComponent implements OnInit {
     this.cdr.markForCheck();
     this.approvalService.get(item.id).subscribe({
       next: (res) => {
-        this.detail.set(res.approval);
+        const fresh = res.approval;
+        this.detail.set(fresh);
+        this.syncItemStatus(fresh);
         this.detailLoading.set(false);
+        if (fresh.status !== 'PENDENTE') {
+          this.notification.info(
+            `Solicitação já ${this.statusPastLabel(fresh.status)}.`,
+            'Status atualizado ao abrir.',
+          );
+        }
         this.cdr.markForCheck();
       },
       error: (err) => {
@@ -1263,23 +1271,31 @@ export class ApprovalsInboxComponent implements OnInit {
     this.actionDetail.set(null);
     this.selectedCollaboratorIds.set(new Set());
     this.selectedVehicleIds.set(new Set());
-
-    if (mode !== 'approve' || item.tipoEntidade !== 'ACESSO_SERVICO') {
-      this.cdr.markForCheck();
-      return;
-    }
-
-    const cached = this.detail()?.id === item.id ? this.detail() : null;
-    if (cached?.entidade) {
-      this.initApproveSelection(cached);
-      return;
-    }
-
     this.actionLoading.set(true);
+    this.cdr.markForCheck();
+
+    // Sempre revalida status ao entrar na ação (evita decisão duplicada com lista stale)
     this.approvalService.get(item.id).subscribe({
       next: (res) => {
-        this.initApproveSelection(res.approval);
+        const fresh = res.approval;
+        this.syncItemStatus(fresh);
         this.actionLoading.set(false);
+
+        if (fresh.status !== 'PENDENTE') {
+          this.fecharAcao();
+          this.notification.warning(
+            `Solicitação já ${this.statusPastLabel(fresh.status)}.`,
+            'Outro membro da equipe já registrou a decisão.',
+          );
+          this.carregar();
+          this.cdr.markForCheck();
+          return;
+        }
+
+        this.actionItem.set(fresh);
+        if (mode === 'approve' && fresh.tipoEntidade === 'ACESSO_SERVICO') {
+          this.initApproveSelection(fresh);
+        }
         this.cdr.markForCheck();
       },
       error: (err) => {
@@ -1289,6 +1305,33 @@ export class ApprovalsInboxComponent implements OnInit {
         this.cdr.markForCheck();
       },
     });
+  }
+
+  private statusPastLabel(status: string): string {
+    if (status === 'APROVADO') return 'aprovada';
+    if (status === 'REPROVADO') return 'reprovada';
+    if (status === 'CANCELADO') return 'cancelada';
+    return 'finalizada';
+  }
+
+  /** Atualiza o card da lista com o status fresco (ao abrir solicitação). */
+  private syncItemStatus(fresh: ApprovalItem) {
+    this.items.update((list) =>
+      list.map((it) => (it.id === fresh.id ? { ...it, status: fresh.status } : it)),
+    );
+    this.pendingSummary.update((list) =>
+      list
+        .map((it) => (it.id === fresh.id ? { ...it, status: fresh.status } : it))
+        .filter((it) => it.status === 'PENDENTE'),
+    );
+    // Se estava em "Aguardando" e já não está pendente, some da aba pendentes
+    if (this.tab() === 'pending' && fresh.status !== 'PENDENTE') {
+      this.items.update((list) => list.filter((it) => it.id !== fresh.id));
+    }
+    const d = this.detail();
+    if (d?.id === fresh.id) {
+      this.detail.set({ ...d, ...fresh });
+    }
   }
 
   private initApproveSelection(approval: ApprovalItem) {
@@ -1413,6 +1456,15 @@ export class ApprovalsInboxComponent implements OnInit {
   private onActionError(err: unknown) {
     this.acting.set(false);
     this.notification.notifyHttpError(err, 'Falha ao registrar decisão.');
+    const status =
+      err && typeof err === 'object' && 'status' in err
+        ? Number((err as { status: number }).status)
+        : 0;
+    if (status === 409) {
+      this.fecharAcao();
+      this.fecharDetalhe();
+      this.carregar();
+    }
     this.cdr.markForCheck();
   }
 

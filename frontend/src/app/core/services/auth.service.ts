@@ -51,7 +51,6 @@ export interface AuthUser {
   is_ad_user: boolean;
   foto_url?: string;
   session_idle_minutes?: number | null;
-  notificar_portaria?: boolean;
   sectorMemberships?: SectorMembership[];
 }
 
@@ -201,10 +200,15 @@ export class AuthService {
 
   /**
    * Login Microsoft no iframe do Teams.
-   * skipSilent: pula getAuthToken (use após silent já ter falhado — evita CancelledByUser).
+   * skipSilent: não chama getAuthToken silent (já falhou).
+   * interactive: no clique do botão, tenta getAuthToken com UI do Teams antes do popup MSAL.
    */
   async loginMicrosoftInTeams(
-    options: { navigate?: boolean; skipSilent?: boolean } = {},
+    options: {
+      navigate?: boolean;
+      skipSilent?: boolean;
+      interactive?: boolean;
+    } = {},
   ): Promise<void> {
     await this.msalConfigService.load();
     if (!this.msalConfigService.hasClientId()) {
@@ -217,9 +221,22 @@ export class AuthService {
     }
 
     let token: string | null = null;
-    if (!options.skipSilent) {
+
+    if (options.interactive) {
+      // Gesto do usuário: SSO nativo do Teams (consentimento na máquina fria)
+      token = await this.teamsContext.getAuthToken({ silent: false });
+      if (!token) {
+        const ssoErr = this.teamsContext.getLastAuthError();
+        if (ssoErr === 'CancelledByUser') {
+          throw new Error(
+            'Login cancelado. Conclua a autenticação na janela do Teams (não feche antes).',
+          );
+        }
+      }
+    } else if (!options.skipSilent) {
       token = await this.teamsContext.getAuthToken({ silent: true });
     }
+
     if (!token) {
       token = await this.teamsContext.authenticateWithPopup();
     }
@@ -227,11 +244,11 @@ export class AuthService {
       const detail = this.teamsContext.getLastAuthError();
       const friendly =
         detail === 'CancelledByUser'
-          ? 'Login cancelado. Conclua a escolha da conta no popup (não feche antes).'
+          ? 'Login cancelado. Conclua a escolha da conta no popup (não feche antes). Cadastre no Azure SPA: https://cred.allianzparque.intra/auth/teams.html'
           : detail;
       throw new Error(
         friendly ||
-          'Teams não liberou o token. Confira Azure: Application ID URI com hostname, clientes Teams e SPA https://cred.allianzparque.intra/auth/teams.html',
+          'Teams não liberou o token. No Azure: Application ID URI com hostname (api://cred.allianzparque.intra/{clientId}) e SPA https://cred.allianzparque.intra/auth/teams.html',
       );
     }
 
@@ -300,9 +317,11 @@ export class AuthService {
     }
 
     if (await this.teamsContext.ensureInitialized()) {
-      // Silent já rodou na tela de login; getAuthToken de novo antes do popup
-      // gera CancelledByUser em máquina sem sessão Microsoft.
-      await this.loginMicrosoftInTeams({ skipSilent: true });
+      // Clique do usuário: SSO interativo do Teams; se falhar (URI/API), cai no popup.
+      await this.loginMicrosoftInTeams({
+        skipSilent: true,
+        interactive: true,
+      });
       return;
     }
 

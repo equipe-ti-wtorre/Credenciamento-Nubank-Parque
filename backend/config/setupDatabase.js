@@ -376,6 +376,26 @@ async function migrateEvents(connection) {
     `);
     logger.info("Migration: tabela event_day_company criada");
   }
+
+  const [uepTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usuario_evento_preferencias' LIMIT 1`,
+    [env.db.name],
+  );
+  if (uepTables.length === 0) {
+    await connection.query(`
+      CREATE TABLE usuario_evento_preferencias (
+        id_usuario INT NOT NULL,
+        id_event INT NOT NULL,
+        notificar_portaria TINYINT(1) NOT NULL DEFAULT 0,
+        atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id_usuario, id_event),
+        CONSTRAINT fk_uep_usuario FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE,
+        CONSTRAINT fk_uep_event FOREIGN KEY (id_event) REFERENCES event(id_event) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    logger.info("Migration: tabela usuario_evento_preferencias criada");
+  }
 }
 
 async function migrateCredentials(connection) {

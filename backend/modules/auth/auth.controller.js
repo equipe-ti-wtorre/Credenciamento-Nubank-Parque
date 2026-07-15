@@ -8,7 +8,6 @@ const {
   loginSchema,
   refreshSchema,
   logoutSchema,
-  preferencesSchema,
 } = require("./auth.schema");
 const {
   refreshAccessToken,
@@ -120,17 +119,6 @@ exports.logout = async (req, res, next) => {
 exports.me = async (req, res, next) => {
   try {
     const user = await authService.getMe(req.user.id);
-    res.json({ user });
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.updatePreferences = async (req, res, next) => {
-  try {
-    const { error, value } = preferencesSchema.validate(req.body || {});
-    if (error) throw new AppError(error.details[0].message, 400);
-    const user = await authService.updateMyPreferences(req.user.id, value);
     res.json({ user });
   } catch (err) {
     next(err);

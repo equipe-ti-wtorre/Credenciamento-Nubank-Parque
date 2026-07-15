@@ -109,15 +109,15 @@ Ainda no **App Registration** (`90ac8301-…`):
 
 Sem o passo 3, o Teams mostra “Não foi possível autenticar automaticamente” / falha em **Entrar com Microsoft (Teams)**.
 
-No App Registration → **Autenticação** → plataforma **SPA**, cadastre:
+No App Registration → **Autenticação** → plataforma **SPA**, cadastre **obrigatoriamente**:
 
 ```text
 https://cred.allianzparque.intra
+https://cred.allianzparque.intra/auth/teams.html
 ```
 
-(recomendado também) `https://cred.allianzparque.intra/auth/teams.html`
-
-O popup inicia em `/auth/teams.html` (página estática), mas o **redirect do Microsoft** usa o **origin** acima (já cadastrado). Sem o origin, aparece **AADSTS50011** / erro de popup em máquina sem sessão.
+- A primeira serve o login no navegador.
+- A segunda é **obrigatória para máquina sem sessão** (popup do Teams). Sem ela: **AADSTS50011** / `CancelledByUser`.
 
 Após alterar o Application ID URI / redirect, regenere o zip e **republique** o app no Teams Admin (versão **1.1.2+**).
 
@@ -243,9 +243,10 @@ Gera `../credenciamento-teams.zip`.
 |--------|--------------|--------|
 | Nova aprovação | Aprovadores do setor | Feed + Adaptive Card + alerta in-app |
 | Aprovado/reprovado | Solicitante | Feed + card informativo + alerta |
-| Check-in na portaria | Solicitante + aprovadores/gestores **com** “Alerta portaria” ligado | Feed + card + alerta |
+| Check-in na portaria (acesso de serviço) | Solicitante + aprovadores/gestores do setor | Feed + card + alerta |
+| Check-in na portaria (credencial de evento) | Solicitante + aprovadores/gestores **com** “Alerta portaria” ligado **naquele evento** | Feed + card + alerta |
 
-Preferência **Alerta portaria**: toggle no perfil da sidebar (desligado por padrão).
+Preferência **Alerta portaria**: toggle no detalhe do evento (desligado por padrão). Controla apenas alertas de check-in da credencial daquele evento.
 
 ## Tipo de atividade
 

@@ -14,9 +14,9 @@ export class TeamsContextService {
   static readonly AUTH_POPUP_FLAG = 'teams.auth.popup';
   static readonly SSO_ERROR_KEY = 'teams.sso.lastError';
 
-  /** URI cadastrado no Azure SPA (origin). /auth/teams.html só inicia o popup. */
+  /** URI do popup Teams (cadastrar no Azure SPA). */
   static teamsAuthRedirectUri(): string {
-    return window.location.origin;
+    return `${window.location.origin}${TeamsContextService.AUTH_PATH}`;
   }
 
   async ensureInitialized(): Promise<boolean> {
@@ -229,17 +229,17 @@ export class TeamsContextService {
       /* ignore */
     }
 
-    const qs = new URLSearchParams({ v: '20260715g' });
+    const qs = new URLSearchParams({ v: '20260715h' });
     if (loginHint) qs.set('login_hint', loginHint);
     const url = `${window.location.origin}${popupPath}?${qs.toString()}`;
 
     try {
-      // Evita corrida se getAuthToken silent acabou de falhar (máquina fria)
-      await this.delay(200);
+      // Pequena pausa após SSO silent falhar (evita CancelledByUser no desktop)
+      await this.delay(350);
       const result = await microsoftTeams.authentication.authenticate({
         url,
         width: 600,
-        height: 700,
+        height: 720,
       });
       return typeof result === 'string' && result ? result : null;
     } catch (err: unknown) {

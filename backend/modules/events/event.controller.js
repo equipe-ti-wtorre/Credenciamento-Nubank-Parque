@@ -1,7 +1,12 @@
 const AppError = require("../../utils/AppError");
 const { attachAudit } = require("../../utils/auditLogger");
 const eventService = require("./event.service");
-const { eventCreateSchema, eventPeriodSchema, eventDayCompanySchema } = require("./event.schema");
+const {
+  eventCreateSchema,
+  eventPeriodSchema,
+  eventDayCompanySchema,
+  eventPreferencesSchema,
+} = require("./event.schema");
 const { notifyApprovalCreated } = require("../approvals/approvals.notifications");
 
 exports.listTypes = async (req, res, next) => {
@@ -27,6 +32,18 @@ exports.list = async (req, res, next) => {
 exports.getById = async (req, res, next) => {
   try {
     const event = await eventService.getEventById(req, req.params.id);
+    res.json({ event });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updatePreferences = async (req, res, next) => {
+  try {
+    const { error, value } = eventPreferencesSchema.validate(req.body || {});
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const event = await eventService.updateEventPreferences(req, req.params.id, value);
     res.json({ event });
   } catch (err) {
     next(err);

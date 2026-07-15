@@ -10,10 +10,11 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { NavigationEnd, Router } from '@angular/router';
+import { Subscription, filter } from 'rxjs';
 import { AlertsService, SystemAlert } from '../services/alerts.service';
 
-const POLL_MS = 60_000;
+const POLL_MS = 30_000;
 
 @Component({
   selector: 'app-notifications-dropdown',
@@ -62,16 +63,28 @@ const POLL_MS = 60_000;
         >
           <div class="notifications-dropdown__header">
             <span class="notifications-dropdown__title">Alertas</span>
-            @if (unreadCount() > 0) {
-              <button
-                type="button"
-                class="notifications-dropdown__mark-all"
-                [disabled]="markingAll"
-                (click)="markAllAsRead($event)"
-              >
-                Marcar todas como lidas
-              </button>
-            }
+            <div class="notifications-dropdown__header-actions">
+              @if (unreadCount() > 0) {
+                <button
+                  type="button"
+                  class="notifications-dropdown__mark-all"
+                  [disabled]="markingAll"
+                  (click)="markAllAsRead($event)"
+                >
+                  Marcar todas como lidas
+                </button>
+              }
+              @if (alerts().length > 0) {
+                <button
+                  type="button"
+                  class="notifications-dropdown__clear-all"
+                  [disabled]="clearingAll"
+                  (click)="clearAll($event)"
+                >
+                  Limpar todas as mensagens
+                </button>
+              }
+            </div>
           </div>
 
           <div class="notifications-dropdown__body">
@@ -84,7 +97,7 @@ const POLL_MS = 60_000;
             } @else {
               <ul class="notifications-dropdown__list">
                 @for (alert of alerts(); track alert.id) {
-                  <li>
+                  <li class="notifications-dropdown__row">
                     <button
                       type="button"
                       class="notifications-dropdown__item"
@@ -97,6 +110,32 @@ const POLL_MS = 60_000;
                       <span class="notifications-dropdown__item-time">{{
                         formatTime(alert.criadoEm)
                       }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="notifications-dropdown__delete"
+                      aria-label="Excluir alerta"
+                      title="Excluir"
+                      [disabled]="deletingId === alert.id"
+                      (click)="deleteAlert(alert, $event)"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="15"
+                        height="15"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.9"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                      </svg>
                     </button>
                   </li>
                 }
@@ -125,6 +164,8 @@ export class NotificationsDropdownComponent implements OnInit, OnDestroy {
   loading = false;
   loadError = false;
   markingAll = false;
+  clearingAll = false;
+  deletingId: number | null = null;
 
   readonly unreadCount = signal(0);
   readonly alerts = signal<SystemAlert[]>([]);
@@ -132,18 +173,32 @@ export class NotificationsDropdownComponent implements OnInit, OnDestroy {
   private ignoreNextDocumentClick = false;
   private panelMovedToBody = false;
   private pollTimer?: ReturnType<typeof setInterval>;
+  private routerSub?: Subscription;
 
   ngOnInit(): void {
     this.refreshUnreadCount();
     this.pollTimer = setInterval(() => this.refreshUnreadCount(), POLL_MS);
+    this.routerSub = this.router.events
+      .pipe(filter((e) => e instanceof NavigationEnd))
+      .subscribe(() => {
+        this.refreshUnreadCount();
+        if (this.open) this.reloadAlerts();
+      });
   }
 
   ngOnDestroy(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    this.routerSub?.unsubscribe();
     this.detachPanelFromBody();
     if (NotificationsDropdownComponent.openInstance === this) {
       NotificationsDropdownComponent.openInstance = null;
     }
+  }
+
+  @HostListener('window:focus')
+  onWindowFocus(): void {
+    this.refreshUnreadCount();
+    if (this.open) this.reloadAlerts();
   }
 
   toggle(event: MouseEvent): void {
@@ -198,15 +253,57 @@ export class NotificationsDropdownComponent implements OnInit, OnDestroy {
     this.markingAll = true;
     this.alertsApi.markAllRead().subscribe({
       next: () => {
-        this.unreadCount.set(0);
-        this.alerts.update((list) =>
-          list.map((a) => ({ ...a, lidaEm: a.lidaEm || new Date().toISOString() })),
-        );
-        this.markingAll = false;
-        this.cdr.detectChanges();
+        this.runPanelUiUpdate(() => {
+          this.unreadCount.set(0);
+          this.alerts.update((list) =>
+            list.map((a) => ({ ...a, lidaEm: a.lidaEm || new Date().toISOString() })),
+          );
+          this.markingAll = false;
+        });
       },
       error: () => {
         this.markingAll = false;
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  deleteAlert(alert: SystemAlert, event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.deletingId != null) return;
+    this.deletingId = alert.id;
+    this.alertsApi.delete(alert.id).subscribe({
+      next: () => {
+        const wasUnread = !alert.lidaEm;
+        this.runPanelUiUpdate(() => {
+          this.alerts.update((list) => list.filter((a) => a.id !== alert.id));
+          if (wasUnread) {
+            this.unreadCount.update((n) => Math.max(0, n - 1));
+          }
+          this.deletingId = null;
+        });
+      },
+      error: () => {
+        this.deletingId = null;
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  clearAll(event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.clearingAll || this.alerts().length === 0) return;
+    this.clearingAll = true;
+    this.alertsApi.deleteAll().subscribe({
+      next: () => {
+        this.runPanelUiUpdate(() => {
+          this.alerts.set([]);
+          this.unreadCount.set(0);
+          this.clearingAll = false;
+        });
+      },
+      error: () => {
+        this.clearingAll = false;
         this.cdr.detectChanges();
       },
     });
@@ -260,19 +357,43 @@ export class NotificationsDropdownComponent implements OnInit, OnDestroy {
       this.cdr.detectChanges();
     }, 0);
 
+    this.reloadAlerts();
+  }
+
+  /**
+   * O painel é movido para document.body (overflow do layout).
+   * Atualizações do Angular precisam ocorrer com o nó de volta no host,
+   * senão a lista/badge ficam stale até reabrir o sino.
+   */
+  private runPanelUiUpdate(mutate: () => void): void {
+    const wasOnBody = this.panelMovedToBody;
+    if (wasOnBody) this.detachPanelFromBody();
+    mutate();
+    this.cdr.detectChanges();
+    if (wasOnBody && this.open) {
+      this.attachPanelToBody();
+      this.updatePanelPosition();
+      this.cdr.detectChanges();
+    } else {
+      setTimeout(() => this.updatePanelPosition(), 0);
+    }
+  }
+
+  private reloadAlerts(): void {
     this.alertsApi.list({ page: 1, pageSize: 20 }).subscribe({
       next: (res) => {
-        this.alerts.set(res.data || []);
-        this.loading = false;
-        this.loadError = false;
+        this.runPanelUiUpdate(() => {
+          this.alerts.set(res.data || []);
+          this.loading = false;
+          this.loadError = false;
+        });
         this.refreshUnreadCount();
-        this.cdr.detectChanges();
-        setTimeout(() => this.updatePanelPosition(), 0);
       },
       error: () => {
-        this.loading = false;
-        this.loadError = true;
-        this.cdr.detectChanges();
+        this.runPanelUiUpdate(() => {
+          this.loading = false;
+          this.loadError = true;
+        });
       },
     });
   }

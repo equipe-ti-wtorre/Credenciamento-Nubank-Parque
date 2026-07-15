@@ -186,6 +186,14 @@ const migrations = [
     filename: "025_notificar_portaria.sql",
     validate: (conn) => columnExists(conn, "usuarios", "notificar_portaria"),
   },
+  {
+    filename: "026_alertas_excluido.sql",
+    validate: (conn) => columnExists(conn, "alertas", "excluido_em"),
+  },
+  {
+    filename: "027_usuario_evento_preferencias.sql",
+    validate: (conn) => tableExists(conn, "usuario_evento_preferencias"),
+  },
 ];
 
 module.exports = migrations;

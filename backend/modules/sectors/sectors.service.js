@@ -214,7 +214,7 @@ async function listMembers(idSetor) {
     `SELECT su.*, u.nome_completo, u.email
        FROM setor_usuarios su
        JOIN usuarios u ON u.id = su.id_usuario
-      WHERE su.id_setor = ?
+      WHERE su.id_setor = ? AND su.ativo = 1
       ORDER BY u.nome_completo ASC`,
     [idSetor],
   );

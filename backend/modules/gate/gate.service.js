@@ -22,6 +22,7 @@ const GATE_CREDENTIAL_SELECT = `
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
          ed.date AS event_day_date,
+         e.id_event,
          e.name AS event_name,
          bl.id_collaborator AS blacklisted_id
   FROM event_day_company_collaborator edcc
@@ -119,6 +120,7 @@ function buildSuccessPayload(row, actionRegistered) {
       action_registered: actionRegistered,
       access_id: row.access_id,
       id_event_day_company_collaborator: row.id_event_day_company_collaborator,
+      id_event: row.id_event,
       event_name: row.event_name,
     },
   };

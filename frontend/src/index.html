@@ -5,11 +5,15 @@
     <title>Credenciamento</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- Popup Teams: Azure devolve no origin; devolve para /auth/teams.html sem Angular. -->
+    <!-- Popup Teams: se Azure devolver no origin, manda para /auth/teams.html antes do Angular. -->
     <script>
       (function () {
         try {
-          if (sessionStorage.getItem('teams.auth.popup') !== '1') return;
+          var flag =
+            sessionStorage.getItem('teams.auth.popup') === '1' ||
+            localStorage.getItem('teams.auth.popup') === '1' ||
+            /(?:^|;\s*)teams_auth_popup=1(?:;|$)/.test(document.cookie || '');
+          if (!flag) return;
           var q = location.search || '';
           var h = location.hash || '';
           if (!/(?:^|[?#&])(code|id_token|error)=/i.test(q + h)) return;

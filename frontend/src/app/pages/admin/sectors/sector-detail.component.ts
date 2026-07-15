@@ -96,7 +96,6 @@ const PAPEL_OPTIONS: SectorPapel[] = ['SOLICITANTE', 'APROVADOR', 'GESTOR'];
             <tr>
               <th class="px-3 py-2 text-left">Nome</th>
               <th class="px-3 py-2 text-left">Papel</th>
-              <th class="px-3 py-2 text-left">Status</th>
               <th class="px-3 py-2 text-right">Ações</th>
             </tr>
           </thead>
@@ -115,9 +114,8 @@ const PAPEL_OPTIONS: SectorPapel[] = ['SOLICITANTE', 'APROVADOR', 'GESTOR'];
                   <option *ngFor="let p of papelOptions" [ngValue]="p">{{ papelLabel(p) }}</option>
                 </select>
               </td>
-              <td class="px-3 py-2">{{ m.ativo ? 'Ativo' : 'Inativo' }}</td>
               <td class="px-3 py-2 text-right">
-                <button *ngIf="m.ativo" type="button" class="btn-secondary text-xs py-1 px-2" (click)="removerMembro(m)">
+                <button type="button" class="btn-secondary text-xs py-1 px-2" (click)="removerMembro(m)">
                   Remover
                 </button>
               </td>

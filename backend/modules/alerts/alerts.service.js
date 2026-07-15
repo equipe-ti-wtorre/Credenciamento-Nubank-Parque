@@ -195,14 +195,15 @@ async function listAlerts(userId, { page = 1, pageSize = 20, unreadOnly = false 
   }
 
   const [countRows] = await db.execute(
-    `SELECT COUNT(*) AS total FROM alertas WHERE id_usuario = ?${unreadClause}`,
+    `SELECT COUNT(*) AS total FROM alertas
+      WHERE id_usuario = ? AND excluido_em IS NULL${unreadClause}`,
     params,
   );
   const total = Number(countRows[0]?.total ?? 0);
 
   const [rows] = await db.execute(
     `SELECT * FROM alertas
-      WHERE id_usuario = ?${unreadClause}
+      WHERE id_usuario = ? AND excluido_em IS NULL${unreadClause}
       ORDER BY criado_em DESC
       LIMIT ${limit} OFFSET ${offset}`,
     params,
@@ -220,7 +221,8 @@ async function listAlerts(userId, { page = 1, pageSize = 20, unreadOnly = false 
 
 async function countUnread(userId) {
   const [rows] = await db.execute(
-    `SELECT COUNT(*) AS total FROM alertas WHERE id_usuario = ? AND lida_em IS NULL`,
+    `SELECT COUNT(*) AS total FROM alertas
+      WHERE id_usuario = ? AND lida_em IS NULL AND excluido_em IS NULL`,
     [userId],
   );
   return Number(rows[0]?.total ?? 0);
@@ -228,7 +230,9 @@ async function countUnread(userId) {
 
 async function markRead(userId, alertId) {
   const [rows] = await db.execute(
-    `SELECT * FROM alertas WHERE id = ? AND id_usuario = ? LIMIT 1`,
+    `SELECT * FROM alertas
+      WHERE id = ? AND id_usuario = ? AND excluido_em IS NULL
+      LIMIT 1`,
     [alertId, userId],
   );
   if (!rows[0]) throw new AppError("Alerta não encontrado.", 404);
@@ -250,10 +254,39 @@ async function markRead(userId, alertId) {
 
 async function markAllRead(userId) {
   const [result] = await db.execute(
-    `UPDATE alertas SET lida_em = NOW() WHERE id_usuario = ? AND lida_em IS NULL`,
+    `UPDATE alertas SET lida_em = NOW()
+      WHERE id_usuario = ? AND lida_em IS NULL AND excluido_em IS NULL`,
     [userId],
   );
   return { updated: result.affectedRows || 0 };
+}
+
+async function deleteAlert(userId, alertId) {
+  const [rows] = await db.execute(
+    `SELECT * FROM alertas
+      WHERE id = ? AND id_usuario = ? AND excluido_em IS NULL
+      LIMIT 1`,
+    [alertId, userId],
+  );
+  if (!rows[0]) throw new AppError("Alerta não encontrado.", 404);
+
+  await db.execute(
+    `UPDATE alertas SET excluido_em = NOW(), lida_em = COALESCE(lida_em, NOW())
+      WHERE id = ? AND id_usuario = ? AND excluido_em IS NULL`,
+    [alertId, userId],
+  );
+
+  return { deleted: true, id: Number(alertId) };
+}
+
+async function deleteAllAlerts(userId) {
+  const [result] = await db.execute(
+    `UPDATE alertas
+        SET excluido_em = NOW(), lida_em = COALESCE(lida_em, NOW())
+      WHERE id_usuario = ? AND excluido_em IS NULL`,
+    [userId],
+  );
+  return { deleted: result.affectedRows || 0 };
 }
 
 module.exports = {
@@ -265,4 +298,6 @@ module.exports = {
   countUnread,
   markRead,
   markAllRead,
+  deleteAlert,
+  deleteAllAlerts,
 };

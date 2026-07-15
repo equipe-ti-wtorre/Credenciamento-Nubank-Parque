@@ -75,10 +75,15 @@ const eventPeriodSchema = Joi.object({
     "event.dateRange": "A data de início deve ser anterior ou igual à data de término.",
   });
 
+const eventPreferencesSchema = Joi.object({
+  notificar_portaria: Joi.boolean().required(),
+});
+
 module.exports = {
   eventCreateSchema,
   eventPeriodSchema,
   eventDayCompanySchema,
   eventDayItemSchema,
+  eventPreferencesSchema,
   toDateOnly,
 };
