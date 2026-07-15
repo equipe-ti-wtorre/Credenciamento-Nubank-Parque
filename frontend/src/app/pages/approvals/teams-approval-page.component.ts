@@ -3,6 +3,7 @@ import {
   ChangeDetectorRef,
   Component,
   HostListener,
+  OnDestroy,
   OnInit,
   signal,
 } from '@angular/core';
@@ -11,6 +12,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
+  ApprovalEntityCollaborator,
   ApprovalItem,
   ApprovalService,
   approvalEntityBadgeClass,
@@ -21,6 +23,7 @@ import {
   liberacaoStatusBadgeClass,
   liberacaoStatusLabel,
 } from '../../services/approval.service';
+import { CollaboratorService } from '../../services/collaborator.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { TeamsContextService } from '../../services/teams-context.service';
 
@@ -133,8 +136,8 @@ import { TeamsContextService } from '../../services/teams-context.service';
 
               <div *ngIf="ent.tipo === 'ACESSO_SERVICO'">
                 <p class="text-xs font-bold text-slate-500 uppercase mb-2">Colaboradores</p>
-                <p *ngIf="!ent.collaborators?.length" class="text-sm text-slate-500">Nenhum.</p>
-                <ul class="space-y-2" *ngIf="ent.collaborators?.length">
+                <p *ngIf="!ent.collaborators.length" class="text-sm text-slate-500">Nenhum.</p>
+                <ul class="space-y-2" *ngIf="ent.collaborators.length">
                   <li
                     *ngFor="let c of ent.collaborators"
                     class="flex flex-wrap items-center gap-2 text-sm rounded-lg bg-slate-50 px-3 py-2"
@@ -151,8 +154,8 @@ import { TeamsContextService } from '../../services/teams-context.service';
                 </ul>
 
                 <p class="text-xs font-bold text-slate-500 uppercase mb-2 mt-4">Veículos</p>
-                <p *ngIf="!ent.vehicles?.length" class="text-sm text-slate-500">Nenhum.</p>
-                <ul class="space-y-2" *ngIf="ent.vehicles?.length">
+                <p *ngIf="!ent.vehicles.length" class="text-sm text-slate-500">Nenhum.</p>
+                <ul class="space-y-2" *ngIf="ent.vehicles.length">
                   <li
                     *ngFor="let v of ent.vehicles"
                     class="flex flex-wrap items-center gap-2 text-sm rounded-lg bg-slate-50 px-3 py-2"
@@ -293,7 +296,14 @@ import { TeamsContextService } from '../../services/teams-context.service';
                         <path d="M20 6 9 17l-5-5" />
                       </svg>
                     </span>
+                    <img
+                      *ngIf="pictureUrl(c) as url"
+                      [src]="url"
+                      [alt]="'Foto de ' + c.nome"
+                      class="shrink-0 w-[34px] h-[34px] rounded-full object-cover border border-slate-200"
+                    />
                     <span
+                      *ngIf="!pictureUrl(c)"
                       class="shrink-0 w-[34px] h-[34px] rounded-full grid place-items-center text-[13px] font-semibold"
                       [ngClass]="
                         isCollaboratorSelected(c.id)
@@ -549,7 +559,7 @@ import { TeamsContextService } from '../../services/teams-context.service';
     </div>
   `,
 })
-export class TeamsApprovalPageComponent implements OnInit {
+export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
   readonly loading = signal(true);
   readonly acting = signal(false);
   readonly approval = signal<ApprovalItem | null>(null);
@@ -557,16 +567,19 @@ export class TeamsApprovalPageComponent implements OnInit {
   readonly actionMode = signal<'approve' | 'reject' | null>(null);
   readonly selectedCollaboratorIds = signal<Set<number>>(new Set());
   readonly selectedVehicleIds = signal<Set<number>>(new Set());
+  readonly thumbnailUrls = signal<Record<number, string>>({});
   readonly inTeams = signal(false);
   readonly standaloneShell = signal(false);
 
   comment = '';
   private approvalId = 0;
   private lastSilentLoadAt = 0;
+  private thumbnailLoadId = 0;
 
   constructor(
     private route: ActivatedRoute,
     private approvalService: ApprovalService,
+    private collaboratorService: CollaboratorService,
     private notification: NotificationService,
     private teamsContext: TeamsContextService,
     private cdr: ChangeDetectorRef,
@@ -601,6 +614,10 @@ export class TeamsApprovalPageComponent implements OnInit {
         }
       },
     });
+  }
+
+  ngOnDestroy() {
+    this.revokeThumbnails();
   }
 
   title(): string {
@@ -688,6 +705,7 @@ export class TeamsApprovalPageComponent implements OnInit {
       new Set((item.entidade?.collaborators ?? []).map((c) => c.id)),
     );
     this.selectedVehicleIds.set(new Set((item.entidade?.vehicles ?? []).map((v) => v.id)));
+    this.loadThumbnails(item.entidade?.collaborators ?? []);
   }
 
   isCollaboratorSelected(id: number) {
@@ -706,6 +724,10 @@ export class TeamsApprovalPageComponent implements OnInit {
     return this.selectedVehicleIds().size;
   }
 
+  pictureUrl(c: ApprovalEntityCollaborator): string | null {
+    return this.thumbnailUrls()[c.idCollaborator] ?? null;
+  }
+
   initials(nome: string): string {
     const parts = (nome || '')
       .trim()
@@ -714,6 +736,33 @@ export class TeamsApprovalPageComponent implements OnInit {
     if (!parts.length) return '?';
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  private loadThumbnails(list: ApprovalEntityCollaborator[]) {
+    this.revokeThumbnails();
+    const loadId = ++this.thumbnailLoadId;
+    for (const c of list) {
+      if (!c.picture) continue;
+      this.collaboratorService.getPictureBlob(c.picture).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          if (loadId !== this.thumbnailLoadId) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          this.thumbnailUrls.update((map) => ({ ...map, [c.idCollaborator]: url }));
+          this.cdr.markForCheck();
+        },
+        error: () => {},
+      });
+    }
+  }
+
+  private revokeThumbnails() {
+    for (const url of Object.values(this.thumbnailUrls())) {
+      URL.revokeObjectURL(url);
+    }
+    this.thumbnailUrls.set({});
   }
 
   toggleCollaborator(id: number) {

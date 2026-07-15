@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   "manifestVersion": "1.16",
-  "version": "1.1.2",
+  "version": "1.1.4",
   "id": "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c",
   "packageName": "com.credenciamento.app",
   "developer": {
@@ -22,7 +22,7 @@
     "color": "color.png",
     "outline": "outline.png"
   },
-  "accentColor": "#2563EB",
+  "accentColor": "#13253A",
   "staticTabs": [
     {
       "entityId": "home",
@@ -36,7 +36,7 @@
   ],
   "bots": [
     {
-      "botId": "90ac8301-8401-4287-9e69-287a4cdcbc2b",
+      "botId": "cab3a38d-3f58-4388-b745-1511c22f86a1",
       "scopes": [
         "personal"
       ],
@@ -62,8 +62,8 @@
     "cred.allianzparque.intra"
   ],
   "webApplicationInfo": {
-    "id": "90ac8301-8401-4287-9e69-287a4cdcbc2b",
-    "resource": "api://cred.allianzparque.intra/90ac8301-8401-4287-9e69-287a4cdcbc2b"
+    "id": "cab3a38d-3f58-4388-b745-1511c22f86a1",
+    "resource": "api://cred.allianzparque.intra/cab3a38d-3f58-4388-b745-1511c22f86a1"
   },
   "activities": {
     "activityTypes": [

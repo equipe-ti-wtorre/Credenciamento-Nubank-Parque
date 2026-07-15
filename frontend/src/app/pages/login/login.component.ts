@@ -15,7 +15,12 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
   template: `
     <div class="w-full max-w-[380px] mx-auto space-y-8">
       <div class="flex flex-col items-center">
-        <img src="assets/logo.svg" alt="Logo" class="h-10 w-auto object-contain" style="height: 45px" />
+        <img
+          src="assets/logo.svg"
+          alt="WTorre"
+          class="h-10 w-auto object-contain"
+          style="height: 45px"
+        />
         <div class="mt-2 w-28 h-0.5 bg-blue-500 rounded-full" aria-hidden="true"></div>
       </div>
       <h2 class="text-xl font-medium text-white text-center">Credenciamento</h2>

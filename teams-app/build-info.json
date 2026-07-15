@@ -1,7 +1,7 @@
 {
-  "clientId": "90ac8301-8401-4287-9e69-287a4cdcbc2b",
+  "clientId": "cab3a38d-3f58-4388-b745-1511c22f86a1",
   "baseUrl": "https://cred.allianzparque.intra",
   "packageExternalId": "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c",
   "zipPath": "/www/server/Credenciamento/credenciamento-teams.zip",
-  "azureAppIdUri": "api://cred.allianzparque.intra/90ac8301-8401-4287-9e69-287a4cdcbc2b"
+  "azureAppIdUri": "api://cred.allianzparque.intra/cab3a38d-3f58-4388-b745-1511c22f86a1"
 }

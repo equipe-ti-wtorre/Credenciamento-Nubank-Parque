@@ -58,6 +58,7 @@ export interface ApprovalEntityCollaborator {
   nome: string;
   documento: string;
   funcao: string;
+  picture?: string | null;
   criadoEm?: string | null;
   statusLiberacao?: ApprovalLiberacaoStatus;
 }

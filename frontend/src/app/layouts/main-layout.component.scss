@@ -57,33 +57,39 @@
   }
 
   .brand {
+    position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 22px 22px 18px;
+    justify-content: center;
+    padding: 22px 44px 18px;
 
     .logo {
-      font-family: var(--wt-display);
-      font-weight: 800;
-      font-size: 22px;
-      letter-spacing: 1px;
-      color: #fff;
       display: flex;
       align-items: center;
-      gap: 9px;
+      justify-content: center;
       text-decoration: none;
+      line-height: 0;
 
-      .dot {
-        width: 9px;
-        height: 9px;
-        border-radius: 3px;
-        background: var(--wt-primary);
-        box-shadow: 0 0 12px var(--wt-primary);
-        flex-shrink: 0;
+      .logo-full {
+        height: 22px;
+        width: auto;
+        max-width: 130px;
+        display: block;
+        object-fit: contain;
+      }
+
+      .logo-mark {
+        display: none;
+        height: 24px;
+        width: 24px;
       }
     }
 
     .collapse {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      translate: 0 -50%;
       width: 30px;
       height: 30px;
       border-radius: 8px;
@@ -335,7 +341,14 @@
       justify-content: center;
     }
 
-    .brand .word,
+    .brand .logo-full {
+      display: none;
+    }
+
+    .brand .logo-mark {
+      display: block;
+    }
+
     .profile .meta,
     .wt-nav-item .txt,
     .wt-nav-item .badge,

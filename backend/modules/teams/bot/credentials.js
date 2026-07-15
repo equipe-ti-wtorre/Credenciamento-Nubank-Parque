@@ -31,17 +31,8 @@ function credentialsFromEnv() {
   };
 }
 
-async function credentialsFromAzureTenant() {
-  const [rows] = await db.execute(
-    `SELECT id, nome, azure_tenant_id, client_id, client_secret_ciphertext
-       FROM azure_tenants
-      WHERE ativo = 1 AND client_secret_ciphertext IS NOT NULL
-      ORDER BY eh_principal DESC, id ASC
-      LIMIT 1`,
-  );
-  const row = rows[0];
+function mapTenantRow(row) {
   if (!row) return null;
-
   let appPassword;
   try {
     appPassword = decrypt(row.client_secret_ciphertext);
@@ -61,7 +52,33 @@ async function credentialsFromAzureTenant() {
   };
 }
 
+async function credentialsFromAzureTenant() {
+  const [rows] = await db.execute(
+    `SELECT id, nome, azure_tenant_id, client_id, client_secret_ciphertext
+       FROM azure_tenants
+      WHERE ativo = 1 AND client_secret_ciphertext IS NOT NULL
+      ORDER BY eh_principal DESC, id ASC
+      LIMIT 1`,
+  );
+  return mapTenantRow(rows[0]);
+}
+
+/** Credenciais de um tenant específico (para fan-out multi-tenant no Bot). */
+async function credentialsFromAzureTenantById(azureTenantRefId) {
+  const id = Number(azureTenantRefId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const [rows] = await db.execute(
+    `SELECT id, nome, azure_tenant_id, client_id, client_secret_ciphertext
+       FROM azure_tenants
+      WHERE id = ? AND ativo = 1 AND client_secret_ciphertext IS NOT NULL
+      LIMIT 1`,
+    [id],
+  );
+  return mapTenantRow(rows[0]);
+}
+
 /**
+ * @param {{ force?: boolean, azureTenantRefId?: number }} [options]
  * @returns {Promise<null | {
  *   appId: string,
  *   appPassword: string,
@@ -71,7 +88,18 @@ async function credentialsFromAzureTenant() {
  *   azureTenantRefId?: number
  * }>}
  */
-async function getBotCredentials({ force = false } = {}) {
+async function getBotCredentials({ force = false, azureTenantRefId } = {}) {
+  // Por integração: não usa cache global do principal (cada tenant tem App ID próprio).
+  if (azureTenantRefId != null) {
+    try {
+      const byId = await credentialsFromAzureTenantById(azureTenantRefId);
+      if (byId) return byId;
+    } catch (err) {
+      log.warn({ err, azureTenantRefId }, "Falha ao carregar credenciais do tenant da integração");
+    }
+    // Sem secret nesse tenant: cai no default abaixo.
+  }
+
   const now = Date.now();
   if (!force && cache && now - cacheAt < CACHE_MS) {
     return cache;
@@ -94,8 +122,8 @@ async function getBotCredentials({ force = false } = {}) {
   return cache;
 }
 
-async function isBotConfigured() {
-  const creds = await getBotCredentials();
+async function isBotConfigured(options = {}) {
+  const creds = await getBotCredentials(options);
   return !!(creds?.appId && creds?.appPassword);
 }
 
@@ -109,4 +137,5 @@ module.exports = {
   isBotConfigured,
   clearBotCredentialsCache,
   credentialsFromEnv,
+  credentialsFromAzureTenantById,
 };

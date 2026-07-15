@@ -316,6 +316,7 @@ async function loadServiceAccessEntity(idEntidade, { approvalStatus = null } = {
     `SELECT sac.id_service_access_collaborator, sac.id_collaborator, sac.id_collaborator_role,
             sac.access_id, sac.criado_em, sac.atualizado_em,
             c.name AS collaborator_name, c.document AS collaborator_document,
+            c.picture AS collaborator_picture,
             cr.description AS role_description
        FROM service_access_collaborator sac
        INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
@@ -352,6 +353,7 @@ async function loadServiceAccessEntity(idEntidade, { approvalStatus = null } = {
       nome: r.collaborator_name,
       documento: r.collaborator_document,
       funcao: r.role_description,
+      picture: r.collaborator_picture || null,
       criadoEm: r.criado_em,
       statusLiberacao: liberacaoStatus(r.access_id, approvalStatus),
     })),

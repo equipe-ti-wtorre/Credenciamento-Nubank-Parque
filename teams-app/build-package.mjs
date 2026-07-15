@@ -42,7 +42,7 @@ const manifest = {
   $schema:
     "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   manifestVersion: "1.16",
-  version: "1.1.2",
+  version: "1.1.4",
   id: packageExternalId,
   packageName: "com.credenciamento.app",
   developer: {
@@ -63,7 +63,7 @@ const manifest = {
     color: "color.png",
     outline: "outline.png",
   },
-  accentColor: "#2563EB",
+  accentColor: "#13253A",
   staticTabs: [
     {
       entityId: "home",

@@ -303,6 +303,7 @@ async function sendNotification(integrationId, { email, mensagem, path, adaptive
       accessToken: auth.token,
       tenantId,
       microsoftUserId: feedResult.user?.id || null,
+      azureTenantRefId: row.azure_tenant_ref_id,
     });
   }
 
@@ -334,6 +335,7 @@ async function deliverAdaptiveCard({
   accessToken,
   tenantId,
   microsoftUserId,
+  azureTenantRefId,
 }) {
   let aadId = microsoftUserId;
   if (!aadId && email) {
@@ -348,12 +350,14 @@ async function deliverAdaptiveCard({
     }
   }
 
-  if ((await isBotConfigured()) && aadId) {
+  const botOpts = { azureTenantRefId };
+  if ((await isBotConfigured(botOpts)) && aadId) {
     const proactive = await sendProactiveAdaptiveCard(aadId, adaptiveCard, {
       tenantId,
+      azureTenantRefId,
     });
     if (proactive.ok) return { ...proactive, via: "bot" };
-    logger.warn({ email, message: proactive.message }, "Bot proativo falhou; tentando Graph");
+    logger.warn({ email, message: proactive.message, azureTenantRefId }, "Bot proativo falhou; tentando Graph");
   }
 
   if (!accessToken) {
@@ -406,24 +410,61 @@ async function notifyOperationsChannel(mensagem) {
 }
 
 /**
- * Envia notificação ao usuário usando a primeira integração ativa do tipo user.
+ * Envia notificação ao usuário em todas as integrações ativas do tipo user
+ * (um cadastro por tenant Azure). Sucesso se pelo menos uma entregar
+ * (o e-mail normalmente só existe em um Graph/AD).
  * @param {string} email
  * @param {string} mensagem
  * @param {{ path?: string, adaptiveCard?: object }} [options]
  */
 async function notifyUser(email, mensagem, options = {}) {
   const [rows] = await db.execute(
-    `SELECT id FROM teams_integrations WHERE ativo = 1 AND tipo = 'user' ORDER BY id ASC LIMIT 1`,
+    `SELECT id, nome FROM teams_integrations WHERE ativo = 1 AND tipo = 'user' ORDER BY id ASC`,
   );
   if (rows.length === 0) {
     return { ok: false, message: "Nenhuma integração Teams (usuário) ativa configurada." };
   }
-  return sendNotification(rows[0].id, {
+
+  const payload = {
     email,
     mensagem,
     path: options.path,
     adaptiveCard: options.adaptiveCard,
-  });
+  };
+
+  const attempts = [];
+  let lastOk = null;
+
+  for (const row of rows) {
+    const result = await sendNotification(row.id, payload);
+    attempts.push({
+      integrationId: row.id,
+      nome: row.nome,
+      ok: !!result.ok,
+      message: result.message,
+      card: result.card || null,
+    });
+    if (result.ok && !lastOk) {
+      lastOk = { ...result, integrationId: row.id, integrationNome: row.nome };
+    }
+  }
+
+  if (lastOk) {
+    return {
+      ...lastOk,
+      attempts,
+      message:
+        attempts.length === 1
+          ? lastOk.message
+          : `${lastOk.message} (${attempts.filter((a) => a.ok).length}/${attempts.length} tenant(s))`,
+    };
+  }
+
+  return {
+    ok: false,
+    message: attempts.map((a) => `${a.nome || a.integrationId}: ${a.message}`).join(" | "),
+    attempts,
+  };
 }
 
 /** Deep link Teams (entity) apontando para path do app. */

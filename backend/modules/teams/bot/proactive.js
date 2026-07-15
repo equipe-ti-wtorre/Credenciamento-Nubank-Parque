@@ -12,10 +12,12 @@ const log = child({ module: "teams.bot.proactive" });
  * Envia Adaptive Card proativa 1:1 via Bot Connector.
  * @param {string} microsoftUserId AAD object id (usuarios.microsoft_id)
  * @param {object} adaptiveCard JSON Adaptive Card
- * @param {{ tenantId?: string }} [options]
+ * @param {{ tenantId?: string, azureTenantRefId?: number }} [options]
  */
 async function sendProactiveAdaptiveCard(microsoftUserId, adaptiveCard, options = {}) {
-  const creds = await getBotCredentials();
+  const creds = await getBotCredentials({
+    azureTenantRefId: options.azureTenantRefId,
+  });
   if (!creds) {
     return {
       ok: false,

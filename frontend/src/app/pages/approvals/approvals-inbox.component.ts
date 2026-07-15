@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  inject,
+  OnDestroy,
+  OnInit,
+  signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -15,6 +23,7 @@ import {
   liberacaoStatusBadgeClass,
   liberacaoStatusLabel,
 } from '../../services/approval.service';
+import { CollaboratorService } from '../../services/collaborator.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { ModalComponent } from '../../shared/modal/modal.component';
 
@@ -800,7 +809,14 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                     <path d="M20 6 9 17l-5-5" />
                   </svg>
                 </span>
+                <img
+                  *ngIf="pictureUrl(c) as url"
+                  [src]="url"
+                  [alt]="'Foto de ' + c.nome"
+                  class="shrink-0 w-[34px] h-[34px] rounded-full object-cover border border-slate-200"
+                />
                 <span
+                  *ngIf="!pictureUrl(c)"
                   class="shrink-0 w-[34px] h-[34px] rounded-full grid place-items-center text-[13px] font-semibold"
                   [ngClass]="
                     isCollaboratorSelected(c.id)
@@ -1037,10 +1053,11 @@ import { ModalComponent } from '../../shared/modal/modal.component';
     </app-modal>
   `,
 })
-export class ApprovalsInboxComponent implements OnInit {
+export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly collaboratorService = inject(CollaboratorService);
 
   tab = signal<'pending' | 'mine'>('pending');
   items = signal<ApprovalItem[]>([]);
@@ -1059,6 +1076,8 @@ export class ApprovalsInboxComponent implements OnInit {
   actionDetail = signal<ApprovalItem | null>(null);
   selectedCollaboratorIds = signal<Set<number>>(new Set());
   selectedVehicleIds = signal<Set<number>>(new Set());
+  thumbnailUrls = signal<Record<number, string>>({});
+  private thumbnailLoadId = 0;
 
   readonly entityLabel = approvalEntityLabel;
   readonly entityBadgeClass = approvalEntityBadgeClass;
@@ -1077,6 +1096,10 @@ export class ApprovalsInboxComponent implements OnInit {
 
   ngOnInit() {
     this.carregar();
+  }
+
+  ngOnDestroy() {
+    this.revokeThumbnails();
   }
 
   private openDeepLinkIfNeeded() {
@@ -1340,7 +1363,12 @@ export class ApprovalsInboxComponent implements OnInit {
       new Set((approval.entidade?.collaborators ?? []).map((c) => c.id)),
     );
     this.selectedVehicleIds.set(new Set((approval.entidade?.vehicles ?? []).map((v) => v.id)));
+    this.loadThumbnails(approval.entidade?.collaborators ?? []);
     this.cdr.markForCheck();
+  }
+
+  pictureUrl(c: ApprovalEntityCollaborator): string | null {
+    return this.thumbnailUrls()[c.idCollaborator] ?? null;
   }
 
   initials(nome: string): string {
@@ -1351,6 +1379,33 @@ export class ApprovalsInboxComponent implements OnInit {
     if (!parts.length) return '?';
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  private loadThumbnails(list: ApprovalEntityCollaborator[]) {
+    this.revokeThumbnails();
+    const loadId = ++this.thumbnailLoadId;
+    for (const c of list) {
+      if (!c.picture) continue;
+      this.collaboratorService.getPictureBlob(c.picture).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          if (loadId !== this.thumbnailLoadId) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          this.thumbnailUrls.update((map) => ({ ...map, [c.idCollaborator]: url }));
+          this.cdr.markForCheck();
+        },
+        error: () => {},
+      });
+    }
+  }
+
+  private revokeThumbnails() {
+    for (const url of Object.values(this.thumbnailUrls())) {
+      URL.revokeObjectURL(url);
+    }
+    this.thumbnailUrls.set({});
   }
 
   isCollaboratorSelected(id: number): boolean {
@@ -1410,6 +1465,7 @@ export class ApprovalsInboxComponent implements OnInit {
     this.actionLoading.set(false);
     this.selectedCollaboratorIds.set(new Set());
     this.selectedVehicleIds.set(new Set());
+    this.revokeThumbnails();
   }
 
   confirmarAcao() {
