@@ -7,12 +7,14 @@ const collaboratorService = require("../collaborators/collaborator.service");
 const companyService = require("../companies/company.service");
 const teamsService = require("../teams/teams.service");
 const smtpService = require("../smtp/smtp.service");
+const alertsService = require("../alerts/alerts.service");
 const {
   STATUS_AGUARDANDO_PRODUTORA,
-  STATUS_AGUARDANDO_ALLIANZ,
+  STATUS_AGUARDANDO_APROVACAO,
   STATUS_APROVADO,
   STATUS_NEGADO,
 } = require("./credentials.schema");
+const { getProfileCodigo, isSuperAdmin } = require("../../utils/permissions");
 
 const logger = child({ module: "credentials" });
 
@@ -68,7 +70,7 @@ async function getEmpresaPadraoTypeId() {
 }
 
 function getUserRole(req) {
-  return String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
+  return getProfileCodigo(req.user);
 }
 
 function buildCredentialScope(req) {
@@ -76,7 +78,7 @@ function buildCredentialScope(req) {
   const idCompany =
     req.user?.id_company != null ? Number(req.user.id_company) : null;
 
-  if (role === "ADMIN") {
+  if (isSuperAdmin(req.user)) {
     return { mode: "admin" };
   }
   if (role === "PADRAO") {
@@ -274,7 +276,7 @@ async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId
 async function resolveInitialStatus(req) {
   const role = getUserRole(req);
   if (role === "ADMIN") {
-    return STATUS_AGUARDANDO_ALLIANZ;
+    return STATUS_AGUARDANDO_APROVACAO;
   }
 
   const idCompany = req.user?.id_company;
@@ -294,7 +296,7 @@ async function resolveInitialStatus(req) {
 
   const produtoraTypeId = await getProdutoraTypeId();
   if (Number(company.id_company_type) === produtoraTypeId) {
-    return STATUS_AGUARDANDO_ALLIANZ;
+    return STATUS_AGUARDANDO_APROVACAO;
   }
 
   throw new AppError("Tipo de empresa do usuário não permite solicitar credencial.", 403);
@@ -414,7 +416,7 @@ async function createCredential(req, data) {
 
   const credential = await getCredentialById(req, result.insertId);
 
-  if (initialStatus === STATUS_AGUARDANDO_ALLIANZ) {
+  if (initialStatus === STATUS_AGUARDANDO_APROVACAO) {
     scheduleTeamsNotification(credential);
   }
 
@@ -435,7 +437,7 @@ function validateStatusTransition(req, row, targetStatus) {
       throw new AppError("Credencial não encontrada.", 404);
     }
     if (
-      targetStatus !== STATUS_AGUARDANDO_ALLIANZ &&
+      targetStatus !== STATUS_AGUARDANDO_APROVACAO &&
       targetStatus !== STATUS_NEGADO
     ) {
       throw new AppError("Transição de status inválida para produtora.", 400);
@@ -444,7 +446,7 @@ function validateStatusTransition(req, row, targetStatus) {
   }
 
   if (role === "ADMIN") {
-    if (current !== STATUS_AGUARDANDO_ALLIANZ) {
+    if (current !== STATUS_AGUARDANDO_APROVACAO) {
       throw new AppError("Credencial não está aguardando aprovação administrativa.", 400);
     }
     if (targetStatus !== STATUS_APROVADO && targetStatus !== STATUS_NEGADO) {
@@ -476,6 +478,16 @@ function scheduleTeamsNotification(credential) {
     `<p>ID credencial: ${credential.id_event_day_company_collaborator}</p>`,
   ].join("");
 
+  const alertMensagem = [
+    `Credencial #${credential.id_event_day_company_collaborator} aguardando validação.`,
+    `Evento: ${credential.event.name}.`,
+    `Colaborador: ${credential.collaborator.name}.`,
+    `Empresa: ${credential.event_day_company.company_name}.`,
+  ].join(" ");
+
+  const eventId = credential.event?.id_event || null;
+  const link = eventId ? `/admin/eventos/${eventId}` : "/admin/eventos";
+
   setImmediate(() => {
     teamsService
       .notifyOperationsChannel(msg)
@@ -486,6 +498,22 @@ function scheduleTeamsNotification(credential) {
       })
       .catch((err) => {
         logger.warn({ err }, "Erro ao notificar Teams (credenciamento)");
+      });
+
+    alertsService
+      .listUsersWithPermission("events", "edit")
+      .then((userIds) =>
+        alertsService.createAlertsForUsers(userIds, {
+          tipo: "credentials.awaiting_admin",
+          titulo: "Credencial aguardando validação",
+          mensagem: alertMensagem,
+          link,
+          tipoReferencia: "credential",
+          idReferencia: credential.id_event_day_company_collaborator,
+        }),
+      )
+      .catch((err) => {
+        logger.warn({ err }, "Erro ao criar alertas in-app (credenciamento)");
       });
   });
 }
@@ -576,7 +604,7 @@ async function updateCredentialStatus(req, id, { id_access_status: targetStatus,
 
   const credential = await getCredentialById(req, id);
 
-  if (targetStatus === STATUS_AGUARDANDO_ALLIANZ) {
+  if (targetStatus === STATUS_AGUARDANDO_APROVACAO) {
     scheduleTeamsNotification(credential);
   }
   if (targetStatus === STATUS_APROVADO) {

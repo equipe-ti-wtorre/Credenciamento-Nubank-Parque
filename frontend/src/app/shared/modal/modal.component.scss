@@ -1,0 +1,125 @@
+.modal-root {
+  @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+}
+
+.modal-backdrop {
+  @apply absolute inset-0 border-0 cursor-default;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.modal-panel {
+  @apply relative flex flex-col w-full bg-white overflow-hidden;
+  max-height: calc(100vh - 64px);
+  border-radius: 16px;
+  border: 1px solid var(--app-border);
+  box-shadow: 0 24px 60px rgba(20, 24, 43, 0.22);
+  animation: modal-enter 0.2s ease-out;
+}
+
+.modal-panel--sm {
+  max-width: 28rem;
+}
+
+.modal-panel--md {
+  max-width: 32rem;
+}
+
+.modal-panel--lg {
+  max-width: 38.75rem; // ~620px — alinhado ao protótipo de formulários densos
+}
+
+.modal-panel--xl {
+  max-width: 48rem;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 16px;
+  flex-shrink: 0;
+}
+
+.modal-header__text {
+  @apply min-w-0 flex-1;
+}
+
+.modal-header__title {
+  margin: 0 0 3px;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #14182b;
+}
+
+.modal-header__subtitle {
+  margin: 0;
+  font-size: 13.5px;
+  color: #5a6178;
+}
+
+.modal-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  color: #8b91a7;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: #f2f3f8;
+    color: #14182b;
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.45);
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.modal-body {
+  padding: 6px 24px 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--app-border);
+  background: #fbfcfe;
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-panel {
+    animation: none;
+  }
+}

@@ -8,7 +8,11 @@ const {
 } = require("../../utils/privacy");
 const { validateDocumentByType, validateAndNormalizeCollaboratorPayload } = require("./collaborator.schema");
 const { parseBulkFile, normalizeBulkRow, isEmptyBulkRow } = require("./collaborator.bulk");
+const { isSuperAdmin, hasPermission, getProfileCodigo } = require("../../utils/permissions");
+const { savePreviewSession, getPreviewSession, deletePreviewSession } = require("../bulk/previewSession");
+const { buildFieldDiffs, pickUpdatePatch, summarizePreviewRows } = require("../bulk/diff");
 
+const COLLABORATOR_BULK_UPDATE_FIELDS = ["name", "id_collaborator_role", "rg", "phone"];
 const COLLABORATOR_SELECT = `
   SELECT c.*,
          cdt.description AS document_type_description,
@@ -19,16 +23,12 @@ const COLLABORATOR_SELECT = `
   INNER JOIN collaborator_role cr ON cr.id_collaborator_role = c.id_collaborator_role
 `;
 
-function getUserRole(req) {
-  return String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
-}
-
 function isAdmin(req) {
-  return getUserRole(req) === "ADMIN";
+  return isSuperAdmin(req.user);
 }
 
 function assertAdminForList(req) {
-  if (!isAdmin(req)) {
+  if (!hasPermission(req.user, "collaborators", "view")) {
     throw new AppError(
       "Listagem de colaboradores restrita. Use a busca por documento.",
       403,
@@ -37,23 +37,22 @@ function assertAdminForList(req) {
 }
 
 function assertCanWriteCollaborator(req) {
-  const role = getUserRole(req);
-  if (role === "ADMIN" || role === "PRODUTORA" || role === "PADRAO") {
-    return;
-  }
+  if (hasPermission(req.user, "collaborators", "create")) return;
   throw new AppError("Perfil sem permissão para cadastrar colaboradores.", 403);
 }
 
 function assertCanSearchCollaborator(req) {
-  const role = getUserRole(req);
-  if (role === "ADMIN" || role === "CONTROLADOR") {
+  if (
+    hasPermission(req.user, "collaborators", "view") ||
+    hasPermission(req.user, "gate", "view")
+  ) {
     return;
   }
   assertCanWriteCollaborator(req);
 }
 
 function assertAdminForUpdate(req) {
-  if (!isAdmin(req)) {
+  if (!hasPermission(req.user, "collaborators", "edit")) {
     throw new AppError(
       "Edição de colaboradores restrita ao administrador nesta versão.",
       403,
@@ -61,7 +60,11 @@ function assertAdminForUpdate(req) {
   }
 }
 
-function mapCollaboratorRow(row, { isBlacklisted = false } = {}) {
+function getUserRole(req) {
+  return getProfileCodigo(req.user);
+}
+
+function mapCollaboratorRow(row, { isBlacklisted = false, canDelete = false } = {}) {
   return {
     id_collaborator: row.id_collaborator,
     id_collaborator_document_type: row.id_collaborator_document_type,
@@ -73,6 +76,7 @@ function mapCollaboratorRow(row, { isBlacklisted = false } = {}) {
     picture: row.picture || null,
     status: !!row.status,
     is_blacklisted: !!isBlacklisted,
+    can_delete: !!canDelete,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
     document_type: mapDocumentType(row),
@@ -88,6 +92,8 @@ function parseListQuery(query) {
 
 function parseListFilters(query) {
   const filters = {};
+  const q = query.q || query.search;
+  if (q) filters.q = String(q).trim();
   if (query.name) filters.name = String(query.name).trim();
   if (query.document) filters.document = String(query.document).trim();
   if (query.status !== undefined && query.status !== "") {
@@ -156,6 +162,94 @@ async function findRoleById(id) {
   return rows[0] || null;
 }
 
+async function findRoleByDescription(description) {
+  const normalized = String(description || "").trim();
+  const [rows] = await db.execute(
+    `SELECT id_collaborator_role, description
+     FROM collaborator_role WHERE description = ? LIMIT 1`,
+    [normalized],
+  );
+  return rows[0] || null;
+}
+
+function mapRoleRow(row) {
+  return {
+    id_collaborator_role: row.id_collaborator_role,
+    description: row.description,
+  };
+}
+
+async function countRoleUsage(id) {
+  const [collaboratorRows] = await db.execute(
+    "SELECT COUNT(*) AS total FROM collaborator WHERE id_collaborator_role = ?",
+    [id],
+  );
+  const [credentialRows] = await db.execute(
+    "SELECT COUNT(*) AS total FROM event_day_company_collaborator WHERE id_collaborator_role = ?",
+    [id],
+  );
+  const [serviceAccessRows] = await db.execute(
+    "SELECT COUNT(*) AS total FROM service_access_collaborator WHERE id_collaborator_role = ?",
+    [id],
+  );
+
+  return (
+    Number(collaboratorRows[0]?.total || 0) +
+    Number(credentialRows[0]?.total || 0) +
+    Number(serviceAccessRows[0]?.total || 0)
+  );
+}
+
+async function createRole(description) {
+  const normalized = String(description || "").trim();
+  const existing = await findRoleByDescription(normalized);
+  if (existing) {
+    throw new AppError("Já existe uma função com este nome.", 409);
+  }
+
+  const [result] = await db.execute(
+    "INSERT INTO collaborator_role (description) VALUES (?)",
+    [normalized],
+  );
+  const role = await findRoleById(result.insertId);
+  return mapRoleRow(role);
+}
+
+async function updateRole(id, description) {
+  const role = await findRoleById(id);
+  if (!role) throw new AppError("Função não encontrada.", 404);
+
+  const normalized = String(description || "").trim();
+  const duplicate = await findRoleByDescription(normalized);
+  if (duplicate && duplicate.id_collaborator_role !== Number(id)) {
+    throw new AppError("Já existe uma função com este nome.", 409);
+  }
+
+  await db.execute("UPDATE collaborator_role SET description = ? WHERE id_collaborator_role = ?", [
+    normalized,
+    id,
+  ]);
+
+  const updated = await findRoleById(id);
+  return mapRoleRow(updated);
+}
+
+async function deleteRole(id) {
+  const role = await findRoleById(id);
+  if (!role) throw new AppError("Função não encontrada.", 404);
+
+  const usageCount = await countRoleUsage(id);
+  if (usageCount > 0) {
+    throw new AppError(
+      "Não é possível excluir: a função está vinculada a colaboradores, credenciais ou acessos de serviço.",
+      409,
+    );
+  }
+
+  await db.execute("DELETE FROM collaborator_role WHERE id_collaborator_role = ?", [id]);
+  return { success: true };
+}
+
 async function findCollaboratorById(id) {
   const [rows] = await db.execute(
     `${COLLABORATOR_SELECT} WHERE c.id_collaborator = ? LIMIT 1`,
@@ -196,6 +290,11 @@ function buildListWhere(filters) {
   const conditions = [];
   const params = [];
 
+  if (filters.q) {
+    conditions.push("(c.name LIKE ? OR c.document LIKE ?)");
+    const term = `%${filters.q}%`;
+    params.push(term, term);
+  }
   if (filters.name) {
     conditions.push("c.name LIKE ?");
     params.push(`%${filters.name}%`);
@@ -240,8 +339,14 @@ async function listCollaborators(req, { page, limit, filters }) {
 
   const collaborators = await Promise.all(
     rows.map(async (row) => {
-      const isBlacklisted = await checkBlacklist(row.id_collaborator);
-      return mapCollaboratorRow(row, { isBlacklisted });
+      const [isBlacklisted, usageCount] = await Promise.all([
+        checkBlacklist(row.id_collaborator),
+        countCollaboratorUsage(row.id_collaborator),
+      ]);
+      return mapCollaboratorRow(row, {
+        isBlacklisted,
+        canDelete: usageCount === 0,
+      });
     }),
   );
 
@@ -275,12 +380,11 @@ async function getCollaboratorById(req, id) {
 
   const isBlacklisted = await checkBlacklist(row.id_collaborator);
 
-  if (isAdmin(req)) {
+  if (isAdmin(req) || hasPermission(req.user, "collaborators", "edit")) {
     return mapCollaboratorRow(row, { isBlacklisted });
   }
 
-  const role = getUserRole(req);
-  if (role === "PRODUTORA" || role === "PADRAO") {
+  if (req.user?.requires_company) {
     return toMaskedCollaborator(row, { isBlacklisted });
   }
 
@@ -321,6 +425,12 @@ async function insertCollaboratorRecord(data) {
 async function createCollaborator(req, data) {
   assertCanWriteCollaborator(req);
   return insertCollaboratorRecord(data);
+}
+
+async function getCollaboratorBulkTemplate() {
+  const { buildCollaboratorBulkTemplate } = require("../../utils/bulkTemplateXlsx");
+  const [types, roles] = await Promise.all([listDocumentTypes(), listRoles()]);
+  return buildCollaboratorBulkTemplate({ types, roles });
 }
 
 async function bulkCreateCollaborators(req, file) {
@@ -364,6 +474,212 @@ async function bulkCreateCollaborators(req, file) {
   }
 
   return { totalProcessed, successCount, errors };
+}
+
+function publicCollaboratorExisting(row) {
+  return {
+    id_collaborator: row.id_collaborator,
+    document: row.document,
+    id_collaborator_document_type: row.id_collaborator_document_type,
+    name: row.name,
+    id_collaborator_role: row.id_collaborator_role,
+    rg: row.rg || null,
+    phone: row.phone || null,
+    status: !!row.status,
+  };
+}
+
+async function previewBulkCollaborators(req, file) {
+  assertCanWriteCollaborator(req);
+  if (!hasPermission(req.user, "collaborators", "edit") && !hasPermission(req.user, "collaborators", "create")) {
+    throw new AppError("Perfil sem permissão para importar colaboradores.", 403);
+  }
+
+  const rawRows = await parseBulkFile(file.buffer, file.mimetype, file.originalname);
+  const rows = [];
+  const sessionRows = [];
+
+  for (let i = 0; i < rawRows.length; i++) {
+    if (isEmptyBulkRow(rawRows[i])) continue;
+    const line = i + 2;
+    const payload = normalizeBulkRow(rawRows[i]);
+    const validated = await validateAndNormalizeCollaboratorPayload(payload);
+    if (validated.error) {
+      const item = {
+        line,
+        status: "error",
+        key: {
+          document: payload.document,
+          id_collaborator_document_type: payload.id_collaborator_document_type,
+        },
+        incoming: payload,
+        message: validated.error,
+      };
+      rows.push(item);
+      sessionRows.push({ ...item, validated: null, existingId: null });
+      continue;
+    }
+
+    const value = validated.value;
+    const existing = await findCollaboratorByDocument(
+      value.document,
+      value.id_collaborator_document_type,
+    );
+
+    if (!existing) {
+      const item = {
+        line,
+        status: "create",
+        key: {
+          document: value.document,
+          id_collaborator_document_type: value.id_collaborator_document_type,
+        },
+        incoming: value,
+      };
+      rows.push(item);
+      sessionRows.push({ ...item, validated: value, existingId: null });
+      continue;
+    }
+
+    const existingPublic = publicCollaboratorExisting(existing);
+    const diffs = buildFieldDiffs(existingPublic, value, COLLABORATOR_BULK_UPDATE_FIELDS);
+    const item = {
+      line,
+      status: diffs.length ? "update" : "link",
+      key: {
+        document: value.document,
+        id_collaborator_document_type: value.id_collaborator_document_type,
+      },
+      incoming: value,
+      existing: existingPublic,
+      diffs,
+      message: diffs.length ? undefined : "Cadastro idêntico ao existente — nada a atualizar.",
+    };
+    // Sem divergência: tratar como skip sugerido (status link = sem mudança cadastral)
+    if (!diffs.length) {
+      item.status = "link";
+    }
+    rows.push(item);
+    sessionRows.push({
+      ...item,
+      validated: value,
+      existingId: existing.id_collaborator,
+    });
+  }
+
+  if (!rows.length) {
+    throw new AppError(
+      "Nenhuma linha de dados encontrada. Cabeçalho: document, id_collaborator_document_type, name, id_collaborator_role.",
+      400,
+    );
+  }
+
+  const previewId = savePreviewSession({
+    kind: "collaborators",
+    userId: req.user?.id || null,
+    rows: sessionRows,
+  });
+
+  return {
+    previewId,
+    summary: summarizePreviewRows(rows),
+    rows,
+    updateFields: COLLABORATOR_BULK_UPDATE_FIELDS,
+  };
+}
+
+async function commitBulkCollaborators(req, { previewId, decisions }) {
+  assertCanWriteCollaborator(req);
+  if (!hasPermission(req.user, "collaborators", "edit") && !hasPermission(req.user, "collaborators", "create")) {
+    throw new AppError("Perfil sem permissão para importar colaboradores.", 403);
+  }
+
+  const session = getPreviewSession(previewId, "collaborators");
+  if (session.userId && req.user?.id && Number(session.userId) !== Number(req.user.id)) {
+    throw new AppError("Pré-visualização pertence a outro usuário.", 403);
+  }
+
+  const byLine = new Map(session.rows.map((r) => [r.line, r]));
+  const decisionList = Array.isArray(decisions) ? decisions : [];
+  const errors = [];
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  let linked = 0;
+
+  for (const decision of decisionList) {
+    const line = Number(decision.line);
+    const action = decision.action;
+    const row = byLine.get(line);
+    if (!row) {
+      errors.push({ line, reason: "Linha não encontrada na pré-visualização." });
+      continue;
+    }
+    if (action === "skip") {
+      skipped += 1;
+      continue;
+    }
+    if (row.status === "error") {
+      errors.push({ line, reason: row.message || "Linha com erro." });
+      continue;
+    }
+
+    try {
+      if (action === "create") {
+        if (row.status !== "create" || !row.validated) {
+          errors.push({ line, reason: "Linha não é um novo cadastro." });
+          continue;
+        }
+        if (!hasPermission(req.user, "collaborators", "create")) {
+          errors.push({ line, reason: "Sem permissão para criar." });
+          continue;
+        }
+        await insertCollaboratorRecord(row.validated);
+        created += 1;
+      } else if (action === "update") {
+        if (!row.existingId || !row.validated) {
+          errors.push({ line, reason: "Linha não possui cadastro existente para atualizar." });
+          continue;
+        }
+        if (!hasPermission(req.user, "collaborators", "edit")) {
+          errors.push({ line, reason: "Sem permissão para editar." });
+          continue;
+        }
+        const patch = pickUpdatePatch(
+          row.validated,
+          decision.fields,
+          COLLABORATOR_BULK_UPDATE_FIELDS,
+        );
+        if (!Object.keys(patch).length) {
+          skipped += 1;
+          continue;
+        }
+        await updateCollaborator(req, row.existingId, patch);
+        updated += 1;
+      } else if (action === "link") {
+        // Cadastro já existe sem diffs: nada a gravar.
+        linked += 1;
+      } else {
+        errors.push({ line, reason: `Ação inválida: ${action}` });
+      }
+    } catch (err) {
+      errors.push({
+        line,
+        reason: err instanceof AppError ? err.message : "Erro ao aplicar linha.",
+      });
+    }
+  }
+
+  deletePreviewSession(previewId);
+
+  return {
+    created,
+    updated,
+    linked,
+    skipped,
+    errors,
+    totalDecisions: decisionList.length,
+  };
 }
 
 async function updateCollaboratorPicture(id, filename) {
@@ -430,6 +746,41 @@ async function updateCollaborator(req, id, data) {
   return getCollaboratorDetailById(id);
 }
 
+/**
+ * Atualização pontual de campos (bulk / acesso serviço).
+ */
+async function applyCollaboratorFieldPatch(id, data) {
+  const existing = await findCollaboratorById(id);
+  if (!existing) throw new AppError("Colaborador não encontrado.", 404);
+
+  const idDocType = data.id_collaborator_document_type ?? existing.id_collaborator_document_type;
+  const idRole = data.id_collaborator_role ?? existing.id_collaborator_role;
+
+  if (data.id_collaborator_document_type != null) {
+    await assertDocumentTypeExists(idDocType);
+  }
+  if (data.id_collaborator_role != null) {
+    await assertRoleExists(idRole);
+  }
+
+  const name = data.name ?? existing.name;
+  const rg = data.rg !== undefined ? data.rg || null : existing.rg;
+  const phone = data.phone !== undefined ? data.phone || null : existing.phone;
+
+  await db.execute(
+    `UPDATE collaborator SET
+       id_collaborator_document_type = ?,
+       id_collaborator_role = ?,
+       name = ?,
+       rg = ?,
+       phone = ?
+     WHERE id_collaborator = ?`,
+    [idDocType, idRole, name, rg, phone, id],
+  );
+
+  return getCollaboratorDetailById(id);
+}
+
 async function updateCollaboratorStatus(id, status) {
   const existing = await findCollaboratorById(id);
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
@@ -485,6 +836,50 @@ async function removeFromBlacklist(id) {
   return getCollaboratorDetailById(id);
 }
 
+async function countCollaboratorUsage(id) {
+  const [credentialRows] = await db.execute(
+    `SELECT COUNT(*) AS total FROM event_day_company_collaborator
+     WHERE id_collaborator = ? OR id_substitute = ?`,
+    [id, id],
+  );
+  const [serviceAccessRows] = await db.execute(
+    `SELECT COUNT(*) AS total FROM service_access_collaborator
+     WHERE id_collaborator = ? OR id_substitute = ?`,
+    [id, id],
+  );
+  const [movementRows] = await db.execute(
+    "SELECT COUNT(*) AS total FROM material_movement WHERE id_collaborator = ?",
+    [id],
+  );
+  const [documentChangeRows] = await db.execute(
+    "SELECT COUNT(*) AS total FROM document_change_request WHERE id_collaborator = ?",
+    [id],
+  );
+
+  return (
+    Number(credentialRows[0]?.total || 0) +
+    Number(serviceAccessRows[0]?.total || 0) +
+    Number(movementRows[0]?.total || 0) +
+    Number(documentChangeRows[0]?.total || 0)
+  );
+}
+
+async function deleteCollaborator(id) {
+  const existing = await findCollaboratorById(id);
+  if (!existing) throw new AppError("Colaborador não encontrado.", 404);
+
+  const usageCount = await countCollaboratorUsage(id);
+  if (usageCount > 0) {
+    throw new AppError(
+      "Não é possível excluir: o colaborador está vinculado a credenciais, acessos de serviço, movimentações ou solicitações de documento.",
+      409,
+    );
+  }
+
+  await db.execute("DELETE FROM collaborator WHERE id_collaborator = ?", [id]);
+  return { success: true };
+}
+
 function maskDocumentForAudit(collaborator) {
   const typeDesc = collaborator.document_type?.description || "";
   return maskDocument(collaborator.document, typeDesc);
@@ -500,18 +895,28 @@ module.exports = {
   getUserRole,
   listDocumentTypes,
   listRoles,
+  createRole,
+  updateRole,
+  deleteRole,
+  countRoleUsage,
   listCollaborators,
   searchByDocument,
   getCollaboratorById,
   createCollaborator,
+  getCollaboratorBulkTemplate,
   bulkCreateCollaborators,
+  previewBulkCollaborators,
+  commitBulkCollaborators,
   insertCollaboratorRecord,
   updateCollaboratorPicture,
   clearCollaboratorPicture,
   updateCollaborator,
+  applyCollaboratorFieldPatch,
   updateCollaboratorStatus,
   addToBlacklist,
   removeFromBlacklist,
+  countCollaboratorUsage,
+  deleteCollaborator,
   checkBlacklist,
   maskDocumentForAudit,
   findCollaboratorById,

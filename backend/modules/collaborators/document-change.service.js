@@ -2,8 +2,10 @@ const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const { validateDocumentByType } = require("./collaborator.schema");
 
+const { hasPermission, isSuperAdmin, getProfileCodigo } = require("../../utils/permissions");
+
 function getUserRole(req) {
-  return String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
+  return getProfileCodigo(req.user);
 }
 
 async function hasCollaboratorHistory(idCollaborator) {
@@ -32,8 +34,7 @@ async function findCollaboratorRow(id) {
 }
 
 async function createDocumentChangeRequest(req, idCollaborator, { new_document, reason }) {
-  const role = getUserRole(req);
-  if (!["ADMIN", "PRODUTORA", "PADRAO"].includes(role)) {
+  if (!hasPermission(req.user, "document_approvals", "create") && !req.user?.requires_company) {
     throw new AppError("Perfil sem permissão para solicitar alteração de documento.", 403);
   }
 
@@ -41,7 +42,7 @@ async function createDocumentChangeRequest(req, idCollaborator, { new_document, 
   if (!row) throw new AppError("Colaborador não encontrado.", 404);
 
   const hasHistory = await hasCollaboratorHistory(idCollaborator);
-  if (!hasHistory && role !== "ADMIN") {
+  if (!hasHistory && !isSuperAdmin(req.user)) {
     throw new AppError(
       "Colaborador sem histórico de credenciamento. Solicite ao administrador a correção direta.",
       400,
@@ -108,6 +109,7 @@ function mapRequest(row) {
     status: row.status,
     reason: row.reason,
     admin_reason: row.admin_reason,
+    id_usuario_requester: row.id_usuario_requester != null ? Number(row.id_usuario_requester) : null,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
   };
@@ -124,9 +126,16 @@ async function listPendingDocumentChanges() {
   return rows.map(mapRequest);
 }
 
+async function countPendingDocumentChanges() {
+  const [rows] = await db.execute(
+    `SELECT COUNT(*) AS total FROM document_change_request WHERE status = 'PENDING'`,
+  );
+  return Number(rows[0]?.total ?? 0);
+}
+
 async function updateDocumentChangeStatus(req, id, { status, admin_reason }) {
-  if (getUserRole(req) !== "ADMIN") {
-    throw new AppError("Apenas administrador pode aprovar ou rejeitar solicitações.", 403);
+  if (!hasPermission(req.user, "document_approvals", "edit")) {
+    throw new AppError("Apenas usuários autorizados podem aprovar ou rejeitar solicitações.", 403);
   }
 
   const request = await getDocumentChangeById(id);
@@ -172,6 +181,7 @@ async function updateDocumentChangeStatus(req, id, { status, admin_reason }) {
 module.exports = {
   createDocumentChangeRequest,
   listPendingDocumentChanges,
+  countPendingDocumentChanges,
   updateDocumentChangeStatus,
   getDocumentChangeById,
 };

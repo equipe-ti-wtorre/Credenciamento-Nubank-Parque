@@ -7,6 +7,8 @@ export type ActionIconName =
   | 'document'
   | 'link'
   | 'send'
-  | 'delete';
+  | 'delete'
+  | 'restore'
+  | 'deactivate';
 
 export type ActionIconVariant = 'neutral' | 'primary' | 'danger';

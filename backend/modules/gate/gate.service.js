@@ -210,13 +210,14 @@ const GATE_TODAY_LIST_SELECT = `
   INNER JOIN event e ON e.id_event = ed.id_event
   INNER JOIN company co ON co.id_company = edc.id_company
   WHERE edcc.id_access_status = ?
+    AND e.id_access_status = ?
     AND edcc.access_id IS NOT NULL
     AND ${EVENT_DAY_WINDOW_SQL.trim()}
   ORDER BY COALESCE(sub.name, c.name) ASC, e.name ASC
 `;
 
 async function listTodayExpectedCredentials() {
-  const params = [STATUS_APROVADO, ...eventDayWindowParams()];
+  const params = [STATUS_APROVADO, STATUS_APROVADO, ...eventDayWindowParams()];
   const [rows] = await db.execute(GATE_TODAY_LIST_SELECT, params);
   return rows.map(mapTodayCredentialRow);
 }
@@ -313,7 +314,10 @@ const SERVICE_VEHICLE_SELECT = `
          sa.id_service_access,
          sa.id_company,
          sa.id_access_status,
-         sa.service_type,
+         sa.status AS service_enabled,
+         sa.start_date,
+         sa.end_date,
+         COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          ast.description AS access_status_description,
          v.plate AS vehicle_plate,
          v.description AS vehicle_description,
@@ -333,12 +337,51 @@ const SERVICE_VEHICLE_SELECT = `
   LIMIT 1
 `;
 
+const SERVICE_COLLABORATOR_SELECT = `
+  SELECT sac.*,
+         sa.id_service_access,
+         sa.id_company,
+         sa.id_access_status,
+         sa.status AS service_enabled,
+         sa.start_date,
+         sa.end_date,
+         COALESCE(sa.finalidade, sa.service_type) AS finalidade,
+         ast.description AS access_status_description,
+         c.name AS collaborator_name,
+         c.document AS collaborator_document,
+         cdt.description AS document_type_description,
+         cr.description AS role_description,
+         sub.name AS substitute_name,
+         sub.document AS substitute_document,
+         sub_cdt.description AS substitute_document_type_description,
+         co.fancy_name AS company_fancy_name,
+         bl_main.id_collaborator AS main_blacklisted_id,
+         bl_sub.id_collaborator AS sub_blacklisted_id
+  FROM service_access_collaborator sac
+  INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+  INNER JOIN access_status ast ON ast.id_access_status = sa.id_access_status
+  INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
+  INNER JOIN collaborator_document_type cdt
+    ON cdt.id_collaborator_document_type = c.id_collaborator_document_type
+  INNER JOIN collaborator_role cr ON cr.id_collaborator_role = sac.id_collaborator_role
+  LEFT JOIN collaborator sub ON sub.id_collaborator = sac.id_substitute
+  LEFT JOIN collaborator_document_type sub_cdt
+    ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
+  INNER JOIN company co ON co.id_company = sa.id_company
+  LEFT JOIN collaborator_black_list bl_main ON bl_main.id_collaborator = c.id_collaborator
+  LEFT JOIN collaborator_black_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
+  WHERE sac.access_id = ?
+  LIMIT 1
+`;
+
 const SERVICE_DENIAL_MESSAGES = {
   SERVICE_NOT_FOUND: "Acesso de serviço não encontrado.",
   SERVICE_NOT_APPROVED: "Solicitação de serviço não aprovada.",
+  SERVICE_DISABLED: "Acesso de serviço desabilitado.",
   INVALID_SERVICE_DATE: "Data não autorizada para este serviço.",
-  SERVICE_ACCESS_COMPLETED: "Entrada e saída já registradas para este veículo.",
+  SERVICE_ACCESS_COMPLETED: "Entrada e saída já registradas.",
   VEHICLE_BLACK_LIST_BLOCKED: "Veículo consta na lista de bloqueio de segurança da arena.",
+  COLLABORATOR_BLACK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
 };
 
 function buildServiceDenial(errorCode, statusCode = 403) {
@@ -355,14 +398,34 @@ async function findServiceVehicleByAccessId(accessId) {
   return rows[0] || null;
 }
 
-async function isServiceDateAllowed(idServiceAccess) {
-  const today = new Date().toISOString().slice(0, 10);
+async function findServiceCollaboratorByAccessId(accessId) {
+  const [rows] = await db.execute(SERVICE_COLLABORATOR_SELECT, [accessId]);
+  return rows[0] || null;
+}
+
+async function isServiceDateAllowed(serviceRow) {
+  if (!serviceRow) return false;
+  if (!serviceRow.status) return false;
   const [rows] = await db.execute(
-    `SELECT 1 FROM service_access_date
-     WHERE id_service_access = ? AND access_date = ? LIMIT 1`,
-    [idServiceAccess, today],
+    `SELECT 1 FROM service_access
+     WHERE id_service_access = ?
+       AND status = 1
+       AND CURDATE() BETWEEN start_date AND end_date
+     LIMIT 1`,
+    [serviceRow.id_service_access],
   );
   return rows.length > 0;
+}
+
+function validateServiceAccessBase(row) {
+  if (!row) return buildServiceDenial("SERVICE_NOT_FOUND", 404);
+  if (Number(row.id_access_status) !== STATUS_APROVADO) {
+    return buildServiceDenial("SERVICE_NOT_APPROVED");
+  }
+  if (!row.service_enabled) {
+    return buildServiceDenial("SERVICE_DISABLED");
+  }
+  return null;
 }
 
 function resolveEffectiveVehicle(row) {
@@ -372,16 +435,38 @@ function resolveEffectiveVehicle(row) {
   return { plate: row.vehicle_plate };
 }
 
-function resolveServiceNextAction(row) {
+function resolveEffectiveServiceCollaborator(row) {
+  if (row.id_substitute) {
+    return {
+      name: row.substitute_name,
+      document: row.substitute_document,
+      documentType: row.substitute_document_type_description,
+    };
+  }
+  return {
+    name: row.collaborator_name,
+    document: row.collaborator_document,
+    documentType: row.document_type_description,
+  };
+}
+
+function resolveServiceVehicleNextAction(row) {
   if (!row.check_in) return "CHECK_IN";
   if (!row.check_out) return "CHECK_OUT";
   return null;
 }
 
-function mapTodayServiceRow(row) {
+function resolveServiceCollaboratorNextAction(row) {
+  if (!row.access_check_in) return "CHECK_IN";
+  if (!row.access_check_out) return "CHECK_OUT";
+  return null;
+}
+
+function mapTodayServiceVehicleRow(row) {
   const effective = resolveEffectiveVehicle(row);
-  const next = resolveServiceNextAction(row);
+  const next = resolveServiceVehicleNextAction(row);
   return {
+    kind: "vehicle",
     id: row.id_service_access_vehicle,
     access_id: row.access_id,
     vehicle: {
@@ -389,20 +474,40 @@ function mapTodayServiceRow(row) {
       description: row.vehicle_description,
     },
     company: { name: row.company_fancy_name },
-    service_type: row.service_type,
+    finalidade: row.finalidade,
     check_in: row.check_in || null,
     check_out: row.check_out || null,
     next_action: next || "COMPLETED",
   };
 }
 
-const GATE_TODAY_SERVICES_SELECT = `
+function mapTodayServiceCollaboratorRow(row) {
+  const effective = resolveEffectiveServiceCollaborator(row);
+  const next = resolveServiceCollaboratorNextAction(row);
+  return {
+    kind: "collaborator",
+    id: row.id_service_access_collaborator,
+    access_id: row.access_id,
+    collaborator: {
+      name: effective.name,
+      document_masked: maskDocument(effective.document, effective.documentType),
+      role: row.role_description,
+    },
+    company: { name: row.company_fancy_name },
+    finalidade: row.finalidade,
+    check_in: row.access_check_in || null,
+    check_out: row.access_check_out || null,
+    next_action: next || "COMPLETED",
+  };
+}
+
+const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
   SELECT sav.id_service_access_vehicle,
          sav.access_id,
          sav.check_in,
          sav.check_out,
          sav.id_substitute_vehicle,
-         sa.service_type,
+         COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          v.plate AS vehicle_plate,
          v.description AS vehicle_description,
          sub.plate AS substitute_plate,
@@ -412,25 +517,63 @@ const GATE_TODAY_SERVICES_SELECT = `
   INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
-  INNER JOIN service_access_date sad ON sad.id_service_access = sa.id_service_access
   WHERE sa.id_access_status = ?
+    AND sa.status = 1
     AND sav.access_id IS NOT NULL
-    AND sad.access_date = CURDATE()
+    AND CURDATE() BETWEEN sa.start_date AND sa.end_date
   ORDER BY COALESCE(sub.plate, v.plate) ASC
 `;
 
+const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
+  SELECT sac.id_service_access_collaborator,
+         sac.access_id,
+         sac.access_check_in,
+         sac.access_check_out,
+         sac.id_substitute,
+         COALESCE(sa.finalidade, sa.service_type) AS finalidade,
+         c.name AS collaborator_name,
+         c.document AS collaborator_document,
+         cdt.description AS document_type_description,
+         cr.description AS role_description,
+         sub.name AS substitute_name,
+         sub.document AS substitute_document,
+         sub_cdt.description AS substitute_document_type_description,
+         co.fancy_name AS company_fancy_name
+  FROM service_access_collaborator sac
+  INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+  INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
+  INNER JOIN collaborator_document_type cdt
+    ON cdt.id_collaborator_document_type = c.id_collaborator_document_type
+  INNER JOIN collaborator_role cr ON cr.id_collaborator_role = sac.id_collaborator_role
+  LEFT JOIN collaborator sub ON sub.id_collaborator = sac.id_substitute
+  LEFT JOIN collaborator_document_type sub_cdt
+    ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
+  INNER JOIN company co ON co.id_company = sa.id_company
+  WHERE sa.id_access_status = ?
+    AND sa.status = 1
+    AND sac.access_id IS NOT NULL
+    AND CURDATE() BETWEEN sa.start_date AND sa.end_date
+  ORDER BY COALESCE(sub.name, c.name) ASC
+`;
+
 async function listTodayExpectedServices() {
-  const [rows] = await db.execute(GATE_TODAY_SERVICES_SELECT, [STATUS_APROVADO]);
-  return rows.map(mapTodayServiceRow);
+  const [vehicleRows, collaboratorRows] = await Promise.all([
+    db.execute(GATE_TODAY_SERVICE_VEHICLES_SELECT, [STATUS_APROVADO]),
+    db.execute(GATE_TODAY_SERVICE_COLLABORATORS_SELECT, [STATUS_APROVADO]),
+  ]);
+  const vehicles = vehicleRows[0].map(mapTodayServiceVehicleRow);
+  const collaborators = collaboratorRows[0].map(mapTodayServiceCollaboratorRow);
+  return [...vehicles, ...collaborators];
 }
 
-function buildServiceSuccessPayload(row, actionRegistered) {
+function buildServiceVehicleSuccessPayload(row, actionRegistered) {
   const effective = resolveEffectiveVehicle(row);
   return {
     allowed: true,
     data: {
       access_allowed: true,
       type: "SERVICE",
+      kind: "vehicle",
       vehicle: {
         plate: normalizePlate(effective.plate),
         description: row.vehicle_description,
@@ -438,21 +581,41 @@ function buildServiceSuccessPayload(row, actionRegistered) {
       company: { fancy_name: row.company_fancy_name },
       action_registered: actionRegistered,
       access_id: row.access_id,
+      id_service_access: row.id_service_access,
       id_service_access_vehicle: row.id_service_access_vehicle,
-      service_type: row.service_type,
+      finalidade: row.finalidade,
     },
   };
 }
 
-async function validateServiceAccess(accessId) {
+function buildServiceCollaboratorSuccessPayload(row, actionRegistered) {
+  const effective = resolveEffectiveServiceCollaborator(row);
+  return {
+    allowed: true,
+    data: {
+      access_allowed: true,
+      type: "SERVICE",
+      kind: "collaborator",
+      collaborator: {
+        name: effective.name,
+        document_masked: maskDocument(effective.document, effective.documentType),
+        role: row.role_description,
+      },
+      company: { fancy_name: row.company_fancy_name },
+      action_registered: actionRegistered,
+      access_id: row.access_id,
+      id_service_access: row.id_service_access,
+      id_service_access_collaborator: row.id_service_access_collaborator,
+      finalidade: row.finalidade,
+    },
+  };
+}
+
+async function validateServiceVehicleAccess(accessId) {
   const row = await findServiceVehicleByAccessId(accessId);
-  if (!row) {
-    return buildServiceDenial("SERVICE_NOT_FOUND", 404);
-  }
-  if (Number(row.id_access_status) !== STATUS_APROVADO) {
-    return buildServiceDenial("SERVICE_NOT_APPROVED");
-  }
-  if (!(await isServiceDateAllowed(row.id_service_access))) {
+  const denial = validateServiceAccessBase(row);
+  if (denial) return denial;
+  if (!(await isServiceDateAllowed(row))) {
     return buildServiceDenial("INVALID_SERVICE_DATE");
   }
 
@@ -466,7 +629,7 @@ async function validateServiceAccess(accessId) {
     };
   }
 
-  const action = resolveServiceNextAction(row);
+  const action = resolveServiceVehicleNextAction(row);
   if (!action) {
     return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
   }
@@ -479,21 +642,67 @@ async function validateServiceAccess(accessId) {
 
   const updated = await findServiceVehicleByAccessId(accessId);
   logger.info(
-    { accessId, action, id: row.id_service_access_vehicle },
+    { accessId, action, id: row.id_service_access_vehicle, kind: "vehicle" },
     "Fluxo patrimonial registrado na portaria",
   );
-  return buildServiceSuccessPayload(updated, action);
+  return buildServiceVehicleSuccessPayload(updated, action);
 }
 
-async function substituteServiceAccess(accessId, idSubstituteVehicle) {
+async function validateServiceCollaboratorAccess(accessId) {
+  const row = await findServiceCollaboratorByAccessId(accessId);
+  const denial = validateServiceAccessBase(row);
+  if (denial) return denial;
+  if (!(await isServiceDateAllowed(row))) {
+    return buildServiceDenial("INVALID_SERVICE_DATE");
+  }
+
+  const blacklisted = row.id_substitute
+    ? row.sub_blacklisted_id != null
+    : row.main_blacklisted_id != null;
+  if (blacklisted) {
+    return {
+      ...buildServiceDenial("COLLABORATOR_BLACK_LIST_BLOCKED"),
+      critical: true,
+      id_collaborator: row.id_substitute || row.id_collaborator,
+    };
+  }
+
+  const action = resolveServiceCollaboratorNextAction(row);
+  if (!action) {
+    return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
+  }
+
+  const column = action === "CHECK_IN" ? "access_check_in" : "access_check_out";
+  await db.execute(
+    `UPDATE service_access_collaborator SET ${column} = NOW() WHERE id_service_access_collaborator = ?`,
+    [row.id_service_access_collaborator],
+  );
+
+  const updated = await findServiceCollaboratorByAccessId(accessId);
+  logger.info(
+    { accessId, action, id: row.id_service_access_collaborator, kind: "collaborator" },
+    "Fluxo patrimonial registrado na portaria",
+  );
+  return buildServiceCollaboratorSuccessPayload(updated, action);
+}
+
+async function validateServiceAccess(accessId) {
+  const vehicleRow = await findServiceVehicleByAccessId(accessId);
+  if (vehicleRow) {
+    return validateServiceVehicleAccess(accessId);
+  }
+  const collaboratorRow = await findServiceCollaboratorByAccessId(accessId);
+  if (collaboratorRow) {
+    return validateServiceCollaboratorAccess(accessId);
+  }
+  return buildServiceDenial("SERVICE_NOT_FOUND", 404);
+}
+
+async function substituteServiceVehicle(accessId, idSubstituteVehicle) {
   const row = await findServiceVehicleByAccessId(accessId);
-  if (!row) {
-    return buildServiceDenial("SERVICE_NOT_FOUND", 404);
-  }
-  if (Number(row.id_access_status) !== STATUS_APROVADO) {
-    return buildServiceDenial("SERVICE_NOT_APPROVED");
-  }
-  if (!(await isServiceDateAllowed(row.id_service_access))) {
+  const denial = validateServiceAccessBase(row);
+  if (denial) return denial;
+  if (!(await isServiceDateAllowed(row))) {
     return buildServiceDenial("INVALID_SERVICE_DATE");
   }
 
@@ -523,11 +732,77 @@ async function substituteServiceAccess(accessId, idSubstituteVehicle) {
     allowed: true,
     data: {
       access_id: accessId,
+      kind: "vehicle",
       id_service_access_vehicle: row.id_service_access_vehicle,
       id_substitute_vehicle: idSubstituteVehicle,
       substitute: { plate: normalizePlate(effective.plate) },
     },
   };
+}
+
+async function substituteServiceCollaborator(accessId, idSubstituteCollaborator) {
+  const row = await findServiceCollaboratorByAccessId(accessId);
+  const denial = validateServiceAccessBase(row);
+  if (denial) return denial;
+  if (!(await isServiceDateAllowed(row))) {
+    return buildServiceDenial("INVALID_SERVICE_DATE");
+  }
+
+  const substituteRow = await collaboratorService.findCollaboratorById(idSubstituteCollaborator);
+  if (!substituteRow) {
+    throw new AppError("Colaborador substituto não encontrado.", 404);
+  }
+  if (!substituteRow.status) {
+    throw new AppError("Colaborador substituto está inativo.", 400);
+  }
+  if (await collaboratorService.checkBlacklist(idSubstituteCollaborator)) {
+    throw new AppError("Colaborador substituto consta na lista de bloqueio.", 400);
+  }
+  if (Number(idSubstituteCollaborator) === Number(row.id_collaborator)) {
+    throw new AppError("Selecione um colaborador diferente do titular.", 400);
+  }
+
+  await db.execute(
+    `UPDATE service_access_collaborator SET id_substitute = ? WHERE id_service_access_collaborator = ?`,
+    [idSubstituteCollaborator, row.id_service_access_collaborator],
+  );
+
+  const updated = await findServiceCollaboratorByAccessId(accessId);
+  const effective = resolveEffectiveServiceCollaborator(updated);
+
+  return {
+    allowed: true,
+    data: {
+      access_id: accessId,
+      kind: "collaborator",
+      id_service_access_collaborator: row.id_service_access_collaborator,
+      id_substitute_collaborator: idSubstituteCollaborator,
+      substitute: {
+        name: effective.name,
+        document_masked: maskDocument(effective.document, effective.documentType),
+      },
+    },
+  };
+}
+
+async function substituteServiceAccess(accessId, payload) {
+  const vehicleRow = await findServiceVehicleByAccessId(accessId);
+  if (vehicleRow) {
+    if (!payload.id_substitute_vehicle) {
+      throw new AppError("Informe o veículo substituto.", 400);
+    }
+    return substituteServiceVehicle(accessId, payload.id_substitute_vehicle);
+  }
+
+  const collaboratorRow = await findServiceCollaboratorByAccessId(accessId);
+  if (collaboratorRow) {
+    if (!payload.id_substitute_collaborator) {
+      throw new AppError("Informe o colaborador substituto.", 400);
+    }
+    return substituteServiceCollaborator(accessId, payload.id_substitute_collaborator);
+  }
+
+  return buildServiceDenial("SERVICE_NOT_FOUND", 404);
 }
 
 module.exports = {

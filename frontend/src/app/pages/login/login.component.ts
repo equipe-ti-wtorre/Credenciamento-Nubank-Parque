@@ -5,6 +5,8 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { MsalConfigService } from '../../services/msal-config.service';
 import { NotificationService } from '../../core/services/notification.service';
+import { TeamsContextService } from '../../services/teams-context.service';
+import { rememberReturnUrl } from '../../core/guards/auth.guard';
 
 @Component({
   selector: 'app-login',
@@ -18,6 +20,7 @@ import { NotificationService } from '../../core/services/notification.service';
       </div>
       <h2 class="text-xl font-medium text-white text-center">Credenciamento</h2>
       <p *ngIf="idleMessage" class="text-amber-300 text-sm text-center px-2">{{ idleMessage }}</p>
+      <p *ngIf="teamsHint" class="text-sky-300 text-sm text-center px-2">{{ teamsHint }}</p>
       <p *ngIf="msalWarning" class="text-amber-300 text-xs text-center px-2">{{ msalWarning }}</p>
 
       <ng-container *ngIf="showAdminLogin">
@@ -70,7 +73,7 @@ import { NotificationService } from '../../core/services/notification.service';
           alt="Microsoft"
           class="h-5 w-5"
         />
-        <span>Entrar com Microsoft</span>
+        <span>{{ inTeamsUi ? 'Entrar com Microsoft (Teams)' : 'Entrar com Microsoft' }}</span>
       </button>
 
       <div class="text-center">
@@ -92,6 +95,8 @@ export class LoginComponent implements OnInit {
   showAdminLogin = false;
   msalWarning: string | null = null;
   idleMessage: string | null = null;
+  teamsHint: string | null = null;
+  inTeamsUi = false;
 
   constructor(
     private authService: AuthService,
@@ -99,16 +104,82 @@ export class LoginComponent implements OnInit {
     private route: ActivatedRoute,
     private msalConfigService: MsalConfigService,
     private notification: NotificationService,
+    private teamsContext: TeamsContextService,
   ) {}
 
   async ngOnInit() {
     if (this.route.snapshot.queryParamMap.get('reason') === 'idle') {
       this.idleMessage = 'Sua sessão expirou por inatividade. Faça login novamente.';
     }
+
+    // Flag residual do popup Teams (não confundir com login web).
+    if (this.teamsContext.isAuthPopupPending()) {
+      const hasAzureReturn =
+        typeof window !== 'undefined' &&
+        /(?:^|[?#&])(code|id_token|error)=/i.test(
+          `${window.location.search}${window.location.hash}`,
+        );
+      const inTeams = await this.teamsContext.ensureInitialized();
+      if (hasAzureReturn && inTeams) {
+        this.loading = true;
+        this.teamsHint = 'Concluindo autenticação Microsoft…';
+        try {
+          await this.msalConfigService.load();
+          await this.authService.handleRedirect();
+        } finally {
+          this.loading = false;
+          this.teamsContext.clearAuthPopupPending();
+        }
+        return;
+      }
+      this.teamsContext.clearAuthPopupPending();
+    }
+
     if (await this.authService.isLoggedIn()) {
-      this.router.navigate(['/dashboard']);
+      this.authService.navigateAfterLogin();
       return;
     }
+
+    const returnUrlParam = this.route.snapshot.queryParamMap.get('returnUrl');
+    if (returnUrlParam?.startsWith('/')) {
+      rememberReturnUrl(returnUrlParam);
+    }
+
+    const inTeams = await this.teamsContext.ensureInitialized();
+    this.inTeamsUi = inTeams;
+    if (inTeams) {
+      const deep = await this.teamsContext.getDeepLinkPath();
+      if (deep) rememberReturnUrl(deep);
+
+      const ssoErr = this.teamsContext.consumeSsoError();
+      if (ssoErr) {
+        this.teamsHint = `SSO automático: ${ssoErr}. Use o botão Entrar com Microsoft.`;
+      } else {
+        this.teamsHint = 'Abrindo com sua conta Microsoft do Teams…';
+      }
+      this.loading = true;
+      try {
+        await this.msalConfigService.load();
+        // Só silent automático — interativo/consent fica no botão (evita CancelledByUser)
+        const ok = await this.authService.tryTeamsSsoLogin({ silent: true });
+        if (ok) return;
+        const detail = this.teamsContext.getLastAuthError() || ssoErr;
+        this.teamsHint = detail
+          ? `SSO automático falhou (${detail}). Use o botão Entrar com Microsoft.`
+          : 'Não foi possível autenticar automaticamente. Use Entrar com Microsoft.';
+      } catch (err) {
+        this.teamsHint = this.notification.extractErrorMessage(
+          err,
+          'Não foi possível autenticar automaticamente. Use Entrar com Microsoft.',
+        );
+      } finally {
+        this.loading = false;
+      }
+    } else {
+      const ssoErr = this.teamsContext.consumeSsoError();
+      this.teamsHint = ssoErr ? `SSO: ${ssoErr}` : null;
+    }
+
     await this.msalConfigService.load();
     this.msalWarning = this.msalConfigService.getLoadError();
     this.msalBusy = true;
@@ -121,7 +192,7 @@ export class LoginComponent implements OnInit {
     this.authService.loginManual(this.credentials).subscribe({
       next: () => {
         this.loading = false;
-        this.router.navigate(['/dashboard']);
+        this.authService.navigateAfterLogin();
       },
       error: (err) => {
         this.loading = false;

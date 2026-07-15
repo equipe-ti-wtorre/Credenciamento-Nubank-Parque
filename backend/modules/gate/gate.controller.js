@@ -1,6 +1,7 @@
 const AppError = require("../../utils/AppError");
 const { attachAudit } = require("../../utils/auditLogger");
 const gateService = require("./gate.service");
+const { notifyServiceGateCheckIn } = require("./gate.notifications");
 const {
   eventValidateSchema,
   eventSubstituteSchema,
@@ -139,11 +140,31 @@ exports.validateService = async (req, res, next) => {
       event: actionEvent,
       resource: {
         type: "service_access",
-        id: result.data.id_service_access_vehicle,
+        id:
+          result.data.id_service_access_vehicle ||
+          result.data.id_service_access_collaborator,
         access_id: value.access_id,
       },
       changes: { action_registered: result.data.action_registered },
     });
+
+    if (result.data.action_registered === "CHECK_IN") {
+      const subjectName =
+        result.data.kind === "vehicle"
+          ? result.data.vehicle?.plate
+          : result.data.collaborator?.name;
+      const idServiceAccess = result.data.id_service_access;
+      if (idServiceAccess) {
+        setImmediate(() => {
+          void notifyServiceGateCheckIn({
+            idServiceAccess,
+            kind: result.data.kind,
+            subjectName,
+            finalidade: result.data.finalidade,
+          }).catch(() => {});
+        });
+      }
+    }
 
     res.json(result.data);
   } catch (err) {
@@ -156,10 +177,7 @@ exports.substituteService = async (req, res, next) => {
     const { error, value } = serviceSubstituteSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const result = await gateService.substituteServiceAccess(
-      value.access_id,
-      value.id_substitute_vehicle,
-    );
+    const result = await gateService.substituteServiceAccess(value.access_id, value);
     if (!result.allowed) {
       return respondDenial(res, req, result);
     }
@@ -170,10 +188,15 @@ exports.substituteService = async (req, res, next) => {
       event: "gate.service.substitute",
       resource: {
         type: "service_access",
-        id: result.data.id_service_access_vehicle,
+        id:
+          result.data.id_service_access_vehicle ||
+          result.data.id_service_access_collaborator,
         access_id: value.access_id,
       },
-      changes: { id_substitute_vehicle: value.id_substitute_vehicle },
+      changes: {
+        id_substitute_vehicle: value.id_substitute_vehicle,
+        id_substitute_collaborator: value.id_substitute_collaborator,
+      },
     });
 
     res.json(result.data);

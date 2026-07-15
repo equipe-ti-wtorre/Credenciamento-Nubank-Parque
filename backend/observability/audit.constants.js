@@ -10,6 +10,8 @@ const AUDIT_MODULES = {
   EVENTS: "events",
   CREDENTIALS: "credentials",
   GATE: "gate",
+  APPROVALS: "approvals",
+  SECTORS: "sectors",
 };
 
 const AUDIT_ACTIONS = {
@@ -25,6 +27,9 @@ const AUDIT_ACTIONS = {
   LOGIN_FAILED: "LOGIN_FAILED",
   LOGOUT: "LOGOUT",
   EXPORT: "EXPORT",
+  APPROVE: "APPROVE",
+  REJECT: "REJECT",
+  CANCEL: "CANCEL",
 };
 
 const AUDIT_OUTCOMES = {

@@ -3,13 +3,26 @@ import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MaterialsService, ProductItem } from '../../../services/materials.service';
 import { NotificationService } from '../../../core/services/notification.service';
-import { ActionBtnComponent } from '../../../shared/actions/action-btn.component';
-import { ActionMenuComponent } from '../../../shared/actions/action-menu.component';
+import {
+  ActionBtnComponent,
+  ActionDropdownComponent,
+  ActionDropdownItemDirective,
+  ActionMenuComponent,
+} from '../../../shared/actions';
+import { ModalComponent } from '../../../shared/modal/modal.component';
 
 @Component({
   selector: 'app-product-list',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, ActionBtnComponent, ActionMenuComponent],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    ActionBtnComponent,
+    ActionDropdownComponent,
+    ActionDropdownItemDirective,
+    ActionMenuComponent,
+    ModalComponent,
+  ],
   template: `
     <div class="w-full">
       <div class="flex justify-between items-start gap-4 mb-5">
@@ -17,7 +30,7 @@ import { ActionMenuComponent } from '../../../shared/actions/action-menu.compone
           <h2 class="page-section-title">Produtos</h2>
           <p class="page-section-subtitle">Cadastro de produtos para controle de estoque.</p>
         </div>
-        <button type="button" class="btn-primary" (click)="abrirModal()">+ Novo produto</button>
+        <button type="button" class="btn-action-primary" (click)="abrirModal()">+ Novo produto</button>
       </div>
 
       <div class="card-surface overflow-hidden">
@@ -49,21 +62,30 @@ import { ActionMenuComponent } from '../../../shared/actions/action-menu.compone
               </td>
               <td class="px-4 py-3 text-right">
                 <app-action-menu>
-                  <app-action-btn icon="edit" title="Editar" variant="neutral" (action)="editar(p)" />
-                  <app-action-btn
-                    *ngIf="p.status"
-                    icon="delete"
-                    title="Inativar"
-                    variant="danger"
-                    (action)="alterarStatus(p, false)"
-                  />
-                  <app-action-btn
-                    *ngIf="!p.status"
-                    icon="send"
-                    title="Ativar"
-                    variant="primary"
-                    (action)="alterarStatus(p, true)"
-                  />
+                  <app-action-btn icon="edit" title="Editar produto" variant="neutral" (action)="editar(p)" />
+                  <app-action-dropdown>
+                    <button appActionDropdownItem type="button" (click)="alterarStatus(p, !p.status)">
+                      <svg
+                        class="action-dropdown__item-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.75"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        @if (p.status) {
+                          <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                          <path d="M12 2v10" />
+                        } @else {
+                          <path d="M22 2L11 13" />
+                          <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                        }
+                      </svg>
+                      {{ p.status ? 'Inativar' : 'Ativar' }}
+                    </button>
+                  </app-action-dropdown>
                 </app-action-menu>
               </td>
             </tr>
@@ -75,41 +97,40 @@ import { ActionMenuComponent } from '../../../shared/actions/action-menu.compone
       </div>
     </div>
 
-    <div *ngIf="showModal()" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" class="absolute inset-0 bg-slate-900/50" (click)="fecharModal()"></button>
-      <div class="relative card-surface p-6 w-full max-w-md shadow-xl">
-        <h3 class="text-lg font-bold mb-4">{{ editingId() ? 'Editar produto' : 'Novo produto' }}</h3>
-        <form class="space-y-3" [formGroup]="form" (ngSubmit)="salvar()">
-          <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Descrição</label>
-            <input formControlName="description" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Unidade de medida</label>
-            <input
-              formControlName="unit_measure"
-              class="w-full mt-1 border rounded-xl px-3 py-2 text-sm"
-              placeholder="Ex: UN, KG, CX"
-            />
-          </div>
-          <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Fabricante</label>
-            <input formControlName="manufacturer" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" />
-          </div>
-          <div *ngIf="editingId()">
-            <label class="text-xs font-bold text-slate-500 uppercase">Status</label>
-            <select formControlName="status" class="w-full mt-1 border rounded-xl px-3 py-2 text-sm bg-white">
-              <option [ngValue]="true">Ativo</option>
-              <option [ngValue]="false">Inativo</option>
-            </select>
-          </div>
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" class="btn-secondary" (click)="fecharModal()">Cancelar</button>
-            <button type="submit" class="btn-primary" [disabled]="saving() || form.invalid">Salvar</button>
-          </div>
-        </form>
+    <app-modal
+      [open]="showModal()"
+      [title]="editingId() ? 'Editar produto' : 'Novo produto'"
+      size="sm"
+      (close)="fecharModal()"
+    >
+      <form id="product-form" class="space-y-3" [formGroup]="form" (ngSubmit)="salvar()">
+        <div>
+          <label class="form-label" for="product-description">Descrição</label>
+          <input id="product-description" formControlName="description" class="form-field" />
+        </div>
+        <div>
+          <label class="form-label" for="product-unit">Unidade de medida</label>
+          <input id="product-unit" formControlName="unit_measure" class="form-field" placeholder="Ex: UN, KG, CX" />
+        </div>
+        <div>
+          <label class="form-label" for="product-manufacturer">Fabricante <span class="form-label__optional">(opcional)</span></label>
+          <input id="product-manufacturer" formControlName="manufacturer" class="form-field" />
+        </div>
+        <div *ngIf="editingId()">
+          <label class="form-label" for="product-status">Status</label>
+          <select id="product-status" formControlName="status" class="form-select">
+            <option [ngValue]="true">Ativo</option>
+            <option [ngValue]="false">Inativo</option>
+          </select>
+        </div>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" class="btn-action-secondary" (click)="fecharModal()">Cancelar</button>
+        <button type="submit" form="product-form" class="btn-action-primary" [disabled]="saving() || form.invalid">
+          {{ saving() ? 'Salvando...' : (editingId() ? 'Salvar produto' : 'Criar produto') }}
+        </button>
       </div>
-    </div>
+    </app-modal>
   `,
 })
 export class ProductListComponent implements OnInit {

@@ -4,22 +4,21 @@ const crypto = require("crypto");
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 
+const { hasPermission, assertPermission } = require("../../utils/permissions");
+
 const MERCHANDISE_STORAGE_DIR = path.join(__dirname, "../../storage/merchandise");
 
-function getUserRole(req) {
-  return String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
-}
-
 function assertAdmin(req) {
-  const role = String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
-  if (role !== "ADMIN") {
-    throw new AppError("Perfil sem permissão para gerenciar cadastros de mercadorias.", 403);
-  }
+  assertPermission(req.user, "merchandise_products", "view");
 }
 
 function assertOperator(req) {
-  const role = getUserRole(req);
-  if (role === "ADMIN" || role === "CONTROLADOR") return;
+  if (
+    hasPermission(req.user, "merchandise_entry", "create") ||
+    hasPermission(req.user, "merchandise_exit", "create")
+  ) {
+    return;
+  }
   throw new AppError("Perfil sem permissão para operações de mercadorias.", 403);
 }
 

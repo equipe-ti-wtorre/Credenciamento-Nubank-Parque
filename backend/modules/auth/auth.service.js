@@ -9,29 +9,50 @@ const { fetchMicrosoftProfile } = require("../../utils/userProfileSync");
 const { assertUserCanAccess, hasValidDepartment, DEPARTMENT_REQUIRED_MESSAGE } = require("../../utils/userDepartment");
 const { createTokenPair } = require("./token.service");
 const { setAuditLoginContext } = require("../../observability/audit.auth");
+const profilesService = require("../profiles/profiles.service");
 
-function mapUserResponse(user) {
+async function mapUserResponse(user) {
+  const ctx = await profilesService.loadUserProfileContext(user.id);
   return {
     id: user.id,
     username: user.username,
     nome_completo: user.nome_completo,
     email: user.email,
-    role: user.perfil,
-    perfil: user.perfil,
+    role: ctx?.codigo || "USER",
+    perfil: ctx?.codigo || "USER",
+    id_perfil: ctx?.id_perfil || user.id_perfil || null,
+    profile: ctx
+      ? {
+          id: ctx.id_perfil,
+          codigo: ctx.codigo,
+          nome: ctx.perfil_nome,
+          requires_company: ctx.requires_company,
+          is_super_admin: ctx.is_super_admin,
+        }
+      : null,
+    permissions: ctx?.permissions || [],
     id_company: user.id_company != null ? user.id_company : null,
     is_ad_user: !!user.is_ad_user,
     session_idle_minutes:
       user.session_idle_minutes != null ? user.session_idle_minutes : null,
+    notificar_portaria: !!user.notificar_portaria,
   };
 }
 
-function buildAuthResponse(tokens, user) {
+async function enrichUserResponse(user) {
+  const sectorsService = require("../sectors/sectors.service");
+  const sectorMemberships = await sectorsService.listSectorMemberships(user.id);
+  const mapped = await mapUserResponse(user);
+  return { ...mapped, sectorMemberships };
+}
+
+async function buildAuthResponse(tokens, user) {
   return {
     auth: true,
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     token: tokens.accessToken,
-    user: mapUserResponse(user),
+    user: await enrichUserResponse(user),
   };
 }
 
@@ -67,20 +88,55 @@ async function loginLocal(username, password, req) {
   }
 
   const tokens = await createTokenPair(user, req);
-  return buildAuthResponse(tokens, user);
+  return await buildAuthResponse(tokens, user);
 }
 
 async function loginMicrosoft(azureUser, req) {
   setAuditLoginContext(req, { provider: "microsoft" });
 
   const oid = azureUser.oid;
-  const email = azureUser.preferred_username || azureUser.upn || azureUser.email;
+  const email =
+    azureUser.preferred_username ||
+    azureUser.upn ||
+    azureUser.email ||
+    azureUser.unique_name ||
+    null;
   const nome = azureUser.name || azureUser.displayName;
-  if (!oid || !email) {
+  if (!oid) {
     throw new AppError("Dados não retornados pela Microsoft.", 400);
   }
 
-  setAuditLoginContext(req, { provider: "microsoft", loginHint: email });
+  setAuditLoginContext(req, { provider: "microsoft", loginHint: email || oid });
+
+  let userLocal = null;
+  const [byOid] = await db.execute(
+    "SELECT * FROM usuarios WHERE microsoft_id = ? LIMIT 1",
+    [oid],
+  );
+  if (byOid.length > 0) userLocal = byOid[0];
+
+  // Token Teams SSO pode não trazer e-mail — usuário já vinculado por microsoft_id.
+  if (userLocal && userLocal.ativo) {
+    try {
+      assertUserCanAccess(userLocal);
+    } catch (err) {
+      setAuditLoginContext(req, {
+        provider: "microsoft",
+        userId: userLocal.id,
+        loginHint: email || oid,
+      });
+      throw err;
+    }
+    const tokens = await createTokenPair(userLocal, req);
+    return await buildAuthResponse(tokens, userLocal);
+  }
+
+  if (!email) {
+    throw new AppError(
+      "Token Microsoft sem e-mail. Faça login uma vez pelo navegador ou sincronize o usuário do AD.",
+      400,
+    );
+  }
 
   const graphProfile = await fetchMicrosoftProfile(oid, azureUser.tid || null);
   if (!graphProfile.ok || !hasValidDepartment(graphProfile.departamento)) {
@@ -89,13 +145,8 @@ async function loginMicrosoft(azureUser, req) {
 
   const departamento = graphProfile.departamento;
   const nomeCompleto = graphProfile.displayName || nome || email.split("@")[0];
-
-  let userLocal = null;
-  const [byOid] = await db.execute(
-    "SELECT * FROM usuarios WHERE microsoft_id = ? LIMIT 1",
-    [oid],
-  );
-  if (byOid.length > 0) userLocal = byOid[0];
+  const defaultProfile = await profilesService.getProfileByCodigo("USER");
+  const defaultProfileId = defaultProfile?.id || null;
 
   if (!userLocal) {
     const [byEmail] = await db.execute(
@@ -114,9 +165,9 @@ async function loginMicrosoft(azureUser, req) {
   if (!userLocal) {
     const username = email.split("@")[0];
     const [result] = await db.execute(
-      `INSERT INTO usuarios (username, nome_completo, email, departamento, is_ad_user, senha_hash, perfil, ativo, microsoft_id)
-       VALUES (?, ?, ?, ?, 1, NULL, 'USER', 1, ?)`,
-      [username, nomeCompleto, email, departamento, oid],
+      `INSERT INTO usuarios (username, nome_completo, email, departamento, is_ad_user, senha_hash, id_perfil, ativo, microsoft_id)
+       VALUES (?, ?, ?, ?, 1, NULL, ?, 1, ?)`,
+      [username, nomeCompleto, email, departamento, defaultProfileId, oid],
     );
     const [newUsers] = await db.execute("SELECT * FROM usuarios WHERE id = ?", [
       result.insertId,
@@ -146,7 +197,7 @@ async function loginMicrosoft(azureUser, req) {
   }
 
   const tokens = await createTokenPair(userLocal, req);
-  return buildAuthResponse(tokens, userLocal);
+  return await buildAuthResponse(tokens, userLocal);
 }
 
 async function getMe(userId) {
@@ -157,7 +208,25 @@ async function getMe(userId) {
   const user = users[0];
   if (!user) throw new AppError("Usuário não encontrado.", 404);
   assertUserCanAccess(user);
-  return mapUserResponse(user);
+  return enrichUserResponse(user);
+}
+
+async function updateMyPreferences(userId, prefs = {}) {
+  const [users] = await db.execute(
+    "SELECT * FROM usuarios WHERE id = ? AND ativo = 1 LIMIT 1",
+    [userId],
+  );
+  const user = users[0];
+  if (!user) throw new AppError("Usuário não encontrado.", 404);
+
+  if (prefs.notificar_portaria !== undefined) {
+    await db.execute(`UPDATE usuarios SET notificar_portaria = ? WHERE id = ?`, [
+      prefs.notificar_portaria ? 1 : 0,
+      userId,
+    ]);
+  }
+
+  return getMe(userId);
 }
 
 async function getProfilePhoto(userId) {
@@ -205,5 +274,6 @@ module.exports = {
   loginLocal,
   loginMicrosoft,
   getMe,
+  updateMyPreferences,
   getProfilePhoto,
 };

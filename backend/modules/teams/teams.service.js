@@ -6,10 +6,32 @@ const {
   getApplicationToken,
   postChannelMessage,
   sendUserActivityNotification,
+  sendUserAdaptiveCard,
   normalizeHttpsAppUrl,
+  buildTeamsActivityWebUrl,
 } = require("../../utils/microsoftGraph");
+const { isBotConfigured } = require("./bot/credentials");
+const { sendProactiveAdaptiveCard } = require("./bot/proactive");
 
 const logger = child({ module: "teams" });
+
+function resolveAppBaseUrl(row) {
+  return (
+    resolveActivityWebUrl(row) ||
+    normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
+    normalizeHttpsAppUrl(env.msalRedirectUriWeb) ||
+    "https://cred.allianzparque.intra"
+  );
+}
+
+/** Monta URL https do app + path relativo (ex.: /aprovacoes/1). */
+function buildAppPathUrl(baseUrl, path) {
+  if (!baseUrl) return null;
+  if (!path) return baseUrl.replace(/\/$/, "");
+  const base = baseUrl.replace(/\/$/, "");
+  const rel = String(path).startsWith("/") ? path : `/${path}`;
+  return `${base}${rel}`;
+}
 
 function mapIntegrationRow(row) {
   if (!row) return null;
@@ -205,7 +227,7 @@ async function deactivateIntegration(id) {
   await db.execute("UPDATE teams_integrations SET ativo = 0 WHERE id = ?", [id]);
 }
 
-async function sendNotification(integrationId, { email, mensagem } = {}) {
+async function sendNotification(integrationId, { email, mensagem, path, adaptiveCard } = {}) {
   const row = await findById(integrationId);
   if (!row || !row.ativo) {
     return { ok: false, message: "Integração não encontrada ou inativa." };
@@ -244,36 +266,121 @@ async function sendNotification(integrationId, { email, mensagem } = {}) {
     return { ok: false, message: "Informe o e-mail do destinatário." };
   }
 
-  const webUrl = resolveActivityWebUrl(row);
-  if (!webUrl) {
+  const baseUrl = resolveAppBaseUrl(row);
+  if (!baseUrl) {
     return {
       ok: false,
       message: "Configure a URL https da notificação no cadastro da integração Teams.",
     };
   }
 
+  const appUrl = buildAppPathUrl(baseUrl, path) || baseUrl;
+
   const [tenantRows] = await db.execute(
-    "SELECT client_id FROM azure_tenants WHERE id = ?",
+    "SELECT azure_tenant_id, client_id FROM azure_tenants WHERE id = ?",
     [row.azure_tenant_ref_id],
   );
   const azureClientId = tenantRows[0]?.client_id || null;
+  const tenantId = tenantRows[0]?.azure_tenant_id || env.teamsBotAppTenantId;
 
-  const result = await sendUserActivityNotification(
+  const feedResult = await sendUserActivityNotification(
     auth.token,
     targetEmail,
     content,
-    webUrl,
+    appUrl,
     {
       teamsAppId: resolveTeamsAppId(row),
       teamsAppExternalId: env.teamsAppExternalId,
       azureClientId,
     },
   );
-  if (result.ok) {
-    return { ok: true, message: result.message };
+
+  let cardResult = null;
+  if (adaptiveCard) {
+    cardResult = await deliverAdaptiveCard({
+      email: targetEmail,
+      adaptiveCard,
+      accessToken: auth.token,
+      tenantId,
+      microsoftUserId: feedResult.user?.id || null,
+    });
   }
 
-  return { ok: false, message: result.message };
+  if (feedResult.ok) {
+    return {
+      ok: true,
+      message: feedResult.message,
+      card: cardResult,
+    };
+  }
+
+  if (cardResult?.ok) {
+    return {
+      ok: true,
+      message: `Feed falhou (${feedResult.message}); Adaptive Card enviada.`,
+      card: cardResult,
+    };
+  }
+
+  return { ok: false, message: feedResult.message, card: cardResult };
+}
+
+/**
+ * Entrega Adaptive Card: Bot Connector (interativo) ou Graph chat (OpenUrl).
+ */
+async function deliverAdaptiveCard({
+  email,
+  adaptiveCard,
+  accessToken,
+  tenantId,
+  microsoftUserId,
+}) {
+  let aadId = microsoftUserId;
+  if (!aadId && email) {
+    try {
+      const [rows] = await db.execute(
+        `SELECT microsoft_id FROM usuarios WHERE LOWER(email) = LOWER(?) AND ativo = 1 LIMIT 1`,
+        [email],
+      );
+      aadId = rows[0]?.microsoft_id || null;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if ((await isBotConfigured()) && aadId) {
+    const proactive = await sendProactiveAdaptiveCard(aadId, adaptiveCard, {
+      tenantId,
+    });
+    if (proactive.ok) return { ...proactive, via: "bot" };
+    logger.warn({ email, message: proactive.message }, "Bot proativo falhou; tentando Graph");
+  }
+
+  if (!accessToken) {
+    return { ok: false, message: "Sem token Graph para Adaptive Card." };
+  }
+
+  // Graph não estabelece conversa do Bot — Action.Submit aparece como "bot disabled".
+  // No fallback, reenvia o card só com OpenUrl (sem Aprovar/Bloquear).
+  const { buildApprovalDecisionCard, buildInfoCard } = require("./adaptiveCards");
+  let cardForGraph = adaptiveCard;
+  if (adaptiveCard?.actions?.some((a) => a.type === "Action.Submit")) {
+    const detail =
+      adaptiveCard.actions.find((a) => a.type === "Action.OpenUrl")?.url || null;
+    cardForGraph = buildApprovalDecisionCard(
+      {
+        titulo: adaptiveCard.body?.[0]?.text,
+        mensagem: adaptiveCard.body?.[1]?.text,
+        detailUrl: detail,
+        idAprovacao: adaptiveCard.actions.find((a) => a.data?.idAprovacao)?.data
+          ?.idAprovacao,
+      },
+      { interactive: false },
+    );
+  }
+
+  const graphResult = await sendUserAdaptiveCard(accessToken, email, cardForGraph);
+  return { ...graphResult, via: "graph" };
 }
 
 async function testIntegration(id, options = {}) {
@@ -298,15 +405,36 @@ async function notifyOperationsChannel(mensagem) {
   return sendNotification(rows[0].id, { mensagem });
 }
 
-/** Envia notificação ao usuário usando a primeira integração ativa do tipo user. */
-async function notifyUser(email, mensagem) {
+/**
+ * Envia notificação ao usuário usando a primeira integração ativa do tipo user.
+ * @param {string} email
+ * @param {string} mensagem
+ * @param {{ path?: string, adaptiveCard?: object }} [options]
+ */
+async function notifyUser(email, mensagem, options = {}) {
   const [rows] = await db.execute(
     `SELECT id FROM teams_integrations WHERE ativo = 1 AND tipo = 'user' ORDER BY id ASC LIMIT 1`,
   );
   if (rows.length === 0) {
     return { ok: false, message: "Nenhuma integração Teams (usuário) ativa configurada." };
   }
-  return sendNotification(rows[0].id, { email, mensagem });
+  return sendNotification(rows[0].id, {
+    email,
+    mensagem,
+    path: options.path,
+    adaptiveCard: options.adaptiveCard,
+  });
+}
+
+/** Deep link Teams (entity) apontando para path do app. */
+function buildUserDeepLink(path) {
+  const base =
+    normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
+    normalizeHttpsAppUrl(env.msalRedirectUriWeb) ||
+    "https://cred.allianzparque.intra";
+  const appUrl = buildAppPathUrl(base, path);
+  if (!appUrl) return null;
+  return buildTeamsActivityWebUrl(appUrl, { manifestAppId: env.teamsAppExternalId });
 }
 
 module.exports = {
@@ -320,4 +448,8 @@ module.exports = {
   sendNotification,
   notifyOperationsChannel,
   notifyUser,
+  buildAppPathUrl,
+  buildUserDeepLink,
+  deliverAdaptiveCard,
+  isBotConfigured,
 };

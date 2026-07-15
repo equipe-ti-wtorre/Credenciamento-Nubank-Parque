@@ -1,20 +1,21 @@
 const express = require("express");
 const reportsController = require("./reports.controller");
-const { authMiddleware, authorizeRoles } = require("../../middleware/authMiddleware");
+const { authMiddleware } = require("../../middleware/authMiddleware");
+const { authorizePermission } = require("../../middleware/permissionMiddleware");
 
 const router = express.Router();
 
 router.get(
   "/dashboard",
   authMiddleware,
-  authorizeRoles("ADMIN", "PRODUTORA", "PADRAO"),
+  authorizePermission("dashboard", "view"),
   reportsController.dashboard,
 );
 
 router.get(
   "/denials",
   authMiddleware,
-  authorizeRoles("ADMIN"),
+  authorizePermission("credential_denials", "view"),
   reportsController.denials,
 );
 

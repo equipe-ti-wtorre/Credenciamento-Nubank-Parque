@@ -8,6 +8,7 @@ const {
 } = require("../../utils/userProfileSync");
 const { SQL_HAS_DEPARTMENT, hasValidDepartment } = require("../../utils/userDepartment");
 const companyService = require("../companies/company.service");
+const profilesService = require("../profiles/profiles.service");
 
 const MIN_SESSION_IDLE_MINUTES = 5;
 const MAX_SESSION_IDLE_MINUTES = 480;
@@ -29,8 +30,17 @@ function normalizeSessionIdleMinutes(value) {
   );
 }
 
-function mapUserRow(row) {
+async function mapUserRow(row) {
   if (!row) return null;
+  const profile = row.id_perfil
+    ? {
+        id: row.id_perfil,
+        codigo: row.perfil_codigo,
+        nome: row.perfil_nome,
+        requires_company: !!row.requires_company,
+        is_super_admin: !!row.is_super_admin,
+      }
+    : null;
   return {
     id: row.id,
     username: row.username,
@@ -38,7 +48,9 @@ function mapUserRow(row) {
     email: row.email,
     departamento: row.departamento || null,
     id_company: row.id_company != null ? row.id_company : null,
-    role: row.perfil,
+    id_perfil: row.id_perfil != null ? row.id_perfil : null,
+    role: row.perfil_codigo || "USER",
+    profile,
     is_ad_user: !!row.is_ad_user,
     ativo: !!row.ativo,
     session_idle_minutes:
@@ -48,39 +60,41 @@ function mapUserRow(row) {
   };
 }
 
+const USER_SELECT = `u.id, u.username, u.nome_completo, u.email, u.departamento, u.id_company,
+  u.id_perfil, u.is_ad_user, u.ativo, u.session_idle_minutes, u.criado_em, u.atualizado_em,
+  p.codigo AS perfil_codigo, p.nome AS perfil_nome, p.requires_company, p.is_super_admin`;
+
 function buildListWhere(filters) {
-  const conditions = [SQL_HAS_DEPARTMENT, "ativo = 1"];
+  const conditions = [SQL_HAS_DEPARTMENT.replace(/departamento/g, "u.departamento"), "u.ativo = 1"];
   const params = [];
 
   if (filters.search) {
     const term = `%${String(filters.search).trim()}%`;
-    conditions.push("(nome_completo LIKE ? OR email LIKE ? OR username LIKE ?)");
+    conditions.push("(u.nome_completo LIKE ? OR u.email LIKE ? OR u.username LIKE ?)");
     params.push(term, term, term);
   }
 
-  const allowedPerfis = ["ADMIN", "USER", "PRODUTORA", "PADRAO", "CONTROLADOR"];
-  if (allowedPerfis.includes(filters.perfil)) {
-    conditions.push("perfil = ?");
-    params.push(filters.perfil);
+  if (filters.id_perfil) {
+    conditions.push("u.id_perfil = ?");
+    params.push(filters.id_perfil);
   }
 
   const where = `WHERE ${conditions.join(" AND ")}`;
   return { where, params };
 }
 
-async function countActiveAdmins(excludeId = null) {
-  let sql = `SELECT COUNT(*) AS total FROM usuarios WHERE perfil = 'ADMIN' AND ativo = 1 AND ${SQL_HAS_DEPARTMENT}`;
-  const params = [];
-  if (excludeId != null) {
-    sql += " AND id != ?";
-    params.push(excludeId);
-  }
-  const [[{ total }]] = await db.execute(sql, params);
-  return total;
+async function countActiveSuperAdmins(excludeId = null) {
+  return profilesService.countActiveSuperAdmins(excludeId);
 }
 
 async function findById(id) {
-  const [rows] = await db.execute("SELECT * FROM usuarios WHERE id = ? LIMIT 1", [id]);
+  const [rows] = await db.execute(
+    `SELECT u.*, p.codigo AS perfil_codigo, p.nome AS perfil_nome, p.requires_company, p.is_super_admin
+     FROM usuarios u
+     LEFT JOIN perfis p ON p.id = u.id_perfil
+     WHERE u.id = ? LIMIT 1`,
+    [id],
+  );
   return rows[0] || null;
 }
 
@@ -89,20 +103,27 @@ async function listUsers({ page = 1, limit = 20, filters = {} }) {
   const { where, params } = buildListWhere(filters);
 
   const [rows] = await db.execute(
-    `SELECT id, username, nome_completo, email, departamento, id_company, perfil, is_ad_user, ativo, session_idle_minutes, criado_em, atualizado_em
-     FROM usuarios ${where}
-     ORDER BY nome_completo ASC
+    `SELECT ${USER_SELECT}
+     FROM usuarios u
+     LEFT JOIN perfis p ON p.id = u.id_perfil
+     ${where}
+     ORDER BY u.nome_completo ASC
      LIMIT ? OFFSET ?`,
     [...params, limit, offset],
   );
 
   const [[{ total }]] = await db.execute(
-    `SELECT COUNT(*) AS total FROM usuarios ${where}`,
+    `SELECT COUNT(*) AS total FROM usuarios u LEFT JOIN perfis p ON p.id = u.id_perfil ${where}`,
     params,
   );
 
+  const users = [];
+  for (const row of rows) {
+    users.push(await mapUserRow(row));
+  }
+
   return {
-    users: rows.map(mapUserRow),
+    users,
     pagination: {
       page,
       limit,
@@ -130,6 +151,14 @@ async function emailEmUso(email, excludeId = null) {
   return rows.length > 0;
 }
 
+async function resolveProfile(idPerfil) {
+  const profile = await profilesService.getProfileById(idPerfil);
+  if (!profile || !profile.ativo) {
+    throw new AppError("Perfil inválido ou inativo.", 400);
+  }
+  return profile;
+}
+
 async function updateUser(id, data, actorId) {
   const existing = await findById(id);
   if (!existing) throw new AppError("Usuário não encontrado.", 404);
@@ -143,7 +172,11 @@ async function updateUser(id, data, actorId) {
     );
   }
 
-  const nextPerfil = data.perfil !== undefined ? data.perfil : existing.perfil;
+  const nextIdPerfil =
+    data.id_perfil !== undefined ? data.id_perfil : existing.id_perfil;
+  const nextProfile =
+    nextIdPerfil != null ? await resolveProfile(nextIdPerfil) : null;
+
   const nextAtivo = data.ativo !== undefined ? (data.ativo ? 1 : 0) : existing.ativo;
   let nextEmail = existing.email;
   let nextNome = existing.nome_completo;
@@ -167,10 +200,7 @@ async function updateUser(id, data, actorId) {
     }
   }
 
-  if (
-    (nextPerfil === "PRODUTORA" || nextPerfil === "PADRAO") &&
-    !nextIdCompany
-  ) {
+  if (nextProfile?.requires_company && !nextIdCompany) {
     throw new AppError("Perfil exige vínculo com uma empresa ativa.", 400);
   }
 
@@ -203,12 +233,17 @@ async function updateUser(id, data, actorId) {
     throw new AppError("Você não pode bloquear sua própria conta.", 400);
   }
 
-  const isDemotingAdmin =
-    existing.perfil === "ADMIN" && (nextPerfil === "USER" || nextAtivo === 0);
-  if (isDemotingAdmin) {
-    const activeAdmins = await countActiveAdmins();
-    if (activeAdmins <= 1) {
-      throw new AppError("Não é possível rebaixar ou bloquear o último administrador ativo.", 400);
+  const wasSuperAdmin = !!existing.is_super_admin;
+  const willBeSuperAdmin = !!nextProfile?.is_super_admin;
+  const isDemotingSuperAdmin =
+    wasSuperAdmin && (!willBeSuperAdmin || nextAtivo === 0);
+  if (isDemotingSuperAdmin) {
+    const activeSuperAdmins = await countActiveSuperAdmins();
+    if (activeSuperAdmins <= 1) {
+      throw new AppError(
+        "Não é possível rebaixar ou bloquear o último administrador ativo.",
+        400,
+      );
     }
   }
 
@@ -220,12 +255,13 @@ async function updateUser(id, data, actorId) {
 
   const idCompanyChanged =
     (existing.id_company ?? null) !== (nextIdCompany ?? null);
+  const profileChanged = (existing.id_perfil ?? null) !== (nextIdPerfil ?? null);
 
   if (isLocal) {
     await db.execute(
-      `UPDATE usuarios SET perfil = ?, ativo = ?, email = ?, username = ?, nome_completo = ?, departamento = ?, id_company = ?, session_idle_minutes = ?, senha_hash = ? WHERE id = ?`,
+      `UPDATE usuarios SET id_perfil = ?, ativo = ?, email = ?, username = ?, nome_completo = ?, departamento = ?, id_company = ?, session_idle_minutes = ?, senha_hash = ? WHERE id = ?`,
       [
-        nextPerfil,
+        nextIdPerfil,
         nextAtivo,
         nextEmail,
         nextUsername,
@@ -239,22 +275,22 @@ async function updateUser(id, data, actorId) {
     );
   } else {
     await db.execute(
-      "UPDATE usuarios SET perfil = ?, ativo = ?, id_company = ?, session_idle_minutes = ? WHERE id = ?",
-      [nextPerfil, nextAtivo, nextIdCompany, nextSessionIdleMinutes, id],
+      "UPDATE usuarios SET id_perfil = ?, ativo = ?, id_company = ?, session_idle_minutes = ? WHERE id = ?",
+      [nextIdPerfil, nextAtivo, nextIdCompany, nextSessionIdleMinutes, id],
     );
   }
 
   if (nextAtivo === 0 && existing.ativo === 1) {
     await revokeAllUserTokens(id);
-  } else if (passwordChanged || idCompanyChanged || existing.perfil !== nextPerfil) {
+  } else if (passwordChanged || idCompanyChanged || profileChanged) {
     await revokeAllUserTokens(id);
   }
 
   const updated = await findById(id);
   return {
-    user: mapUserRow(updated),
+    user: await mapUserRow(updated),
     changes: {
-      perfilChanged: existing.perfil !== nextPerfil,
+      profileChanged,
       ativoChanged: existing.ativo !== nextAtivo,
       emailChanged: isLocal && existing.email !== nextEmail,
       passwordChanged,
@@ -274,9 +310,10 @@ function parseListQuery(query) {
 }
 
 function parseListFilters(query) {
+  const idPerfil = query.id_perfil ? parseInt(query.id_perfil, 10) : null;
   return {
     search: query.search,
-    perfil: query.perfil,
+    id_perfil: Number.isInteger(idPerfil) && idPerfil > 0 ? idPerfil : undefined,
   };
 }
 

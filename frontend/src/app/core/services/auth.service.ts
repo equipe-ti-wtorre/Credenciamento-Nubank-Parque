@@ -16,6 +16,26 @@ import { MsalConfigService } from '../../services/msal-config.service';
 import { LoggerService } from './logger.service';
 import { MicrosoftProfileService } from './microsoft-profile.service';
 import { SessionIdleService } from './session-idle.service';
+import { TeamsContextService } from '../../services/teams-context.service';
+import { consumeReturnUrl } from '../guards/auth.guard';
+
+import { PermissionAction, permissionKey } from '../../config/modules.config';
+
+export type SectorPapel = 'SOLICITANTE' | 'APROVADOR' | 'GESTOR';
+
+export interface UserProfileInfo {
+  id: number;
+  codigo: string;
+  nome: string;
+  requires_company?: boolean;
+  is_super_admin?: boolean;
+}
+
+export interface SectorMembership {
+  sectorId: number;
+  sectorNome: string;
+  papel: SectorPapel;
+}
 
 export interface AuthUser {
   id: number;
@@ -24,10 +44,38 @@ export interface AuthUser {
   email: string;
   role: string;
   perfil?: string;
+  id_perfil?: number | null;
+  profile?: UserProfileInfo | null;
+  permissions?: string[];
   id_company?: number | null;
   is_ad_user: boolean;
   foto_url?: string;
   session_idle_minutes?: number | null;
+  notificar_portaria?: boolean;
+  sectorMemberships?: SectorMembership[];
+}
+
+export function isSuperAdmin(user: AuthUser | null | undefined): boolean {
+  return !!(user?.profile?.is_super_admin || (user as { is_super_admin?: boolean } | null)?.is_super_admin);
+}
+
+export function hasPermission(
+  user: AuthUser | null | undefined,
+  module: string,
+  action: PermissionAction = 'view',
+): boolean {
+  if (!user) return false;
+  if (isSuperAdmin(user)) return true;
+  const key = permissionKey(module, action);
+  return !!user.permissions?.includes(key);
+}
+
+export function isSectorGestor(user: AuthUser | null | undefined): boolean {
+  return !!user?.sectorMemberships?.some((m) => m.papel === 'GESTOR');
+}
+
+export function canApproveInSector(user: AuthUser | null | undefined): boolean {
+  return !!user?.sectorMemberships?.some((m) => m.papel === 'APROVADOR' || m.papel === 'GESTOR');
 }
 
 export interface AuthSession {
@@ -63,6 +111,7 @@ export class AuthService {
     private notification: NotificationService,
     private microsoftProfile: MicrosoftProfileService,
     private injector: Injector,
+    private teamsContext: TeamsContextService,
   ) {
     this.tokensReady = this.loadTokensFromStorage();
   }
@@ -106,8 +155,139 @@ export class AuthService {
     );
   }
 
+  /** Exchange getAuthToken → JWT. silent=false permite UI de consentimento do Teams. */
+  async tryTeamsSsoLogin(
+    options: { silent?: boolean; navigate?: boolean } = {},
+  ): Promise<boolean> {
+    const inTeams = await this.teamsContext.ensureInitialized();
+    if (!inTeams) return false;
+
+    await this.msalConfigService.load().catch(() => undefined);
+
+    const silent = options.silent !== false;
+    const token = await this.teamsContext.getAuthToken({ silent });
+    if (!token) return false;
+
+    try {
+      const res = await firstValueFrom(
+        this.api.post<AuthSession>(
+          '/auth/login-microsoft',
+          {},
+          { Authorization: `Bearer ${token}` },
+        ),
+      );
+      await this.saveSession(res);
+      if (options.navigate !== false) {
+        this.navigateAfterLogin();
+      }
+      return true;
+    } catch (err) {
+      this.logger.warn('Teams SSO / login-microsoft falhou', {
+        err,
+        ssoError: this.teamsContext.getLastAuthError(),
+      });
+      if (err instanceof HttpErrorResponse) {
+        const msg =
+          (typeof err.error === 'object' && err.error && 'message' in err.error
+            ? String((err.error as { message?: string }).message)
+            : null) || err.message;
+        this.teamsContext.rememberSsoError(msg);
+        // Não relança: guarda trata o próximo passo
+        return false;
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Login Microsoft no iframe do Teams.
+   * skipSilent: pula getAuthToken (use após silent já ter falhado — evita CancelledByUser).
+   */
+  async loginMicrosoftInTeams(
+    options: { navigate?: boolean; skipSilent?: boolean } = {},
+  ): Promise<void> {
+    await this.msalConfigService.load();
+    if (!this.msalConfigService.hasClientId()) {
+      this.notification.warning(
+        'Configuração pendente',
+        this.msalConfigService.getLoadError() ||
+          'Cadastre um tenant Azure principal antes de usar login Microsoft.',
+      );
+      return;
+    }
+
+    let token: string | null = null;
+    if (!options.skipSilent) {
+      token = await this.teamsContext.getAuthToken({ silent: true });
+    }
+    if (!token) {
+      token = await this.teamsContext.authenticateWithPopup();
+    }
+    if (!token) {
+      const detail = this.teamsContext.getLastAuthError();
+      const friendly =
+        detail === 'CancelledByUser'
+          ? 'Login cancelado. Conclua a escolha da conta no popup (não feche antes).'
+          : detail;
+      throw new Error(
+        friendly ||
+          'Teams não liberou o token. Confira Azure: Application ID URI com hostname, clientes Teams e SPA https://cred.allianzparque.intra/auth/teams.html',
+      );
+    }
+
+    const res = await firstValueFrom(
+      this.api.post<AuthSession>(
+        '/auth/login-microsoft',
+        {},
+        { Authorization: `Bearer ${token}` },
+      ),
+    );
+    await this.saveSession(res);
+    if (options.navigate !== false) {
+      this.navigateAfterLogin();
+    }
+  }
+
+  navigateAfterLogin(): void {
+    void this.navigateAfterLoginAsync();
+  }
+
+  private async navigateAfterLoginAsync(): Promise<void> {
+    // Prioridade: deep link do Teams (sino / card) → returnUrl → dashboard
+    try {
+      const teamsPath = await this.teamsContext.getDeepLinkPath();
+      if (teamsPath) {
+        void this.router.navigateByUrl(teamsPath);
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const returnUrl = consumeReturnUrl();
+    if (returnUrl && returnUrl.startsWith('/') && !returnUrl.startsWith('//')) {
+      // Preferir aprovacoes se o returnUrl for só a raiz do Teams
+      if (returnUrl === '/' || returnUrl === '/dashboard') {
+        try {
+          const teamsPath = await this.teamsContext.getDeepLinkPath();
+          if (teamsPath) {
+            void this.router.navigateByUrl(teamsPath);
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      void this.router.navigateByUrl(returnUrl);
+      return;
+    }
+    void this.router.navigate(['/dashboard']);
+  }
+
   async loginMicrosoft(): Promise<void> {
     this.msalHandlingPaused = false;
+    this.clearStuckMsalInteraction();
+    this.clearRedirectProcessedMarker();
     await this.ensureMsalReady();
 
     if (!this.msalConfigService.hasClientId()) {
@@ -116,6 +296,13 @@ export class AuthService {
         this.msalConfigService.getLoadError() ||
           'Cadastre um tenant Azure principal antes de usar login Microsoft.',
       );
+      return;
+    }
+
+    if (await this.teamsContext.ensureInitialized()) {
+      // Silent já rodou na tela de login; getAuthToken de novo antes do popup
+      // gera CancelledByUser em máquina sem sessão Microsoft.
+      await this.loginMicrosoftInTeams({ skipSilent: true });
       return;
     }
 
@@ -153,6 +340,34 @@ export class AuthService {
       if (!result) {
         if (this.hasAzureRedirectInUrl()) {
           this.clearAuthHashFromUrl();
+        }
+        return;
+      }
+
+      // Popup do Teams (authentication.authenticate): devolve o token ao iframe pai
+      // sem validar no backend nesta janela (evita AADSTS50011 e CancelledByUser).
+      if (this.teamsContext.isAuthPopupPending()) {
+        this.teamsContext.clearAuthPopupPending();
+        const token = result.idToken || result.accessToken;
+        this.clearAuthHashFromUrl();
+        await this.teamsContext.ensureInitialized().catch(() => false);
+        if (token) {
+          try {
+            this.teamsContext.notifySuccess(token);
+          } catch (err) {
+            this.logger.error('notifySuccess Teams falhou', { err });
+            try {
+              this.teamsContext.notifyFailure('Falha ao concluir login no Teams.');
+            } catch {
+              /* ignore */
+            }
+          }
+        } else {
+          try {
+            this.teamsContext.notifyFailure('Token Microsoft vazio.');
+          } catch {
+            /* ignore */
+          }
         }
         return;
       }
@@ -242,7 +457,7 @@ export class AuthService {
       if (res.user?.is_ad_user) {
         await this.attachMicrosoftPhoto(azureResult.account);
       }
-      this.router.navigate(['/dashboard']);
+      this.navigateAfterLogin();
     } catch (err: unknown) {
       if (err instanceof HttpErrorResponse && err.status === 429) {
         this.notification.error(
@@ -414,6 +629,8 @@ export class AuthService {
     const loginUrl = this.logoutReason === 'idle' ? '/login?reason=idle' : '/login';
     this.logoutReason = null;
     await this.router.navigateByUrl(loginUrl, { replaceUrl: true });
+    // Libera o handler MSAL para a próxima tentativa na tela de login.
+    this.msalHandlingPaused = false;
 
     if (refreshToken) {
       void firstValueFrom(this.api.post('/auth/logout', { refreshToken })).catch(() => {
@@ -460,14 +677,40 @@ export class AuthService {
     } catch (error) {
       if (!this.isInteractionInProgressError(error)) throw error;
       this.clearStuckMsalInteraction();
-      await msal.handleRedirectPromise();
+      try {
+        await msal.handleRedirectPromise();
+      } catch {
+        /* ignora redirect residual */
+      }
+      this.clearStuckMsalInteraction();
       await msal.loginRedirect(request);
     }
   }
 
   private clearStuckMsalInteraction(): void {
-    if (typeof sessionStorage === 'undefined') return;
-    sessionStorage.removeItem(AuthService.MSAL_INTERACTION_KEY);
+    if (typeof sessionStorage !== 'undefined') {
+      const toRemove: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (!key) continue;
+        if (
+          key === AuthService.MSAL_INTERACTION_KEY ||
+          key.includes('interaction.status') ||
+          key.includes('request.params') ||
+          key.includes('request.state') ||
+          key.includes('request.nonce') ||
+          key.includes('request.origin')
+        ) {
+          toRemove.push(key);
+        }
+      }
+      for (const key of toRemove) {
+        sessionStorage.removeItem(key);
+      }
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(AuthService.MSAL_INTERACTION_KEY);
+    }
   }
 
   private isInteractionInProgressError(error: unknown): boolean {

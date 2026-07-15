@@ -174,6 +174,11 @@ async function createTenant(data) {
       data.eh_principal ? 1 : 0,
     ],
   );
+  try {
+    require("../teams/bot/adapter").resetAdapter();
+  } catch {
+    /* bot opcional */
+  }
   return findTenantById(result.insertId);
 }
 
@@ -199,11 +204,21 @@ async function updateTenant(id, data) {
     `UPDATE azure_tenants SET nome=?, azure_tenant_id=?, client_id=?, client_secret_ciphertext=?, ativo=?, eh_principal=? WHERE id=?`,
     [nome, azure_tenant_id, client_id, ciphertext, ativo, eh_principal, id],
   );
+  try {
+    require("../teams/bot/adapter").resetAdapter();
+  } catch {
+    /* bot opcional */
+  }
   return findTenantById(id);
 }
 
 async function deactivateTenant(id) {
   await db.execute("UPDATE azure_tenants SET ativo = 0, eh_principal = 0 WHERE id = ?", [id]);
+  try {
+    require("../teams/bot/adapter").resetAdapter();
+  } catch {
+    /* bot opcional */
+  }
 }
 
 module.exports = {

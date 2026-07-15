@@ -26,10 +26,13 @@ const serviceValidateSchema = Joi.object({
 
 const serviceSubstituteSchema = Joi.object({
   access_id: Joi.string().uuid({ version: "uuidv4" }).required(),
-  id_substitute_vehicle: Joi.number().integer().positive().required().messages({
-    "any.required": "Informe o veículo substituto.",
-  }),
-});
+  id_substitute_vehicle: Joi.number().integer().positive().optional(),
+  id_substitute_collaborator: Joi.number().integer().positive().optional(),
+})
+  .or("id_substitute_vehicle", "id_substitute_collaborator")
+  .messages({
+    "object.missing": "Informe o veículo ou colaborador substituto.",
+  });
 
 module.exports = {
   eventValidateSchema,

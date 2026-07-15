@@ -91,18 +91,21 @@ export class GateService {
 
   substituteService(payload: {
     access_id: string;
-    id_substitute_vehicle: number;
+    id_substitute_vehicle?: number;
+    id_substitute_collaborator?: number;
   }): Observable<unknown> {
     return this.api.post('/gate/services/substitute', payload);
   }
 }
 
 export interface GateTodayService {
+  kind: 'vehicle' | 'collaborator';
   id: number;
   access_id: string;
-  vehicle: { plate: string; description?: string };
+  vehicle?: { plate: string; description?: string };
+  collaborator?: { name: string; document_masked: string; role: string };
   company: { name: string };
-  service_type: string;
+  finalidade: string;
   check_in: string | null;
   check_out: string | null;
   next_action: GateNextAction;
@@ -111,7 +114,9 @@ export interface GateTodayService {
 export interface GateServiceValidateResponse {
   access_allowed: boolean;
   type?: 'SERVICE';
+  kind?: 'vehicle' | 'collaborator';
   vehicle?: { plate: string };
+  collaborator?: { name: string; document_masked: string; role: string };
   company?: { fancy_name: string };
   action_registered?: 'CHECK_IN' | 'CHECK_OUT';
   reason?: string;

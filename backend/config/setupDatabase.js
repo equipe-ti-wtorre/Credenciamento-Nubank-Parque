@@ -4,6 +4,8 @@ const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
 const env = require("./env");
 const { logger } = require("./logger");
+const { startupOk, startupStep, startupDone } = require("./startupLog");
+const { applyPendingMigrations, assertAllMigrationsApplied } = require("./migrationRunner");
 
 async function columnExists(connection, table, column) {
   const [rows] = await connection.query(
@@ -104,12 +106,23 @@ async function migrateUsuarios(connection) {
     logger.info("Migration: usuarios.departamento adicionada");
   }
 
-  await connection.query(`
-    UPDATE usuarios SET departamento = 'Administração'
-    WHERE departamento IS NULL OR TRIM(departamento) = ''
-      AND perfil = 'ADMIN' AND is_ad_user = 0
-    LIMIT 1
-  `);
+  if (await columnExists(connection, "usuarios", "perfil")) {
+    await connection.query(`
+      UPDATE usuarios SET departamento = 'Administração'
+      WHERE (departamento IS NULL OR TRIM(departamento) = '')
+        AND perfil = 'ADMIN' AND is_ad_user = 0
+      LIMIT 1
+    `);
+  } else if (await columnExists(connection, "usuarios", "id_perfil")) {
+    await connection.query(`
+      UPDATE usuarios u
+      INNER JOIN perfis p ON p.id = u.id_perfil AND p.codigo = 'ADMIN'
+      SET u.departamento = 'Administração'
+      WHERE (u.departamento IS NULL OR TRIM(u.departamento) = '')
+        AND u.is_ad_user = 0
+      LIMIT 1
+    `);
+  }
 
   await migrateUsuariosCompanyLink(connection);
 
@@ -120,6 +133,14 @@ async function migrateUsuarios(connection) {
       COMMENT 'NULL=padrao sistema, 0=desativado, 5-480=personalizado'
     `);
     logger.info("Migration: usuarios.session_idle_minutes adicionada");
+  }
+
+  if (!(await columnExists(connection, "usuarios", "notificar_portaria"))) {
+    await connection.query(`
+      ALTER TABLE usuarios
+      ADD COLUMN notificar_portaria TINYINT(1) NOT NULL DEFAULT 0
+    `);
+    logger.info("Migration: usuarios.notificar_portaria adicionada");
   }
 }
 
@@ -483,18 +504,20 @@ async function migrateGate(connection) {
     logger.info("Migration: índice idx_edcc_check_in criado");
   }
 
-  const [colType] = await connection.query(
-    `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = 'perfil' LIMIT 1`,
-    [env.db.name],
-  );
-  const columnType = colType[0]?.COLUMN_TYPE || "";
-  if (columnType && !columnType.includes("CONTROLADOR")) {
-    await connection.query(`
-      ALTER TABLE usuarios
-      MODIFY COLUMN perfil ENUM('ADMIN', 'USER', 'PRODUTORA', 'PADRAO', 'CONTROLADOR') NOT NULL DEFAULT 'USER'
-    `);
-    logger.info("Migration: usuarios.perfil estendido com CONTROLADOR");
+  if (await columnExists(connection, "usuarios", "perfil")) {
+    const [colType] = await connection.query(
+      `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = 'perfil' LIMIT 1`,
+      [env.db.name],
+    );
+    const columnType = colType[0]?.COLUMN_TYPE || "";
+    if (columnType && !columnType.includes("CONTROLADOR")) {
+      await connection.query(`
+        ALTER TABLE usuarios
+        MODIFY COLUMN perfil ENUM('ADMIN', 'USER', 'PRODUTORA', 'PADRAO', 'CONTROLADOR') NOT NULL DEFAULT 'USER'
+      `);
+      logger.info("Migration: usuarios.perfil estendido com CONTROLADOR");
+    }
   }
 }
 
@@ -510,6 +533,10 @@ async function migratePhase2(connection) {
         id_vehicle INT AUTO_INCREMENT PRIMARY KEY,
         id_company INT NOT NULL,
         plate VARCHAR(8) NOT NULL,
+        brand VARCHAR(80) NULL,
+        model VARCHAR(80) NULL,
+        color VARCHAR(40) NULL,
+        type VARCHAR(40) NULL,
         description VARCHAR(200) NULL,
         status TINYINT(1) NOT NULL DEFAULT 1,
         criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -521,6 +548,39 @@ async function migratePhase2(connection) {
       )
     `);
     logger.info("Migration: tabela vehicle criada");
+  }
+
+  const [vehicleBlacklistTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'vehicle_black_list' LIMIT 1`,
+    [env.db.name],
+  );
+  if (vehicleBlacklistTables.length === 0) {
+    await connection.query(`
+      CREATE TABLE vehicle_black_list (
+        id_vehicle INT NOT NULL PRIMARY KEY,
+        reason VARCHAR(500) NOT NULL,
+        id_usuario INT NULL,
+        criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (id_vehicle) REFERENCES vehicle(id_vehicle) ON DELETE CASCADE,
+        FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE SET NULL
+      )
+    `);
+    logger.info("Migration: tabela vehicle_black_list criada");
+  }
+
+  const vehicleFieldColumns = [
+    { name: "brand", ddl: "brand VARCHAR(80) NULL AFTER plate" },
+    { name: "model", ddl: "model VARCHAR(80) NULL AFTER brand" },
+    { name: "color", ddl: "color VARCHAR(40) NULL AFTER model" },
+    { name: "type", ddl: "type VARCHAR(40) NULL AFTER color" },
+  ];
+  for (const col of vehicleFieldColumns) {
+    if (!(await columnExists(connection, "vehicle", col.name))) {
+      await connection.query(`ALTER TABLE vehicle ADD COLUMN ${col.ddl}`);
+      logger.info(`Migration: vehicle.${col.name} adicionada`);
+      startupOk(`Coluna vehicle.${col.name} adicionada.`);
+    }
   }
 
   const [saTables] = await connection.query(
@@ -578,6 +638,7 @@ async function migratePhase2(connection) {
         id_service_access_vehicle INT AUTO_INCREMENT PRIMARY KEY,
         id_service_access INT NOT NULL,
         id_vehicle INT NOT NULL,
+        id_driver INT NULL,
         access_id CHAR(36) NULL,
         id_substitute_vehicle INT NULL,
         check_in DATETIME NULL,
@@ -587,10 +648,21 @@ async function migratePhase2(connection) {
         INDEX idx_sav_service (id_service_access),
         FOREIGN KEY (id_service_access) REFERENCES service_access(id_service_access) ON DELETE CASCADE,
         FOREIGN KEY (id_vehicle) REFERENCES vehicle(id_vehicle) ON DELETE RESTRICT,
+        FOREIGN KEY (id_driver) REFERENCES collaborator(id_collaborator) ON DELETE SET NULL,
         FOREIGN KEY (id_substitute_vehicle) REFERENCES vehicle(id_vehicle) ON DELETE RESTRICT
       )
     `);
     logger.info("Migration: tabela service_access_vehicle criada");
+  }
+
+  if (!(await columnExists(connection, "service_access_vehicle", "id_driver"))) {
+    await connection.query(`
+      ALTER TABLE service_access_vehicle
+        ADD COLUMN id_driver INT NULL AFTER id_vehicle,
+        ADD CONSTRAINT fk_sav_driver
+          FOREIGN KEY (id_driver) REFERENCES collaborator(id_collaborator) ON DELETE SET NULL
+    `);
+    logger.info("Migration: service_access_vehicle.id_driver adicionada");
   }
 
   if (!(await columnExists(connection, "collaborator", "picture"))) {
@@ -632,6 +704,497 @@ async function migratePhase2(connection) {
   }
 }
 
+async function migrateServiceAccessEvolution(connection) {
+  const [saTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'service_access' LIMIT 1`,
+    [env.db.name],
+  );
+  if (saTables.length === 0) return;
+
+  if (!(await columnExists(connection, "service_access", "start_date"))) {
+    await connection.query(`ALTER TABLE service_access ADD COLUMN start_date DATE NULL AFTER id_usuario`);
+    logger.info("Migration: service_access.start_date adicionada");
+  }
+  if (!(await columnExists(connection, "service_access", "end_date"))) {
+    await connection.query(`ALTER TABLE service_access ADD COLUMN end_date DATE NULL AFTER start_date`);
+    logger.info("Migration: service_access.end_date adicionada");
+  }
+  if (!(await columnExists(connection, "service_access", "finalidade"))) {
+    await connection.query(
+      `ALTER TABLE service_access ADD COLUMN finalidade VARCHAR(200) NULL AFTER end_date`,
+    );
+    logger.info("Migration: service_access.finalidade adicionada");
+  }
+  if (!(await columnExists(connection, "service_access", "requesting_department"))) {
+    await connection.query(
+      `ALTER TABLE service_access ADD COLUMN requesting_department VARCHAR(200) NULL AFTER finalidade`,
+    );
+    logger.info("Migration: service_access.requesting_department adicionada");
+  }
+  if (!(await columnExists(connection, "service_access", "observacao"))) {
+    await connection.query(
+      `ALTER TABLE service_access ADD COLUMN observacao VARCHAR(500) NULL AFTER requesting_department`,
+    );
+    logger.info("Migration: service_access.observacao adicionada");
+  }
+  if (!(await columnExists(connection, "service_access", "status"))) {
+    await connection.query(
+      `ALTER TABLE service_access ADD COLUMN status TINYINT(1) NOT NULL DEFAULT 1 AFTER observacao`,
+    );
+    logger.info("Migration: service_access.status adicionada");
+  }
+
+  await connection.query(`
+    UPDATE service_access
+    SET finalidade = COALESCE(finalidade, service_type),
+        observacao = COALESCE(observacao, description)
+    WHERE finalidade IS NULL OR (observacao IS NULL AND description IS NOT NULL)
+  `);
+
+  const [sadTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'service_access_date' LIMIT 1`,
+    [env.db.name],
+  );
+  if (sadTables.length > 0) {
+    await connection.query(`
+      UPDATE service_access sa
+      INNER JOIN (
+        SELECT id_service_access, MIN(access_date) AS min_date, MAX(access_date) AS max_date
+        FROM service_access_date
+        GROUP BY id_service_access
+      ) d ON d.id_service_access = sa.id_service_access
+      SET sa.start_date = COALESCE(sa.start_date, d.min_date),
+          sa.end_date = COALESCE(sa.end_date, d.max_date)
+    `);
+  }
+
+  await connection.query(`
+    UPDATE service_access
+    SET start_date = COALESCE(start_date, CURDATE()),
+        end_date = COALESCE(end_date, CURDATE())
+    WHERE start_date IS NULL OR end_date IS NULL
+  `);
+
+  const [sacTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'service_access_collaborator' LIMIT 1`,
+    [env.db.name],
+  );
+  if (sacTables.length === 0) {
+    await connection.query(`
+      CREATE TABLE service_access_collaborator (
+        id_service_access_collaborator INT AUTO_INCREMENT PRIMARY KEY,
+        id_service_access INT NOT NULL,
+        id_collaborator INT NOT NULL,
+        id_collaborator_role INT NOT NULL,
+        access_id CHAR(36) NULL,
+        id_substitute INT NULL,
+        access_check_in DATETIME NULL,
+        access_check_out DATETIME NULL,
+        criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_sac_pair (id_service_access, id_collaborator),
+        UNIQUE KEY uk_sac_access_id (access_id),
+        INDEX idx_sac_service (id_service_access),
+        INDEX idx_sac_collaborator (id_collaborator),
+        FOREIGN KEY (id_service_access) REFERENCES service_access(id_service_access) ON DELETE CASCADE,
+        FOREIGN KEY (id_collaborator) REFERENCES collaborator(id_collaborator) ON DELETE RESTRICT,
+        FOREIGN KEY (id_collaborator_role) REFERENCES collaborator_role(id_collaborator_role) ON DELETE RESTRICT,
+        FOREIGN KEY (id_substitute) REFERENCES collaborator(id_collaborator) ON DELETE RESTRICT
+      )
+    `);
+    logger.info("Migration: tabela service_access_collaborator criada");
+  }
+}
+
+async function migrateSetoresAprovacoes(connection) {
+  const [setoresTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'setores' LIMIT 1`,
+    [env.db.name],
+  );
+  if (setoresTables.length === 0) {
+    await connection.query(`
+      CREATE TABLE setores (
+        id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        nome           VARCHAR(100)  NOT NULL,
+        descricao      VARCHAR(255)  NULL,
+        ativo          TINYINT(1)    NOT NULL DEFAULT 1,
+        criado_por     INT           NULL,
+        criado_em      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                     ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_setores_nome (nome),
+        KEY ix_setores_ativo (ativo)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    logger.info("Migration: tabela setores criada");
+  }
+
+  const [suTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'setor_usuarios' LIMIT 1`,
+    [env.db.name],
+  );
+  if (suTables.length === 0) {
+    await connection.query(`
+      CREATE TABLE setor_usuarios (
+        id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        id_setor         INT UNSIGNED     NOT NULL,
+        id_usuario       INT              NOT NULL,
+        papel            ENUM('SOLICITANTE','APROVADOR','GESTOR') NOT NULL DEFAULT 'SOLICITANTE',
+        ativo            TINYINT(1)       NOT NULL DEFAULT 1,
+        criado_em        DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em    DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                          ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_setor_usuario (id_setor, id_usuario),
+        KEY ix_su_usuario (id_usuario, ativo),
+        KEY ix_su_setor_papel (id_setor, ativo, papel),
+        CONSTRAINT fk_su_setor   FOREIGN KEY (id_setor)   REFERENCES setores(id),
+        CONSTRAINT fk_su_usuario FOREIGN KEY (id_usuario) REFERENCES usuarios(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    logger.info("Migration: tabela setor_usuarios criada");
+  }
+
+  const [sfTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'setor_fluxos' LIMIT 1`,
+    [env.db.name],
+  );
+  if (sfTables.length === 0) {
+    await connection.query(`
+      CREATE TABLE setor_fluxos (
+        id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        id_setor         INT UNSIGNED NOT NULL,
+        tipo_entidade    ENUM('EVENTO','ACESSO_SERVICO') NOT NULL,
+        niveis_exigidos  TINYINT UNSIGNED NOT NULL DEFAULT 1,
+        ativo            TINYINT(1)   NOT NULL DEFAULT 1,
+        criado_em        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                      ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_setor_tipo (id_setor, tipo_entidade),
+        KEY ix_sf_tipo_ativo (tipo_entidade, ativo),
+        CONSTRAINT fk_sf_setor FOREIGN KEY (id_setor) REFERENCES setores(id),
+        CONSTRAINT ck_sf_niveis CHECK (niveis_exigidos BETWEEN 1 AND 9)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    logger.info("Migration: tabela setor_fluxos criada");
+  }
+
+  const [apTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'aprovacoes' LIMIT 1`,
+    [env.db.name],
+  );
+  if (apTables.length === 0) {
+    await connection.query(`
+      CREATE TABLE aprovacoes (
+        id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        tipo_entidade   ENUM('EVENTO','ACESSO_SERVICO') NOT NULL,
+        id_entidade     INT UNSIGNED     NOT NULL,
+        id_setor        INT UNSIGNED     NOT NULL,
+        id_solicitante  INT              NOT NULL,
+        nivel_atual     TINYINT UNSIGNED NOT NULL DEFAULT 1,
+        niveis_exigidos TINYINT UNSIGNED NOT NULL DEFAULT 1,
+        status          ENUM('PENDENTE','APROVADO','REPROVADO','CANCELADO')
+                        NOT NULL DEFAULT 'PENDENTE',
+        pendente_flag   TINYINT AS (IF(status = 'PENDENTE', 1, NULL)) STORED,
+        criado_em       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        finalizado_em   DATETIME NULL,
+        UNIQUE KEY uq_ap_pendente_por_entidade (tipo_entidade, id_entidade, pendente_flag),
+        KEY ix_ap_inbox (status, id_setor, nivel_atual),
+        KEY ix_ap_solicitante (id_solicitante, status),
+        KEY ix_ap_entidade (tipo_entidade, id_entidade),
+        CONSTRAINT fk_ap_setor        FOREIGN KEY (id_setor)       REFERENCES setores(id),
+        CONSTRAINT fk_ap_solicitante  FOREIGN KEY (id_solicitante) REFERENCES usuarios(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    logger.info("Migration: tabela aprovacoes criada");
+  }
+
+  const [adTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'aprovacao_decisoes' LIMIT 1`,
+    [env.db.name],
+  );
+  if (adTables.length === 0) {
+    await connection.query(`
+      CREATE TABLE aprovacao_decisoes (
+        id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        id_aprovacao  INT UNSIGNED     NOT NULL,
+        nivel         TINYINT UNSIGNED NOT NULL,
+        id_usuario    INT              NOT NULL,
+        decisao       ENUM('APROVADO','REPROVADO') NOT NULL,
+        comentario    VARCHAR(500) NULL,
+        decidido_em   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_ad_nivel (id_aprovacao, nivel),
+        KEY ix_ad_usuario (id_usuario),
+        CONSTRAINT fk_ad_aprovacao FOREIGN KEY (id_aprovacao) REFERENCES aprovacoes(id),
+        CONSTRAINT fk_ad_usuario   FOREIGN KEY (id_usuario)   REFERENCES usuarios(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    logger.info("Migration: tabela aprovacao_decisoes criada");
+  }
+
+  if (!(await columnExists(connection, "aprovacao_decisoes", "metadata"))) {
+    await connection.query(
+      `ALTER TABLE aprovacao_decisoes ADD COLUMN metadata JSON NULL AFTER comentario`,
+    );
+    logger.info("Migration: aprovacao_decisoes.metadata adicionada");
+  }
+
+  if (await columnExists(connection, "usuarios", "perfil")) {
+    const [perfilCol] = await connection.query(
+      `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = 'perfil' LIMIT 1`,
+      [env.db.name],
+    );
+    const perfilType = perfilCol[0]?.COLUMN_TYPE || "";
+    if (perfilType && !perfilType.includes("GESTAO")) {
+      await connection.query(`
+        ALTER TABLE usuarios
+        MODIFY perfil ENUM('ADMIN','USER','PRODUTORA','PADRAO','CONTROLADOR','GESTAO')
+        NOT NULL DEFAULT 'USER'
+      `);
+      logger.info("Migration: usuarios.perfil estendido com GESTAO");
+    }
+  }
+
+  if (!(await columnExists(connection, "event", "id_access_status"))) {
+    await connection.query(`ALTER TABLE event ADD COLUMN id_access_status INT NULL AFTER end`);
+    await connection.query(`UPDATE event SET id_access_status = 3 WHERE id_access_status IS NULL`);
+    await connection.query(`
+      ALTER TABLE event
+      MODIFY COLUMN id_access_status INT NOT NULL DEFAULT 2,
+      ADD INDEX idx_event_access_status (id_access_status),
+      ADD CONSTRAINT fk_event_access_status
+        FOREIGN KEY (id_access_status) REFERENCES access_status(id_access_status)
+    `);
+    logger.info("Migration: event.id_access_status adicionada");
+  }
+
+  await connection.query(`
+    INSERT INTO setores (nome, descricao) VALUES
+      ('T.I.',        'Tecnologia da Informação'),
+      ('R.H.',        'Recursos Humanos'),
+      ('Suprimentos', 'Compras e Suprimentos'),
+      ('Operações',   'Operações da arena')
+    ON DUPLICATE KEY UPDATE descricao = VALUES(descricao)
+  `);
+}
+
+async function migrateSetorPapeis(connection) {
+  const [suTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'setor_usuarios' LIMIT 1`,
+    [env.db.name],
+  );
+  if (suTables.length === 0) return;
+
+  const hasPapel = await columnExists(connection, "setor_usuarios", "papel");
+  const hasNivel = await columnExists(connection, "setor_usuarios", "nivel_aprovacao");
+
+  if (!hasPapel) {
+    await connection.query(`
+      ALTER TABLE setor_usuarios
+      ADD COLUMN papel ENUM('SOLICITANTE','APROVADOR','GESTOR') NOT NULL DEFAULT 'SOLICITANTE'
+      AFTER id_usuario
+    `);
+
+    if (hasNivel) {
+      await connection.query(`
+        UPDATE setor_usuarios SET papel = CASE
+          WHEN nivel_aprovacao = 0 THEN 'SOLICITANTE'
+          WHEN nivel_aprovacao = 1 THEN 'APROVADOR'
+          ELSE 'GESTOR'
+        END
+      `);
+      try {
+        await connection.query(`ALTER TABLE setor_usuarios DROP CHECK ck_su_nivel`);
+      } catch (_) {
+        /* constraint may not exist */
+      }
+      try {
+        await connection.query(`ALTER TABLE setor_usuarios DROP INDEX ix_su_setor_nivel`);
+      } catch (_) {
+        /* index may not exist */
+      }
+      await connection.query(`ALTER TABLE setor_usuarios DROP COLUMN nivel_aprovacao`);
+    }
+
+    await connection.query(`
+      ALTER TABLE setor_usuarios ADD KEY ix_su_setor_papel (id_setor, ativo, papel)
+    `);
+    logger.info("Migration: setor_usuarios.papel adicionado");
+  }
+
+  const [sfTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'setor_fluxos' LIMIT 1`,
+    [env.db.name],
+  );
+  if (sfTables.length > 0) {
+    await connection.query(`UPDATE setor_fluxos SET niveis_exigidos = 1`);
+  }
+
+  const [apTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'aprovacoes' LIMIT 1`,
+    [env.db.name],
+  );
+  if (apTables.length > 0) {
+    await connection.query(`
+      UPDATE aprovacoes SET niveis_exigidos = 1, nivel_atual = 1 WHERE status = 'PENDENTE'
+    `);
+  }
+}
+
+async function migratePerfisPermissoes(connection) {
+  const {
+    SEED_PROFILES,
+    allPermissions,
+    MODULE_KEYS,
+    ACTIONS,
+  } = require("./modules.config");
+
+  const [perfisTable] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'perfis' LIMIT 1`,
+    [env.db.name],
+  );
+  if (perfisTable.length === 0) {
+    const sqlPath = path.join(__dirname, "../migrations/020_perfis_permissoes.sql");
+    const sql = fs.readFileSync(sqlPath, "utf8");
+    const statements = sql
+      .split(";")
+      .map((s) =>
+        s
+          .split("\n")
+          .filter((line) => !line.trim().startsWith("--"))
+          .join("\n")
+          .trim(),
+      )
+      .filter((s) => s.length > 0);
+    for (const statement of statements) {
+      await connection.query(statement);
+    }
+    logger.info("Migration: tabelas perfis e perfil_permissoes criadas");
+  }
+
+  if (!(await columnExists(connection, "usuarios", "id_perfil"))) {
+    await connection.query(`
+      ALTER TABLE usuarios
+      ADD COLUMN id_perfil INT UNSIGNED NULL,
+      ADD KEY ix_usuarios_id_perfil (id_perfil),
+      ADD CONSTRAINT fk_usuarios_perfil FOREIGN KEY (id_perfil) REFERENCES perfis(id)
+    `);
+    logger.info("Migration: usuarios.id_perfil adicionada");
+  }
+
+  const allPerms = allPermissions();
+
+  for (const seed of SEED_PROFILES) {
+    const [existing] = await connection.query(
+      "SELECT id FROM perfis WHERE codigo = ? LIMIT 1",
+      [seed.codigo],
+    );
+    let perfilId;
+    if (existing.length === 0) {
+      const [result] = await connection.query(
+        `INSERT INTO perfis (codigo, nome, descricao, is_system, is_super_admin, requires_company, ativo)
+         VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [
+          seed.codigo,
+          seed.nome,
+          seed.descricao || null,
+          seed.is_system ? 1 : 0,
+          seed.is_super_admin ? 1 : 0,
+          seed.requires_company ? 1 : 0,
+        ],
+      );
+      perfilId = result.insertId;
+    } else {
+      perfilId = existing[0].id;
+      await connection.query(
+        `UPDATE perfis SET nome = ?, descricao = ?, is_system = ?, is_super_admin = ?, requires_company = ?
+         WHERE id = ?`,
+        [
+          seed.nome,
+          seed.descricao || null,
+          seed.is_system ? 1 : 0,
+          seed.is_super_admin ? 1 : 0,
+          seed.requires_company ? 1 : 0,
+          perfilId,
+        ],
+      );
+    }
+
+    const [permCount] = await connection.query(
+      "SELECT COUNT(*) AS total FROM perfil_permissoes WHERE id_perfil = ?",
+      [perfilId],
+    );
+    if (permCount[0].total === 0) {
+      const permissions =
+        seed.permissions === "all"
+          ? allPerms
+          : seed.permissions.filter(
+              (p) => MODULE_KEYS.includes(p.modulo) && ACTIONS.includes(p.acao),
+            );
+      for (const perm of permissions) {
+        await connection.query(
+          "INSERT IGNORE INTO perfil_permissoes (id_perfil, modulo, acao) VALUES (?, ?, ?)",
+          [perfilId, perm.modulo, perm.acao],
+        );
+      }
+    }
+  }
+
+  const hasPerfilColumn = await columnExists(connection, "usuarios", "perfil");
+  if (hasPerfilColumn) {
+    await connection.query(`
+      UPDATE usuarios u
+      INNER JOIN perfis p ON p.codigo = (u.perfil COLLATE utf8mb4_unicode_ci)
+      SET u.id_perfil = p.id
+      WHERE u.id_perfil IS NULL
+    `);
+  }
+
+  const [missingProfile] = await connection.query(
+    "SELECT id FROM usuarios WHERE id_perfil IS NULL AND ativo = 1 LIMIT 1",
+  );
+  if (missingProfile.length > 0) {
+    const [[userProfile]] = await connection.query(
+      "SELECT id FROM perfis WHERE codigo = 'USER' LIMIT 1",
+    );
+    if (userProfile?.id) {
+      await connection.query("UPDATE usuarios SET id_perfil = ? WHERE id_perfil IS NULL", [
+        userProfile.id,
+      ]);
+    }
+  }
+
+  logger.info("Migration: perfis padrão e vínculos de usuários aplicados");
+}
+
+async function migrateDropUsuariosPerfil(connection) {
+  const hasPerfilColumn = await columnExists(connection, "usuarios", "perfil");
+  if (!hasPerfilColumn) return;
+
+  const [missing] = await connection.query(
+    "SELECT COUNT(*) AS total FROM usuarios WHERE id_perfil IS NULL",
+  );
+  if (Number(missing[0]?.total || 0) > 0) {
+    logger.warn("Migration: usuarios.perfil mantida — há usuários sem id_perfil");
+    return;
+  }
+
+  await connection.query("ALTER TABLE usuarios DROP COLUMN perfil");
+  logger.info("Migration: coluna usuarios.perfil removida");
+}
+
 async function migratePhase3(connection) {
   const [slTables] = await connection.query(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
@@ -664,18 +1227,20 @@ async function migrateUsuariosCompanyLink(connection) {
   );
   if (tables.length === 0) return;
 
-  const [colType] = await connection.query(
-    `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = 'perfil' LIMIT 1`,
-    [env.db.name],
-  );
-  const columnType = colType[0]?.COLUMN_TYPE || "";
-  if (!columnType.includes("PRODUTORA")) {
-    await connection.query(`
-      ALTER TABLE usuarios
-      MODIFY COLUMN perfil ENUM('ADMIN', 'USER', 'PRODUTORA', 'PADRAO') NOT NULL DEFAULT 'USER'
-    `);
-    logger.info("Migration: usuarios.perfil estendido com PRODUTORA e PADRAO");
+  if (await columnExists(connection, "usuarios", "perfil")) {
+    const [colType] = await connection.query(
+      `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = 'perfil' LIMIT 1`,
+      [env.db.name],
+    );
+    const columnType = colType[0]?.COLUMN_TYPE || "";
+    if (columnType && !columnType.includes("PRODUTORA")) {
+      await connection.query(`
+        ALTER TABLE usuarios
+        MODIFY COLUMN perfil ENUM('ADMIN', 'USER', 'PRODUTORA', 'PADRAO') NOT NULL DEFAULT 'USER'
+      `);
+      logger.info("Migration: usuarios.perfil estendido com PRODUTORA e PADRAO");
+    }
   }
 
   if (!(await columnExists(connection, "usuarios", "id_company"))) {
@@ -775,6 +1340,7 @@ async function seedDomainLookups(connection) {
 }
 
 async function initializeDatabase() {
+  startupStep("Verificando e estruturando banco de dados Credenciamento...");
   logger.info("Verificando banco de dados Credenciamento...");
   let connection;
 
@@ -789,6 +1355,7 @@ async function initializeDatabase() {
 
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${env.db.name}\`;`);
     await connection.changeUser({ database: env.db.name });
+    startupOk(`Banco '${env.db.name}' selecionado.`);
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS usuarios (
@@ -994,9 +1561,19 @@ async function initializeDatabase() {
     await migrateCredentials(connection);
     await migrateGate(connection);
     await migratePhase2(connection);
+    await migrateServiceAccessEvolution(connection);
+    await migrateSetoresAprovacoes(connection);
+    await migrateSetorPapeis(connection);
     await migratePhase3(connection);
     await migrateUsuarios(connection);
+    await migratePerfisPermissoes(connection);
+    await migrateDropUsuariosPerfil(connection);
+
+    await applyPendingMigrations(connection);
+    await assertAllMigrationsApplied(connection);
+
     await seedDomainLookups(connection);
+    startupOk("Seeds de domínio aplicados.");
 
     if (env.adminEmail && env.adminPassword) {
       const [existing] = await connection.query(
@@ -1006,15 +1583,23 @@ async function initializeDatabase() {
       if (existing.length === 0) {
         const hash = await bcrypt.hash(env.adminPassword, 10);
         const username = env.adminEmail.split("@")[0];
+        const [[adminPerfil]] = await connection.query(
+          "SELECT id FROM perfis WHERE codigo = 'ADMIN' LIMIT 1",
+        );
+        const adminPerfilId = adminPerfil?.id || null;
         await connection.query(
-          `INSERT INTO usuarios (username, nome_completo, email, departamento, senha_hash, perfil, ativo, is_ad_user)
-           VALUES (?, 'Administrador', ?, 'Administração', ?, 'ADMIN', 1, 0)`,
-          [username, env.adminEmail, hash],
+          `INSERT INTO usuarios (username, nome_completo, email, departamento, senha_hash, id_perfil, ativo, is_ad_user)
+           VALUES (?, 'Administrador', ?, 'Administração', ?, ?, 1, 0)`,
+          [username, env.adminEmail, hash, adminPerfilId],
         );
         logger.info({ email: env.adminEmail }, "Usuário admin seed criado");
+        startupOk("Usuário admin seed criado.");
+      } else {
+        startupOk("Usuário admin seed verificado.");
       }
     }
 
+    startupDone("Banco inicializado com arquitetura completa e monitoramento de erros!");
     logger.info("Banco de dados pronto.");
   } catch (err) {
     logger.fatal({ err }, "Erro ao inicializar banco");

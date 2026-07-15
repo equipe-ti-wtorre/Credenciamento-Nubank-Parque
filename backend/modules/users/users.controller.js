@@ -47,7 +47,7 @@ exports.update = async (req, res, next) => {
         email: user.email,
       },
       changes: {
-        perfil: user.role,
+        id_perfil: user.id_perfil,
         ativo: user.ativo,
         ...changes,
       },

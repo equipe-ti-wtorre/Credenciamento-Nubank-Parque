@@ -63,10 +63,16 @@ export class MsalConfigService {
       }
 
       const clientType = this.platform.getClientType();
+      // Login web usa origin; Teams usa /auth/teams (route pública).
+      const fromApi =
+        config.redirectUris?.[clientType] || config.redirectUri || null;
       const redirectUri =
-        config.redirectUris?.[clientType] ||
-        config.redirectUri ||
-        (typeof window !== 'undefined' ? window.location.origin : environment.msalConfig.auth.redirectUri);
+        (fromApi && !String(fromApi).includes('/login/teams-popup')
+          ? fromApi
+          : null) ||
+        (typeof window !== 'undefined'
+          ? window.location.origin
+          : environment.msalConfig.auth.redirectUri);
 
       setMsalRuntimeConfig({
         clientId: config.clientId,

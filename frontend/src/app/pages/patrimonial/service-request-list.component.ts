@@ -1,119 +1,392 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router, RouterLink } from '@angular/router';
 import { PatrimonialService, ServiceAccessItem } from '../../services/patrimonial.service';
-import { VehicleService, VehicleItem } from '../../services/vehicle.service';
+import { CompanyItem, CompanyService } from '../../services/company.service';
+import { ApprovalService, EligibleSector } from '../../services/approval.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ModalComponent } from '../../shared/modal/modal.component';
+import {
+  ActionBtnComponent,
+  ActionDropdownComponent,
+  ActionDropdownItemDirective,
+  ActionMenuComponent,
+} from '../../shared/actions';
+import {
+  STATUS_AGUARDANDO_APROVACAO,
+  STATUS_AGUARDANDO_PRODUTORA,
+  STATUS_APROVADO,
+  STATUS_NEGADO,
+  statusBadgeClass,
+} from '../../services/credential.service';
+
+function formatDateBr(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = String(value).slice(0, 10);
+  const [y, m, day] = d.split('-');
+  if (!y || !m || !day) return d;
+  return `${day}/${m}/${y}`;
+}
 
 @Component({
   selector: 'app-service-request-list',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterLink,
+    ModalComponent,
+    ActionBtnComponent,
+    ActionMenuComponent,
+    ActionDropdownComponent,
+    ActionDropdownItemDirective,
+  ],
   template: `
     <div class="w-full">
-      <div class="flex justify-between items-start gap-4 mb-5">
+      <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5">
         <div>
-          <h2 class="page-section-title">Solicitações de serviço</h2>
-          <p class="page-section-subtitle">Acesso patrimonial de veículos à arena.</p>
-        </div>
-        <button type="button" class="btn-primary" (click)="abrirModal()">+ Nova solicitação</button>
-      </div>
-
-      <div class="space-y-3">
-        <div *ngFor="let s of services()" class="card-surface p-4">
-          <div class="flex justify-between gap-2">
-            <div>
-              <p class="font-semibold text-slate-800">{{ s.service_type }}</p>
-              <p class="text-sm text-slate-500">{{ s.company_fancy_name }} · {{ s.access_status_description }}</p>
-            </div>
-            <button
-              *ngIf="isAdmin && s.id_access_status === 2"
-              type="button"
-              class="btn-primary text-xs py-1 px-3"
-              (click)="aprovar(s)"
-            >
-              Aprovar
-            </button>
-          </div>
-          <p class="text-xs text-slate-500 mt-2">
-            Datas: {{ s.dates.join(', ') || '—' }} · Veículos:
-            {{ s.vehicles.map((v) => v.plate).join(', ') || '—' }}
+          <h2 class="page-section-title">Acessos de Serviço</h2>
+          <p class="page-section-subtitle">
+            Cadastro de acessos com período, finalidade e vínculo de colaboradores e veículos.
           </p>
         </div>
-        <p *ngIf="!loading() && services().length === 0" class="text-slate-500 text-sm">Nenhuma solicitação.</p>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" class="btn-secondary" (click)="carregar()" [disabled]="loading()">
+            {{ loading() ? 'Atualizando...' : 'Atualizar' }}
+          </button>
+          <button type="button" class="btn-primary" (click)="abrirModal()">+ Novo acesso</button>
+        </div>
+      </div>
+
+      <div class="card-surface overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="table-head bg-slate-50">
+            <tr>
+              <th class="px-4 py-3 text-left">Finalidade</th>
+              <th class="px-4 py-3 text-left">Período</th>
+              <th class="px-4 py-3 text-left hidden lg:table-cell">Setor</th>
+              <th class="px-4 py-3 text-left hidden md:table-cell">Solicitante</th>
+              <th class="px-4 py-3 text-center">Colaboradores</th>
+              <th class="px-4 py-3 text-center">Veículos</th>
+              <th class="px-4 py-3 text-left">Aprovação</th>
+              <th class="px-4 py-3 text-left">Habilitado</th>
+              <th class="px-4 py-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let s of services()" class="border-t border-slate-100 hover:bg-slate-50">
+              <td class="px-4 py-3">
+                <p class="font-medium text-slate-800">{{ s.finalidade }}</p>
+                <p class="text-xs text-slate-500">{{ s.company_fancy_name }}</p>
+              </td>
+              <td class="px-4 py-3 text-slate-600 whitespace-nowrap">
+                {{ formatDateBr(s.start_date) }} — {{ formatDateBr(s.end_date) }}
+              </td>
+              <td class="px-4 py-3 text-slate-600 hidden lg:table-cell">
+                {{ s.setor_nome || s.requesting_department }}
+              </td>
+              <td class="px-4 py-3 text-slate-600 hidden md:table-cell">
+                {{ s.solicitante?.nome || '—' }}
+              </td>
+              <td class="px-4 py-3 text-center tabular-nums text-slate-700 font-medium">
+                {{ s.collaborators.length || 0 }}
+              </td>
+              <td class="px-4 py-3 text-center tabular-nums text-slate-700 font-medium">
+                {{ s.vehicles.length || 0 }}
+              </td>
+              <td class="px-4 py-3">
+                <span
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                  [ngClass]="statusBadgeClass(s.id_access_status)"
+                >
+                  <svg
+                    *ngIf="s.id_access_status === STATUS_APROVADO"
+                    class="w-3.5 h-3.5 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  <svg
+                    *ngIf="s.id_access_status === STATUS_NEGADO"
+                    class="w-3.5 h-3.5 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                  <svg
+                    *ngIf="s.id_access_status === STATUS_AGUARDANDO_APROVACAO"
+                    class="w-3.5 h-3.5 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
+                  <svg
+                    *ngIf="s.id_access_status === STATUS_AGUARDANDO_PRODUTORA"
+                    class="w-3.5 h-3.5 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M5 2h14v4H5zM5 18h14v4H5z" />
+                    <path d="M8 6v2a4 4 0 0 0 8 0V6M8 18v-2a4 4 0 0 1 8 0v2" />
+                  </svg>
+                  {{ s.access_status_description }}
+                </span>
+              </td>
+              <td class="px-4 py-3">
+                <span
+                  class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                  [class.bg-emerald-100]="s.status"
+                  [class.text-emerald-700]="s.status"
+                  [class.bg-slate-100]="!s.status"
+                  [class.text-slate-600]="!s.status"
+                >
+                  {{ s.status ? 'Sim' : 'Não' }}
+                </span>
+              </td>
+              <td class="px-4 py-3 text-right whitespace-nowrap">
+                <div class="flex justify-end">
+                  <app-action-menu>
+                    <app-action-btn icon="grid" title="Gerenciar" variant="neutral" (action)="abrirDetalhe(s)" />
+                    <app-action-dropdown *ngIf="isAdmin">
+                      <button appActionDropdownItem type="button" (click)="toggleEnabled(s)">
+                        <svg
+                          class="action-dropdown__item-icon"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.75"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                          <path d="M12 2v10" />
+                        </svg>
+                        {{ s.status ? 'Desabilitar' : 'Habilitar' }}
+                      </button>
+                    </app-action-dropdown>
+                  </app-action-menu>
+                </div>
+              </td>
+            </tr>
+            <tr *ngIf="!loading() && services().length === 0">
+              <td colspan="7" class="px-4 py-8 text-center text-slate-500">Nenhum acesso cadastrado.</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <div *ngIf="showModal()" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" class="absolute inset-0 bg-slate-900/50" (click)="fecharModal()"></button>
-      <div class="relative card-surface p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-        <h3 class="text-lg font-bold mb-4">Nova solicitação</h3>
-        <form class="space-y-3" (ngSubmit)="salvar()">
+    <app-modal
+      [open]="showModal()"
+      title="Novo acesso de serviço"
+      subtitle="Cadastre período, finalidade e setor aprovador. Após criar, adicione colaboradores e veículos."
+      size="lg"
+      (close)="fecharModal()"
+    >
+      <form id="service-access-form" class="space-y-3" (ngSubmit)="salvar()">
+        <div *ngIf="isAdmin">
+          <label class="form-label" for="svc-company">Empresa</label>
+          <select
+            id="svc-company"
+            [(ngModel)]="form.id_company"
+            name="id_company"
+            required
+            class="form-select"
+          >
+            <option [ngValue]="null">Selecione...</option>
+            <option *ngFor="let c of companies()" [ngValue]="c.id_company">
+              {{ c.fancy_name || c.company_name }}
+            </option>
+          </select>
+          <p class="text-xs text-slate-500 mt-1">
+            Não encontrou a empresa?
+            <a routerLink="/admin/empresas" class="text-[var(--color-primary-dark)] font-medium hover:underline">
+              Cadastrar empresa
+            </a>
+          </p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Tipo de serviço</label>
-            <input [(ngModel)]="form.service_type" name="service_type" required class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" />
+            <label class="form-label" for="svc-start">Data início</label>
+            <input
+              id="svc-start"
+              [(ngModel)]="form.start_date"
+              name="start_date"
+              type="date"
+              required
+              class="form-field"
+            />
           </div>
           <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Data (AAAA-MM-DD)</label>
-            <input [(ngModel)]="form.date" name="date" type="date" required class="w-full mt-1 border rounded-xl px-3 py-2 text-sm" />
+            <label class="form-label" for="svc-end">Data fim</label>
+            <input
+              id="svc-end"
+              [(ngModel)]="form.end_date"
+              name="end_date"
+              type="date"
+              required
+              class="form-field"
+            />
           </div>
-          <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Veículos</label>
-            <select [(ngModel)]="form.selectedVehicles" name="vehicles" multiple class="w-full mt-1 border rounded-xl px-3 py-2 text-sm bg-white min-h-[100px]">
-              <option *ngFor="let v of fleet()" [value]="v.id_vehicle">{{ v.plate }}</option>
-            </select>
-          </div>
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" class="btn-secondary" (click)="fecharModal()">Cancelar</button>
-            <button type="submit" class="btn-primary" [disabled]="saving()">Enviar</button>
-          </div>
-        </form>
+        </div>
+        <div>
+          <label class="form-label" for="svc-finalidade">Finalidade</label>
+          <input
+            id="svc-finalidade"
+            [(ngModel)]="form.finalidade"
+            name="finalidade"
+            required
+            class="form-field"
+          />
+        </div>
+        <div>
+          <label class="form-label" for="svc-setor">Setor aprovador</label>
+          <select
+            id="svc-setor"
+            [(ngModel)]="form.id_setor"
+            name="id_setor"
+            required
+            class="form-select"
+          >
+            <option [ngValue]="null" disabled>Selecione o setor</option>
+            <option *ngFor="let s of sectors()" [ngValue]="s.id">
+              {{ s.nome }}
+            </option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label" for="svc-obs">
+            Observação <span class="form-label__optional">(opcional)</span>
+          </label>
+          <textarea
+            id="svc-obs"
+            [(ngModel)]="form.observacao"
+            name="observacao"
+            rows="3"
+            class="form-field"
+          ></textarea>
+        </div>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" class="btn-action-secondary" (click)="fecharModal()">Cancelar</button>
+        <button
+          type="submit"
+          form="service-access-form"
+          class="btn-action-primary"
+          [disabled]="saving()"
+        >
+          {{ saving() ? 'Criando...' : 'Criar e gerenciar' }}
+        </button>
       </div>
-    </div>
+    </app-modal>
   `,
 })
 export class ServiceRequestListComponent implements OnInit {
   services = signal<ServiceAccessItem[]>([]);
-  fleet = signal<VehicleItem[]>([]);
+  companies = signal<CompanyItem[]>([]);
   loading = signal(false);
   saving = signal(false);
   showModal = signal(false);
+  sectors = signal<EligibleSector[]>([]);
   isAdmin = false;
-  form = { service_type: '', date: '', selectedVehicles: [] as number[] };
+  formatDateBr = formatDateBr;
+  readonly statusBadgeClass = statusBadgeClass;
+  readonly STATUS_APROVADO = STATUS_APROVADO;
+  readonly STATUS_NEGADO = STATUS_NEGADO;
+  readonly STATUS_AGUARDANDO_APROVACAO = STATUS_AGUARDANDO_APROVACAO;
+  readonly STATUS_AGUARDANDO_PRODUTORA = STATUS_AGUARDANDO_PRODUTORA;
+  form = {
+    start_date: '',
+    end_date: '',
+    finalidade: '',
+    requesting_department: '',
+    observacao: '',
+    id_company: null as number | null,
+    id_setor: null as number | null,
+  };
 
   constructor(
     private patrimonialService: PatrimonialService,
-    private vehicleService: VehicleService,
+    private companyService: CompanyService,
+    private approvalService: ApprovalService,
     private notification: NotificationService,
     private authService: AuthService,
+    private router: Router,
   ) {}
 
   async ngOnInit() {
     const user = await this.authService.getCurrentUser();
     this.isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
+    if (this.isAdmin) {
+      this.carregarEmpresas();
+    }
     this.carregar();
-    this.vehicleService.list(1, 200).subscribe({
-      next: (res) => this.fleet.set(res.vehicles.filter((v) => v.status && !v.is_blacklisted)),
+  }
+
+  carregarEmpresas() {
+    this.companyService.list(1, 500, {}).subscribe({
+      next: (res) => this.companies.set(res.companies.filter((c) => c.status)),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
     });
   }
 
   carregar() {
     this.loading.set(true);
-    this.patrimonialService.list().subscribe({
+    this.patrimonialService.list(1, 50).subscribe({
       next: (res) => {
         this.services.set(res.services);
         this.loading.set(false);
       },
       error: (err) => {
         this.loading.set(false);
-        this.notification.notifyHttpError(err, 'Falha ao carregar solicitações.');
+        this.notification.notifyHttpError(err, 'Falha ao carregar acessos.');
       },
     });
   }
 
   abrirModal() {
-    this.form = { service_type: '', date: '', selectedVehicles: [] };
+    this.form = {
+      start_date: '',
+      end_date: '',
+      finalidade: '',
+      requesting_department: '',
+      observacao: '',
+      id_company: null,
+      id_setor: null,
+    };
+    this.approvalService.listEligibleSectors('ACESSO_SERVICO').subscribe({
+      next: (res) => this.sectors.set(res.sectors),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar setores.'),
+    });
+    if (this.isAdmin) {
+      this.carregarEmpresas();
+    }
     this.showModal.set(true);
   }
 
@@ -122,38 +395,63 @@ export class ServiceRequestListComponent implements OnInit {
   }
 
   salvar() {
-    if (!this.form.selectedVehicles.length) {
-      this.notification.error('Selecione ao menos um veículo.');
+    if (this.isAdmin && !this.form.id_company) {
+      this.notification.error('Selecione a empresa.');
+      return;
+    }
+    if (!this.form.finalidade.trim()) {
+      this.notification.error('Preencha a finalidade.');
+      return;
+    }
+    if (!this.form.start_date || !this.form.end_date) {
+      this.notification.error('Informe o período do acesso.');
+      return;
+    }
+    if (!this.form.id_setor) {
+      this.notification.error('Selecione o setor aprovador.');
+      return;
+    }
+    const setorNome = this.sectors().find((s) => s.id === this.form.id_setor)?.nome?.trim();
+    if (!setorNome) {
+      this.notification.error('Setor aprovador inválido.');
       return;
     }
     this.saving.set(true);
     this.patrimonialService
       .create({
-        service_type: this.form.service_type.trim(),
-        dates: [this.form.date],
-        id_vehicles: this.form.selectedVehicles,
+        start_date: this.form.start_date,
+        end_date: this.form.end_date,
+        finalidade: this.form.finalidade.trim(),
+        requesting_department: setorNome,
+        observacao: this.form.observacao.trim() || null,
+        id_setor: this.form.id_setor,
+        ...(this.isAdmin && this.form.id_company ? { id_company: this.form.id_company } : {}),
       })
       .subscribe({
-        next: () => {
+        next: (res) => {
           this.saving.set(false);
-          this.notification.success('Solicitação enviada. Aguardando aprovação.');
           this.fecharModal();
-          this.carregar();
+          this.notification.success('Acesso criado. Adicione colaboradores e veículos.');
+          this.router.navigate(['/admin/acessos-servico', res.service.id_service_access]);
         },
         error: (err) => {
           this.saving.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao criar solicitação.');
+          this.notification.notifyHttpError(err, 'Falha ao criar acesso.');
         },
       });
   }
 
-  aprovar(s: ServiceAccessItem) {
-    this.patrimonialService.patchStatus(s.id_service_access, { id_access_status: 3 }).subscribe({
+  abrirDetalhe(s: ServiceAccessItem) {
+    this.router.navigate(['/admin/acessos-servico', s.id_service_access]);
+  }
+
+  toggleEnabled(s: ServiceAccessItem) {
+    this.patrimonialService.patchEnabled(s.id_service_access, !s.status).subscribe({
       next: () => {
-        this.notification.success('Solicitação aprovada.');
+        this.notification.success(s.status ? 'Acesso desabilitado.' : 'Acesso habilitado.');
         this.carregar();
       },
-      error: (err) => this.notification.notifyHttpError(err, 'Falha ao aprovar.'),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao alterar status.'),
     });
   }
 }

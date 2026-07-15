@@ -1,0 +1,874 @@
+const db = require("../../config/db");
+const AppError = require("../../utils/AppError");
+const { normalizeCpf } = require("../../utils/cpf");
+const { isValidPlate } = require("../../utils/plate");
+const helpers = require("./service-access-bulk-import");
+
+const {
+  KIND,
+  PREVIEW_TOKEN_CONSUMIDO,
+  MASTER_UPDATE_FIELDS,
+  parseUnifiedWorkbook,
+  resolveByFoldedDescription,
+  resolveDriverFromSheet,
+  resolveDriverFromLinked,
+  isExampleCollaboratorRow,
+  isExampleVehicleRow,
+  mapRowByHeaders,
+  normalizeCollabIncoming,
+  normalizeVeicIncoming,
+  loadLookups,
+  summarizeAxis,
+  findCollaboratorByDocType,
+  findCollaboratorByDocumentAnyNormalized,
+  isCollaboratorLinked,
+  isVehicleLinked,
+  findVehicleByPlateCompany,
+  listLinkedCollaborators,
+  maybeGenerateAccessIdForLink,
+  savePreviewSession,
+  getPreviewSession,
+  deletePreviewSession,
+  validateDocumentByType,
+  validateAndNormalizeCollaboratorPayload,
+  buildFieldDiffs,
+  pickUpdatePatch,
+  MAX_ROWS,
+} = helpers;
+
+async function previewUnifiedBulkImport(ctx) {
+  const { serviceId, serviceRow, file, userId } = ctx;
+
+  const { collaborators: rawCols, vehicles: rawVehs } = parseUnifiedWorkbook(
+    file.buffer,
+    file.mimetype,
+    file.originalname,
+  );
+
+  if (!rawCols.length && !rawVehs.length) {
+    throw new AppError("Arquivo sem linhas de dados nas abas Colaboradores/Veículos.", 422);
+  }
+  if (rawCols.length + rawVehs.length > MAX_ROWS) {
+    throw new AppError(`Limite de ${MAX_ROWS} linhas excedido.`, 422);
+  }
+
+  const { types, roles } = await loadLookups();
+  const linkedCols = await listLinkedCollaborators(serviceId);
+
+  const colaboradores = [];
+  const sessionCollaborators = [];
+  const spreadsheetByDocument = new Map();
+
+  for (const item of rawCols) {
+    const mapped = mapRowByHeaders(item.raw);
+    if (isExampleCollaboratorRow(mapped)) continue;
+    const incoming = normalizeCollabIncoming(mapped);
+    const line = item.line;
+
+    if (
+      !incoming.documento &&
+      !incoming.nome_completo &&
+      !incoming.tipo_de_documento &&
+      !incoming.funcao_cargo
+    ) {
+      continue;
+    }
+
+    const erros = [];
+    if (!incoming.documento) erros.push("Documento obrigatório.");
+    if (!incoming.tipo_de_documento) erros.push("Tipo de documento obrigatório.");
+    if (!incoming.nome_completo) erros.push("Nome completo obrigatório.");
+    if (!incoming.funcao_cargo) erros.push("Função / Cargo obrigatória.");
+
+    const typeResolved = resolveByFoldedDescription(
+      types,
+      incoming.tipo_de_documento,
+      "id_collaborator_document_type",
+    );
+    const roleResolved = resolveByFoldedDescription(
+      roles,
+      incoming.funcao_cargo,
+      "id_collaborator_role",
+    );
+    if (incoming.tipo_de_documento && !typeResolved) {
+      erros.push(`Tipo de documento fora da lista: ${incoming.tipo_de_documento}`);
+    }
+    if (incoming.funcao_cargo && !roleResolved) {
+      erros.push(`Função / Cargo fora da lista: ${incoming.funcao_cargo}`);
+    }
+
+    let normalizedDocument = null;
+    if (!erros.length && typeResolved) {
+      const docResult = await validateDocumentByType(incoming.documento, typeResolved.id);
+      if (docResult.error) erros.push(docResult.error);
+      else normalizedDocument = docResult.value;
+    }
+
+    if (erros.length) {
+      const row = {
+        linha: line,
+        cadastro: "erro",
+        vinculo: "a_vincular",
+        chave: { documento: incoming.documento, tipo: incoming.tipo_de_documento || null },
+        resolvido: null,
+        divergencias: [],
+        divergencias_vinculo: [],
+        erros,
+        nome: incoming.nome_completo || null,
+      };
+      colaboradores.push(row);
+      sessionCollaborators.push({
+        ...row,
+        existingId: null,
+        roleId: roleResolved?.id || null,
+        validated: null,
+        linkRecord: null,
+      });
+      continue;
+    }
+
+    const existing = await findCollaboratorByDocType(normalizedDocument, typeResolved.id);
+    const linkRecord = existing
+      ? await isCollaboratorLinked(serviceId, existing.id_collaborator)
+      : null;
+    const vinculo = linkRecord ? "ja_vinculado" : "a_vincular";
+
+    if (!existing) {
+      const validated = await validateAndNormalizeCollaboratorPayload({
+        document: normalizedDocument,
+        id_collaborator_document_type: typeResolved.id,
+        name: incoming.nome_completo,
+        id_collaborator_role: roleResolved.id,
+        rg: incoming.rg,
+        phone: incoming.telefone,
+        status: true,
+      });
+      if (validated.error) {
+        const row = {
+          linha: line,
+          cadastro: "erro",
+          vinculo,
+          chave: { documento: normalizedDocument, tipo: typeResolved.description },
+          resolvido: {
+            id_collaborator_document_type: typeResolved.id,
+            id_collaborator_role: roleResolved.id,
+          },
+          divergencias: [],
+          divergencias_vinculo: [],
+          erros: [validated.error],
+          nome: incoming.nome_completo,
+        };
+        colaboradores.push(row);
+        sessionCollaborators.push({
+          ...row,
+          existingId: null,
+          roleId: roleResolved.id,
+          validated: null,
+          linkRecord: null,
+        });
+        continue;
+      }
+
+      const row = {
+        linha: line,
+        cadastro: "novo",
+        vinculo: "a_vincular",
+        chave: { documento: validated.value.document, tipo: typeResolved.description },
+        resolvido: {
+          id_collaborator_document_type: validated.value.id_collaborator_document_type,
+          id_collaborator_role: roleResolved.id,
+        },
+        divergencias: [],
+        divergencias_vinculo: [],
+        erros: [],
+        nome: validated.value.name,
+      };
+      colaboradores.push(row);
+      sessionCollaborators.push({
+        ...row,
+        existingId: null,
+        roleId: roleResolved.id,
+        validated: validated.value,
+        linkRecord: null,
+      });
+      spreadsheetByDocument.set(validated.value.document, {
+        line,
+        sessionIndex: sessionCollaborators.length - 1,
+      });
+      continue;
+    }
+
+    if (!existing.status) {
+      const row = {
+        linha: line,
+        cadastro: "erro",
+        vinculo,
+        chave: { documento: existing.document, tipo: typeResolved.description },
+        resolvido: {
+          id_collaborator_document_type: typeResolved.id,
+          id_collaborator_role: roleResolved.id,
+        },
+        divergencias: [],
+        divergencias_vinculo: [],
+        erros: ["Colaborador inativo."],
+        nome: existing.name,
+      };
+      colaboradores.push(row);
+      sessionCollaborators.push({
+        ...row,
+        existingId: existing.id_collaborator,
+        roleId: roleResolved.id,
+        validated: null,
+        linkRecord,
+      });
+      continue;
+    }
+
+    const [blacklist] = await db.execute(
+      `SELECT 1 FROM collaborator_black_list WHERE id_collaborator = ? LIMIT 1`,
+      [existing.id_collaborator],
+    );
+    if (blacklist.length) {
+      const row = {
+        linha: line,
+        cadastro: "erro",
+        vinculo,
+        chave: { documento: existing.document, tipo: typeResolved.description },
+        resolvido: {
+          id_collaborator_document_type: typeResolved.id,
+          id_collaborator_role: roleResolved.id,
+        },
+        divergencias: [],
+        divergencias_vinculo: [],
+        erros: ["Colaborador consta na lista de bloqueio."],
+        nome: existing.name,
+      };
+      colaboradores.push(row);
+      sessionCollaborators.push({
+        ...row,
+        existingId: existing.id_collaborator,
+        roleId: roleResolved.id,
+        validated: null,
+        linkRecord,
+      });
+      continue;
+    }
+
+    const masterIncoming = {
+      name: incoming.nome_completo,
+      rg: incoming.rg !== undefined ? incoming.rg || null : existing.rg,
+      phone: incoming.telefone !== undefined ? incoming.telefone || null : existing.phone,
+    };
+    const masterExisting = {
+      name: existing.name,
+      rg: existing.rg || null,
+      phone: existing.phone || null,
+    };
+    const masterDiffs = buildFieldDiffs(masterExisting, masterIncoming, MASTER_UPDATE_FIELDS).map(
+      (d) => ({
+        campo: d.field,
+        rotulo: d.field === "name" ? "Nome completo" : d.field === "rg" ? "RG" : "Telefone",
+        atual: d.current,
+        novo: d.incoming,
+      }),
+    );
+
+    const linkRoleId = linkRecord?.id_collaborator_role ?? null;
+    const linkRoleDesc =
+      roles.find((r) => r.id_collaborator_role === linkRoleId)?.description || null;
+    const divergencias_vinculo = [];
+    if (linkRecord && Number(linkRoleId) !== Number(roleResolved.id)) {
+      divergencias_vinculo.push({
+        campo: "id_collaborator_role",
+        rotulo: "Função / Cargo",
+        atual: linkRoleDesc,
+        novo: roleResolved.description,
+      });
+    }
+
+    const cadastro = masterDiffs.length ? "atualizacao" : "inalterado";
+    const row = {
+      linha: line,
+      cadastro,
+      vinculo,
+      chave: { documento: existing.document, tipo: typeResolved.description },
+      resolvido: {
+        id_collaborator: existing.id_collaborator,
+        id_collaborator_document_type: typeResolved.id,
+        id_collaborator_role: roleResolved.id,
+      },
+      divergencias: masterDiffs,
+      divergencias_vinculo,
+      erros: [],
+      nome: existing.name,
+    };
+    colaboradores.push(row);
+    sessionCollaborators.push({
+      ...row,
+      existingId: existing.id_collaborator,
+      roleId: roleResolved.id,
+      validated: {
+        name: masterIncoming.name,
+        rg: masterIncoming.rg,
+        phone: masterIncoming.phone,
+        id_collaborator_role: roleResolved.id,
+      },
+      linkRecord,
+    });
+    spreadsheetByDocument.set(existing.document, {
+      line,
+      sessionIndex: sessionCollaborators.length - 1,
+    });
+  }
+
+  const veiculos = [];
+  const sessionVehicles = [];
+
+  for (const item of rawVehs) {
+    const mapped = mapRowByHeaders(item.raw);
+    if (isExampleVehicleRow(mapped)) continue;
+    const incoming = normalizeVeicIncoming(mapped);
+    const line = item.line;
+
+    if (!incoming.placa && !incoming.marca && !incoming.modelo && !incoming.motorista_documento) {
+      continue;
+    }
+
+    const erros = [];
+    if (!incoming.placa) erros.push("Placa obrigatória.");
+    else if (!isValidPlate(incoming.placa)) {
+      erros.push("Placa inválida. Use formato antigo (AAA0000) ou Mercosul (AAA0A00).");
+    }
+    if (!incoming.marca) erros.push("Marca obrigatória.");
+    if (!incoming.modelo) erros.push("Modelo obrigatório.");
+
+    let driverInfo = null;
+    let driverId = null;
+    if (incoming.motorista_documento) {
+      const fromSheet = await resolveDriverFromSheet(
+        incoming.motorista_documento,
+        spreadsheetByDocument,
+        sessionCollaborators,
+      );
+      if (fromSheet.error) {
+        erros.push(fromSheet.error);
+      } else if (fromSheet.found) {
+        driverInfo = {
+          documento: fromSheet.documento,
+          nome: fromSheet.nome,
+          encontrado: true,
+          origem: "planilha",
+        };
+        driverId = fromSheet.existingId || null;
+      } else {
+        const linked = resolveDriverFromLinked(incoming.motorista_documento, linkedCols);
+        if (linked) {
+          driverInfo = {
+            documento: linked.document,
+            nome: linked.name,
+            encontrado: true,
+            origem: "acesso",
+          };
+          driverId = linked.id_collaborator;
+        } else {
+          const master = await findCollaboratorByDocumentAnyNormalized(
+            incoming.motorista_documento,
+          );
+          if (master) {
+            erros.push(
+              `Motorista ${incoming.motorista_documento} existe no cadastro, mas não está na planilha nem neste acesso.`,
+            );
+          } else {
+            erros.push(
+              `Motorista (documento) não encontrado: ${incoming.motorista_documento}.`,
+            );
+          }
+        }
+      }
+    }
+
+    if (erros.length) {
+      const row = {
+        linha: line,
+        cadastro: "erro",
+        vinculo: "a_vincular",
+        chave: { placa: incoming.placa || null },
+        motorista:
+          driverInfo ||
+          (incoming.motorista_documento
+            ? { documento: incoming.motorista_documento, nome: null, encontrado: false }
+            : null),
+        divergencias: [],
+        erros,
+      };
+      veiculos.push(row);
+      sessionVehicles.push({
+        ...row,
+        existingId: null,
+        driverId: null,
+        driverDocument: incoming.motorista_documento || null,
+        validated: null,
+        linkRecord: null,
+      });
+      continue;
+    }
+
+    const existing = await findVehicleByPlateCompany(serviceRow.id_company, incoming.placa);
+    if (existing && !existing.status) {
+      veiculos.push({
+        linha: line,
+        cadastro: "erro",
+        vinculo: "a_vincular",
+        chave: { placa: incoming.placa },
+        motorista: driverInfo,
+        divergencias: [],
+        erros: ["Veículo inativo."],
+      });
+      sessionVehicles.push({
+        linha: line,
+        cadastro: "erro",
+        existingId: existing.id_vehicle,
+        driverId,
+        driverDocument: incoming.motorista_documento || null,
+        validated: null,
+        linkRecord: null,
+        erros: ["Veículo inativo."],
+      });
+      continue;
+    }
+    if (existing?.blacklist_reason) {
+      veiculos.push({
+        linha: line,
+        cadastro: "erro",
+        vinculo: "a_vincular",
+        chave: { placa: incoming.placa },
+        motorista: driverInfo,
+        divergencias: [],
+        erros: [`Veículo na lista de restrição: ${existing.blacklist_reason}`],
+      });
+      sessionVehicles.push({
+        linha: line,
+        cadastro: "erro",
+        existingId: existing.id_vehicle,
+        driverId,
+        driverDocument: incoming.motorista_documento || null,
+        validated: null,
+        linkRecord: null,
+        erros: [`Veículo na lista de restrição: ${existing.blacklist_reason}`],
+      });
+      continue;
+    }
+
+    const validated = {
+      plate: incoming.placa,
+      brand: incoming.marca,
+      model: incoming.modelo,
+      color: incoming.cor || null,
+      type: incoming.tipo || null,
+      description: incoming.observacoes || null,
+      id_company: serviceRow.id_company,
+    };
+
+    if (!existing) {
+      const row = {
+        linha: line,
+        cadastro: "novo",
+        vinculo: "a_vincular",
+        chave: { placa: incoming.placa },
+        motorista: driverInfo,
+        divergencias: [],
+        erros: [],
+      };
+      veiculos.push(row);
+      sessionVehicles.push({
+        ...row,
+        existingId: null,
+        driverId,
+        driverDocument: incoming.motorista_documento || null,
+        validated,
+        linkRecord: null,
+      });
+      continue;
+    }
+
+    const linkRecord = await isVehicleLinked(serviceId, existing.id_vehicle);
+    const vinculo = linkRecord ? "ja_vinculado" : "a_vincular";
+    const existingPublic = {
+      brand: existing.brand,
+      model: existing.model,
+      color: existing.color,
+      type: existing.type,
+      description: existing.description,
+    };
+    const diffs = buildFieldDiffs(existingPublic, validated, [
+      "brand",
+      "model",
+      "color",
+      "type",
+      "description",
+    ]).map((d) => ({
+      campo: d.field,
+      rotulo:
+        d.field === "brand"
+          ? "Marca"
+          : d.field === "model"
+            ? "Modelo"
+            : d.field === "color"
+              ? "Cor"
+              : d.field === "type"
+                ? "Tipo"
+                : "Observações",
+      atual: d.current,
+      novo: d.incoming,
+    }));
+
+    const cadastro = diffs.length ? "atualizacao" : "inalterado";
+    const row = {
+      linha: line,
+      cadastro,
+      vinculo,
+      chave: { placa: existing.plate },
+      motorista: driverInfo,
+      divergencias: diffs,
+      erros: [],
+    };
+    veiculos.push(row);
+    sessionVehicles.push({
+      ...row,
+      existingId: existing.id_vehicle,
+      driverId,
+      driverDocument: incoming.motorista_documento || null,
+      validated,
+      linkRecord,
+    });
+  }
+
+  if (!colaboradores.length && !veiculos.length) {
+    throw new AppError(
+      "Nenhuma linha válida para importar (apenas exemplo ou linhas vazias).",
+      422,
+    );
+  }
+
+  const previewToken = savePreviewSession({
+    kind: KIND,
+    serviceId: Number(serviceId),
+    companyId: serviceRow.id_company,
+    userId: userId || null,
+    collaborators: sessionCollaborators,
+    vehicles: sessionVehicles,
+  });
+
+  return {
+    arquivo: file.originalname || "importacao.xlsx",
+    previewToken,
+    acesso: {
+      id: Number(serviceId),
+      nome: serviceRow.finalidade || serviceRow.service_type || `Acesso #${serviceId}`,
+      empresa: serviceRow.company_fancy_name || null,
+    },
+    resumo: {
+      colaboradores: summarizeAxis(colaboradores),
+      veiculos: summarizeAxis(veiculos),
+    },
+    colaboradores,
+    veiculos,
+    updateFields: {
+      colaboradorMaster: MASTER_UPDATE_FIELDS,
+      colaboradorVinculo: ["id_collaborator_role"],
+      veiculo: ["brand", "model", "color", "type", "description"],
+    },
+  };
+}
+
+async function confirmUnifiedBulkImport(ctx) {
+  const { serviceId, serviceRow, previewToken, decisoes, userId } = ctx;
+  const session = getPreviewSession(previewToken, KIND, {
+    consumedCode: PREVIEW_TOKEN_CONSUMIDO,
+  });
+  if (Number(session.serviceId) !== Number(serviceId)) {
+    throw new AppError("Pré-visualização de outro acesso de serviço.", 400);
+  }
+
+  const colDecisions = Array.isArray(decisoes?.colaboradores) ? decisoes.colaboradores : [];
+  const vehDecisions = Array.isArray(decisoes?.veiculos) ? decisoes.veiculos : [];
+  const colByLine = new Map(session.collaborators.map((r) => [r.linha, r]));
+  const vehByLine = new Map(session.vehicles.map((r) => [r.linha, r]));
+
+  const result = {
+    colaboradores: { inseridos: 0, atualizados: 0, vinculados: 0, ignorados: 0, erros: [] },
+    veiculos: { inseridos: 0, atualizados: 0, vinculados: 0, ignorados: 0, erros: [] },
+    motoristas: 0,
+  };
+
+  const conn = await db.getConnection();
+  const createdDocToId = new Map();
+
+  try {
+    await conn.beginTransaction();
+
+    for (const decision of colDecisions) {
+      const line = Number(decision.linha ?? decision.line);
+      const row = colByLine.get(line);
+      if (!row) {
+        result.colaboradores.erros.push({ linha: line, motivo: "Linha não encontrada." });
+        continue;
+      }
+      if (decision.aplicar === false || decision.action === "skip") {
+        result.colaboradores.ignorados += 1;
+        continue;
+      }
+      if (row.cadastro === "erro") {
+        result.colaboradores.erros.push({
+          linha: line,
+          motivo: (row.erros && row.erros[0]) || "Linha com erro.",
+        });
+        continue;
+      }
+
+      try {
+        let collaboratorId = row.existingId;
+        if (row.cadastro === "novo") {
+          if (!row.validated) throw new AppError("Cadastro novo sem dados validados.", 400);
+          const [ins] = await conn.execute(
+            `INSERT INTO collaborator (
+               id_collaborator_document_type, id_collaborator_role,
+               document, name, rg, phone, status
+             ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+            [
+              row.validated.id_collaborator_document_type,
+              row.validated.id_collaborator_role,
+              row.validated.document,
+              row.validated.name,
+              row.validated.rg || null,
+              row.validated.phone || null,
+            ],
+          );
+          collaboratorId = ins.insertId;
+          createdDocToId.set(row.validated.document, collaboratorId);
+          result.colaboradores.inseridos += 1;
+        } else if (row.existingId) {
+          const masterFields = Array.isArray(decision.camposMaster)
+            ? decision.camposMaster
+            : [];
+          if (masterFields.length && row.validated) {
+            const patch = pickUpdatePatch(row.validated, masterFields, MASTER_UPDATE_FIELDS);
+            if (Object.keys(patch).length) {
+              const [curRows] = await conn.execute(
+                `SELECT * FROM collaborator WHERE id_collaborator = ? LIMIT 1`,
+                [row.existingId],
+              );
+              const cur = curRows[0];
+              if (cur) {
+                await conn.execute(
+                  `UPDATE collaborator SET name = ?, rg = ?, phone = ? WHERE id_collaborator = ?`,
+                  [
+                    patch.name !== undefined ? patch.name : cur.name,
+                    patch.rg !== undefined ? patch.rg : cur.rg,
+                    patch.phone !== undefined ? patch.phone : cur.phone,
+                    row.existingId,
+                  ],
+                );
+                result.colaboradores.atualizados += 1;
+              }
+            }
+          }
+        }
+
+        if (!collaboratorId) {
+          result.colaboradores.erros.push({ linha: line, motivo: "Sem ID de colaborador." });
+          continue;
+        }
+
+        const applyRole = decision.aplicarFuncao !== false;
+        const roleId = applyRole
+          ? row.roleId
+          : row.linkRecord?.id_collaborator_role || row.roleId;
+
+        const [linkIns] = await conn.execute(
+          `INSERT INTO service_access_collaborator
+             (id_service_access, id_collaborator, id_collaborator_role)
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE id_collaborator_role = VALUES(id_collaborator_role)`,
+          [serviceId, collaboratorId, roleId],
+        );
+        if (linkIns.insertId) {
+          await maybeGenerateAccessIdForLink(
+            conn,
+            serviceId,
+            "service_access_collaborator",
+            "id_service_access_collaborator",
+            linkIns.insertId,
+          );
+        }
+        if (row.vinculo === "a_vincular") {
+          result.colaboradores.vinculados += 1;
+        }
+        if (row.chave?.documento) {
+          createdDocToId.set(row.chave.documento, collaboratorId);
+        }
+      } catch (err) {
+        result.colaboradores.erros.push({
+          linha: line,
+          motivo: err instanceof AppError ? err.message : "Erro ao aplicar colaborador.",
+        });
+      }
+    }
+
+    for (const row of session.collaborators) {
+      if (row.existingId && row.chave?.documento) {
+        createdDocToId.set(row.chave.documento, row.existingId);
+      }
+    }
+
+    for (const decision of vehDecisions) {
+      const line = Number(decision.linha ?? decision.line);
+      const row = vehByLine.get(line);
+      if (!row) {
+        result.veiculos.erros.push({ linha: line, motivo: "Linha não encontrada." });
+        continue;
+      }
+      if (decision.aplicar === false || decision.action === "skip") {
+        result.veiculos.ignorados += 1;
+        continue;
+      }
+      if (row.cadastro === "erro") {
+        result.veiculos.erros.push({
+          linha: line,
+          motivo: (row.erros && row.erros[0]) || "Linha com erro.",
+        });
+        continue;
+      }
+
+      try {
+        let vehicleId = row.existingId;
+        if (row.cadastro === "novo") {
+          const v = row.validated;
+          const [ins] = await conn.execute(
+            `INSERT INTO vehicle (id_company, plate, brand, model, color, type, description, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+            [
+              serviceRow.id_company,
+              v.plate,
+              v.brand,
+              v.model,
+              v.color || null,
+              v.type || null,
+              v.description || null,
+            ],
+          );
+          vehicleId = ins.insertId;
+          result.veiculos.inseridos += 1;
+        } else if (row.existingId && row.validated) {
+          const fields = Array.isArray(decision.campos)
+            ? decision.campos
+            : ["brand", "model", "color", "type", "description"];
+          const patch = pickUpdatePatch(row.validated, fields, [
+            "brand",
+            "model",
+            "color",
+            "type",
+            "description",
+          ]);
+          if (Object.keys(patch).length) {
+            const [curRows] = await conn.execute(
+              `SELECT * FROM vehicle WHERE id_vehicle = ? LIMIT 1`,
+              [row.existingId],
+            );
+            const cur = curRows[0];
+            if (cur) {
+              await conn.execute(
+                `UPDATE vehicle SET brand = ?, model = ?, color = ?, type = ?, description = ?
+                 WHERE id_vehicle = ?`,
+                [
+                  patch.brand !== undefined ? patch.brand : cur.brand,
+                  patch.model !== undefined ? patch.model : cur.model,
+                  patch.color !== undefined ? patch.color : cur.color,
+                  patch.type !== undefined ? patch.type : cur.type,
+                  patch.description !== undefined ? patch.description : cur.description,
+                  row.existingId,
+                ],
+              );
+              result.veiculos.atualizados += 1;
+            }
+          }
+        }
+
+        if (!vehicleId) {
+          result.veiculos.erros.push({ linha: line, motivo: "Sem ID de veículo." });
+          continue;
+        }
+
+        let driverId = row.driverId || null;
+        if (!driverId && row.driverDocument) {
+          driverId =
+            createdDocToId.get(row.driverDocument) ||
+            createdDocToId.get(normalizeCpf(row.driverDocument)) ||
+            null;
+          if (!driverId) {
+            const master = await findCollaboratorByDocumentAnyNormalized(row.driverDocument);
+            if (master) {
+              const [linked] = await conn.execute(
+                `SELECT 1 FROM service_access_collaborator
+                 WHERE id_service_access = ? AND id_collaborator = ? LIMIT 1`,
+                [serviceId, master.id_collaborator],
+              );
+              if (linked.length) driverId = master.id_collaborator;
+            }
+          }
+        }
+
+        const [existingLink] = await conn.execute(
+          `SELECT id_service_access_vehicle FROM service_access_vehicle
+           WHERE id_service_access = ? AND id_vehicle = ? LIMIT 1`,
+          [serviceId, vehicleId],
+        );
+
+        if (existingLink.length) {
+          await conn.execute(
+            `UPDATE service_access_vehicle SET id_driver = ? WHERE id_service_access_vehicle = ?`,
+            [driverId, existingLink[0].id_service_access_vehicle],
+          );
+        } else {
+          const [linkIns] = await conn.execute(
+            `INSERT INTO service_access_vehicle (id_service_access, id_vehicle, id_driver)
+             VALUES (?, ?, ?)`,
+            [serviceId, vehicleId, driverId],
+          );
+          await maybeGenerateAccessIdForLink(
+            conn,
+            serviceId,
+            "service_access_vehicle",
+            "id_service_access_vehicle",
+            linkIns.insertId,
+          );
+          result.veiculos.vinculados += 1;
+        }
+
+        if (driverId) result.motoristas += 1;
+      } catch (err) {
+        result.veiculos.erros.push({
+          linha: line,
+          motivo: err instanceof AppError ? err.message : "Erro ao aplicar veículo.",
+        });
+      }
+    }
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  deletePreviewSession(previewToken);
+  result.importedBy = userId || null;
+  result.importedAt = new Date().toISOString();
+  return result;
+}
+
+module.exports = {
+  previewUnifiedBulkImport,
+  confirmUnifiedBulkImport,
+};

@@ -1,25 +1,31 @@
 const express = require("express");
 const eventController = require("./event.controller");
 const typesRoutes = require("./types.routes");
-const { authMiddleware, authorizeRoles } = require("../../middleware/authMiddleware");
+const { authMiddleware } = require("../../middleware/authMiddleware");
+const { authorizePermission } = require("../../middleware/permissionMiddleware");
 
 const router = express.Router();
-const adminOnly = [authMiddleware, authorizeRoles("ADMIN")];
+const auth = authMiddleware;
+const canView = [auth, authorizePermission("events", "view")];
+const canCreate = [auth, authorizePermission("events", "create")];
+const canEdit = [auth, authorizePermission("events", "edit")];
+const canDelete = [auth, authorizePermission("events", "delete")];
 
 router.use(typesRoutes);
 
-router.get("/", authMiddleware, eventController.list);
-router.post("/", ...adminOnly, eventController.create);
+router.get("/", ...canView, eventController.list);
+router.post("/", ...canCreate, eventController.create);
+router.patch("/:id/period", ...canEdit, eventController.updatePeriod);
 router.post(
   "/days/:id_event_day/companies",
-  ...adminOnly,
+  ...canEdit,
   eventController.addCompanyToDay,
 );
 router.delete(
   "/days/companies/:id_event_day_company",
-  ...adminOnly,
+  ...canDelete,
   eventController.removeCompanyFromDay,
 );
-router.get("/:id", authMiddleware, eventController.getById);
+router.get("/:id", ...canView, eventController.getById);
 
 module.exports = router;

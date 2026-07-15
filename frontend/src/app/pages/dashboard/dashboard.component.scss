@@ -11,8 +11,8 @@
   --wt-text: #161d2f;
   --wt-text-2: #475069;
   --wt-muted: #8a92a8;
-  --wt-primary: #5b50e8;
-  --wt-primary-soft: #eceaff;
+  --wt-primary: var(--wtorre);
+  --wt-primary-soft: var(--wtorre-tonal-bg);
   --wt-success: #13a36b;
   --wt-success-soft: #e3f6ed;
   --wt-warning: #d98315;
@@ -22,8 +22,8 @@
   --wt-danger: #e23a47;
   --wt-danger-soft: #fdeaec;
   --wt-radius: 16px;
-  --wt-font: 'Plus Jakarta Sans', system-ui, sans-serif;
-  --wt-display: 'Sora', system-ui, sans-serif;
+  --wt-font: var(--font-body);
+  --wt-display: var(--font-display);
   --wt-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
   --wt-shadow: 0 4px 16px -4px rgba(16, 24, 40, 0.08), 0 2px 6px -2px rgba(16, 24, 40, 0.04);
 

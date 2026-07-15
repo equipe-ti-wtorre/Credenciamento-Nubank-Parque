@@ -2,27 +2,20 @@ const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const {
   STATUS_AGUARDANDO_PRODUTORA,
-  STATUS_AGUARDANDO_ALLIANZ,
+  STATUS_AGUARDANDO_APROVACAO,
   STATUS_APROVADO,
   STATUS_NEGADO,
 } = require("../credentials/credentials.schema");
-
-function getUserRole(req) {
-  return String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
-}
+const { buildCompanyScope } = require("../../utils/permissions");
 
 function buildDashboardScope(req) {
-  const role = getUserRole(req);
-  const idCompany = req.user?.id_company != null ? Number(req.user.id_company) : null;
-
-  if (role === "ADMIN") return { mode: "admin" };
-  if (role === "PADRAO") {
-    if (!idCompany) throw new AppError("Usuário sem empresa vinculada.", 403);
-    return { mode: "padrao", companyId: idCompany };
+  const scope = buildCompanyScope(req.user);
+  if (scope.mode === "admin") return { mode: "admin" };
+  if (scope.mode === "padrao") {
+    return { mode: "padrao", companyId: scope.onlyCompanyId };
   }
-  if (role === "PRODUTORA") {
-    if (!idCompany) throw new AppError("Usuário produtora sem empresa vinculada.", 403);
-    return { mode: "produtora", companyId: idCompany };
+  if (scope.mode === "produtora") {
+    return { mode: "produtora", companyId: scope.ownCompanyId };
   }
   throw new AppError("Perfil sem permissão para o dashboard operacional.", 403);
 }
@@ -38,6 +31,11 @@ function credentialScopeSql(scope, aliasEdc = "edc") {
   };
 }
 
+function serviceAccessScopeSql(scope, aliasSa = "sa") {
+  if (scope.mode === "admin") return { sql: "", params: [] };
+  return { sql: ` AND ${aliasSa}.id_company = ?`, params: [scope.companyId] };
+}
+
 function buildSummaryByStatus(rows) {
   let aprovados = 0;
   let aguardando = 0;
@@ -47,7 +45,7 @@ function buildSummaryByStatus(rows) {
     const id = Number(row.id_access_status);
     const total = Number(row.total);
     if (id === STATUS_APROVADO) aprovados += total;
-    else if (id === STATUS_AGUARDANDO_PRODUTORA || id === STATUS_AGUARDANDO_ALLIANZ) aguardando += total;
+    else if (id === STATUS_AGUARDANDO_PRODUTORA || id === STATUS_AGUARDANDO_APROVACAO) aguardando += total;
     else if (id === STATUS_NEGADO) negados += total;
   }
 
@@ -57,16 +55,27 @@ function buildSummaryByStatus(rows) {
 async function getDashboardMetrics(req) {
   const scope = buildDashboardScope(req);
   const credScope = credentialScopeSql(scope);
+  const svcScope = serviceAccessScopeSql(scope);
 
   const [statusRows] = await db.execute(
-    `SELECT ast.id_access_status, ast.description AS label, COUNT(*) AS total
-     FROM event_day_company_collaborator edcc
-     INNER JOIN access_status ast ON ast.id_access_status = edcc.id_access_status
-     INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
-     WHERE 1=1 ${credScope.sql}
-     GROUP BY ast.id_access_status, ast.description
-     ORDER BY ast.id_access_status`,
-    credScope.params,
+    `SELECT t.id_access_status, t.label, SUM(t.total) AS total
+     FROM (
+       SELECT ast.id_access_status, ast.description AS label, COUNT(*) AS total
+       FROM event_day_company_collaborator edcc
+       INNER JOIN access_status ast ON ast.id_access_status = edcc.id_access_status
+       INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+       WHERE 1=1 ${credScope.sql}
+       GROUP BY ast.id_access_status, ast.description
+       UNION ALL
+       SELECT ast.id_access_status, ast.description AS label, COUNT(*) AS total
+       FROM service_access sa
+       INNER JOIN access_status ast ON ast.id_access_status = sa.id_access_status
+       WHERE 1=1 ${svcScope.sql}
+       GROUP BY ast.id_access_status, ast.description
+     ) t
+     GROUP BY t.id_access_status, t.label
+     ORDER BY t.id_access_status`,
+    [...credScope.params, ...svcScope.params],
   );
 
   const summary_by_status = buildSummaryByStatus(statusRows);
@@ -86,19 +95,32 @@ async function getDashboardMetrics(req) {
        INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
        WHERE sav.check_in IS NOT NULL
          AND sav.check_in >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-         ${scope.mode === "admin" ? "" : " AND sa.id_company = ?"}
+         ${svcScope.sql}
+       UNION ALL
+       SELECT DATE(sac.access_check_in) AS access_day
+       FROM service_access_collaborator sac
+       INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+       WHERE sac.access_check_in IS NOT NULL
+         AND sac.access_check_in >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+         ${svcScope.sql}
      ) d
      GROUP BY DATE(d.access_day)
      ORDER BY day ASC`,
-    scope.mode === "admin" ? credScope.params : [...credScope.params, scope.companyId],
+    [...credScope.params, ...svcScope.params, ...svcScope.params],
   );
 
-  const [[pendingAllianz]] = await db.execute(
-    `SELECT COUNT(*) AS total
-     FROM event_day_company_collaborator edcc
-     INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
-     WHERE edcc.id_access_status = ? ${credScope.sql}`,
-    [STATUS_AGUARDANDO_ALLIANZ, ...credScope.params],
+  const [[pendingApproval]] = await db.execute(
+    `SELECT (
+       (SELECT COUNT(*)
+        FROM event_day_company_collaborator edcc
+        INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+        WHERE edcc.id_access_status = ? ${credScope.sql})
+       +
+       (SELECT COUNT(*)
+        FROM service_access sa
+        WHERE sa.id_access_status = ? ${svcScope.sql})
+     ) AS total`,
+    [STATUS_AGUARDANDO_APROVACAO, ...credScope.params, STATUS_AGUARDANDO_APROVACAO, ...svcScope.params],
   );
 
   const [[accessToday]] = await db.execute(
@@ -109,10 +131,13 @@ async function getDashboardMetrics(req) {
        +
        (SELECT COUNT(*) FROM service_access_vehicle sav
         INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
-        WHERE DATE(sav.check_in) = CURDATE()
-        ${scope.mode === "admin" ? "" : " AND sa.id_company = ?"})
+        WHERE DATE(sav.check_in) = CURDATE() ${svcScope.sql})
+       +
+       (SELECT COUNT(*) FROM service_access_collaborator sac
+        INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+        WHERE DATE(sac.access_check_in) = CURDATE() ${svcScope.sql})
      ) AS total`,
-    scope.mode === "admin" ? credScope.params : [...credScope.params, scope.companyId],
+    [...credScope.params, ...svcScope.params, ...svcScope.params],
   );
 
   let topCompanies = [];
@@ -147,7 +172,7 @@ async function getDashboardMetrics(req) {
     })),
     kpis: {
       activeCompanies: Number(activeCompanies[0]?.total || 0),
-      pendingAllianz: Number(pendingAllianz?.total || 0),
+      pendingApproval: Number(pendingApproval?.total || 0),
       accessesToday: Number(accessToday?.total || 0),
     },
     topCompanies,

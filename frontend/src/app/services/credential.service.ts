@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
 export const STATUS_AGUARDANDO_PRODUTORA = 1;
-export const STATUS_AGUARDANDO_ALLIANZ = 2;
+export const STATUS_AGUARDANDO_APROVACAO = 2;
 export const STATUS_APROVADO = 3;
 export const STATUS_NEGADO = 4;
 
@@ -110,7 +110,7 @@ export function statusBadgeClass(statusId: number): string {
   switch (statusId) {
     case STATUS_AGUARDANDO_PRODUTORA:
       return 'bg-slate-100 text-slate-700';
-    case STATUS_AGUARDANDO_ALLIANZ:
+    case STATUS_AGUARDANDO_APROVACAO:
       return 'bg-amber-100 text-amber-800';
     case STATUS_APROVADO:
       return 'bg-emerald-100 text-emerald-800';

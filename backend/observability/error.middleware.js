@@ -82,6 +82,8 @@ function observabilityErrorHandler(err, req, res, _next) {
   res.status(statusCode).json({
     message,
     requestId,
+    ...(err instanceof AppError && err.code ? { code: err.code } : {}),
+    ...(err instanceof AppError && err.details != null ? { details: err.details } : {}),
     ...(env.isProduction ? {} : err.stack ? { stack: err.stack } : {}),
   });
 }

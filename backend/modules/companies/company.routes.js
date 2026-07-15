@@ -1,17 +1,21 @@
 const express = require("express");
 const companyController = require("./company.controller");
 const typesRoutes = require("./types.routes");
-const { authMiddleware, authorizeRoles } = require("../../middleware/authMiddleware");
+const { authMiddleware } = require("../../middleware/authMiddleware");
+const { authorizePermission } = require("../../middleware/permissionMiddleware");
 
 const router = express.Router();
-const adminOnly = [authMiddleware, authorizeRoles("ADMIN")];
+const auth = authMiddleware;
+const canView = [auth, authorizePermission("companies", "view")];
+const canCreate = [auth, authorizePermission("companies", "create")];
+const canEdit = [auth, authorizePermission("companies", "edit")];
 
 router.use(typesRoutes);
 
-router.get("/", authMiddleware, companyController.list);
-router.get("/:id", authMiddleware, companyController.getById);
-router.post("/", ...adminOnly, companyController.create);
-router.put("/:id", ...adminOnly, companyController.update);
-router.patch("/:id/status", ...adminOnly, companyController.patchStatus);
+router.get("/", auth, companyController.list);
+router.get("/:id", auth, companyController.getById);
+router.post("/", ...canCreate, companyController.create);
+router.put("/:id", ...canEdit, companyController.update);
+router.patch("/:id/status", ...canEdit, companyController.patchStatus);
 
 module.exports = router;

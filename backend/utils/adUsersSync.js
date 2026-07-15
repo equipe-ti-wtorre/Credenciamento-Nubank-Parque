@@ -32,8 +32,13 @@ function normalizeGraphUser(graphUser) {
 }
 
 async function upsertAdUser(adUser) {
+  const [[userProfile]] = await db.execute(
+    "SELECT id FROM perfis WHERE codigo = 'USER' LIMIT 1",
+  );
+  const defaultProfileId = userProfile?.id || null;
+
   const [byOid] = await db.execute(
-    "SELECT id, ativo, perfil FROM usuarios WHERE microsoft_id = ? LIMIT 1",
+    "SELECT id, ativo, id_perfil FROM usuarios WHERE microsoft_id = ? LIMIT 1",
     [adUser.microsoftId],
   );
 
@@ -83,13 +88,14 @@ async function upsertAdUser(adUser) {
   }
 
   const [result] = await db.execute(
-    `INSERT INTO usuarios (username, nome_completo, email, departamento, is_ad_user, senha_hash, perfil, ativo, microsoft_id)
-     VALUES (?, ?, ?, ?, 1, NULL, 'USER', ?, ?)`,
+    `INSERT INTO usuarios (username, nome_completo, email, departamento, is_ad_user, senha_hash, id_perfil, ativo, microsoft_id)
+     VALUES (?, ?, ?, ?, 1, NULL, ?, ?, ?)`,
     [
       adUser.email.split("@")[0],
       adUser.nomeCompleto,
       adUser.email,
       adUser.departamento,
+      defaultProfileId,
       adUser.accountEnabled ? 1 : 0,
       adUser.microsoftId,
     ],

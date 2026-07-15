@@ -71,6 +71,7 @@ export class NotificationService {
         if (typeof msg === 'string' && msg.trim()) return msg;
       }
     }
+    if (err instanceof Error && err.message.trim()) return err.message;
     return fallback;
   }
 

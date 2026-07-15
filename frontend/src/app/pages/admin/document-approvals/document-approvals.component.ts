@@ -34,11 +34,11 @@ import { NotificationService } from '../../../core/services/notification.service
               </td>
               <td class="px-4 py-3 text-slate-600">{{ r.reason }}</td>
               <td class="px-4 py-3 text-right space-x-2">
-                <button type="button" class="btn-primary text-xs py-1 px-3" (click)="aprovar(r)">
-                  Aprovar
+                <button type="button" class="btn-action-primary text-xs py-1.5 px-3" (click)="aprovar(r)">
+                  Aprovar solicitação
                 </button>
-                <button type="button" class="btn-secondary text-xs py-1 px-3" (click)="rejeitar(r)">
-                  Rejeitar
+                <button type="button" class="btn-action-secondary text-xs py-1.5 px-3" (click)="rejeitar(r)">
+                  Rejeitar solicitação
                 </button>
               </td>
             </tr>

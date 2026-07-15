@@ -175,6 +175,71 @@ async function postChatMessage(accessToken, chatId, content) {
   return { ok: false, message: graphErrorMessage(response), status: response.status };
 }
 
+/** Envia Adaptive Card em chat 1:1 via Graph (fallback quando o Bot não está configurado). */
+async function postChatAdaptiveCard(accessToken, chatId, adaptiveCard) {
+  const attachmentId = String(Date.now());
+  const url = `https://graph.microsoft.com/v1.0/chats/${chatId}/messages`;
+  const response = await axios.post(
+    url,
+    {
+      body: {
+        contentType: "html",
+        content: `<attachment id="${attachmentId}"></attachment>`,
+      },
+      attachments: [
+        {
+          id: attachmentId,
+          contentType: "application/vnd.microsoft.card.adaptive",
+          content: adaptiveCard,
+        },
+      ],
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      validateStatus: () => true,
+    },
+  );
+
+  if (response.status >= 200 && response.status < 300) {
+    return { ok: true, data: response.data };
+  }
+
+  return { ok: false, message: graphErrorMessage(response), status: response.status };
+}
+
+async function sendUserAdaptiveCard(accessToken, email, adaptiveCard) {
+  const resolved = await resolveUserByEmail(accessToken, email);
+  if (!resolved.ok) return resolved;
+
+  const chat = await getOrCreateOneOnOneChat(accessToken, resolved.user.id);
+  if (!chat.ok) {
+    return {
+      ok: false,
+      message: `Não foi possível abrir chat 1:1: ${chat.message}`,
+      user: resolved.user,
+    };
+  }
+
+  const sent = await postChatAdaptiveCard(accessToken, chat.chatId, adaptiveCard);
+  if (!sent.ok) {
+    return {
+      ok: false,
+      message: `Falha ao enviar Adaptive Card: ${sent.message}`,
+      user: resolved.user,
+    };
+  }
+
+  return {
+    ok: true,
+    user: resolved.user,
+    chatId: chat.chatId,
+    message: `Adaptive Card enviada para ${resolved.user.displayName || email}.`,
+  };
+}
+
 const TEAMS_DEEP_LINK_RE =
   /^https:\/\/(teams\.microsoft\.com|teams\.live\.com)\/l\//i;
 const TEAMS_HOST_RE = /^(teams\.microsoft\.com|teams\.live\.com)$/i;
@@ -208,6 +273,7 @@ function normalizeTeamsWebUrl(url) {
 /**
  * Graph exige topic.webUrl como deep link Teams (…/l/…).
  * Usa o id do manifest (externalId do pacote) + aba estática — não o web tab genérico da Microsoft.
+ * Inclui context.subEntityId com o path do SPA (ex.: /aprovacoes/12) para o front navegar.
  */
 function buildTeamsActivityWebUrl(url, options = {}) {
   const appUrl = normalizeHttpsAppUrl(url);
@@ -222,19 +288,27 @@ function buildTeamsActivityWebUrl(url, options = {}) {
   const entityBase = `https://teams.microsoft.com/l/entity/${manifestAppId}/${entityId}`;
   const label = env.organizationName;
 
-  if (!appUrl) {
-    return `${entityBase}?label=${encodeURIComponent(label)}`;
-  }
-
-  try {
-    if (TEAMS_HOST_RE.test(new URL(appUrl).hostname)) {
-      return `${entityBase}?label=${encodeURIComponent(label)}`;
+  let subEntityId = null;
+  if (appUrl) {
+    try {
+      const u = new URL(appUrl);
+      if (!TEAMS_HOST_RE.test(u.hostname)) {
+        subEntityId = `${u.pathname}${u.search}` || null;
+        if (subEntityId === "/") subEntityId = null;
+      }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    return `${entityBase}?label=${encodeURIComponent(label)}`;
   }
 
-  const params = new URLSearchParams({ label, webUrl: appUrl });
+  const params = new URLSearchParams({ label });
+  if (subEntityId) {
+    params.set("context", JSON.stringify({ subEntityId }));
+  }
+  if (appUrl && subEntityId) {
+    params.set("webUrl", appUrl);
+  }
+
   return `${entityBase}?${params.toString()}`;
 }
 
@@ -355,7 +429,7 @@ async function installTeamsAppForUser(accessToken, userId, catalogAppId) {
 
   const msg = graphErrorMessage(response);
   const permHint = /TeamsAppInstallation|Missing role permissions|grant consent/i.test(msg)
-    ? " No Azure, permissão de APLICAÇÃO TeamsAppInstallation.ReadWriteAndConsentForUser.All (ou instale manualmente no admin do Teams após publicar o zip 1.0.2)."
+    ? " No Azure, permissão de APLICAÇÃO TeamsAppInstallation.ReadWriteAndConsentForUser.All (ou instale manualmente no admin do Teams após publicar o zip 1.1.0)."
     : "";
 
   return { ok: false, message: msg, status: response.status, permHint };
@@ -416,7 +490,7 @@ async function sendUserActivityNotification(
         ok: false,
         message:
           `Catálogo do tenant: versão ${catalogStatus.version} publicada sem RSC TeamsActivity.Send.User. ` +
-          "Faça upload de credenciamento-teams.zip (1.0.2) em admin.teams.microsoft.com → Credenciamento → Upload file, " +
+          "Faça upload de credenciamento-teams.zip (1.1.0+) em admin.teams.microsoft.com → Credenciamento → Upload file, " +
           "remova a instalação do destinatário e instale de novo (aba Permissions deve mostrar TeamsActivity.Send.User).",
       };
     }
@@ -571,4 +645,6 @@ module.exports = {
   installTeamsAppForUser,
   sendUserActivityNotification,
   sendUserChatMessage,
+  sendUserAdaptiveCard,
+  postChatAdaptiveCard,
 };

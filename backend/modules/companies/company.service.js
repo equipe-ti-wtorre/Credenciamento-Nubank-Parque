@@ -1,6 +1,7 @@
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const { normalizeCnpj, isValidCnpj } = require("../../utils/cnpj");
+const { buildCompanyScope: buildScopeFromUser } = require("../../utils/permissions");
 
 const TYPE_EMPRESA_PADRAO = "Empresa Padrão";
 
@@ -19,30 +20,8 @@ async function getEmpresaPadraoTypeId() {
   return cachedEmpresaPadraoTypeId;
 }
 
-function getUserRole(req) {
-  return String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
-}
-
 function buildCompanyScope(req) {
-  const role = getUserRole(req);
-  const idCompany = req.user?.id_company != null ? Number(req.user.id_company) : null;
-
-  if (role === "ADMIN") {
-    return { mode: "admin" };
-  }
-  if (role === "PRODUTORA") {
-    if (!idCompany) {
-      throw new AppError("Usuário produtora sem empresa vinculada.", 403);
-    }
-    return { mode: "produtora", ownCompanyId: idCompany };
-  }
-  if (role === "PADRAO") {
-    if (!idCompany) {
-      throw new AppError("Usuário sem empresa vinculada.", 403);
-    }
-    return { mode: "padrao", onlyCompanyId: idCompany };
-  }
-  throw new AppError("Perfil sem permissão para consultar empresas.", 403);
+  return buildScopeFromUser(req.user);
 }
 
 async function applyScopeToWhere(scope, alias = "c") {

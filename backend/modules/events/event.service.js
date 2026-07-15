@@ -3,6 +3,13 @@ const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
 const { toDateOnly } = require("./event.schema");
 const companyService = require("../companies/company.service");
+const approvalsService = require("../approvals/approvals.service");
+const {
+  STATUS_AGUARDANDO_APROVACAO,
+  STATUS_APROVADO,
+  STATUS_NEGADO,
+} = require("../credentials/credentials.schema");
+const { buildEventScope: buildScopeFromUser } = require("../../utils/permissions");
 
 const TYPE_PRODUTORA = "Produtora";
 const TYPE_EMPRESA_PADRAO = "Empresa Padrão";
@@ -39,25 +46,8 @@ async function getEmpresaPadraoTypeId() {
   return cachedEmpresaPadraoTypeId;
 }
 
-function getUserRole(req) {
-  return String(req.user?.role || req.user?.perfil || "USER").toUpperCase();
-}
-
 function buildEventScope(req) {
-  const role = getUserRole(req);
-  const idCompany =
-    req.user?.id_company != null ? Number(req.user.id_company) : null;
-
-  if (role === "ADMIN") {
-    return { mode: "admin" };
-  }
-  if (role === "PRODUTORA" || role === "PADRAO") {
-    if (!idCompany) {
-      throw new AppError("Usuário sem empresa vinculada.", 403);
-    }
-    return { mode: "company", companyId: idCompany };
-  }
-  throw new AppError("Perfil sem permissão para consultar eventos.", 403);
+  return buildScopeFromUser(req.user);
 }
 
 function formatDateField(value) {
@@ -74,8 +64,30 @@ function mapEventRow(row) {
     name: row.name,
     start: formatDateField(row.start),
     end: formatDateField(row.end),
+    id_access_status: row.id_access_status != null ? Number(row.id_access_status) : null,
+    access_status_description: row.access_status_description || null,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
+  };
+}
+
+async function loadEventApprovalSummary(idEvent) {
+  const [rows] = await db.execute(
+    `SELECT id, status, nivel_atual, niveis_exigidos, id_setor
+       FROM aprovacoes
+      WHERE tipo_entidade = 'EVENTO' AND id_entidade = ?
+      ORDER BY id DESC
+      LIMIT 1`,
+    [idEvent],
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    status: row.status,
+    nivelAtual: row.nivel_atual,
+    niveisExigidos: row.niveis_exigidos,
+    idSetor: row.id_setor,
   };
 }
 
@@ -164,7 +176,10 @@ async function assertEventDayTypeExists(idType, conn = db) {
 
 async function findEventById(id) {
   const [rows] = await db.execute(
-    "SELECT * FROM event WHERE id_event = ? LIMIT 1",
+    `SELECT e.*, ast.description AS access_status_description
+       FROM event e
+       LEFT JOIN access_status ast ON ast.id_access_status = e.id_access_status
+      WHERE e.id_event = ? LIMIT 1`,
     [id],
   );
   return rows[0] || null;
@@ -296,7 +311,8 @@ async function getEventDetailById(id) {
   const row = await findEventById(id);
   if (!row) throw new AppError("Evento não encontrado.", 404);
   const days = await loadEventDaysWithCompanies(id);
-  return { ...mapEventRow(row), days };
+  const approval = await loadEventApprovalSummary(id);
+  return { ...mapEventRow(row), days, approval };
 }
 
 async function listEvents(req, { page, limit, filters }) {
@@ -305,8 +321,10 @@ async function listEvents(req, { page, limit, filters }) {
   const { join, where, params } = buildListJoinAndWhere(scope, filters);
 
   const [rows] = await db.execute(
-    `SELECT DISTINCT e.id_event, e.name, e.start, e.end, e.criado_em, e.atualizado_em
+    `SELECT DISTINCT e.id_event, e.name, e.start, e.end, e.id_access_status,
+            e.criado_em, e.atualizado_em, ast.description AS access_status_description
      FROM event e
+     LEFT JOIN access_status ast ON ast.id_access_status = e.id_access_status
      ${join}
      ${where}
      ORDER BY e.start DESC, e.id_event DESC
@@ -337,7 +355,7 @@ async function getEventById(req, id) {
   return getEventDetailById(id);
 }
 
-async function createEvent(data) {
+async function createEvent(req, data) {
   const start = toDateOnly(data.start);
   const end = toDateOnly(data.end);
   if (start > end) {
@@ -348,14 +366,21 @@ async function createEvent(data) {
   }
 
   const days = data.days || [];
+    const idSetor = Number(data.id_setor);
+  const idSolicitante = req.user?.id;
+  if (!idSolicitante) {
+    throw new AppError("Usuário não autenticado.", 401);
+  }
 
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
 
+    await approvalsService.assertUserCanOpenForSector(conn, idSetor, req.user);
+
     const [result] = await conn.execute(
-      "INSERT INTO event (name, start, end) VALUES (?, ?, ?)",
-      [data.name, start, end],
+      "INSERT INTO event (name, start, end, id_access_status) VALUES (?, ?, ?, ?)",
+      [data.name, start, end, STATUS_AGUARDANDO_APROVACAO],
     );
     const eventId = result.insertId;
 
@@ -374,8 +399,190 @@ async function createEvent(data) {
       );
     }
 
+    const approval = await approvalsService.createApprovalFor(conn, {
+      tipoEntidade: "EVENTO",
+      idEntidade: eventId,
+      idSetor,
+      idSolicitante,
+    });
+
     await conn.commit();
-    return getEventDetailById(eventId);
+    const detail = await getEventDetailById(eventId);
+    return { ...detail, approvalCreated: approval };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+async function markApproved(conn, idEntidade) {
+  await conn.execute(`UPDATE event SET id_access_status = ? WHERE id_event = ?`, [
+    STATUS_APROVADO,
+    idEntidade,
+  ]);
+}
+
+async function markRejected(conn, idEntidade) {
+  await conn.execute(`UPDATE event SET id_access_status = ? WHERE id_event = ?`, [
+    STATUS_NEGADO,
+    idEntidade,
+  ]);
+}
+
+async function resolveEventSetorId(conn, idEvent) {
+  const [rows] = await conn.execute(
+    `SELECT id_setor FROM aprovacoes
+      WHERE tipo_entidade = 'EVENTO' AND id_entidade = ?
+      ORDER BY CASE status WHEN 'PENDENTE' THEN 0 ELSE 1 END, id DESC
+      LIMIT 1`,
+    [idEvent],
+  );
+  if (rows[0]?.id_setor != null) return Number(rows[0].id_setor);
+
+  const [fallback] = await conn.execute(
+    `SELECT s.id
+       FROM setores s
+       INNER JOIN setor_fluxos sf
+         ON sf.id_setor = s.id AND sf.tipo_entidade = 'EVENTO' AND sf.ativo = 1
+      WHERE s.ativo = 1
+      ORDER BY s.id ASC
+      LIMIT 1`,
+  );
+  return fallback[0]?.id != null ? Number(fallback[0].id) : null;
+}
+
+/**
+ * Reabre aprovação do evento após alteração relevante (ex.: período).
+ */
+async function reopenEventForApproval(conn, eventRow, { force = false, idSetor = null, idSolicitante = null } = {}) {
+  const idEvent = eventRow.id_event || eventRow.id;
+  const status = Number(eventRow.id_access_status);
+  const needsReopen = force || status === STATUS_APROVADO || status === STATUS_NEGADO;
+
+  const [pending] = await conn.execute(
+    `SELECT id FROM aprovacoes
+      WHERE tipo_entidade = 'EVENTO' AND id_entidade = ? AND status = 'PENDENTE'
+      LIMIT 1`,
+    [idEvent],
+  );
+
+  if (pending.length) {
+    if (needsReopen) {
+      await conn.execute(`UPDATE event SET id_access_status = ? WHERE id_event = ?`, [
+        STATUS_AGUARDANDO_APROVACAO,
+        idEvent,
+      ]);
+      return { reopened: true, created: false, idAprovacao: pending[0].id };
+    }
+    return { reopened: false, created: false, idAprovacao: pending[0].id };
+  }
+
+  if (!needsReopen && status !== STATUS_AGUARDANDO_APROVACAO) {
+    return { reopened: false, created: false, idAprovacao: null };
+  }
+
+  await conn.execute(`UPDATE event SET id_access_status = ? WHERE id_event = ?`, [
+    STATUS_AGUARDANDO_APROVACAO,
+    idEvent,
+  ]);
+
+  const resolvedSetor = idSetor != null ? Number(idSetor) : await resolveEventSetorId(conn, idEvent);
+  if (!resolvedSetor) {
+    throw new AppError(
+      "Não foi possível reabrir a aprovação: setor aprovador não encontrado.",
+      422,
+    );
+  }
+
+  let resolvedSolicitante = idSolicitante;
+  if (!resolvedSolicitante) {
+    const [solRows] = await conn.execute(
+      `SELECT id_solicitante FROM aprovacoes
+        WHERE tipo_entidade = 'EVENTO' AND id_entidade = ?
+        ORDER BY id ASC
+        LIMIT 1`,
+      [idEvent],
+    );
+    resolvedSolicitante = solRows[0]?.id_solicitante || null;
+  }
+  if (!resolvedSolicitante) {
+    throw new AppError(
+      "Não foi possível reabrir a aprovação: solicitante não encontrado.",
+      422,
+    );
+  }
+
+  const approval = await approvalsService.createApprovalFor(conn, {
+    tipoEntidade: "EVENTO",
+    idEntidade: idEvent,
+    idSetor: resolvedSetor,
+    idSolicitante: resolvedSolicitante,
+  });
+
+  return { reopened: true, created: true, idAprovacao: approval.id };
+}
+
+async function updateEventPeriod(req, id, data) {
+  const eventRow = await findEventById(id);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, id);
+
+  const start = toDateOnly(data.start);
+  const end = toDateOnly(data.end);
+  if (start > end) {
+    throw new AppError(
+      "A data de início deve ser anterior ou igual à data de término.",
+      400,
+    );
+  }
+
+  const [dayRows] = await db.execute(
+    `SELECT id_event_day, date FROM event_day WHERE id_event = ? ORDER BY date ASC`,
+    [id],
+  );
+  for (const day of dayRows) {
+    const dayDate = formatDateField(day.date);
+    if (dayDate < start || dayDate > end) {
+      throw new AppError(
+        `O dia ${dayDate} fica fora do novo período. Ajuste ou remova os dias fora do intervalo antes de salvar.`,
+        422,
+      );
+    }
+  }
+
+  const previousStart = formatDateField(eventRow.start);
+  const previousEnd = formatDateField(eventRow.end);
+  const datesChanged = previousStart !== start || previousEnd !== end;
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(`UPDATE event SET start = ?, end = ? WHERE id_event = ?`, [
+      start,
+      end,
+      id,
+    ]);
+
+    let reopenResult = { reopened: false, created: false, idAprovacao: null };
+    if (datesChanged) {
+      reopenResult = await reopenEventForApproval(conn, eventRow, {
+        force: Number(eventRow.id_access_status) === STATUS_APROVADO,
+        idSolicitante: req.user?.id || null,
+      });
+    }
+
+    await conn.commit();
+    const detail = await getEventDetailById(id);
+    return {
+      ...detail,
+      periodChanged: datesChanged,
+      approvalReopened: !!reopenResult.reopened,
+      id_aprovacao: reopenResult.idAprovacao || detail.approval?.id || null,
+      aprovacao_status: detail.approval?.status || null,
+      id_setor: detail.approval?.idSetor || null,
+    };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -517,6 +724,10 @@ module.exports = {
   listEvents,
   getEventById,
   createEvent,
+  updateEventPeriod,
+  reopenEventForApproval,
   addCompanyToEventDay,
   removeCompanyFromEventDay,
+  markApproved,
+  markRejected,
 };

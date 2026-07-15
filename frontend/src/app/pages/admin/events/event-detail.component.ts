@@ -22,13 +22,14 @@ import {
 import {
   CredentialItem,
   CredentialService,
-  STATUS_AGUARDANDO_ALLIANZ,
+  STATUS_AGUARDANDO_APROVACAO,
   STATUS_AGUARDANDO_PRODUTORA,
   statusBadgeClass,
 } from '../../../services/credential.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { DocumentChangeService } from '../../../services/document-change.service';
+import { ModalComponent } from '../../../shared/modal/modal.component';
 
 const TYPE_PRODUTORA = 'Produtora';
 const TYPE_EMPRESA_PADRAO = 'Empresa Padrão';
@@ -48,7 +49,7 @@ function maskDocument(document: string): string {
 @Component({
   selector: 'app-event-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, RouterLink, ModalComponent],
   template: `
     <div class="w-full">
       <div class="mb-4">
@@ -62,8 +63,25 @@ function maskDocument(document: string): string {
             <p class="page-section-subtitle">
               Período: {{ formatDateBr(event()!.start) }} — {{ formatDateBr(event()!.end) }}
             </p>
+            <p class="mt-1" *ngIf="event()!.access_status_description">
+              <span
+                class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                [ngClass]="eventStatusClass(event()!.id_access_status)"
+              >
+                {{ event()!.access_status_description }}
+              </span>
+            </p>
           </div>
-          <button type="button" (click)="carregar()" class="btn-secondary shrink-0">Atualizar</button>
+          <div class="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              class="btn-secondary"
+              (click)="abrirModalPeriodo()"
+            >
+              Ajustar período
+            </button>
+            <button type="button" (click)="carregar()" class="btn-secondary">Atualizar</button>
+          </div>
         </div>
 
         <div *ngIf="event()!.days.length === 0" class="card-surface p-6 text-slate-600 text-sm">
@@ -107,7 +125,7 @@ function maskDocument(document: string): string {
                   *ngIf="isAdmin"
                   type="button"
                   (click)="removerVinculo(day, link)"
-                  class="text-xs text-rose-600 hover:underline"
+                  class="text-xs text-[var(--danger)] hover:underline"
                 >
                   Remover vínculo
                 </button>
@@ -149,33 +167,33 @@ function maskDocument(document: string): string {
                         *ngIf="canProdutoraAct(cred)"
                         type="button"
                         (click)="aprovarProdutora(cred)"
-                        class="text-emerald-600 hover:underline"
+                        class="btn-action-primary text-xs py-1 px-2.5"
                       >
-                        Aprovar
+                        Aprovar credencial
                       </button>
                       <button
                         *ngIf="canProdutoraAct(cred)"
                         type="button"
                         (click)="negarCredencial(cred)"
-                        class="text-rose-600 hover:underline"
+                        class="btn-action-secondary text-xs py-1 px-2.5"
                       >
-                        Negar
+                        Negar credencial
                       </button>
                       <button
                         *ngIf="canAdminAct(cred)"
                         type="button"
                         (click)="aprovarAdmin(cred)"
-                        class="text-emerald-600 hover:underline"
+                        class="btn-action-primary text-xs py-1 px-2.5"
                       >
-                        Aprovar
+                        Aprovar credencial
                       </button>
                       <button
                         *ngIf="canAdminAct(cred)"
                         type="button"
                         (click)="negarCredencial(cred)"
-                        class="text-rose-600 hover:underline"
+                        class="btn-action-secondary text-xs py-1 px-2.5"
                       >
-                        Negar
+                        Negar credencial
                       </button>
                     </td>
                   </tr>
@@ -242,102 +260,144 @@ function maskDocument(document: string): string {
         </div>
       </ng-template>
 
-      <!-- Modal: Solicitar credencial -->
-      <div
-        *ngIf="showCredentialModal()"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
-        role="dialog"
-        aria-modal="true"
+      <app-modal
+        [open]="showCredentialModal()"
+        title="Solicitar credencial"
+        [subtitle]="selectedLink()?.company?.company_name || ''"
+        size="md"
+        (close)="fecharModalCredencial()"
       >
-        <button
-          type="button"
-          class="absolute inset-0 bg-slate-900/50"
-          aria-label="Fechar"
-          (click)="fecharModalCredencial()"
-        ></button>
-        <div class="relative w-full max-w-md card-surface p-6 shadow-xl">
-          <h3 class="text-lg font-bold text-slate-800 mb-1">Solicitar credencial</h3>
-          <p *ngIf="selectedLink()" class="text-sm text-slate-500 mb-4">
-            {{ selectedLink()!.company.company_name }}
-          </p>
-
-          <form [formGroup]="credentialRequestForm" (ngSubmit)="onCredentialModalSubmit()">
-            <ng-container *ngIf="credentialModalStep() === 'search'">
-              <div class="space-y-3">
-                <div>
-                  <label class="text-xs font-bold text-slate-500 uppercase">Tipo de documento</label>
-                  <select
-                    formControlName="id_collaborator_document_type"
-                    class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
-                  >
-                    <option [ngValue]="null">Selecione</option>
-                    <option *ngFor="let t of documentTypes()" [ngValue]="t.id_collaborator_document_type">
-                      {{ t.description }}
-                    </option>
-                  </select>
-                </div>
-                <div>
-                  <label class="text-xs font-bold text-slate-500 uppercase">Documento</label>
-                  <input
-                    formControlName="document"
-                    placeholder="CPF ou documento"
-                    class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-              <div class="flex gap-2 mt-6">
-                <button type="button" (click)="fecharModalCredencial()" class="btn-secondary flex-1">Cancelar</button>
-                <button
-                  type="submit"
-                  [disabled]="searchingCollaborator()"
-                  class="btn-primary flex-1 disabled:opacity-50"
-                >
-                  {{ searchingCollaborator() ? 'Buscando...' : 'Buscar' }}
-                </button>
-              </div>
-            </ng-container>
-
-            <ng-container *ngIf="credentialModalStep() === 'confirm'">
-              <div *ngIf="foundCollaborator() as col" class="bg-slate-50 rounded-xl p-4 mb-4 text-sm">
-                <p class="font-semibold text-slate-800">{{ col.name }}</p>
-                <p class="text-slate-500 mt-1">Documento: {{ col.document }}</p>
-                <p *ngIf="col.phone" class="text-slate-500">Telefone: {{ col.phone }}</p>
-                <p *ngIf="col.role" class="text-slate-500">Função cadastrada: {{ col.role.description }}</p>
-              </div>
+        <form
+          id="credential-request-form"
+          [formGroup]="credentialRequestForm"
+          (ngSubmit)="onCredentialModalSubmit()"
+        >
+          <ng-container *ngIf="credentialModalStep() === 'search'">
+            <div class="space-y-3">
               <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Função no evento</label>
+                <label class="form-label" for="cred-doc-type">Tipo de documento</label>
                 <select
-                  formControlName="id_collaborator_role"
-                  class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
+                  id="cred-doc-type"
+                  formControlName="id_collaborator_document_type"
+                  class="form-select"
                 >
                   <option [ngValue]="null">Selecione</option>
-                  <option *ngFor="let r of roles()" [ngValue]="r.id_collaborator_role">
-                    {{ r.description }}
+                  <option *ngFor="let t of documentTypes()" [ngValue]="t.id_collaborator_document_type">
+                    {{ t.description }}
                   </option>
                 </select>
               </div>
-              <button
-                *ngIf="canRequestDocumentChange()"
-                type="button"
-                class="btn-secondary w-full text-sm mb-3"
-                (click)="solicitarCorrecaoDocumento()"
-              >
-                Corrigir documento
-              </button>
-              <div class="flex gap-2 mt-6">
-                <button type="button" (click)="voltarParaBusca()" class="btn-secondary flex-1">Voltar</button>
-                <button
-                  type="submit"
-                  [disabled]="submittingCredential()"
-                  class="btn-primary flex-1 disabled:opacity-50"
-                >
-                  {{ submittingCredential() ? 'Enviando...' : 'Confirmar solicitação' }}
-                </button>
+              <div>
+                <label class="form-label" for="cred-document">Documento</label>
+                <input
+                  id="cred-document"
+                  formControlName="document"
+                  placeholder="CPF ou documento"
+                  class="form-field"
+                />
               </div>
-            </ng-container>
-          </form>
+            </div>
+          </ng-container>
+
+          <ng-container *ngIf="credentialModalStep() === 'confirm'">
+            <div *ngIf="foundCollaborator() as col" class="bg-slate-50 rounded-xl p-4 mb-4 text-sm">
+              <p class="font-semibold text-slate-800">{{ col.name }}</p>
+              <p class="text-slate-500 mt-1">Documento: {{ col.document }}</p>
+              <p *ngIf="col.phone" class="text-slate-500">Telefone: {{ col.phone }}</p>
+              <p *ngIf="col.role" class="text-slate-500">Função cadastrada: {{ col.role.description }}</p>
+            </div>
+            <div>
+              <label class="form-label" for="cred-role">Função no evento</label>
+              <select
+                id="cred-role"
+                formControlName="id_collaborator_role"
+                class="form-select"
+              >
+                <option [ngValue]="null">Selecione</option>
+                <option *ngFor="let r of roles()" [ngValue]="r.id_collaborator_role">
+                  {{ r.description }}
+                </option>
+              </select>
+            </div>
+            <button
+              *ngIf="canRequestDocumentChange()"
+              type="button"
+              class="btn-action-tonal w-full text-sm mt-3"
+              (click)="solicitarCorrecaoDocumento()"
+            >
+              Corrigir documento
+            </button>
+          </ng-container>
+        </form>
+        <div modal-footer class="modal-footer">
+          <ng-container *ngIf="credentialModalStep() === 'search'">
+            <button type="button" (click)="fecharModalCredencial()" class="btn-action-secondary">Cancelar</button>
+            <button
+              type="submit"
+              form="credential-request-form"
+              [disabled]="searchingCollaborator()"
+              class="btn-action-primary"
+            >
+              {{ searchingCollaborator() ? 'Buscando...' : 'Buscar colaborador' }}
+            </button>
+          </ng-container>
+          <ng-container *ngIf="credentialModalStep() === 'confirm'">
+            <button type="button" (click)="voltarParaBusca()" class="btn-action-secondary">Voltar</button>
+            <button
+              type="submit"
+              form="credential-request-form"
+              [disabled]="submittingCredential()"
+              class="btn-action-primary"
+            >
+              {{ submittingCredential() ? 'Enviando...' : 'Confirmar solicitação' }}
+            </button>
+          </ng-container>
         </div>
-      </div>
+      </app-modal>
+
+      <app-modal
+        [open]="showPeriodModal()"
+        title="Ajustar período"
+        subtitle="Ao alterar as datas de um evento aprovado, a solicitação volta para o fluxo de aprovação."
+        size="sm"
+        (close)="fecharModalPeriodo()"
+      >
+        <form id="event-period-form" (ngSubmit)="salvarPeriodo()" class="space-y-4">
+          <div>
+            <label class="form-label" for="event-period-start">Data início</label>
+            <input
+              id="event-period-start"
+              type="date"
+              class="form-field"
+              [(ngModel)]="periodForm.start"
+              name="eventPeriodStart"
+              required
+            />
+          </div>
+          <div>
+            <label class="form-label" for="event-period-end">Data fim</label>
+            <input
+              id="event-period-end"
+              type="date"
+              class="form-field"
+              [(ngModel)]="periodForm.end"
+              name="eventPeriodEnd"
+              required
+            />
+          </div>
+        </form>
+        <div modal-footer class="modal-footer">
+          <button type="button" class="btn-action-secondary" (click)="fecharModalPeriodo()">Cancelar</button>
+          <button
+            type="submit"
+            form="event-period-form"
+            class="btn-action-primary"
+            [disabled]="periodSaving()"
+          >
+            {{ periodSaving() ? 'Salvando...' : 'Salvar período' }}
+          </button>
+        </div>
+      </app-modal>
     </div>
   `,
 })
@@ -348,7 +408,7 @@ export class EventDetailComponent implements OnInit {
   readonly formatDateBr = formatDateBr;
   readonly statusBadgeClass = statusBadgeClass;
   readonly maskDocument = maskDocument;
-  readonly STATUS_AGUARDANDO_ALLIANZ = STATUS_AGUARDANDO_ALLIANZ;
+  readonly STATUS_AGUARDANDO_APROVACAO = STATUS_AGUARDANDO_APROVACAO;
   readonly STATUS_AGUARDANDO_PRODUTORA = STATUS_AGUARDANDO_PRODUTORA;
 
   event = signal<EventDetail | null>(null);
@@ -365,6 +425,9 @@ export class EventDetailComponent implements OnInit {
   foundCollaborator = signal<CollaboratorItem | null>(null);
   searchingCollaborator = signal(false);
   submittingCredential = signal(false);
+  showPeriodModal = signal(false);
+  periodSaving = signal(false);
+  periodForm = { start: '', end: '' };
 
   isAdmin = false;
   userRole = '';
@@ -431,7 +494,71 @@ export class EventDetailComponent implements OnInit {
   }
 
   canAdminAct(cred: CredentialItem): boolean {
-    return this.isAdmin && cred.id_access_status === STATUS_AGUARDANDO_ALLIANZ;
+    return this.isAdmin && cred.id_access_status === STATUS_AGUARDANDO_APROVACAO;
+  }
+
+  eventStatusClass(status?: number | null): string {
+    switch (Number(status)) {
+      case 3:
+        return 'bg-emerald-100 text-emerald-800';
+      case 4:
+        return 'bg-red-100 text-red-800';
+      case 2:
+        return 'bg-amber-100 text-amber-800';
+      default:
+        return 'bg-slate-100 text-slate-700';
+    }
+  }
+
+  abrirModalPeriodo() {
+    const ev = this.event();
+    if (!ev) return;
+    this.periodForm = {
+      start: String(ev.start || '').slice(0, 10),
+      end: String(ev.end || '').slice(0, 10),
+    };
+    this.showPeriodModal.set(true);
+  }
+
+  fecharModalPeriodo() {
+    this.showPeriodModal.set(false);
+  }
+
+  salvarPeriodo() {
+    const ev = this.event();
+    if (!ev) return;
+    if (!this.periodForm.start || !this.periodForm.end) {
+      this.notification.error('Informe as datas de início e fim.');
+      return;
+    }
+    if (this.periodForm.end < this.periodForm.start) {
+      this.notification.error('Data fim deve ser igual ou posterior à data início.');
+      return;
+    }
+    this.periodSaving.set(true);
+    this.eventService
+      .updatePeriod(ev.id_event, {
+        start: this.periodForm.start,
+        end: this.periodForm.end,
+      })
+      .subscribe({
+        next: (res) => {
+          this.periodSaving.set(false);
+          this.event.set(res.event);
+          this.fecharModalPeriodo();
+          if (res.event.approvalReopened) {
+            this.notification.success('Período atualizado. Evento enviado novamente para aprovação.');
+          } else {
+            this.notification.success('Período atualizado.');
+          }
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.periodSaving.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao ajustar período.');
+          this.cdr.markForCheck();
+        },
+      });
   }
 
   isLinkExpanded(idEventDayCompany: number): boolean {
@@ -776,7 +903,7 @@ export class EventDetailComponent implements OnInit {
       if (!result.isConfirmed) return;
       this.credentialService
         .updateStatus(cred.id_event_day_company_collaborator, {
-          id_access_status: STATUS_AGUARDANDO_ALLIANZ,
+          id_access_status: STATUS_AGUARDANDO_APROVACAO,
         })
         .subscribe({
           next: () => {

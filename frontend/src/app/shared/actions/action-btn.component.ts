@@ -80,6 +80,16 @@ import { ActionIconName, ActionIconVariant } from './action-icon.type';
             <path d="M10 11v6" />
             <path d="M14 11v6" />
           </g>
+          <!-- Restaurar -->
+          <g *ngSwitchCase="'restore'">
+            <path d="M3 12a9 9 0 1 0 3-6.7" />
+            <path d="M3 4v5h5" />
+          </g>
+          <!-- Desativar -->
+          <g *ngSwitchCase="'deactivate'">
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+            <path d="M12 2v10" />
+          </g>
         </ng-container>
       </svg>
     </button>
@@ -88,7 +98,7 @@ import { ActionIconName, ActionIconVariant } from './action-icon.type';
 export class ActionBtnComponent {
   @Input({ required: true }) icon!: ActionIconName;
   @Input({ required: true }) title!: string;
-  @Input() variant: ActionIconVariant = 'primary';
+  @Input() variant: ActionIconVariant = 'neutral';
   @Input() disabled = false;
   @Output() action = new EventEmitter<void>();
 }

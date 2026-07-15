@@ -13,6 +13,9 @@ import {
 import { NotificationService } from '../../../core/services/notification.service';
 import { ActionBtnComponent } from '../../../shared/actions/action-btn.component';
 import { ActionMenuComponent } from '../../../shared/actions/action-menu.component';
+import { ActionDropdownComponent } from '../../../shared/actions/action-dropdown.component';
+import { ActionDropdownItemDirective } from '../../../shared/actions/action-dropdown-item.directive';
+import { ModalComponent } from '../../../shared/modal/modal.component';
 
 interface CompanyFormState {
   id_company_type: number | null;
@@ -25,7 +28,15 @@ interface CompanyFormState {
 @Component({
   selector: 'app-company-list',
   standalone: true,
-  imports: [CommonModule, FormsModule, ActionBtnComponent, ActionMenuComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ActionBtnComponent,
+    ActionMenuComponent,
+    ActionDropdownComponent,
+    ActionDropdownItemDirective,
+    ModalComponent,
+  ],
   template: `
     <div class="w-full">
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5 shrink-0">
@@ -130,20 +141,24 @@ interface CompanyFormState {
                   <div class="flex justify-end">
                     <app-action-menu>
                       <app-action-btn icon="edit" title="Editar" variant="neutral" (action)="editar(c)" />
-                      <app-action-btn
-                        *ngIf="c.status"
-                        icon="delete"
-                        title="Desativar"
-                        variant="danger"
-                        (action)="alterarStatus(c, false)"
-                      />
-                      <app-action-btn
-                        *ngIf="!c.status"
-                        icon="send"
-                        title="Ativar"
-                        variant="primary"
-                        (action)="alterarStatus(c, true)"
-                      />
+                      <app-action-dropdown>
+                        <button appActionDropdownItem type="button" (click)="alterarStatus(c, !c.status)">
+                          <svg
+                            class="action-dropdown__item-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                            <path d="M12 2v10" />
+                          </svg>
+                          {{ c.status ? 'Desativar' : 'Ativar' }}
+                        </button>
+                      </app-action-dropdown>
                     </app-action-menu>
                   </div>
                 </td>
@@ -189,69 +204,65 @@ interface CompanyFormState {
       </div>
     </div>
 
-    <div
-      *ngIf="showModal()"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
+    <app-modal
+      [open]="showModal()"
+      [title]="editingId() ? 'Editar empresa' : 'Nova empresa'"
+      subtitle="Cadastre dados da empresa e contatos vinculados."
+      size="xl"
+      (close)="fecharModal()"
     >
-      <button type="button" class="absolute inset-0 bg-slate-900/50" aria-label="Fechar" (click)="fecharModal()"></button>
-      <div class="relative w-full max-w-3xl card-surface p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <h3 class="text-lg font-bold text-slate-800">
-            {{ editingId() ? 'Editar empresa' : 'Nova empresa' }}
-          </h3>
-          <button type="button" (click)="fecharModal()" class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
-        </div>
-
-        <form class="space-y-4" (ngSubmit)="salvar()">
+      <form id="company-form" class="space-y-4" (ngSubmit)="salvar()">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Tipo</label>
+              <label class="form-label" for="company-type">Tipo</label>
               <select
+                id="company-type"
                 [(ngModel)]="form.id_company_type"
                 name="id_company_type"
                 required
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
+                class="form-select"
               >
                 <option [ngValue]="null" disabled>Selecione</option>
                 <option *ngFor="let t of types()" [ngValue]="t.id_company_type">{{ t.description }}</option>
               </select>
             </div>
             <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">CNPJ</label>
+              <label class="form-label" for="company-cnpj">CNPJ</label>
               <input
+                id="company-cnpj"
                 [(ngModel)]="form.cnpj"
                 name="cnpj"
                 required
                 maxlength="18"
                 placeholder="00.000.000/0000-00"
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 font-mono text-sm"
+                class="form-field font-mono text-sm"
               />
             </div>
             <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Razão social</label>
+              <label class="form-label" for="company-name">Razão social</label>
               <input
+                id="company-name"
                 [(ngModel)]="form.company_name"
                 name="company_name"
                 required
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+                class="form-field"
               />
             </div>
             <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Nome fantasia</label>
+              <label class="form-label" for="company-fancy">Nome fantasia</label>
               <input
+                id="company-fancy"
                 [(ngModel)]="form.fancy_name"
                 name="fancy_name"
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+                class="form-field"
               />
             </div>
           </div>
 
           <div>
             <div class="flex items-center justify-between mb-2">
-              <label class="text-xs font-bold text-slate-500 uppercase">Contatos</label>
-              <button type="button" (click)="adicionarContato()" class="btn-secondary text-xs py-1 px-3">+ Contato</button>
+              <label class="form-label mb-0">Contatos</label>
+              <button type="button" (click)="adicionarContato()" class="btn-action-tonal text-xs">+ Contato</button>
             </div>
             <div *ngIf="form.contacts.length === 0" class="text-sm text-slate-500 py-2">Nenhum contato adicionado.</div>
             <div
@@ -298,16 +309,14 @@ interface CompanyFormState {
               </div>
             </div>
           </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" (click)="fecharModal()" class="btn-secondary">Cancelar</button>
-            <button type="submit" [disabled]="saving()" class="btn-primary disabled:opacity-50">
-              {{ saving() ? 'Salvando...' : 'Salvar' }}
-            </button>
-          </div>
-        </form>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" (click)="fecharModal()" class="btn-action-secondary">Cancelar</button>
+        <button type="submit" form="company-form" [disabled]="saving()" class="btn-action-primary">
+          {{ saving() ? 'Salvando...' : (editingId() ? 'Salvar alterações' : 'Salvar empresa') }}
+        </button>
       </div>
-    </div>
+    </app-modal>
   `,
 })
 export class CompanyListComponent {

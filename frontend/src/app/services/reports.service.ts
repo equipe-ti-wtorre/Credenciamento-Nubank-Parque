@@ -15,7 +15,7 @@ export interface DashboardMetrics {
   accessesLast7Days: { day: string; total: number }[];
   kpis: {
     activeCompanies: number;
-    pendingAllianz: number;
+    pendingApproval: number;
     accessesToday: number;
   };
   topCompanies: { label: string; total: number }[];

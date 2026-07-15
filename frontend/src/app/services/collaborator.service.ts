@@ -19,6 +19,26 @@ export interface CollaboratorBulkUploadResult {
   errors: { line: number; reason: string }[];
 }
 
+export interface FaceValidationCheck {
+  id: string;
+  status: 'ok' | 'falha' | 'aviso';
+  medido?: unknown;
+  limite?: unknown;
+  fabricantes_afetados?: string[];
+  tipo?: string;
+  mensagem?: string;
+}
+
+export interface FaceValidationReport {
+  apto: { controlid: boolean; dahua: boolean };
+  checagens: FaceValidationCheck[];
+  resumo?: {
+    bloqueios_intrinsecos: FaceValidationCheck[];
+    ajustaveis: FaceValidationCheck[];
+  };
+  meta?: Record<string, unknown>;
+}
+
 export interface CollaboratorItem {
   id_collaborator: number;
   id_collaborator_document_type: number;
@@ -30,6 +50,7 @@ export interface CollaboratorItem {
   picture?: string | null;
   status: boolean;
   is_blacklisted: boolean;
+  can_delete?: boolean;
   criado_em: string;
   atualizado_em: string;
   document_type: CollaboratorDocumentType | null;
@@ -37,6 +58,7 @@ export interface CollaboratorItem {
 }
 
 export interface CollaboratorListFilters {
+  q?: string;
   name?: string;
   document?: string;
   status?: boolean;
@@ -76,6 +98,18 @@ export class CollaboratorService {
 
   listRoles(): Observable<{ roles: CollaboratorRole[] }> {
     return this.api.get<{ roles: CollaboratorRole[] }>('/collaborators/roles');
+  }
+
+  createRole(description: string): Observable<{ role: CollaboratorRole }> {
+    return this.api.post<{ role: CollaboratorRole }>('/collaborators/roles', { description });
+  }
+
+  updateRole(id: number, description: string): Observable<{ role: CollaboratorRole }> {
+    return this.api.put<{ role: CollaboratorRole }>(`/collaborators/roles/${id}`, { description });
+  }
+
+  deleteRole(id: number): Observable<{ success: boolean }> {
+    return this.api.delete<{ success: boolean }>(`/collaborators/roles/${id}`);
   }
 
   list(
@@ -132,10 +166,34 @@ export class CollaboratorService {
     return this.api.delete<{ collaborator: CollaboratorItem }>(`/collaborators/${id}/blacklist`);
   }
 
+  delete(id: number): Observable<{ success: boolean }> {
+    return this.api.delete<{ success: boolean }>(`/collaborators/${id}`);
+  }
+
   bulkUpload(file: File): Observable<CollaboratorBulkUploadResult> {
     const form = new FormData();
     form.append('file', file, file.name);
     return this.api.postFormData<CollaboratorBulkUploadResult>('/collaborators/bulk', form);
+  }
+
+  bulkPreview(file: File) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.api.postFormData<import('../shared/bulk-import/bulk-import.types').BulkPreviewResult>(
+      '/collaborators/bulk/preview',
+      form,
+    );
+  }
+
+  bulkCommit(previewId: string, decisions: import('../shared/bulk-import/bulk-import.types').BulkDecision[]) {
+    return this.api.post<import('../shared/bulk-import/bulk-import.types').BulkCommitResult>(
+      '/collaborators/bulk/commit',
+      { previewId, decisions },
+    );
+  }
+
+  downloadBulkTemplate(): Observable<Blob> {
+    return this.api.getBlob('/collaborators/bulk/template');
   }
 
   uploadPicture(id: number, file: File): Observable<{ collaborator: CollaboratorItem; picture: string }> {
@@ -145,6 +203,12 @@ export class CollaboratorService {
       `/collaborators/${id}/picture`,
       form,
     );
+  }
+
+  validateFacePicture(file: File): Observable<FaceValidationReport> {
+    const form = new FormData();
+    form.append('picture', file, file.name);
+    return this.api.postFormData<FaceValidationReport>('/faces/validar', form);
   }
 
   getPictureBlob(filename: string): Observable<Blob> {
@@ -157,6 +221,7 @@ export class CollaboratorService {
     filters: CollaboratorListFilters,
   ): HttpParams {
     let params = new HttpParams().set('page', String(page)).set('limit', String(limit));
+    if (filters.q?.trim()) params = params.set('q', filters.q.trim());
     if (filters.name?.trim()) params = params.set('name', filters.name.trim());
     if (filters.document?.trim()) params = params.set('document', filters.document.trim());
     if (filters.status !== undefined) params = params.set('status', String(filters.status));

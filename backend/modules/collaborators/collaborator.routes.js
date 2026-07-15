@@ -2,49 +2,77 @@ const express = require("express");
 const collaboratorController = require("./collaborator.controller");
 const documentChangeController = require("./document-change.controller");
 const domainRoutes = require("./domain.routes");
-const { authMiddleware, authorizeRoles } = require("../../middleware/authMiddleware");
+const { authMiddleware } = require("../../middleware/authMiddleware");
+const { authorizePermission } = require("../../middleware/permissionMiddleware");
 const { bulkUploadMiddleware, pictureUploadMiddleware } = require("../../middleware/upload.middleware");
 
 const router = express.Router();
-const adminOnly = [authMiddleware, authorizeRoles("ADMIN")];
-const authenticated = [authMiddleware];
+const auth = authMiddleware;
+const canView = [auth, authorizePermission("collaborators", "view")];
+const canCreate = [auth, authorizePermission("collaborators", "create")];
+const canEdit = [auth, authorizePermission("collaborators", "edit")];
+const canDelete = [auth, authorizePermission("collaborators", "delete")];
+const docApprovalsView = [auth, authorizePermission("document_approvals", "view")];
+const docApprovalsEdit = [auth, authorizePermission("document_approvals", "edit")];
 
 router.use(domainRoutes);
 
-router.get("/search", ...authenticated, collaboratorController.search);
-router.get("/", ...adminOnly, collaboratorController.list);
+router.get("/search", ...canView, collaboratorController.search);
+router.get("/", ...canView, collaboratorController.list);
+router.get(
+  "/bulk/template",
+  ...canView,
+  collaboratorController.downloadBulkTemplate,
+);
+router.post(
+  "/bulk/preview",
+  ...canCreate,
+  bulkUploadMiddleware,
+  collaboratorController.bulkPreview,
+);
+router.post(
+  "/bulk/commit",
+  ...canCreate,
+  collaboratorController.bulkCommit,
+);
 router.post(
   "/bulk",
-  ...authenticated,
+  ...canCreate,
   bulkUploadMiddleware,
   collaboratorController.bulkCreate,
 );
 router.get(
+  "/document-change/pending/count",
+  ...docApprovalsView,
+  documentChangeController.countPending,
+);
+router.get(
   "/document-change/pending",
-  ...adminOnly,
+  ...docApprovalsView,
   documentChangeController.listPending,
 );
 router.patch(
   "/document-change/:id/status",
-  ...adminOnly,
+  ...docApprovalsEdit,
   documentChangeController.patchStatus,
 );
-router.get("/:id", ...authenticated, collaboratorController.getById);
-router.post("/", ...authenticated, collaboratorController.create);
+router.get("/:id", ...canView, collaboratorController.getById);
+router.post("/", ...canCreate, collaboratorController.create);
 router.post(
   "/:id/picture",
-  ...adminOnly,
+  ...canEdit,
   pictureUploadMiddleware,
   collaboratorController.uploadPicture,
 );
 router.post(
   "/:id/document-change",
-  ...authenticated,
+  ...canCreate,
   documentChangeController.create,
 );
-router.put("/:id", ...adminOnly, collaboratorController.update);
-router.patch("/:id/status", ...adminOnly, collaboratorController.patchStatus);
-router.post("/:id/blacklist", ...adminOnly, collaboratorController.addBlacklist);
-router.delete("/:id/blacklist", ...adminOnly, collaboratorController.removeBlacklist);
+router.put("/:id", ...canEdit, collaboratorController.update);
+router.patch("/:id/status", ...canEdit, collaboratorController.patchStatus);
+router.post("/:id/blacklist", ...canEdit, collaboratorController.addBlacklist);
+router.delete("/:id/blacklist", ...canEdit, collaboratorController.removeBlacklist);
+router.delete("/:id", ...canDelete, collaboratorController.deleteCollaborator);
 
 module.exports = router;

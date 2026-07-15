@@ -49,6 +49,12 @@ const env = {
     (process.env.TEAMS_APP_EXTERNAL_ID || "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c").trim() || null,
   /** ID da integração Teams (canal) para alertas de credenciamento; se vazio, usa a primeira ativa. */
   teamsCredentialsIntegrationId: Number(process.env.TEAMS_CREDENTIALS_INTEGRATION_ID) || null,
+  /** Bot Framework — opcional no .env; se vazio, usa tenant principal de azure_tenants. */
+  teamsBotAppId: (process.env.TEAMS_BOT_APP_ID || process.env.TEAMS_AAD_CLIENT_ID || "").trim() || null,
+  teamsBotAppPassword: (process.env.TEAMS_BOT_APP_PASSWORD || "").trim() || null,
+  teamsBotAppTenantId: (process.env.TEAMS_BOT_TENANT_ID || "").trim() || null,
+  /** Service URL regional do Bot Connector (ex.: https://smba.trafficmanager.net/amer/). */
+  teamsBotServiceUrl: (process.env.TEAMS_BOT_SERVICE_URL || "https://smba.trafficmanager.net/amer/").trim(),
   /** Desativa rate limit (apenas dev/teste local). */
   rateLimitDisabled:
     String(process.env.RATE_LIMIT_DISABLED || "false").toLowerCase() === "true",
@@ -81,6 +87,46 @@ const env = {
     String(process.env.AUDIT_ARCHIVE_DRY_RUN || "false").toLowerCase() === "true",
   /** Tolerância em horas para acesso fora da meia-noite (montagem/desmontagem). */
   gateAccessToleranceHours: Math.max(0, Number(process.env.GATE_ACCESS_TOLERANCE_HOURS) || 6),
+
+  /**
+   * Validador facial (Control iD + Dahua) — limiares a calibrar com fotos reais do balcão.
+   * Não gera embedding/reconhecimento; só qualidade + viabilidade de variante.
+   */
+  faces: {
+    centerMaxOffsetRatio: Number(process.env.FACES_CENTER_MAX_OFFSET_RATIO) || 0.15,
+    marginMinRatio: Number(process.env.FACES_MARGIN_MIN_RATIO) || 0.05,
+    widthMinRatio: Number(process.env.FACES_WIDTH_MIN_RATIO) || 0.25,
+    /** Fotos de crachá/ID costumam preencher ~60–70% da largura. */
+    widthMaxRatio: Number(process.env.FACES_WIDTH_MAX_RATIO) || 0.75,
+    poseMaxYawDeg: Number(process.env.FACES_POSE_MAX_YAW_DEG) || 20,
+    poseMaxPitchDeg: Number(process.env.FACES_POSE_MAX_PITCH_DEG) || 20,
+    poseMaxRollDeg: Number(process.env.FACES_POSE_MAX_ROLL_DEG) || 15,
+    poseMarginDeg: Number(process.env.FACES_POSE_MARGIN_DEG) || 5,
+    /** Divergência máxima roll PnP vs linha dos olhos para manter confiante. */
+    poseRollSanityMaxDeg: Number(process.env.FACES_POSE_ROLL_SANITY_MAX_DEG) || 12,
+    earMin: Number(process.env.FACES_EAR_MIN) || 0.22,
+    /** Variância do Laplaciano — a calibrar. */
+    laplacianMin: Number(process.env.FACES_LAPLACIAN_MIN) || 80,
+    lumaMin: Number(process.env.FACES_LUMA_MIN) || 60,
+    lumaMax: Number(process.env.FACES_LUMA_MAX) || 200,
+    satHighRatioMax: Number(process.env.FACES_SAT_HIGH_RATIO_MAX) || 0.15,
+    satLowRatioMax: Number(process.env.FACES_SAT_LOW_RATIO_MAX) || 0.15,
+    opencvInitTimeoutMs: Number(process.env.FACES_OPENCV_INIT_TIMEOUT_MS) || 15000,
+    dahua: {
+      minShort: Number(process.env.FACES_DAHUA_MIN_SHORT) || 150,
+      minLong: Number(process.env.FACES_DAHUA_MIN_LONG) || 300,
+      maxShort: Number(process.env.FACES_DAHUA_MAX_SHORT) || 600,
+      maxLong: Number(process.env.FACES_DAHUA_MAX_LONG) || 1200,
+      minSide: Number(process.env.FACES_DAHUA_MIN_SIDE) || 500,
+      /** Abaixo de minShort/minLong = bloqueio; entre soft e minSide = aviso. */
+      minSideSoft: Number(process.env.FACES_DAHUA_MIN_SIDE_SOFT) || 360,
+      maxBytes: Number(process.env.FACES_DAHUA_MAX_BYTES) || 102400,
+    },
+    controlid: {
+      maxBytes: Number(process.env.FACES_CONTROLID_MAX_BYTES) || 1048576,
+    },
+    modelsPath: process.env.FACES_MODELS_PATH || "./models/face-api",
+  },
 };
 
 requireInProduction("JWT_SECRET", env.jwtSecret);

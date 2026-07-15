@@ -1,15 +1,17 @@
 const express = require("express");
 const usersController = require("./users.controller");
-const { authMiddleware, authorizeRoles } = require("../../middleware/authMiddleware");
+const { authMiddleware } = require("../../middleware/authMiddleware");
+const { authorizePermission } = require("../../middleware/permissionMiddleware");
 
 const router = express.Router();
-const adminOnly = [authMiddleware, authorizeRoles("ADMIN")];
+const canView = [authMiddleware, authorizePermission("users", "view")];
+const canEdit = [authMiddleware, authorizePermission("users", "edit")];
 
-router.get("/", ...adminOnly, usersController.list);
-router.post("/sync-departments", ...adminOnly, usersController.syncDepartments);
-router.post("/sync-ad-users", ...adminOnly, usersController.syncAdUsers);
-router.get("/:id", ...adminOnly, usersController.getById);
-router.patch("/:id", ...adminOnly, usersController.update);
-router.post("/:id/sync-ad", ...adminOnly, usersController.syncUserDepartment);
+router.get("/", ...canView, usersController.list);
+router.post("/sync-departments", ...canEdit, usersController.syncDepartments);
+router.post("/sync-ad-users", ...canEdit, usersController.syncAdUsers);
+router.get("/:id", ...canView, usersController.getById);
+router.patch("/:id", ...canEdit, usersController.update);
+router.post("/:id/sync-ad", ...canEdit, usersController.syncUserDepartment);
 
 module.exports = router;

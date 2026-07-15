@@ -4,16 +4,19 @@ const db = require("../../config/db");
 const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
 const { assertUserCanAccess } = require("../../utils/userDepartment");
+const profilesService = require("../profiles/profiles.service");
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-function generateAccessToken(user) {
-  const role = user.perfil || user.role || "USER";
+async function generateAccessToken(user) {
+  const ctx = await profilesService.loadUserProfileContext(user.id);
+  const role = ctx?.codigo || user.role || "USER";
   const payload = {
     id: user.id,
     role,
+    id_perfil: ctx?.id_perfil || user.id_perfil || null,
     id_company: user.id_company != null ? user.id_company : null,
   };
   return jwt.sign(payload, env.jwtSecret, {
@@ -43,7 +46,7 @@ function getRefreshExpiryDate() {
 }
 
 async function createTokenPair(user, req) {
-  const accessToken = generateAccessToken(user);
+  const accessToken = await generateAccessToken(user);
   const refreshToken = generateRefreshToken();
   const tokenHash = hashToken(refreshToken);
   const expiresAt = getRefreshExpiryDate();
@@ -66,7 +69,7 @@ async function refreshAccessToken(refreshToken, req) {
 
   const tokenHash = hashToken(refreshToken);
   const [rows] = await db.execute(
-    `SELECT rt.*, u.id AS uid, u.perfil, u.ativo, u.departamento, u.id_company
+    `SELECT rt.*, u.id AS uid, u.ativo, u.departamento, u.id_company, u.id_perfil
      FROM refresh_tokens rt
      JOIN usuarios u ON u.id = rt.user_id
      WHERE rt.token_hash = ? AND rt.revoked_at IS NULL AND rt.expires_at > NOW()
@@ -86,11 +89,19 @@ async function refreshAccessToken(refreshToken, req) {
 
   const user = {
     id: row.user_id,
-    perfil: row.perfil,
+    id_perfil: row.id_perfil,
     id_company: row.id_company != null ? row.id_company : null,
   };
-  const accessToken = generateAccessToken(user);
-  return { accessToken, user };
+  const accessToken = await generateAccessToken(user);
+  const ctx = await profilesService.loadUserProfileContext(user.id);
+  return {
+    accessToken,
+    user: {
+      ...user,
+      role: ctx?.codigo || "USER",
+      perfil: ctx?.codigo || "USER",
+    },
+  };
 }
 
 async function revokeRefreshToken(refreshToken) {

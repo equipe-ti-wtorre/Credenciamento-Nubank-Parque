@@ -26,6 +26,10 @@ const reportsRoutes = require("./modules/reports/reports.routes");
 const materialsRoutes = require("./modules/materials/materials.routes");
 const storageRoutes = require("./modules/storage/storage.routes");
 const healthRoutes = require("./modules/health/health.routes");
+const approvalsRoutes = require("./modules/approvals/approvals.routes");
+const profilesRoutes = require("./modules/profiles/profiles.routes");
+const sectorsRoutes = require("./modules/sectors/sectors.routes");
+const alertsRoutes = require("./modules/alerts/alerts.routes");
 
 const app = express();
 
@@ -53,6 +57,7 @@ v1Router.use("/auth", authRoutes);
 v1Router.use("/tenants", tenantRoutes);
 v1Router.use("/smtp", smtpRoutes);
 v1Router.use("/system-settings", systemSettingsRoutes);
+v1Router.use("/teams/bot", require("./modules/teams/bot/bot.routes"));
 v1Router.use("/teams", teamsRoutes);
 v1Router.use("/system-reports", systemReportsRoutes);
 v1Router.use("/users", usersRoutes);
@@ -67,6 +72,11 @@ v1Router.use("/reports", reportsRoutes);
 v1Router.use("/materials", materialsRoutes);
 v1Router.use("/storage", storageRoutes);
 v1Router.use("/health", healthRoutes);
+v1Router.use("/approvals", approvalsRoutes);
+v1Router.use("/profiles", profilesRoutes);
+v1Router.use("/sectors", sectorsRoutes);
+v1Router.use("/alerts", alertsRoutes);
+v1Router.use("/faces", require("./modules/faces/faces.routes"));
 
 app.use("/api/v1", v1Router);
 

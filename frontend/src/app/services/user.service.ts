@@ -3,7 +3,13 @@ import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
-export type UserRole = 'ADMIN' | 'USER' | 'PRODUTORA' | 'PADRAO' | 'CONTROLADOR';
+export interface UserProfileRef {
+  id: number;
+  codigo: string;
+  nome: string;
+  requires_company?: boolean;
+  is_super_admin?: boolean;
+}
 
 export interface UserItem {
   id: number;
@@ -11,7 +17,10 @@ export interface UserItem {
   nome_completo: string;
   email: string;
   departamento: string | null;
-  role: UserRole;
+  id_perfil: number | null;
+  role: string;
+  profile?: UserProfileRef | null;
+  id_company?: number | null;
   is_ad_user: boolean;
   ativo: boolean;
   session_idle_minutes?: number | null;
@@ -21,7 +30,7 @@ export interface UserItem {
 
 export interface UserListFilters {
   search?: string;
-  perfil?: string;
+  id_perfil?: number;
 }
 
 export interface UserListResponse {
@@ -35,12 +44,13 @@ export interface UserListResponse {
 }
 
 export interface UserUpdatePayload {
-  perfil?: UserRole;
+  id_perfil?: number;
   ativo?: boolean;
   email?: string;
   password?: string;
   nome_completo?: string;
   departamento?: string;
+  id_company?: number | null;
   session_idle_minutes?: number | null;
 }
 
@@ -91,14 +101,8 @@ export class UserService {
   private buildParams(page: number, limit: number, filters: UserListFilters): HttpParams {
     let params = new HttpParams().set('page', String(page)).set('limit', String(limit));
     if (filters.search?.trim()) params = params.set('search', filters.search.trim());
-    if (
-      filters.perfil === 'ADMIN' ||
-      filters.perfil === 'USER' ||
-      filters.perfil === 'PRODUTORA' ||
-      filters.perfil === 'PADRAO' ||
-      filters.perfil === 'CONTROLADOR'
-    ) {
-      params = params.set('perfil', filters.perfil);
+    if (filters.id_perfil && filters.id_perfil > 0) {
+      params = params.set('id_perfil', String(filters.id_perfil));
     }
     return params;
   }

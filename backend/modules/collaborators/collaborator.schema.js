@@ -94,6 +94,14 @@ const blacklistSchema = Joi.object({
   reason: Joi.string().min(10).max(500).required(),
 });
 
+const roleCreateSchema = Joi.object({
+  description: Joi.string().trim().min(2).max(100).required(),
+});
+
+const roleUpdateSchema = Joi.object({
+  description: Joi.string().trim().min(2).max(100).required(),
+});
+
 async function validateAndNormalizeCollaboratorPayload(payload, { isUpdate = false } = {}) {
   const base = isUpdate ? collaboratorUpdateSchema : collaboratorCreateSchema;
   const { error, value } = base.validate(payload);
@@ -154,6 +162,8 @@ module.exports = {
   collaboratorStatusSchema,
   collaboratorSearchSchema,
   blacklistSchema,
+  roleCreateSchema,
+  roleUpdateSchema,
   validateAndNormalizeCollaboratorPayload,
   validateSearchQuery,
   validateDocumentByType,

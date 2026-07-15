@@ -17,11 +17,16 @@ import {
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subscription, filter } from 'rxjs';
-import { AuthService } from '../core/services/auth.service';
+import { AuthService, AuthUser, hasPermission, isSectorGestor } from '../core/services/auth.service';
 import { SessionIdleService } from '../core/services/session-idle.service';
 import { StorageService } from '../core/services/storage.service';
+import { ApiService } from '../core/services/api.service';
+import { NotificationService } from '../core/services/notification.service';
+import { ApprovalService } from '../services/approval.service';
 import { DocumentChangeService } from '../services/document-change.service';
-import { ADMIN_MENU_ITEMS } from '../config/admin-menu.config';
+import { ADMIN_MENU_ITEMS, ADMIN_MENU_MODULE_MAP, AdminMenuItem, MenuIconLibrary } from '../config/admin-menu.config';
+import { NotificationsDropdownComponent } from './notifications-dropdown.component';
+import { TeamsContextService } from '../services/teams-context.service';
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
 const DEFAULT_TITLE = 'Credenciamento';
@@ -29,10 +34,15 @@ const DEFAULT_TITLE = 'Credenciamento';
 interface NavItem {
   label: string;
   route: string;
-  iconHtml: SafeHtml;
+  iconHtml?: SafeHtml;
+  iconLibrary?: MenuIconLibrary;
+  iconName?: string;
+  iconSrc?: string;
   exact?: boolean;
-  /** Mostra o badge de pendencias (resolvido via signal pendingApprovals). */
+  /** Mostra o badge de pendencias (aprovacoes de evento/acesso ou documentos). */
   showBadge?: boolean;
+  /** Fonte do contador do badge; default = approvals. */
+  badgeSource?: 'approvals' | 'document';
 }
 interface NavGroup {
   title?: string;
@@ -43,7 +53,7 @@ interface NavGroup {
   selector: 'app-main-layout',
   standalone: true,
   encapsulation: ViewEncapsulation.None,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, NotificationsDropdownComponent],
   templateUrl: './main-layout.component.html',
   styleUrls: ['./main-layout.component.scss'],
 })
@@ -51,16 +61,17 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
   collapsed = signal(false);
   pageTitle = signal(DEFAULT_TITLE);
   pendingApprovals = signal(0);
+  pendingDocumentApprovals = signal(0);
 
   navGroups: NavGroup[] = [];
 
   userName = '';
   userRoleLabel = '';
   userPhotoUrl: string | null = null;
-  isAdmin = false;
-  canAccessEvents = false;
-  canAccessGate = false;
+  currentUser: AuthUser | null = null;
   loggingOut = false;
+  notifyPortaria = false;
+  prefSaving = false;
 
   /** Icones SVG sanitizados UMA vez (sem chamada de metodo por render). */
   private readonly iconMap: Map<string, SafeHtml>;
@@ -96,11 +107,15 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     private authService: AuthService,
     private sessionIdle: SessionIdleService,
     private storage: StorageService,
-    private documentChange: DocumentChangeService,
+    private api: ApiService,
+    private notification: NotificationService,
+    private approvalService: ApprovalService,
+    private documentChangeService: DocumentChangeService,
     private router: Router,
     private activatedRoute: ActivatedRoute,
     private sanitizer: DomSanitizer,
     private cdr: ChangeDetectorRef,
+    private teamsContext: TeamsContextService,
   ) {
     this.iconMap = new Map(
       Object.entries(this.rawIcons).map(([key, path]) => [key, this.buildIcon(path)]),
@@ -115,6 +130,31 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
 
   private iconFor(key: string): SafeHtml {
     return this.iconMap.get(key) ?? '';
+  }
+
+  private mapMenuItem(item: AdminMenuItem): NavItem {
+    const nav: NavItem = {
+      label: item.label,
+      route: item.route,
+      showBadge: item.route === '/admin/aprovacoes-documento',
+      badgeSource: item.route === '/admin/aprovacoes-documento' ? 'document' : undefined,
+    };
+    if (item.iconLibrary === 'image' && item.iconSrc) {
+      nav.iconLibrary = 'image';
+      nav.iconSrc = item.iconSrc;
+      return nav;
+    }
+    if (item.iconLibrary && item.iconName) {
+      nav.iconLibrary = item.iconLibrary;
+      nav.iconName = item.iconName;
+      return nav;
+    }
+    nav.iconHtml = this.iconFor(item.iconKey ?? 'home');
+    return nav;
+  }
+
+  faIconClass(iconName: string): string {
+    return `fa-solid fa-${iconName}`;
   }
 
   get userInitials(): string {
@@ -133,24 +173,37 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
 
     void this.sessionIdle.startMonitoring();
 
+    // Sino / card do Teams: contentUrl é "/" — navegar para /aprovacoes/:id via subEntityId
+    try {
+      const teamsPath = await this.teamsContext.getDeepLinkPath();
+      if (teamsPath) {
+        const pathOnly = teamsPath.split('?')[0];
+        if (!this.router.url.startsWith(pathOnly)) {
+          void this.router.navigateByUrl(teamsPath);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
     const user = await this.authService.getCurrentUser();
+    this.currentUser = user;
     this.userName = user?.nome_completo || user?.email || 'Usuário';
-    const role = String(user?.role || user?.perfil || '').toUpperCase();
-    this.isAdmin = role === 'ADMIN';
-    this.canAccessEvents = role === 'ADMIN' || role === 'PRODUTORA' || role === 'PADRAO';
-    this.canAccessGate = role === 'ADMIN' || role === 'CONTROLADOR';
-    this.userRoleLabel = this.roleLabel(role);
+    this.userRoleLabel = user?.profile?.nome || this.roleLabel(String(user?.role || user?.perfil || ''));
+    this.notifyPortaria = !!user?.notificar_portaria;
     this.userPhotoUrl = await this.authService.resolveUserPhoto();
+    this.refreshPreferencesFromApi();
 
     this.buildNav();
-    if (this.isAdmin) {
-      this.loadPendingApprovals();
-    }
+    this.loadPendingBadges();
 
     this.resolveTitle();
     this.routerSub = this.router.events
       .pipe(filter((e) => e instanceof NavigationEnd))
-      .subscribe(() => this.resolveTitle());
+      .subscribe(() => {
+        this.resolveTitle();
+        this.loadPendingBadges();
+      });
 
     this.cdr.detectChanges();
   }
@@ -175,63 +228,112 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
   }
 
   private buildNav(): void {
-    const groups: NavGroup[] = [
-      {
-        items: [
-          { label: 'Início', route: '/dashboard', iconHtml: this.iconFor('home'), exact: true },
-        ],
-      },
-    ];
+    const user = this.currentUser;
+    const groups: NavGroup[] = [];
 
-    if (this.canAccessGate) {
-      const operacaoItems: NavItem[] = [
-        { label: 'Portaria', route: '/portaria', iconHtml: this.iconFor('gate'), exact: true },
-        { label: 'Registrar entrada', route: '/mercadorias/entrada', iconHtml: this.iconFor('in') },
-        { label: 'Registrar saída', route: '/mercadorias/saida', iconHtml: this.iconFor('out') },
-      ];
-      if (this.isAdmin) {
-        operacaoItems.push({
-          label: 'Negações de credenciamento',
-          route: '/operacao/negacoes-credenciamento',
-          iconHtml: this.iconFor('chart'),
-        });
-      }
-      groups.push({
-        title: 'Operação',
-        items: operacaoItems,
+    const baseItems: NavItem[] = [];
+    if (hasPermission(user, 'dashboard', 'view')) {
+      baseItems.push({ label: 'Início', route: '/dashboard', iconHtml: this.iconFor('home'), exact: true });
+    }
+    if (hasPermission(user, 'approvals', 'view')) {
+      baseItems.push({
+        label: 'Aprovações',
+        route: '/aprovacoes',
+        iconHtml: this.iconFor('doc'),
+        showBadge: true,
+        badgeSource: 'approvals',
       });
     }
-
-    if (this.canAccessEvents && !this.isAdmin) {
-      groups.push({
-        title: 'Operação',
-        items: [
-          { label: 'Eventos', route: '/admin/eventos', iconHtml: this.iconFor('calendar') },
-          { label: 'Frota', route: '/admin/frota', iconHtml: this.iconFor('truck') },
-          { label: 'Serviços', route: '/admin/solicitacoes-servico', iconHtml: this.iconFor('wrench') },
-        ],
-      });
+    if (baseItems.length) {
+      groups.push({ items: baseItems });
     }
 
-    if (this.isAdmin) {
+    const operacaoItems: NavItem[] = [];
+    if (hasPermission(user, 'gate', 'view')) {
+      operacaoItems.push({ label: 'Portaria', route: '/portaria', iconHtml: this.iconFor('gate'), exact: true });
+    }
+    if (hasPermission(user, 'merchandise_entry', 'view')) {
+      operacaoItems.push({ label: 'Registrar entrada', route: '/mercadorias/entrada', iconHtml: this.iconFor('in') });
+    }
+    if (hasPermission(user, 'merchandise_exit', 'view')) {
+      operacaoItems.push({ label: 'Registrar saída', route: '/mercadorias/saida', iconHtml: this.iconFor('out') });
+    }
+    if (hasPermission(user, 'credential_denials', 'view')) {
+      operacaoItems.push({
+        label: 'Negações de credenciamento',
+        route: '/operacao/negacoes-credenciamento',
+        iconHtml: this.iconFor('chart'),
+      });
+    }
+    if (hasPermission(user, 'events', 'view')) {
+      operacaoItems.push({ label: 'Eventos', route: '/admin/eventos', iconHtml: this.iconFor('calendar') });
+    }
+    if (hasPermission(user, 'fleet', 'view')) {
+      operacaoItems.push({
+        label: 'Frota',
+        route: '/admin/frota',
+        iconLibrary: 'image',
+        iconSrc: 'assets/icons/frota.png',
+      });
+    }
+    if (hasPermission(user, 'service_access', 'view')) {
+      operacaoItems.push({
+        label: 'Acessos de Serviço',
+        route: '/admin/acessos-servico',
+        iconHtml: this.iconFor('wrench'),
+      });
+    }
+    if (operacaoItems.length) {
+      groups.push({ title: 'Operação', items: operacaoItems });
+    }
+
+    const adminItems = ADMIN_MENU_ITEMS.filter((item) => {
+      const module = ADMIN_MENU_MODULE_MAP[item.route];
+      return module ? hasPermission(user, module, 'view') : true;
+    }).map((item) => this.mapMenuItem(item));
+
+    if (adminItems.length) {
+      groups.push({ title: 'Administração', items: adminItems });
+    } else if (isSectorGestor(user) && hasPermission(user, 'sectors', 'view')) {
       groups.push({
-        title: 'Administração',
-        items: ADMIN_MENU_ITEMS.map((item) => ({
-          label: item.label,
-          route: item.route,
-          iconHtml: this.iconFor(item.iconKey),
-          showBadge: item.route === '/admin/aprovacoes-documento',
-        })),
+        title: 'Gestão',
+        items: [{ label: 'Setores', route: '/admin/setores', iconHtml: this.iconFor('users') }],
       });
     }
 
     this.navGroups = groups;
   }
 
+  badgeCountFor(item: NavItem): number {
+    return item.badgeSource === 'document'
+      ? this.pendingDocumentApprovals()
+      : this.pendingApprovals();
+  }
+
+  private loadPendingBadges(): void {
+    this.loadPendingApprovals();
+    this.loadPendingDocumentApprovals();
+  }
+
   private loadPendingApprovals(): void {
-    this.documentChange.listPending().subscribe({
-      next: (res) => this.pendingApprovals.set(res.requests?.length ?? 0),
+    if (!hasPermission(this.currentUser, 'approvals', 'view')) {
+      this.pendingApprovals.set(0);
+      return;
+    }
+    this.approvalService.countPending().subscribe({
+      next: (res) => this.pendingApprovals.set(res.total ?? 0),
       error: () => this.pendingApprovals.set(0),
+    });
+  }
+
+  private loadPendingDocumentApprovals(): void {
+    if (!hasPermission(this.currentUser, 'document_approvals', 'view')) {
+      this.pendingDocumentApprovals.set(0);
+      return;
+    }
+    this.documentChangeService.countPending().subscribe({
+      next: (res) => this.pendingDocumentApprovals.set(res.total ?? 0),
+      error: () => this.pendingDocumentApprovals.set(0),
     });
   }
 
@@ -252,6 +354,46 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
   onPhotoError(): void {
     this.userPhotoUrl = null;
     this.cdr.detectChanges();
+  }
+
+  private refreshPreferencesFromApi(): void {
+    this.api.get<{ user: AuthUser }>('/auth/me').subscribe({
+      next: async (res) => {
+        if (!res.user) return;
+        this.currentUser = res.user;
+        this.notifyPortaria = !!res.user.notificar_portaria;
+        await this.storage.set('currentUser', JSON.stringify(res.user));
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        /* preferência segue com valor local */
+      },
+    });
+  }
+
+  toggleNotifyPortaria(event: Event): void {
+    const checked = !!(event.target as HTMLInputElement)?.checked;
+    this.prefSaving = true;
+    this.api.patch<{ user: AuthUser }>('/auth/me/preferences', { notificar_portaria: checked }).subscribe({
+      next: async (res) => {
+        this.notifyPortaria = !!res.user?.notificar_portaria;
+        this.currentUser = res.user;
+        await this.storage.set('currentUser', JSON.stringify(res.user));
+        this.prefSaving = false;
+        this.notification.success(
+          this.notifyPortaria
+            ? 'Você receberá alertas de entrada na portaria.'
+            : 'Alertas de portaria desativados.',
+        );
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        this.prefSaving = false;
+        this.notifyPortaria = !checked;
+        this.notification.notifyHttpError(err, 'Não foi possível salvar a preferência.');
+        this.cdr.detectChanges();
+      },
+    });
   }
 
   async toggleSidebar() {

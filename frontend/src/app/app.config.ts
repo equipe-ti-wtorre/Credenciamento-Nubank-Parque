@@ -35,6 +35,11 @@ export function msalConfigInitializer(msalConfigService: MsalConfigService) {
   return () => msalConfigService.load();
 }
 
+/** Processa retorno Azure / popup Teams antes do router (evita CancelledByUser por corrida). */
+export function teamsAuthRedirectInitializer(authService: AuthService) {
+  return () => authService.handleRedirect();
+}
+
 export function authTokensInitializer(authService: AuthService) {
   return () => authService.ensureTokensLoaded();
 }
@@ -66,6 +71,12 @@ export const appConfig: ApplicationConfig = {
       provide: APP_INITIALIZER,
       useFactory: msalConfigInitializer,
       deps: [MsalConfigService],
+      multi: true,
+    },
+    {
+      provide: APP_INITIALIZER,
+      useFactory: teamsAuthRedirectInitializer,
+      deps: [AuthService],
       multi: true,
     },
     {

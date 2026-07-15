@@ -1,16 +1,22 @@
 const express = require("express");
 const teamsController = require("./teams.controller");
-const { authMiddleware, authorizeRoles } = require("../../middleware/authMiddleware");
+const { authMiddleware } = require("../../middleware/authMiddleware");
+const { authorizePermission } = require("../../middleware/permissionMiddleware");
 
 const router = express.Router();
+const auth = authMiddleware;
+const canView = [auth, authorizePermission("settings_teams", "view")];
+const canCreate = [auth, authorizePermission("settings_teams", "create")];
+const canEdit = [auth, authorizePermission("settings_teams", "edit")];
+const canDelete = [auth, authorizePermission("settings_teams", "delete")];
 
-router.get("/", authMiddleware, authorizeRoles("ADMIN"), teamsController.list);
-router.get("/config", authMiddleware, authorizeRoles("ADMIN"), teamsController.config);
-router.get("/:id", authMiddleware, authorizeRoles("ADMIN"), teamsController.getById);
-router.post("/", authMiddleware, authorizeRoles("ADMIN"), teamsController.create);
-router.put("/:id", authMiddleware, authorizeRoles("ADMIN"), teamsController.update);
-router.delete("/:id", authMiddleware, authorizeRoles("ADMIN"), teamsController.remove);
-router.post("/:id/test", authMiddleware, authorizeRoles("ADMIN"), teamsController.test);
-router.post("/:id/send", authMiddleware, authorizeRoles("ADMIN"), teamsController.send);
+router.get("/", ...canView, teamsController.list);
+router.get("/config", ...canView, teamsController.config);
+router.get("/:id", ...canView, teamsController.getById);
+router.post("/", ...canCreate, teamsController.create);
+router.put("/:id", ...canEdit, teamsController.update);
+router.delete("/:id", ...canDelete, teamsController.remove);
+router.post("/:id/test", ...canEdit, teamsController.test);
+router.post("/:id/send", ...canEdit, teamsController.send);
 
 module.exports = router;

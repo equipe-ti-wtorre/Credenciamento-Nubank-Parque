@@ -124,7 +124,7 @@ export class DashboardComponent implements OnInit {
       },
       {
         label: 'Aguardando Aprovação',
-        value: m.kpis.pendingAllianz,
+        value: m.kpis.pendingApproval,
         iconHtml: this.icon('clock'),
         tone: 'amber',
         delta: 'Pendente',

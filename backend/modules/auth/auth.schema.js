@@ -13,4 +13,8 @@ const logoutSchema = Joi.object({
   refreshToken: Joi.string().optional(),
 });
 
-module.exports = { loginSchema, refreshSchema, logoutSchema };
+const preferencesSchema = Joi.object({
+  notificar_portaria: Joi.boolean().required(),
+}).min(1);
+
+module.exports = { loginSchema, refreshSchema, logoutSchema, preferencesSchema };

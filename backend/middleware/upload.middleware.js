@@ -109,5 +109,6 @@ module.exports = {
   bulkUploadMiddleware,
   pictureUploadMiddleware,
   merchandisePhotoMiddleware,
+  createUploadMiddleware,
   MAX_FILE_SIZE,
 };

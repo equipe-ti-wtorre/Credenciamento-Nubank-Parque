@@ -89,10 +89,34 @@ async function validateMicrosoftToken(req, res, next) {
       `SELECT client_id FROM azure_tenants WHERE ativo = 1 AND eh_principal = 1 LIMIT 1`,
     );
     const principalClientId = principalRows[0]?.client_id || null;
-    const allowedAudiences = new Set([tenant.client_id]);
-    if (principalClientId) allowedAudiences.add(principalClientId);
+    const allowedAudiences = new Set([tenant.client_id, `api://${tenant.client_id}`]);
+    if (principalClientId) {
+      allowedAudiences.add(principalClientId);
+      allowedAudiences.add(`api://${principalClientId}`);
+    }
+    // SSO Teams: Application ID URI no formato api://{hostname}/{clientId}
+    const hostHint =
+      (typeof req.get === "function" && (req.get("x-forwarded-host") || req.get("host"))) ||
+      process.env.PUBLIC_HOST ||
+      "cred.allianzparque.intra";
+    const hostname = String(hostHint).split(":")[0].toLowerCase();
+    if (hostname && tenant.client_id) {
+      allowedAudiences.add(`api://${hostname}/${tenant.client_id}`);
+    }
+    if (hostname && principalClientId) {
+      allowedAudiences.add(`api://${hostname}/${principalClientId}`);
+    }
 
-    if (!allowedAudiences.has(aud)) {
+    const audOk =
+      allowedAudiences.has(aud) ||
+      (typeof aud === "string" &&
+        [...allowedAudiences].some((a) => aud === a || aud.startsWith(`${a}/`))) ||
+      (typeof aud === "string" &&
+        /^api:\/\/[^/]+\/[0-9a-f-]{36}$/i.test(aud) &&
+        (aud.endsWith(`/${tenant.client_id}`) ||
+          (principalClientId && aud.endsWith(`/${principalClientId}`))));
+
+    if (!audOk) {
       return rejectMicrosoftAuth(
         req,
         res,

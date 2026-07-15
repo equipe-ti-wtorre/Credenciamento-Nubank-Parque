@@ -6,6 +6,8 @@ const COLLABORATORS_API = /^\/api\/(?:v1\/)?collaborators(?:\/|$)/;
 const EVENTS_API = /^\/api\/(?:v1\/)?events(?:\/|$)/;
 const CREDENTIALS_API = /^\/api\/(?:v1\/)?credentials(?:\/|$)/;
 const GATE_API = /^\/api\/(?:v1\/)?gate(?:\/|$)/;
+const APPROVALS_API = /^\/api\/(?:v1\/)?approvals(?:\/|$)/;
+const SECTORS_API = /^\/api\/(?:v1\/)?sectors(?:\/|$)/;
 
 function cleanPath(originalUrl) {
   return (originalUrl || "").split("?")[0];
@@ -469,6 +471,95 @@ function resolveGatePolicy(method, path) {
   return null;
 }
 
+function resolveApprovalsPolicy(method, path) {
+  if (!APPROVALS_API.test(path)) return null;
+
+  if (method === "GET" && /\/approvals\/pending\/?$/.test(path)) {
+    return { module: AUDIT_MODULES.APPROVALS, action: AUDIT_ACTIONS.LIST, event: "approvals.pending.list" };
+  }
+  if (method === "GET" && /\/approvals\/mine\/?$/.test(path)) {
+    return { module: AUDIT_MODULES.APPROVALS, action: AUDIT_ACTIONS.LIST, event: "approvals.mine.list" };
+  }
+  const readMatch = path.match(/\/approvals\/(\d+)\/?$/);
+  if (method === "GET" && readMatch) {
+    return {
+      module: AUDIT_MODULES.APPROVALS,
+      action: AUDIT_ACTIONS.READ,
+      event: "approvals.read",
+      resourceId: Number(readMatch[1]),
+    };
+  }
+  const approveMatch = path.match(/\/approvals\/(\d+)\/approve\/?$/);
+  if (method === "POST" && approveMatch) {
+    return {
+      module: AUDIT_MODULES.APPROVALS,
+      action: AUDIT_ACTIONS.APPROVE,
+      event: "approvals.approve",
+      resourceId: Number(approveMatch[1]),
+    };
+  }
+  const rejectMatch = path.match(/\/approvals\/(\d+)\/reject\/?$/);
+  if (method === "POST" && rejectMatch) {
+    return {
+      module: AUDIT_MODULES.APPROVALS,
+      action: AUDIT_ACTIONS.REJECT,
+      event: "approvals.reject",
+      resourceId: Number(rejectMatch[1]),
+    };
+  }
+  const cancelMatch = path.match(/\/approvals\/(\d+)\/cancel\/?$/);
+  if (method === "POST" && cancelMatch) {
+    return {
+      module: AUDIT_MODULES.APPROVALS,
+      action: AUDIT_ACTIONS.CANCEL,
+      event: "approvals.cancel",
+      resourceId: Number(cancelMatch[1]),
+    };
+  }
+  return null;
+}
+
+function resolveSectorsPolicy(method, path) {
+  if (!SECTORS_API.test(path)) return null;
+
+  if (method === "GET" && /\/sectors\/?$/.test(path)) {
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.LIST, event: "sectors.list" };
+  }
+  if (method === "POST" && /\/sectors\/?$/.test(path)) {
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.CREATE, event: "sectors.create" };
+  }
+  const sectorMatch = path.match(/\/sectors\/(\d+)(?:\/|$)/);
+  if (method === "PUT" && sectorMatch && !path.includes("/members") && !path.includes("/flows")) {
+    return {
+      module: AUDIT_MODULES.SECTORS,
+      action: AUDIT_ACTIONS.UPDATE,
+      event: "sectors.update",
+      resourceId: Number(sectorMatch[1]),
+    };
+  }
+  if (method === "PATCH" && /\/sectors\/\d+\/status\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)\/status/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.UPDATE, event: "sectors.status", resourceId: id };
+  }
+  if (method === "POST" && /\/sectors\/\d+\/members\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)\/members/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.CREATE, event: "sectors.members.add", resourceId: id };
+  }
+  if (method === "PATCH" && /\/sectors\/\d+\/members\/\d+\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)\/members/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.UPDATE, event: "sectors.members.update", resourceId: id };
+  }
+  if (method === "DELETE" && /\/sectors\/\d+\/members\/\d+\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)\/members/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.DEACTIVATE, event: "sectors.members.remove", resourceId: id };
+  }
+  if (method === "PUT" && /\/sectors\/\d+\/flows\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)\/flows/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.UPDATE, event: "sectors.flows.update", resourceId: id };
+  }
+  return null;
+}
+
 function resolveAuditPolicy(req) {
   const path = cleanPath(req.originalUrl);
   const method = req.method;
@@ -478,7 +569,9 @@ function resolveAuditPolicy(req) {
     resolveCollaboratorsPolicy(method, path) ||
     resolveEventsPolicy(method, path) ||
     resolveCredentialsPolicy(method, path) ||
-    resolveGatePolicy(method, path)
+    resolveGatePolicy(method, path) ||
+    resolveApprovalsPolicy(method, path) ||
+    resolveSectorsPolicy(method, path)
   );
 }
 

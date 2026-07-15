@@ -7,12 +7,23 @@ import { TenantService, AzureTenant } from '../../../services/tenant.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { ActionBtnComponent } from '../../../shared/actions/action-btn.component';
 import { ActionMenuComponent } from '../../../shared/actions/action-menu.component';
+import { ActionDropdownComponent } from '../../../shared/actions/action-dropdown.component';
+import { ActionDropdownItemDirective } from '../../../shared/actions/action-dropdown-item.directive';
+import { ModalComponent } from '../../../shared/modal/modal.component';
 import Swal from 'sweetalert2';
 
 @Component({
   selector: 'app-teams-integration',
   standalone: true,
-  imports: [CommonModule, FormsModule, ActionBtnComponent, ActionMenuComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ActionBtnComponent,
+    ActionMenuComponent,
+    ActionDropdownComponent,
+    ActionDropdownItemDirective,
+    ModalComponent,
+  ],
   template: `
     <div class="w-full">
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5 shrink-0">
@@ -77,21 +88,52 @@ import Swal from 'sweetalert2';
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end">
                     <app-action-menu>
-                    <app-action-btn
-                      icon="send"
-                      title="Testar notificação"
-                      variant="primary"
-                      [disabled]="testingId === i.id"
-                      (action)="testar(i)"
-                    />
-                    <app-action-btn icon="edit" title="Editar" variant="neutral" (action)="editar(i)" />
-                    <app-action-btn
-                      *ngIf="i.ativo"
-                      icon="delete"
-                      title="Desativar"
-                      variant="danger"
-                      (action)="desativar(i)"
-                    />
+                      <app-action-btn icon="edit" title="Editar" variant="neutral" (action)="editar(i)" />
+                      <app-action-dropdown>
+                        <button
+                          appActionDropdownItem
+                          type="button"
+                          [disabled]="testingId === i.id"
+                          (click)="testar(i)"
+                        >
+                          <svg
+                            class="action-dropdown__item-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="m22 2-7 20-4-9-9-4Z" />
+                            <path d="M22 2 11 13" />
+                          </svg>
+                          Testar notificação
+                        </button>
+                        <button
+                          *ngIf="i.ativo"
+                          appActionDropdownItem
+                          type="button"
+                          [danger]="true"
+                          (click)="desativar(i)"
+                        >
+                          <svg
+                            class="action-dropdown__item-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                            <path d="M12 2v10" />
+                          </svg>
+                          Desativar
+                        </button>
+                      </app-action-dropdown>
                     </app-action-menu>
                   </div>
                 </td>
@@ -112,45 +154,44 @@ import Swal from 'sweetalert2';
       </div>
     </div>
 
-    <div
-      *ngIf="showForm"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
+    <app-modal
+      [open]="showForm"
+      [title]="editingId ? 'Editar integração' : 'Nova integração Teams'"
+      subtitle="Configure destino, tenant Azure e permissões para notificações no Teams."
+      size="lg"
+      (close)="fecharForm()"
     >
-      <button type="button" class="absolute inset-0 bg-slate-900/50" aria-label="Fechar" (click)="fecharForm()"></button>
-      <div class="relative w-full max-w-2xl card-surface p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-        <h3 class="text-lg font-bold text-slate-800 mb-4">
-          {{ editingId ? 'Editar integração' : 'Nova integração Teams' }}
-        </h3>
-        <form class="grid grid-cols-1 md:grid-cols-2 gap-4" (ngSubmit)="salvar()">
+      <form id="teams-integration-form" class="grid grid-cols-1 md:grid-cols-2 gap-4" (ngSubmit)="salvar()">
           <div class="md:col-span-2">
-            <label class="text-xs font-bold text-slate-500 uppercase">Nome</label>
+            <label class="form-label" for="teams-nome">Nome</label>
             <input
+              id="teams-nome"
               [(ngModel)]="form.nome"
               name="nome"
               required
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              class="form-field"
             />
           </div>
           <div class="md:col-span-2">
-            <label class="text-xs font-bold text-slate-500 uppercase">Tipo de notificação</label>
+            <label class="form-label" for="teams-tipo">Tipo de notificação</label>
             <select
+              id="teams-tipo"
               [(ngModel)]="form.tipo"
               name="tipo"
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              class="form-select"
             >
               <option value="user">Usuário (feed de atividades / sino)</option>
               <option value="channel">Canal do Teams</option>
             </select>
           </div>
           <div class="md:col-span-2">
-            <label class="text-xs font-bold text-slate-500 uppercase">Tenant Azure</label>
+            <label class="form-label" for="teams-tenant">Tenant Azure</label>
             <select
+              id="teams-tenant"
               [(ngModel)]="form.azure_tenant_ref_id"
               name="azure_tenant_ref_id"
               required
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              class="form-select"
             >
               <option [ngValue]="0" disabled>Selecione um tenant</option>
               <option *ngFor="let t of tenantsAtivos" [ngValue]="t.id">{{ t.nome }}</option>
@@ -159,42 +200,45 @@ import Swal from 'sweetalert2';
 
           <ng-container *ngIf="form.tipo === 'user'">
             <div class="md:col-span-2">
-              <label class="text-xs font-bold text-slate-500 uppercase">E-mail do destinatário (teste padrão)</label>
+              <label class="form-label" for="teams-email">E-mail do destinatário (teste padrão)</label>
               <input
+                id="teams-email"
                 type="email"
                 [(ngModel)]="form.destinatario_email"
                 name="destinatario_email"
                 required
                 placeholder="usuario@empresa.com"
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                class="form-field"
               />
               <p class="text-xs text-slate-500 mt-1">
                 Mesmo e-mail/Microsoft 365 do usuário no Azure AD.
               </p>
             </div>
             <div class="md:col-span-2">
-              <label class="text-xs font-bold text-slate-500 uppercase">URL ao clicar na notificação (https)</label>
+              <label class="form-label" for="teams-url">URL ao clicar na notificação (https)</label>
               <input
+                id="teams-url"
                 type="url"
                 [(ngModel)]="form.activity_web_url"
                 name="activity_web_url"
                 required
                 placeholder="https://credenciamento.suaempresa.com"
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                class="form-field font-mono text-sm"
               />
               <p class="text-xs text-slate-500 mt-1">
                 URL do sistema (https). Ao clicar no sino, o Teams abre essa página via link interno do Teams.
               </p>
             </div>
             <div class="md:col-span-2">
-              <label class="text-xs font-bold text-slate-500 uppercase">Teams App ID</label>
+              <label class="form-label" for="teams-app-id">Teams App ID</label>
               <input
+                id="teams-app-id"
                 [(ngModel)]="form.teams_app_id"
                 name="teams_app_id"
                 required
                 pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
                 placeholder="7ba5b35a-67b1-4877-b65f-f0e17c373c2f"
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                class="form-field font-mono text-sm"
               />
               <p class="text-xs text-slate-500 mt-1">
                 ID do catálogo Graph. Obrigatório instalar o app: admin.teams.microsoft.com → Credenciamento →
@@ -205,21 +249,23 @@ import Swal from 'sweetalert2';
 
           <ng-container *ngIf="form.tipo === 'channel'">
             <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Team ID</label>
+              <label class="form-label" for="teams-team-id">Team ID</label>
               <input
+                id="teams-team-id"
                 [(ngModel)]="form.team_id"
                 name="team_id"
                 required
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                class="form-field font-mono text-sm"
               />
             </div>
             <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Channel ID</label>
+              <label class="form-label" for="teams-channel-id">Channel ID</label>
               <input
+                id="teams-channel-id"
                 [(ngModel)]="form.channel_id"
                 name="channel_id"
                 required
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                class="form-field font-mono text-sm"
               />
             </div>
           </ng-container>
@@ -230,21 +276,14 @@ import Swal from 'sweetalert2';
               Ativo
             </label>
           </div>
-          <div class="md:col-span-2 flex gap-2 justify-end pt-2">
-            <button
-              type="button"
-              (click)="fecharForm()"
-              class="px-4 py-2 border border-[var(--app-border)] rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancelar
-            </button>
-            <button type="submit" [disabled]="saving" class="btn-secondary disabled:opacity-50">
-              {{ saving ? 'Salvando...' : 'Salvar' }}
-            </button>
-          </div>
-        </form>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" (click)="fecharForm()" class="btn-action-secondary">Cancelar</button>
+        <button type="submit" form="teams-integration-form" [disabled]="saving" class="btn-action-primary">
+          {{ saving ? 'Salvando...' : (editingId ? 'Salvar alterações' : 'Criar integração') }}
+        </button>
       </div>
-    </div>
+    </app-modal>
   `,
 })
 export class TeamsIntegrationComponent implements SettingsReloadable {

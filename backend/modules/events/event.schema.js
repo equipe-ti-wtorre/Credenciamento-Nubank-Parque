@@ -25,6 +25,7 @@ const eventCreateSchema = Joi.object({
   end: Joi.alternatives()
     .try(Joi.date().iso(), Joi.string().isoDate())
     .required(),
+  id_setor: Joi.number().integer().positive().required(),
   days: Joi.array().items(eventDayItemSchema).optional(),
 })
   .custom((value, helpers) => {
@@ -54,8 +55,29 @@ const eventDayCompanySchema = Joi.object({
   id_producer: Joi.number().integer().positive().allow(null).optional(),
 });
 
+const eventPeriodSchema = Joi.object({
+  start: Joi.alternatives()
+    .try(Joi.date().iso(), Joi.string().isoDate())
+    .required(),
+  end: Joi.alternatives()
+    .try(Joi.date().iso(), Joi.string().isoDate())
+    .required(),
+})
+  .custom((value, helpers) => {
+    const start = toDateOnly(value.start);
+    const end = toDateOnly(value.end);
+    if (start > end) {
+      return helpers.error("event.dateRange");
+    }
+    return value;
+  })
+  .messages({
+    "event.dateRange": "A data de início deve ser anterior ou igual à data de término.",
+  });
+
 module.exports = {
   eventCreateSchema,
+  eventPeriodSchema,
   eventDayCompanySchema,
   eventDayItemSchema,
   toDateOnly,

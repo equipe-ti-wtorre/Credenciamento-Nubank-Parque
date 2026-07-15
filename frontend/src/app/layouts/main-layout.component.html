@@ -39,6 +39,15 @@
       <div class="meta">
         <div class="name">{{ userName }}</div>
         <div class="role">{{ userRoleLabel }}</div>
+        <label class="pref-gate" [title]="'Receber alerta no Teams quando um colaborador entrar na portaria'">
+          <input
+            type="checkbox"
+            [checked]="notifyPortaria"
+            [disabled]="prefSaving"
+            (change)="toggleNotifyPortaria($event)"
+          />
+          <span>Alerta portaria</span>
+        </label>
       </div>
     </div>
 
@@ -55,11 +64,21 @@
             [routerLinkActiveOptions]="{ exact: !!item.exact }"
             [title]="collapsed() ? item.label : ''"
           >
-            <span class="ico" [innerHTML]="item.iconHtml" aria-hidden="true"></span>
+            <span class="ico" aria-hidden="true">
+              @if (item.iconLibrary === 'fontawesome' && item.iconName) {
+                <i [class]="faIconClass(item.iconName)"></i>
+              } @else if (item.iconLibrary === 'material' && item.iconName) {
+                <span class="material-symbols-outlined">{{ item.iconName }}</span>
+              } @else if (item.iconLibrary === 'image' && item.iconSrc) {
+                <img [src]="item.iconSrc" alt="" class="nav-ico-img" />
+              } @else {
+                <span [innerHTML]="item.iconHtml"></span>
+              }
+            </span>
             <span class="txt">{{ item.label }}</span>
-            @if (item.showBadge && pendingApprovals() > 0) {
-              <span class="badge" [attr.aria-label]="pendingApprovals() + ' pendências'">{{
-                pendingApprovals()
+            @if (item.showBadge && badgeCountFor(item) > 0) {
+              <span class="badge" [attr.aria-label]="badgeCountFor(item) + ' pendências'">{{
+                badgeCountFor(item)
               }}</span>
             }
           </a>
@@ -114,23 +133,7 @@
           </svg>
           <input placeholder="Buscar empresa, colaborador..." aria-label="Busca global" />
         </div>
-        <!-- TODO(notificacoes): NotificationService so faz toasts; nao ha feed. Plugar a fonte do ping aqui. -->
-        <button type="button" class="icon-btn" aria-label="Notificações">
-          <span class="ping" aria-hidden="true"></span>
-          <svg
-            viewBox="0 0 24 24"
-            width="19"
-            height="19"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.9"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0" />
-          </svg>
-        </button>
+        <app-notifications-dropdown />
       </div>
     </header>
 

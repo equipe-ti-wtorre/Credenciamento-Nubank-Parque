@@ -9,20 +9,30 @@ import {
   EventService,
   formatDateBr,
 } from '../../../services/event.service';
+import { ApprovalService, EligibleSector } from '../../../services/approval.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { ModalComponent } from '../../../shared/modal/modal.component';
+import {
+  STATUS_AGUARDANDO_APROVACAO,
+  STATUS_AGUARDANDO_PRODUTORA,
+  STATUS_APROVADO,
+  STATUS_NEGADO,
+  statusBadgeClass,
+} from '../../../services/credential.service';
 
 interface EventFormState {
   name: string;
   start: string;
   end: string;
+  id_setor: number | null;
   days: EventDayInput[];
 }
 
 @Component({
   selector: 'app-event-list',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ModalComponent],
   template: `
     <div class="w-full">
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5 shrink-0">
@@ -33,10 +43,10 @@ interface EventFormState {
           </p>
         </div>
         <div class="flex flex-wrap gap-2 shrink-0">
-          <button type="button" (click)="carregar()" [disabled]="loading()" class="btn-secondary disabled:opacity-50">
+          <button type="button" (click)="carregar()" [disabled]="loading()" class="btn-action-secondary disabled:opacity-50">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
-          <button *ngIf="isAdmin" type="button" (click)="novoEvento()" class="btn-primary">+ Novo evento</button>
+          <button type="button" (click)="novoEvento()" class="btn-action-primary">+ Novo evento</button>
         </div>
       </div>
 
@@ -53,8 +63,8 @@ interface EventFormState {
           </div>
         </div>
         <div class="flex gap-2 mt-3">
-          <button type="button" (click)="aplicarFiltros()" class="btn-primary text-sm py-1.5 px-4">Filtrar</button>
-          <button type="button" (click)="limparFiltros()" class="btn-secondary text-sm py-1.5 px-4">Limpar</button>
+          <button type="button" (click)="aplicarFiltros()" class="btn-action-primary text-sm py-1.5 px-4">Filtrar</button>
+          <button type="button" (click)="limparFiltros()" class="btn-action-secondary text-sm py-1.5 px-4">Limpar</button>
         </div>
       </div>
 
@@ -65,6 +75,7 @@ interface EventFormState {
               <th class="px-4 py-3 text-left">Nome</th>
               <th class="px-4 py-3 text-left">Início</th>
               <th class="px-4 py-3 text-left">Término</th>
+              <th class="px-4 py-3 text-left">Aprovação</th>
               <th class="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
@@ -74,19 +85,80 @@ interface EventFormState {
                 <td class="px-4 py-3 font-medium text-slate-800">{{ e.name }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ formatDateBr(e.start) }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ formatDateBr(e.end) }}</td>
+                <td class="px-4 py-3">
+                  <span
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                    [ngClass]="statusBadgeClass(e.id_access_status || 0)"
+                  >
+                    <svg
+                      *ngIf="e.id_access_status === STATUS_APROVADO"
+                      class="w-3.5 h-3.5 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                    <svg
+                      *ngIf="e.id_access_status === STATUS_NEGADO"
+                      class="w-3.5 h-3.5 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 6 6 18M6 6l12 12" />
+                    </svg>
+                    <svg
+                      *ngIf="e.id_access_status === STATUS_AGUARDANDO_APROVACAO"
+                      class="w-3.5 h-3.5 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v5l3 2" />
+                    </svg>
+                    <svg
+                      *ngIf="e.id_access_status === STATUS_AGUARDANDO_PRODUTORA"
+                      class="w-3.5 h-3.5 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M5 2h14v4H5zM5 18h14v4H5z" />
+                      <path d="M8 6v2a4 4 0 0 0 8 0V6M8 18v-2a4 4 0 0 1 8 0v2" />
+                    </svg>
+                    {{ e.access_status_description || '—' }}
+                  </span>
+                </td>
                 <td class="px-4 py-3 text-right">
-                  <button type="button" (click)="configurar(e)" class="btn-secondary text-xs py-1 px-3">
-                    Configurar
+                  <button type="button" (click)="configurar(e)" class="btn-action-tonal text-xs py-1.5 px-3">
+                    Configurar evento
                   </button>
                 </td>
               </tr>
               <tr *ngIf="events().length === 0">
-                <td colspan="4" class="px-4 py-8 text-center text-slate-500">Nenhum evento encontrado.</td>
+                <td colspan="5" class="px-4 py-8 text-center text-slate-500">Nenhum evento encontrado.</td>
               </tr>
             </ng-container>
             <ng-template #loadingRow>
               <tr>
-                <td colspan="4" class="px-4 py-8 text-center text-slate-500">Carregando eventos...</td>
+                <td colspan="5" class="px-4 py-8 text-center text-slate-500">Carregando eventos...</td>
               </tr>
             </ng-template>
           </tbody>
@@ -121,56 +193,68 @@ interface EventFormState {
       </div>
     </div>
 
-    <div
-      *ngIf="showModal()"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
+    <app-modal
+      [open]="showModal()"
+      title="Novo evento"
+      subtitle="Informe nome, período, setor aprovador e dias opcionais do evento."
+      size="xl"
+      (close)="fecharModal()"
     >
-      <button type="button" class="absolute inset-0 bg-slate-900/50" aria-label="Fechar" (click)="fecharModal()"></button>
-      <div class="relative w-full max-w-3xl card-surface p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <h3 class="text-lg font-bold text-slate-800">Novo evento</h3>
-          <button type="button" (click)="fecharModal()" class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
-        </div>
-
-        <form class="space-y-4" (ngSubmit)="salvar()">
+      <form id="event-form" class="space-y-4" (ngSubmit)="salvar()">
           <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Nome</label>
+            <label class="form-label" for="event-name">Nome</label>
             <input
+              id="event-name"
               [(ngModel)]="form.name"
               name="eventName"
               required
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+              class="form-field"
             />
+          </div>
+          <div>
+            <label class="form-label" for="event-setor">Setor aprovador</label>
+            <select
+              id="event-setor"
+              [(ngModel)]="form.id_setor"
+              name="idSetor"
+              required
+              class="form-select"
+            >
+              <option [ngValue]="null" disabled>Selecione o setor</option>
+              <option *ngFor="let s of eligibleSectors()" [ngValue]="s.id">
+                {{ s.nome }}
+              </option>
+            </select>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Data início</label>
+              <label class="form-label" for="event-start">Data início</label>
               <input
+                id="event-start"
                 type="date"
                 [(ngModel)]="form.start"
                 name="eventStart"
                 required
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+                class="form-field"
               />
             </div>
             <div>
-              <label class="text-xs font-bold text-slate-500 uppercase">Data término</label>
+              <label class="form-label" for="event-end">Data término</label>
               <input
+                id="event-end"
                 type="date"
                 [(ngModel)]="form.end"
                 name="eventEnd"
                 required
-                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+                class="form-field"
               />
             </div>
           </div>
 
           <div>
             <div class="flex items-center justify-between mb-2">
-              <label class="text-xs font-bold text-slate-500 uppercase">Dias do evento</label>
-              <button type="button" (click)="adicionarDia()" class="btn-secondary text-xs py-1 px-3">+ Dia</button>
+              <label class="form-label mb-0">Dias do evento</label>
+              <button type="button" (click)="adicionarDia()" class="btn-action-tonal text-xs">+ Dia</button>
             </div>
             <p class="text-xs text-slate-500 mb-2">Opcional. Cada data deve estar entre início e término.</p>
             <div *ngIf="form.days.length === 0" class="text-sm text-slate-500 py-2">Nenhum dia adicionado.</div>
@@ -206,22 +290,25 @@ interface EventFormState {
               </div>
             </div>
           </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" (click)="fecharModal()" class="btn-secondary">Cancelar</button>
-            <button type="submit" [disabled]="saving()" class="btn-primary disabled:opacity-50">
-              {{ saving() ? 'Salvando...' : 'Salvar' }}
-            </button>
-          </div>
-        </form>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" (click)="fecharModal()" class="btn-action-secondary">Cancelar</button>
+        <button type="submit" form="event-form" [disabled]="saving()" class="btn-action-primary">
+          {{ saving() ? 'Salvando...' : 'Salvar evento' }}
+        </button>
       </div>
-    </div>
+    </app-modal>
   `,
 })
 export class EventListComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly router = inject(Router);
   readonly formatDateBr = formatDateBr;
+  readonly statusBadgeClass = statusBadgeClass;
+  readonly STATUS_APROVADO = STATUS_APROVADO;
+  readonly STATUS_NEGADO = STATUS_NEGADO;
+  readonly STATUS_AGUARDANDO_APROVACAO = STATUS_AGUARDANDO_APROVACAO;
+  readonly STATUS_AGUARDANDO_PRODUTORA = STATUS_AGUARDANDO_PRODUTORA;
 
   isAdmin = false;
 
@@ -230,6 +317,8 @@ export class EventListComponent implements OnInit {
   loading = signal(false);
   saving = signal(false);
   showModal = signal(false);
+
+  eligibleSectors = signal<EligibleSector[]>([]);
 
   pagination = signal({
     page: 1,
@@ -245,6 +334,7 @@ export class EventListComponent implements OnInit {
 
   constructor(
     private eventService: EventService,
+    private approvalService: ApprovalService,
     private notification: NotificationService,
     private authService: AuthService,
   ) {}
@@ -258,7 +348,7 @@ export class EventListComponent implements OnInit {
   }
 
   private emptyForm(): EventFormState {
-    return { name: '', start: '', end: '', days: [] };
+    return { name: '', start: '', end: '', id_setor: null, days: [] };
   }
 
   carregarTipos() {
@@ -308,6 +398,10 @@ export class EventListComponent implements OnInit {
 
   novoEvento() {
     this.form = this.emptyForm();
+    this.approvalService.listEligibleSectors('EVENTO').subscribe({
+      next: (res) => this.eligibleSectors.set(res.sectors),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar setores.'),
+    });
     this.showModal.set(true);
   }
 
@@ -342,6 +436,10 @@ export class EventListComponent implements OnInit {
       this.notification.error('A data de início deve ser anterior ou igual à data de término.');
       return;
     }
+    if (!this.form.id_setor) {
+      this.notification.error('Selecione o setor aprovador.');
+      return;
+    }
 
     for (let i = 0; i < this.form.days.length; i++) {
       const d = this.form.days[i];
@@ -365,6 +463,7 @@ export class EventListComponent implements OnInit {
       name: this.form.name.trim(),
       start: this.form.start,
       end: this.form.end,
+      id_setor: this.form.id_setor,
       days:
         this.form.days.length > 0
           ? this.form.days.map((d) => ({ date: d.date, id_type: d.id_type }))

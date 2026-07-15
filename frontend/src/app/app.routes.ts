@@ -10,6 +10,7 @@ import { SessionSettingsComponent } from './pages/admin/session/session-settings
 import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
 import { AboutComponent } from './pages/admin/about/about.component';
 import { SystemReportsComponent } from './pages/admin/system-reports/system-reports.component';
+import { ProfileListComponent } from './pages/admin/profiles/profile-list.component';
 import { UserListComponent } from './pages/admin/users/user-list.component';
 import { CompanyListComponent } from './pages/admin/companies/company-list.component';
 import { CollaboratorListComponent } from './pages/admin/collaborators/collaborator-list.component';
@@ -18,19 +19,47 @@ import { EventDetailComponent } from './pages/admin/events/event-detail.componen
 import { GateControlComponent } from './pages/gate/gate-control.component';
 import { VehicleListComponent } from './pages/patrimonial/vehicle-list.component';
 import { ServiceRequestListComponent } from './pages/patrimonial/service-request-list.component';
+import { ServiceAccessDetailComponent } from './pages/patrimonial/service-access-detail.component';
 import { DocumentApprovalsComponent } from './pages/admin/document-approvals/document-approvals.component';
 import { ProductListComponent } from './pages/admin/merchandise/product-list.component';
 import { StorageLocationListComponent } from './pages/admin/merchandise/storage-location-list.component';
 import { MerchandiseReportsComponent } from './pages/admin/merchandise/merchandise-reports.component';
 import { MerchandiseMovementPageComponent } from './pages/merchandise/merchandise-movement-page.component';
 import { CredentialDenialsReportComponent } from './pages/operations/credential-denials-report.component';
+import { SectorListComponent } from './pages/admin/sectors/sector-list.component';
+import { SectorDetailComponent } from './pages/admin/sectors/sector-detail.component';
+import { ApprovalsInboxComponent } from './pages/approvals/approvals-inbox.component';
 import { AuthGuard } from './core/guards/auth.guard';
+import { TeamsAwareAuthGuard } from './core/guards/teams-aware-auth.guard';
+import { PermissionGuard } from './core/guards/permission.guard';
+import { SectorGestorGuard } from './core/guards/sector-gestor.guard';
 
 export const routes: Routes = [
+  {
+    // Compat: rota Angular antiga → página estática (rápida, sem bootstrap).
+    path: 'auth/teams',
+    redirectTo: '/auth/teams.html',
+    pathMatch: 'full',
+  },
+  {
+    path: 'login/teams-popup',
+    redirectTo: '/auth/teams.html',
+    pathMatch: 'full',
+  },
   {
     path: 'login',
     component: AuthLayoutComponent,
     children: [{ path: '', component: LoginComponent }],
+  },
+  // Página focada (Teams / deep link) — SSO automático no Teams, sem tela de login
+  {
+    path: 'aprovacoes/:id',
+    loadComponent: () =>
+      import('./pages/approvals/teams-approval-page.component').then(
+        (m) => m.TeamsApprovalPageComponent,
+      ),
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard],
+    data: { permission: { module: 'approvals', action: 'view' }, title: 'Aprovação' },
   },
   {
     path: '',
@@ -41,155 +70,209 @@ export const routes: Routes = [
       {
         path: 'dashboard',
         component: DashboardComponent,
-        data: { roles: ['ADMIN', 'USER', 'CONTROLADOR'], title: 'Início' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'dashboard', action: 'view' }, title: 'Início' },
+      },
+      {
+        path: 'aprovacoes',
+        component: ApprovalsInboxComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'approvals', action: 'view' }, title: 'Aprovações' },
       },
       {
         path: 'portaria',
         component: GateControlComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['CONTROLADOR', 'ADMIN'], title: 'Portaria' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'gate', action: 'view' }, title: 'Portaria' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'mercadorias/entrada',
         component: MerchandiseMovementPageComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['CONTROLADOR', 'ADMIN'], movementType: 'ENTRADA', title: 'Registrar entrada' },
+        canActivate: [PermissionGuard],
+        data: {
+          permission: { module: 'merchandise_entry', action: 'view' },
+          movementType: 'ENTRADA',
+          title: 'Registrar entrada',
+        },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'mercadorias/saida',
         component: MerchandiseMovementPageComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['CONTROLADOR', 'ADMIN'], movementType: 'SAIDA', title: 'Registrar saída' },
+        canActivate: [PermissionGuard],
+        data: {
+          permission: { module: 'merchandise_exit', action: 'view' },
+          movementType: 'SAIDA',
+          title: 'Registrar saída',
+        },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'operacao/negacoes-credenciamento',
         component: CredentialDenialsReportComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Negações de credenciamento' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'credential_denials', action: 'view' }, title: 'Negações de credenciamento' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/perfis',
+        component: ProfileListComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'profiles', action: 'view' }, title: 'Perfis de acesso' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/usuarios',
         component: UserListComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Usuários' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'users', action: 'view' }, title: 'Usuários' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/empresas',
         component: CompanyListComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Empresas' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'companies', action: 'view' }, title: 'Empresas' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/colaboradores',
         component: CollaboratorListComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Colaboradores' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'collaborators', action: 'view' }, title: 'Colaboradores' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/aprovacoes-documento',
         component: DocumentApprovalsComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Aprovações de documento' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'document_approvals', action: 'view' }, title: 'Aprovações de documento' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/frota',
         component: VehicleListComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN', 'PRODUTORA', 'PADRAO'], title: 'Frota' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'fleet', action: 'view' }, title: 'Frota' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/acessos-servico',
+        component: ServiceRequestListComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'service_access', action: 'view' }, title: 'Acessos de Serviço' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/acessos-servico/:id',
+        component: ServiceAccessDetailComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'service_access', action: 'view' }, title: 'Detalhe do acesso de serviço' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/solicitacoes-servico',
-        component: ServiceRequestListComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN', 'PRODUTORA', 'PADRAO'], title: 'Solicitações de serviço' },
-        runGuardsAndResolvers: 'always',
+        redirectTo: 'admin/acessos-servico',
+        pathMatch: 'full',
       },
       {
         path: 'admin/eventos',
         component: EventListComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN', 'PRODUTORA', 'PADRAO'], title: 'Eventos' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'events', action: 'view' }, title: 'Eventos' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/eventos/:id',
         component: EventDetailComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN', 'PRODUTORA', 'PADRAO'], title: 'Detalhe do evento' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'events', action: 'view' }, title: 'Detalhe do evento' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/mercadorias/relatorios',
         component: MerchandiseReportsComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Relatórios de mercadorias' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'merchandise_reports', action: 'view' }, title: 'Relatórios de mercadorias' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/mercadorias-produtos',
         component: ProductListComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Produtos' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'merchandise_products', action: 'view' }, title: 'Produtos' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/mercadorias-locais',
         component: StorageLocationListComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Locais de armazenagem' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'merchandise_locations', action: 'view' }, title: 'Locais de armazenagem' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/setores',
+        component: SectorListComponent,
+        canActivate: [PermissionGuard, SectorGestorGuard],
+        data: { permission: { module: 'sectors', action: 'view' }, title: 'Setores' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/setores/:id',
+        component: SectorDetailComponent,
+        canActivate: [PermissionGuard, SectorGestorGuard],
+        data: { permission: { module: 'sectors', action: 'view' }, title: 'Detalhe do setor' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/configuracoes',
         component: SettingsLayoutComponent,
-        canActivate: [AuthGuard],
-        data: { roles: ['ADMIN'], title: 'Configurações' },
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'settings_tenants', action: 'view' }, title: 'Configurações' },
         children: [
           { path: '', redirectTo: 'tenants-azure', pathMatch: 'full' },
           {
             path: 'tenants-azure',
             component: TenantListComponent,
+            canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
-            data: { title: 'Tenants Azure' },
+            data: { permission: { module: 'settings_tenants', action: 'view' }, title: 'Tenants Azure' },
           },
           {
             path: 'smtp',
             component: SmtpSettingsComponent,
+            canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
-            data: { title: 'Envios SMTP' },
+            data: { permission: { module: 'settings_smtp', action: 'view' }, title: 'Envios SMTP' },
           },
           {
             path: 'sessao',
             component: SessionSettingsComponent,
+            canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
-            data: { title: 'Sessão' },
+            data: { permission: { module: 'settings_session', action: 'view' }, title: 'Sessão' },
           },
           {
             path: 'teams',
             component: TeamsIntegrationComponent,
+            canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
-            data: { title: 'Integração Teams' },
+            data: { permission: { module: 'settings_teams', action: 'view' }, title: 'Integração Teams' },
           },
           {
             path: 'relatorios-sistema',
             component: SystemReportsComponent,
+            canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
-            data: { title: 'Relatórios do sistema' },
+            data: { permission: { module: 'settings_system_reports', action: 'view' }, title: 'Relatórios do sistema' },
           },
           {
             path: 'sobre',
             component: AboutComponent,
+            canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
-            data: { title: 'Sobre' },
+            data: { permission: { module: 'settings_about', action: 'view' }, title: 'Sobre' },
           },
         ],
       },

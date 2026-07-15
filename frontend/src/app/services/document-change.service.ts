@@ -34,6 +34,10 @@ export class DocumentChangeService {
     );
   }
 
+  countPending(): Observable<{ total: number }> {
+    return this.api.get<{ total: number }>('/collaborators/document-change/pending/count');
+  }
+
   patchStatus(
     id: number,
     body: { status: 'APPROVED' | 'REJECTED'; admin_reason?: string },

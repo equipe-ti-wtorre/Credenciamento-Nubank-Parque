@@ -1,0 +1,45 @@
+// Design tokens — Intranet WTorre (fonte única de verdade)
+
+:root {
+  // Marca
+  --wtorre: #1d54e6;
+  --wtorre-hover: #1442ba;
+  --wtorre-tonal-bg: #e8eefd;
+  --wtorre-focus-ring: color-mix(in srgb, var(--wtorre) 25%, transparent);
+
+  // Perigo
+  --danger: #e11d48;
+  --danger-soft-bg: #fff1f2;
+  --danger-border: #fecdd3;
+
+  // Tipografia (fontes reais do projeto — referenciar sempre estes tokens)
+  --font-display: 'Sora', system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+
+  // Form / layout
+  --form-field-height: 2.625rem; // ~42px
+  --form-radius: 0.75rem;
+  --text-muted: #64748b;
+  --text-primary: #1e293b;
+
+  // Superfícies e bordas
+  --color-bg-primary: #f1f5f9;
+  --color-bg-surface: #ffffff;
+  --color-bg-surface-alt: #f8fafc;
+  --color-border-primary: #e2e8f0;
+  --app-bg: var(--color-bg-primary);
+  --app-text: var(--text-primary);
+  --app-text-muted: var(--text-muted);
+  --app-border: var(--color-border-primary);
+  --app-nav-hover-bg: #f1f5f9;
+  --app-nav-active-bg: color-mix(in srgb, var(--wtorre) 12%, white);
+  --app-nav-active-text: var(--wtorre);
+
+  // Aliases de compatibilidade (deprecar gradualmente)
+  --color-primary: var(--wtorre);
+  --color-primary-dark: var(--wtorre-hover);
+  --color-primary-light: color-mix(in srgb, var(--wtorre) 70%, white);
+  --color-success: var(--wtorre);
+  --color-text-primary: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+}

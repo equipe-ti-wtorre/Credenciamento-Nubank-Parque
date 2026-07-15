@@ -8,7 +8,14 @@ exports.list = async (req, res, next) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const filters = {};
+    if (req.query.q || req.query.search) filters.q = req.query.q || req.query.search;
     if (req.query.plate) filters.plate = req.query.plate;
+    if (req.query.brand) filters.brand = req.query.brand;
+    if (req.query.type) filters.type = req.query.type;
+    if (req.query.id_company) {
+      const idCompany = parseInt(req.query.id_company, 10);
+      if (!Number.isNaN(idCompany)) filters.id_company = idCompany;
+    }
     if (req.query.status !== undefined && req.query.status !== "") {
       filters.status = req.query.status === "true" || req.query.status === "1";
     }
@@ -44,6 +51,55 @@ exports.create = async (req, res, next) => {
     if (err.code === "ER_DUP_ENTRY") {
       return next(new AppError("Placa já cadastrada para esta empresa.", 409));
     }
+    next(err);
+  }
+};
+
+exports.downloadBulkTemplate = async (req, res, next) => {
+  try {
+    const { sendXlsx } = require("../../utils/bulkTemplateXlsx");
+    const file = await vehicleService.getFleetBulkTemplate(req);
+    sendXlsx(res, file);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.bulkPreview = async (req, res, next) => {
+  try {
+    const result = await vehicleService.previewBulkVehicles(req, req.file);
+    attachAudit(req, {
+      action: "CREATE",
+      module: "patrimonial",
+      event: "vehicle.bulk_preview",
+      resource: { type: "vehicle_bulk", id: null },
+      metadata: { previewId: result.previewId, summary: result.summary },
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.bulkCommit = async (req, res, next) => {
+  try {
+    const { previewId, decisions } = req.body || {};
+    if (!previewId) throw new AppError("previewId é obrigatório.", 400);
+    const result = await vehicleService.commitBulkVehicles(req, { previewId, decisions });
+    attachAudit(req, {
+      action: "CREATE",
+      module: "patrimonial",
+      event: "vehicle.bulk_commit",
+      resource: { type: "vehicle_bulk", id: null },
+      metadata: {
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped,
+        errorCount: result.errors.length,
+      },
+    });
+    res.json(result);
+  } catch (err) {
     next(err);
   }
 };
@@ -97,6 +153,33 @@ exports.removeBlacklist = async (req, res, next) => {
       resource: { type: "vehicle", id: vehicle.id_vehicle, plate: vehicle.plate },
     });
     res.json({ vehicle });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteVehicle = async (req, res, next) => {
+  try {
+    const existing = await vehicleService.findVehicleById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: "Veículo não encontrado." });
+    }
+
+    const result = await vehicleService.deleteVehicle(req, req.params.id);
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "patrimonial",
+      event: "vehicle.delete",
+      resource: {
+        type: "vehicle",
+        id: Number(req.params.id),
+        plate: result.plate,
+      },
+      metadata: { alertLevel: "critical" },
+    });
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

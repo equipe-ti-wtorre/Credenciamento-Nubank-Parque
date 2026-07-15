@@ -42,7 +42,7 @@ const manifest = {
   $schema:
     "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   manifestVersion: "1.16",
-  version: "1.0.2",
+  version: "1.1.2",
   id: packageExternalId,
   packageName: "com.credenciamento.app",
   developer: {
@@ -56,8 +56,8 @@ const manifest = {
     full: `${orgName} Credenciamento`,
   },
   description: {
-    short: "Notificações do credenciamento",
-    full: "Alertas do sistema de credenciamento no feed de atividades do Teams.",
+    short: "Aprovações e alertas do credenciamento",
+    full: "Notificações interativas (Adaptive Cards) e feed de atividades do sistema de credenciamento no Teams.",
   },
   icons: {
     color: "color.png",
@@ -73,7 +73,15 @@ const manifest = {
       scopes: ["personal"],
     },
   ],
-  permissions: ["identity"],
+  bots: [
+    {
+      botId: clientId,
+      scopes: ["personal"],
+      supportsFiles: false,
+      isNotificationOnly: false,
+    },
+  ],
+  permissions: ["identity", "messageTeamMembers"],
   authorization: {
     permissions: {
       resourceSpecific: [
@@ -87,7 +95,8 @@ const manifest = {
   validDomains: [hostname],
   webApplicationInfo: {
     id: clientId,
-    resource: `api://${clientId}`,
+    // Domínio da aba deve aparecer no resource (SSO Teams).
+    resource: `api://${hostname}/${clientId}`,
   },
   activities: {
     activityTypes: [
@@ -118,7 +127,7 @@ const info = {
   baseUrl,
   packageExternalId,
   zipPath,
-  azureAppIdUri: `api://${clientId}`,
+  azureAppIdUri: `api://${hostname}/${clientId}`,
 };
 
 fs.writeFileSync(

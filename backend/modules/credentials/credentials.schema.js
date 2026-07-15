@@ -1,7 +1,7 @@
 const Joi = require("joi");
 
 const STATUS_AGUARDANDO_PRODUTORA = 1;
-const STATUS_AGUARDANDO_ALLIANZ = 2;
+const STATUS_AGUARDANDO_APROVACAO = 2;
 const STATUS_APROVADO = 3;
 const STATUS_NEGADO = 4;
 
@@ -14,7 +14,7 @@ const credentialCreateSchema = Joi.object({
 const credentialStatusSchema = Joi.object({
   id_access_status: Joi.number()
     .integer()
-    .valid(STATUS_AGUARDANDO_ALLIANZ, STATUS_APROVADO, STATUS_NEGADO)
+    .valid(STATUS_AGUARDANDO_APROVACAO, STATUS_APROVADO, STATUS_NEGADO)
     .required(),
   reason: Joi.when("id_access_status", {
     is: STATUS_NEGADO,
@@ -25,7 +25,7 @@ const credentialStatusSchema = Joi.object({
 
 module.exports = {
   STATUS_AGUARDANDO_PRODUTORA,
-  STATUS_AGUARDANDO_ALLIANZ,
+  STATUS_AGUARDANDO_APROVACAO,
   STATUS_APROVADO,
   STATUS_NEGADO,
   credentialCreateSchema,

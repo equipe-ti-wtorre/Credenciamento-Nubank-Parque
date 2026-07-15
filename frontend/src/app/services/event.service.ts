@@ -13,6 +13,8 @@ export interface EventItem {
   name: string;
   start: string;
   end: string;
+  id_access_status?: number | null;
+  access_status_description?: string | null;
   criado_em?: string;
   atualizado_em?: string;
 }
@@ -38,8 +40,22 @@ export interface EventDay {
   companies: EventDayCompanyLink[];
 }
 
+export interface EventApprovalSummary {
+  id: number;
+  status: string;
+  nivelAtual: number;
+  niveisExigidos: number;
+  idSetor: number;
+}
+
 export interface EventDetail extends EventItem {
   days: EventDay[];
+  approval?: EventApprovalSummary | null;
+  approvalReopened?: boolean;
+  periodChanged?: boolean;
+  id_aprovacao?: number | null;
+  aprovacao_status?: string | null;
+  id_setor?: number | null;
 }
 
 export interface EventListFilters {
@@ -65,6 +81,7 @@ export interface EventCreatePayload {
   name: string;
   start: string;
   end: string;
+  id_setor: number;
   days?: EventDayInput[];
 }
 
@@ -95,6 +112,13 @@ export class EventService {
 
   create(data: EventCreatePayload): Observable<{ event: EventDetail }> {
     return this.api.post<{ event: EventDetail }>('/events', data);
+  }
+
+  updatePeriod(
+    id: number,
+    data: { start: string; end: string },
+  ): Observable<{ event: EventDetail }> {
+    return this.api.patch<{ event: EventDetail }>(`/events/${id}/period`, data);
   }
 
   addCompanyToDay(

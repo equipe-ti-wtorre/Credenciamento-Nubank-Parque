@@ -6,6 +6,8 @@ const {
   validateSearchQuery,
   collaboratorStatusSchema,
   blacklistSchema,
+  roleCreateSchema,
+  roleUpdateSchema,
 } = require("./collaborator.schema");
 
 exports.listTypes = async (req, res, next) => {
@@ -21,6 +23,71 @@ exports.listRoles = async (req, res, next) => {
   try {
     const roles = await collaboratorService.listRoles();
     res.json({ roles });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.createRole = async (req, res, next) => {
+  try {
+    const { error, value } = roleCreateSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const role = await collaboratorService.createRole(value.description);
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "collaborators",
+      event: "collaborators.role_create",
+      resource: { type: "collaborator_role", id: role.id_collaborator_role },
+      metadata: { description: role.description },
+    });
+
+    res.status(201).json({ role });
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return next(new AppError("Já existe uma função com este nome.", 409));
+    }
+    next(err);
+  }
+};
+
+exports.updateRole = async (req, res, next) => {
+  try {
+    const { error, value } = roleUpdateSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const role = await collaboratorService.updateRole(req.params.id, value.description);
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "collaborators",
+      event: "collaborators.role_update",
+      resource: { type: "collaborator_role", id: role.id_collaborator_role },
+      metadata: { description: role.description },
+    });
+
+    res.json({ role });
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return next(new AppError("Já existe uma função com este nome.", 409));
+    }
+    next(err);
+  }
+};
+
+exports.deleteRole = async (req, res, next) => {
+  try {
+    await collaboratorService.deleteRole(req.params.id);
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "collaborators",
+      event: "collaborators.role_delete",
+      resource: { type: "collaborator_role", id: Number(req.params.id) },
+    });
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
@@ -65,6 +132,16 @@ exports.getById = async (req, res, next) => {
   }
 };
 
+exports.downloadBulkTemplate = async (req, res, next) => {
+  try {
+    const { sendXlsx } = require("../../utils/bulkTemplateXlsx");
+    const file = await collaboratorService.getCollaboratorBulkTemplate();
+    sendXlsx(res, file);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.bulkCreate = async (req, res, next) => {
   try {
     const summary = await collaboratorService.bulkCreateCollaborators(req, req.file);
@@ -87,11 +164,77 @@ exports.bulkCreate = async (req, res, next) => {
   }
 };
 
+exports.bulkPreview = async (req, res, next) => {
+  try {
+    const result = await collaboratorService.previewBulkCollaborators(req, req.file);
+    attachAudit(req, {
+      action: "CREATE",
+      module: "collaborators",
+      event: "collaborators.bulk_preview",
+      resource: { type: "collaborator_bulk", id: null },
+      metadata: { previewId: result.previewId, summary: result.summary },
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.bulkCommit = async (req, res, next) => {
+  try {
+    const { previewId, decisions } = req.body || {};
+    if (!previewId) throw new AppError("previewId é obrigatório.", 400);
+    const result = await collaboratorService.commitBulkCollaborators(req, {
+      previewId,
+      decisions,
+    });
+    attachAudit(req, {
+      action: "CREATE",
+      module: "collaborators",
+      event: "collaborators.bulk_commit",
+      resource: { type: "collaborator_bulk", id: null },
+      metadata: {
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped,
+        errorCount: result.errors.length,
+      },
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.uploadPicture = async (req, res, next) => {
   try {
     const path = require("path");
     const fs = require("fs");
     const { v4: uuidv4 } = require("uuid");
+    const { validarFoto } = require("../faces/facial.validator");
+    const AppError = require("../../utils/AppError");
+
+    const report = await validarFoto(req.file.buffer, { includeMeta: true });
+    const aptoControlId = !!report.apto?.controlid;
+    const aptoDahua = !!report.apto?.dahua;
+
+    if (!aptoControlId || !aptoDahua) {
+      const falhas = (report.checagens || []).filter((c) => c.status === "falha");
+      const summary =
+        falhas
+          .map((c) => c.mensagem || c.id)
+          .filter(Boolean)
+          .slice(0, 5)
+          .join(" ") || "A foto não atende aos requisitos faciais.";
+
+      throw new AppError(
+        `Foto rejeitada pela validação facial. Control iD: ${aptoControlId ? "apto" : "inapto"}; Dahua: ${aptoDahua ? "apto" : "inapto"}. ${summary}`,
+        400,
+        true,
+        { faceValidation: report },
+      );
+    }
+
     const storageDir = path.join(__dirname, "../../storage/pictures");
     fs.mkdirSync(storageDir, { recursive: true });
 
@@ -112,7 +255,7 @@ exports.uploadPicture = async (req, res, next) => {
       resource: { type: "collaborator", id: collaborator.id_collaborator },
     });
 
-    res.json({ collaborator, picture: filename });
+    res.json({ collaborator, picture: filename, faceValidation: report });
   } catch (err) {
     next(err);
   }
@@ -271,6 +414,33 @@ exports.removeBlacklist = async (req, res, next) => {
     });
 
     res.json({ collaborator });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteCollaborator = async (req, res, next) => {
+  try {
+    const existing = await collaboratorService.findCollaboratorById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ error: "Colaborador não encontrado." });
+    }
+
+    await collaboratorService.deleteCollaborator(req.params.id);
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "collaborators",
+      event: "collaborator.delete",
+      resource: {
+        type: "collaborator",
+        id: Number(req.params.id),
+        document: collaboratorService.maskDocumentForAudit(existing),
+      },
+      metadata: { alertLevel: "critical" },
+    });
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

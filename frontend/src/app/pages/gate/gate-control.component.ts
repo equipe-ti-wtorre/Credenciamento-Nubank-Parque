@@ -28,6 +28,7 @@ import {
   GateValidateSuccess,
 } from '../../services/gate.service';
 import { NotificationService } from '../../core/services/notification.service';
+import { ModalComponent } from '../../shared/modal/modal.component';
 
 interface GateSubstituteTarget {
   access_id: string;
@@ -39,7 +40,7 @@ type FeedbackState = 'idle' | 'success' | 'denied';
 @Component({
   selector: 'app-gate-control',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ModalComponent],
   styles: [
     `
       @keyframes gate-deny-blink {
@@ -220,9 +221,10 @@ type FeedbackState = 'idle' | 'success' | 'denied';
           <table class="w-full text-sm text-left">
             <thead>
               <tr class="border-b border-[var(--app-border)] text-xs uppercase text-slate-500">
-                <th class="py-2 pr-2 font-bold">Placa</th>
+                <th class="py-2 pr-2 font-bold">Tipo</th>
+                <th class="py-2 pr-2 font-bold">Identificação</th>
                 <th class="py-2 pr-2 font-bold">Empresa</th>
-                <th class="py-2 pr-2 font-bold">Serviço</th>
+                <th class="py-2 pr-2 font-bold">Finalidade</th>
                 <th class="py-2 pr-2 font-bold">Entrada</th>
                 <th class="py-2 pr-2 font-bold">Saída</th>
                 <th class="py-2 font-bold text-right">Ações</th>
@@ -230,9 +232,16 @@ type FeedbackState = 'idle' | 'success' | 'denied';
             </thead>
             <tbody>
               <tr *ngFor="let row of filteredTodayServices()" class="border-b border-[var(--app-border)] last:border-0">
-                <td class="py-2 pr-2 font-mono font-semibold">{{ row.vehicle.plate }}</td>
+                <td class="py-2 pr-2">{{ row.kind === 'vehicle' ? 'Veículo' : 'Colaborador' }}</td>
+                <td class="py-2 pr-2 font-medium">
+                  <span *ngIf="row.vehicle" class="font-mono">{{ row.vehicle.plate }}</span>
+                  <span *ngIf="row.collaborator">
+                    {{ row.collaborator.name }}
+                    <span class="block text-xs text-slate-500 font-mono">{{ row.collaborator.document_masked }}</span>
+                  </span>
+                </td>
                 <td class="py-2 pr-2">{{ row.company.name }}</td>
-                <td class="py-2 pr-2">{{ row.service_type }}</td>
+                <td class="py-2 pr-2">{{ row.finalidade }}</td>
                 <td class="py-2 pr-2 text-xs">{{ formatTimestamp(row.check_in) }}</td>
                 <td class="py-2 pr-2 text-xs">{{ formatTimestamp(row.check_out) }}</td>
                 <td class="py-2 text-right">
@@ -252,15 +261,24 @@ type FeedbackState = 'idle' | 'success' | 'denied';
       </div>
 
       <div
-        *ngIf="feedback() === 'success' && lastSuccess()"
+        *ngIf="feedback() === 'success' && (lastSuccess() || lastServiceSuccess())"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-emerald-600 text-white"
       >
-        <div class="text-center max-w-lg">
+        <div class="text-center max-w-lg" *ngIf="lastSuccess() as success">
           <p class="text-sm uppercase tracking-widest opacity-90 mb-2">Acesso autorizado</p>
-          <p class="text-4xl md:text-5xl font-bold mb-3">{{ lastSuccess()!.collaborator.name }}</p>
-          <p class="text-xl opacity-95">{{ lastSuccess()!.collaborator.role }}</p>
-          <p class="text-lg mt-2 opacity-90">{{ lastSuccess()!.company.fancy_name }}</p>
-          <p class="text-2xl font-semibold mt-6">{{ actionLabel(lastSuccess()!.action_registered) }}</p>
+          <p class="text-4xl md:text-5xl font-bold mb-3">{{ success.collaborator.name }}</p>
+          <p class="text-xl opacity-95">{{ success.collaborator.role }}</p>
+          <p class="text-lg mt-2 opacity-90">{{ success.company.fancy_name }}</p>
+          <p class="text-2xl font-semibold mt-6">{{ actionLabel(success.action_registered) }}</p>
+        </div>
+        <div class="text-center max-w-lg" *ngIf="!lastSuccess() && lastServiceSuccess() as service">
+          <p class="text-sm uppercase tracking-widest opacity-90 mb-2">Acesso autorizado</p>
+          <p class="text-4xl md:text-5xl font-bold mb-3">
+            {{ service.collaborator?.name || service.vehicle?.plate }}
+          </p>
+          <p class="text-xl opacity-95" *ngIf="service.collaborator">{{ service.collaborator.role }}</p>
+          <p class="text-lg mt-2 opacity-90">{{ service.company?.fancy_name }}</p>
+          <p class="text-2xl font-semibold mt-6">{{ actionLabel(service.action_registered!) }}</p>
         </div>
       </div>
 
@@ -275,73 +293,66 @@ type FeedbackState = 'idle' | 'success' | 'denied';
         </div>
       </div>
 
-      <div
-        *ngIf="showSubstituteModal()"
-        class="fixed inset-0 z-[60] flex items-center justify-center p-4"
-        role="dialog"
-        aria-modal="true"
+      <app-modal
         data-gate-substitute-modal
+        [open]="showSubstituteModal()"
+        title="Substituir colaborador"
+        [subtitle]="substituteTarget() ? 'Credencial: ' + substituteTarget()!.name : ''"
+        size="md"
+        (close)="closeSubstituteModal()"
       >
-        <button type="button" class="absolute inset-0 bg-slate-900/50" (click)="closeSubstituteModal()"></button>
-        <div class="relative w-full max-w-lg card-surface p-6 shadow-xl">
-          <h3 class="text-lg font-bold mb-1">Substituir colaborador</h3>
-          <p class="text-sm text-slate-500 mb-4" *ngIf="substituteTarget()">
-            Credencial: {{ substituteTarget()!.name }}
-          </p>
+        <label class="text-xs font-bold text-slate-500 uppercase">Tipo de documento</label>
+        <select
+          class="w-full mt-1 mb-3 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+          [(ngModel)]="substituteDocTypeId"
+        >
+          <option *ngFor="let t of documentTypes()" [ngValue]="t.id_collaborator_document_type">
+            {{ t.description }}
+          </option>
+        </select>
 
-          <label class="text-xs font-bold text-slate-500 uppercase">Tipo de documento</label>
-          <select
-            class="w-full mt-1 mb-3 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-            [(ngModel)]="substituteDocTypeId"
+        <label class="text-xs font-bold text-slate-500 uppercase">CPF / Passaporte</label>
+        <div class="flex gap-2 mt-1 mb-4">
+          <input
+            type="text"
+            [(ngModel)]="substituteDocument"
+            class="flex-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+            placeholder="Documento do substituto"
+            (keydown.enter)="searchSubstitute()"
+          />
+          <button
+            type="button"
+            class="btn-secondary shrink-0"
+            (click)="searchSubstitute()"
+            [disabled]="substituteSearching()"
           >
-            <option *ngFor="let t of documentTypes()" [ngValue]="t.id_collaborator_document_type">
-              {{ t.description }}
-            </option>
-          </select>
-
-          <label class="text-xs font-bold text-slate-500 uppercase">CPF / Passaporte</label>
-          <div class="flex gap-2 mt-1 mb-4">
-            <input
-              type="text"
-              [(ngModel)]="substituteDocument"
-              class="flex-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-              placeholder="Documento do substituto"
-              (keydown.enter)="searchSubstitute()"
-            />
-            <button
-              type="button"
-              class="btn-secondary shrink-0"
-              (click)="searchSubstitute()"
-              [disabled]="substituteSearching()"
-            >
-              Buscar
-            </button>
-          </div>
-
-          <div
-            *ngIf="substituteCandidate()"
-            class="mb-4 p-3 rounded-xl bg-slate-50 border border-[var(--app-border)] text-sm"
-          >
-            <p class="font-semibold">{{ substituteCandidate()!.name }}</p>
-            <p class="text-slate-500">{{ substituteCandidate()!.document }}</p>
-            <p *ngIf="substituteCandidate()!.is_blacklisted" class="text-red-600 text-xs mt-1 font-bold">
-              Colaborador na lista de bloqueio
-            </p>
-          </div>
-
-          <div class="flex justify-end gap-2">
-            <button type="button" class="btn-secondary" (click)="closeSubstituteModal()">Cancelar</button>
-            <button
-              type="button"
-              class="btn-primary"
-              (click)="confirmSubstitute()"
-              [disabled]="!substituteCandidate() || substituteCandidate()!.is_blacklisted || substituteSubmitting()"
-            >
-              Confirmar substituição
-            </button>
-          </div>
+            Buscar
+          </button>
         </div>
-      </div>
+
+        <div
+          *ngIf="substituteCandidate()"
+          class="mb-4 p-3 rounded-xl bg-slate-50 border border-[var(--app-border)] text-sm"
+        >
+          <p class="font-semibold">{{ substituteCandidate()!.name }}</p>
+          <p class="text-slate-500">{{ substituteCandidate()!.document }}</p>
+          <p *ngIf="substituteCandidate()!.is_blacklisted" class="text-red-600 text-xs mt-1 font-bold">
+            Colaborador na lista de bloqueio
+          </p>
+        </div>
+
+        <div modal-footer class="modal-footer">
+          <button type="button" class="btn-action-secondary" (click)="closeSubstituteModal()">Cancelar</button>
+          <button
+            type="button"
+            class="btn-action-primary"
+            (click)="confirmSubstitute()"
+            [disabled]="!substituteCandidate() || substituteCandidate()!.is_blacklisted || substituteSubmitting()"
+          >
+            Confirmar substituição
+          </button>
+        </div>
+      </app-modal>
     </div>
   `,
 })
@@ -358,6 +369,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   processing = signal(false);
   feedback = signal<FeedbackState>('idle');
   lastSuccess = signal<GateValidateSuccess | null>(null);
+  lastServiceSuccess = signal<GateServiceValidateResponse | null>(null);
   denyReason = signal('');
   denyCode = signal('');
 
@@ -388,9 +400,14 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const q = this.manualSearch.trim().toLowerCase();
     const list = this.todayServices();
     if (!q) return list;
-    return list.filter((row) =>
-      [row.vehicle.plate, row.company.name, row.service_type].join(' ').toLowerCase().includes(q),
-    );
+    return list.filter((row) => {
+      const parts = [row.company.name, row.finalidade, row.kind];
+      if (row.vehicle) parts.push(row.vehicle.plate);
+      if (row.collaborator) {
+        parts.push(row.collaborator.name, row.collaborator.document_masked, row.collaborator.role);
+      }
+      return parts.join(' ').toLowerCase().includes(q);
+    });
   });
 
   showSubstituteModal = signal(false);
@@ -529,10 +546,13 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.scanValue = '';
     if (res.access_allowed) {
       this.denyReason.set('');
+      this.lastServiceSuccess.set(res);
+      this.lastSuccess.set(null);
       this.feedback.set('success');
       this.clearFeedbackTimer();
       this.feedbackTimer = setTimeout(() => {
         this.feedback.set('idle');
+        this.lastServiceSuccess.set(null);
         this.focusScanInput();
         this.cdr.markForCheck();
       }, 2000);
@@ -567,6 +587,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
 
   private showSuccess(res: GateValidateSuccess): void {
     this.lastSuccess.set(res);
+    this.lastServiceSuccess.set(null);
     this.feedback.set('success');
     this.clearFeedbackTimer();
     this.feedbackTimer = setTimeout(() => {

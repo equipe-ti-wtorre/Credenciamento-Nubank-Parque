@@ -4,7 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import { TenantService, AzureTenant, TenantStatusItem } from '../../../services/tenant.service';
 import { NotificationService } from '../../../core/services/notification.service';
-import { ActionBtnComponent, ActionMenuComponent } from '../../../shared/actions';
+import { ActionBtnComponent, ActionMenuComponent, ActionDropdownComponent, ActionDropdownItemDirective } from '../../../shared/actions';
+import { ModalComponent } from '../../../shared/modal/modal.component';
 import { SettingsReloadable } from '../settings-reloadable';
 import Swal from 'sweetalert2';
 
@@ -16,7 +17,7 @@ export interface TenantDashboardItem extends AzureTenant {
 @Component({
   selector: 'app-tenant-list',
   standalone: true,
-  imports: [CommonModule, FormsModule, ActionMenuComponent, ActionBtnComponent],
+  imports: [CommonModule, FormsModule, ActionMenuComponent, ActionBtnComponent, ActionDropdownComponent, ActionDropdownItemDirective, ModalComponent],
   template: `
     <div>
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
@@ -191,97 +192,119 @@ export interface TenantDashboardItem extends AzureTenant {
       <ng-template #tenantActions let-t>
         <app-action-menu>
           <app-action-btn icon="edit" title="Editar" variant="neutral" (action)="editar(t)" />
-          <app-action-btn
-            icon="document"
-            title="Ver diagnóstico"
-            variant="primary"
-            (action)="verDiagnostico(t)"
-          />
-          <app-action-btn
-            icon="link"
-            title="Copiar Tenant ID"
-            variant="neutral"
-            (action)="copiarTenantId(t)"
-          />
-          <app-action-btn
-            *ngIf="t.ativo"
-            icon="delete"
-            title="Desativar"
-            variant="danger"
-            (action)="desativar(t)"
-          />
+          <app-action-dropdown>
+            <button appActionDropdownItem type="button" (click)="verDiagnostico(t)">
+              <svg
+                class="action-dropdown__item-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <path d="M14 2v6h6" />
+                <path d="M16 13H8" />
+                <path d="M16 17H8" />
+                <path d="M10 9H8" />
+              </svg>
+              Ver diagnóstico
+            </button>
+            <button appActionDropdownItem type="button" (click)="copiarTenantId(t)">
+              <svg
+                class="action-dropdown__item-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              Copiar Tenant ID
+            </button>
+            <button
+              *ngIf="t.ativo"
+              appActionDropdownItem
+              type="button"
+              [danger]="true"
+              (click)="desativar(t)"
+            >
+              <svg
+                class="action-dropdown__item-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                <path d="M12 2v10" />
+              </svg>
+              Desativar
+            </button>
+          </app-action-dropdown>
         </app-action-menu>
       </ng-template>
     </div>
 
-    <!-- Modal Novo / Editar tenant -->
-    <div
-      *ngIf="showModal()"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      [attr.aria-labelledby]="'tenant-modal-title'"
+    <app-modal
+      [open]="showModal()"
+      [title]="editingId ? 'Editar tenant' : 'Novo tenant'"
+      subtitle="Cadastre credenciais Azure AD para autenticação e integrações."
+      size="lg"
+      (close)="fecharModal()"
     >
-      <button
-        type="button"
-        class="absolute inset-0 bg-slate-900/50"
-        aria-label="Fechar"
-        (click)="fecharModal()"
-      ></button>
-
-      <div class="relative w-full max-w-2xl card-surface p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <h3 id="tenant-modal-title" class="text-lg font-bold text-slate-800">
-            {{ editingId ? 'Editar tenant' : 'Novo tenant' }}
-          </h3>
-          <button
-            type="button"
-            (click)="fecharModal()"
-            class="text-slate-400 hover:text-slate-600 text-xl leading-none"
-            aria-label="Fechar modal"
-          >
-            ×
-          </button>
-        </div>
-
-        <form class="grid grid-cols-1 md:grid-cols-2 gap-4" (ngSubmit)="salvar()">
+      <form id="tenant-form" class="grid grid-cols-1 md:grid-cols-2 gap-4" (ngSubmit)="salvar()">
           <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Nome</label>
+            <label class="form-label" for="tenant-nome">Nome</label>
             <input
+              id="tenant-nome"
               [(ngModel)]="form.nome"
               name="nome"
               required
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              class="form-field"
             />
           </div>
           <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Azure Tenant ID</label>
+            <label class="form-label" for="tenant-azure-id">Azure Tenant ID</label>
             <input
+              id="tenant-azure-id"
               [(ngModel)]="form.azure_tenant_id"
               name="azure_tenant_id"
               required
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              class="form-field font-mono text-sm"
             />
           </div>
           <div>
-            <label class="text-xs font-bold text-slate-500 uppercase">Client ID</label>
+            <label class="form-label" for="tenant-client-id">Client ID</label>
             <input
+              id="tenant-client-id"
               [(ngModel)]="form.client_id"
               name="client_id"
               required
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              class="form-field font-mono text-sm"
             />
           </div>
           <div>
-            <label class="text-xs font-bold text-slate-500 uppercase"
-              >Client Secret {{ editingId ? '(deixe vazio para manter)' : '' }}</label
-            >
+            <label class="form-label" for="tenant-client-secret">
+              Client Secret
+              <span *ngIf="editingId" class="form-label__optional">(deixe vazio para manter)</span>
+            </label>
             <input
+              id="tenant-client-secret"
               type="password"
               [(ngModel)]="form.client_secret"
               name="client_secret"
               [required]="!editingId"
-              class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              class="form-field"
             />
           </div>
           <div class="flex items-center gap-4 md:col-span-2">
@@ -294,21 +317,14 @@ export interface TenantDashboardItem extends AzureTenant {
               Tenant principal (MSAL)
             </label>
           </div>
-          <div class="md:col-span-2 flex gap-2 justify-end pt-2">
-            <button
-              type="button"
-              (click)="fecharModal()"
-              class="px-4 py-2 border border-[var(--app-border)] rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancelar
-            </button>
-            <button type="submit" [disabled]="saving" class="btn-secondary disabled:opacity-50">
-              {{ saving ? 'Salvando...' : 'Salvar' }}
-            </button>
-          </div>
-        </form>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" (click)="fecharModal()" class="btn-action-secondary">Cancelar</button>
+        <button type="submit" form="tenant-form" [disabled]="saving" class="btn-action-primary">
+          {{ saving ? 'Salvando...' : (editingId ? 'Salvar tenant' : 'Criar tenant') }}
+        </button>
       </div>
-    </div>
+    </app-modal>
   `,
 })
 export class TenantListComponent implements SettingsReloadable {
