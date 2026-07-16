@@ -2,8 +2,8 @@ const AppError = require("../../utils/AppError");
 const { attachAudit } = require("../../utils/auditLogger");
 const gateService = require("./gate.service");
 const {
-  notifyServiceGateCheckIn,
-  notifyEventGateCheckIn,
+  scheduleServiceGateCheckIn,
+  scheduleEventGateCheckIn,
 } = require("./gate.notifications");
 const {
   eventValidateSchema,
@@ -80,7 +80,7 @@ exports.validateEvent = async (req, res, next) => {
       const eventName = result.data.event_name;
       const credentialId = result.data.id_event_day_company_collaborator;
       setImmediate(() => {
-        void notifyEventGateCheckIn({
+        void scheduleEventGateCheckIn({
           idEvent,
           credentialId,
           collaboratorName,
@@ -174,7 +174,7 @@ exports.validateService = async (req, res, next) => {
       const idServiceAccess = result.data.id_service_access;
       if (idServiceAccess) {
         setImmediate(() => {
-          void notifyServiceGateCheckIn({
+          void scheduleServiceGateCheckIn({
             idServiceAccess,
             kind: result.data.kind,
             subjectName,
