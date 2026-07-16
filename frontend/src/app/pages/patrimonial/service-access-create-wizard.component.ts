@@ -196,19 +196,36 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                   </div>
                 }
                 <div>
-                  <label class="form-label" for="wcrt-finalidade">Finalidade de serviço</label>
-                  <textarea
+                  <label class="form-label" for="wcrt-finalidade">Nome do evento</label>
+                  <input
                     #finalidadeInput
                     id="wcrt-finalidade"
+                    type="text"
                     formControlName="finalidade"
-                    rows="4"
                     maxlength="500"
                     class="form-field"
                     [class.is-invalid]="finalidadeInvalid()"
-                  ></textarea>
+                  />
                   <div class="wcrt-error-slot" aria-live="polite">
                     @if (finalidadeInvalid()) {
-                      <p class="wcrt-field-error">Informe a finalidade do serviço.</p>
+                      <p class="wcrt-field-error">Informe o nome do evento.</p>
+                    }
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label" for="wcrt-observacao">Descrição do serviço</label>
+                  <textarea
+                    #observacaoInput
+                    id="wcrt-observacao"
+                    formControlName="observacao"
+                    rows="4"
+                    maxlength="500"
+                    class="form-field"
+                    [class.is-invalid]="observacaoInvalid()"
+                  ></textarea>
+                  <div class="wcrt-error-slot" aria-live="polite">
+                    @if (observacaoInvalid()) {
+                      <p class="wcrt-field-error">Informe a descrição do serviço.</p>
                     }
                   </div>
                 </div>
@@ -559,8 +576,12 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                   <dd>{{ companyName() || '—' }}</dd>
                 </div>
                 <div>
-                  <dt>Finalidade</dt>
+                  <dt>Nome do evento</dt>
                   <dd>{{ finalidade || '—' }}</dd>
+                </div>
+                <div>
+                  <dt>Descrição do serviço</dt>
+                  <dd>{{ observacao || '—' }}</dd>
                 </div>
                 <div>
                   <dt>Período</dt>
@@ -1467,7 +1488,8 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   @Output() closed = new EventEmitter<{ createdId: number | null }>();
   @Output() completed = new EventEmitter<{ service: ServiceAccessItem }>();
 
-  @ViewChild('finalidadeInput') finalidadeInput?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('finalidadeInput') finalidadeInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('observacaoInput') observacaoInput?: ElementRef<HTMLTextAreaElement>;
 
   step = signal<WizardStep>('dados');
   createdId = signal<number | null>(null);
@@ -1491,6 +1513,10 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   dadosForm = new FormGroup({
     periodo: new FormControl<PeriodoRangeValue | null>(null, { validators: [Validators.required] }),
     finalidade: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.maxLength(500)],
+    }),
+    observacao: new FormControl('', {
       nonNullable: true,
       validators: [Validators.required, Validators.maxLength(500)],
     }),
@@ -1576,7 +1602,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
 
   get modalSubtitle(): string {
     if (this.step() === 'dados') {
-      return 'Informe período, finalidade e setor aprovador.';
+      return 'Informe período, nome do evento, descrição do serviço e setor aprovador.';
     }
     if (this.step() === 'pessoas') {
       return 'Inclua manualmente ou importe por planilha XLSX. Corrija as pendências direto na tabela.';
@@ -1586,6 +1612,10 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
 
   get finalidade(): string {
     return this.dadosForm.getRawValue().finalidade;
+  }
+
+  get observacao(): string {
+    return this.dadosForm.getRawValue().observacao;
   }
 
   get idSetor(): number | null {
@@ -1637,6 +1667,11 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
 
   finalidadeInvalid(): boolean {
     const ctrl = this.dadosForm.get('finalidade');
+    return !!ctrl?.invalid && (ctrl.touched || this.dadosFormSubmitted);
+  }
+
+  observacaoInvalid(): boolean {
+    const ctrl = this.dadosForm.get('observacao');
     return !!ctrl?.invalid && (ctrl.touched || this.dadosFormSubmitted);
   }
 
@@ -1800,6 +1835,8 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
     if (this.dadosForm.invalid) {
       if (!this.finalidade.trim()) {
         this.finalidadeInput?.nativeElement.focus();
+      } else if (!this.observacao.trim()) {
+        this.observacaoInput?.nativeElement.focus();
       }
       return;
     }
@@ -1875,7 +1912,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
         end_date: this.endDate,
         finalidade: this.finalidade.trim(),
         requesting_department: setorNome,
-        observacao: null,
+        observacao: this.observacao.trim(),
         id_setor: this.idSetor!,
         notificar_entrada_colaborador: this.notificarEntradaColaborador,
         notificar_entrada_veiculo: this.notificarEntradaVeiculo,
@@ -2775,6 +2812,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
     this.dadosForm.reset({
       periodo: null,
       finalidade: '',
+      observacao: '',
       id_setor: null,
       id_company: null,
       notificar_entrada_colaborador: true,

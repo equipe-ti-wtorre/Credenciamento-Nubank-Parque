@@ -54,7 +54,7 @@ function formatDateBr(value: string | null | undefined): string {
         <table class="w-full text-sm">
           <thead class="table-head bg-slate-50">
             <tr>
-              <th class="px-4 py-3 text-left">Finalidade</th>
+              <th class="px-4 py-3 text-left">Evento</th>
               <th class="px-4 py-3 text-left">Período</th>
               <th class="px-4 py-3 text-left hidden lg:table-cell">Setor</th>
               <th class="px-4 py-3 text-left hidden md:table-cell">Solicitante</th>

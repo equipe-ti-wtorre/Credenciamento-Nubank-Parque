@@ -1,5 +1,6 @@
 const mysql = require("mysql2");
 const env = require("./env");
+const { logger } = require("./logger");
 
 const pool = mysql.createPool({
   host: env.db.host,
@@ -11,6 +12,14 @@ const pool = mysql.createPool({
   connectionLimit: env.db.poolLimit,
   dateStrings: true,
   connectTimeout: env.db.connectTimeout,
+});
+
+pool.on("connection", (connection) => {
+  connection.query("SET SESSION time_zone = ?", [env.db.timezone], (err) => {
+    if (err) {
+      logger.error({ err, timezone: env.db.timezone }, "Falha ao configurar timezone MySQL");
+    }
+  });
 });
 
 module.exports = pool.promise();

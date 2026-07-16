@@ -170,7 +170,7 @@ async function notifyServiceGateCheckIn({
     const activityMessage = `${subject} — Serviço #${idServiceAccess}${
       finalidade ? ` (${finalidade})` : ""
     }`;
-    const path = `/admin/acessos-servico/${idServiceAccess}`;
+    const path = `/acessos-servico/${idServiceAccess}`;
     const detailUrl = teamsService.buildUserDeepLink(path);
 
     const card = buildInfoCard({

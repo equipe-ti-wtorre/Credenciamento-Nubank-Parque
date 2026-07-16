@@ -39,6 +39,9 @@ type FeedbackState = 'idle' | 'success' | 'denied';
 export type GateStatusFilter = 'todos' | 'wait' | 'in' | 'done';
 export type GateTypeFilter = 'todos' | 'veiculo' | 'colaborador';
 
+const GATE_DATABASE_TIMEZONE_OFFSET = '-03:00';
+const GATE_DISPLAY_TIMEZONE = 'America/Sao_Paulo';
+
 interface GateStats {
   total: number;
   wait: number;
@@ -229,11 +232,28 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     return action === 'CHECK_IN' ? 'Entrada' : 'Saída';
   }
 
+  private parseGateDate(value: string | null): Date | null {
+    if (!value) return null;
+
+    const trimmed = value.trim();
+    const mysqlDateTime = trimmed.match(
+      /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?$/,
+    );
+    const normalized = mysqlDateTime
+      ? `${mysqlDateTime[1]}T${mysqlDateTime[2]}${mysqlDateTime[3] || ''}${GATE_DATABASE_TIMEZONE_OFFSET}`
+      : trimmed;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   formatClock(value: string | null): string {
-    if (!value) return '—';
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const d = this.parseGateDate(value);
+    if (!d) return '—';
+    return d.toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: GATE_DISPLAY_TIMEZONE,
+    });
   }
 
   /** @deprecated Prefer formatClock for UI; kept for compatibility. */
@@ -243,9 +263,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
 
   relFrom(value: string | null): string {
     this.relTick();
-    if (!value) return '';
-    const ts = new Date(value).getTime();
-    if (Number.isNaN(ts)) return '';
+    const d = this.parseGateDate(value);
+    if (!d) return '';
+    const ts = d.getTime();
     const m = Math.max(0, Math.round((Date.now() - ts) / 60_000));
     if (m < 1) return 'agora';
     if (m < 60) return `há ${m} min`;

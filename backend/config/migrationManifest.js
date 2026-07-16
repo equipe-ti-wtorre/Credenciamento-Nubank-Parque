@@ -206,6 +206,16 @@ const migrations = [
         "notificar_entrada_veiculo",
       ]),
   },
+  {
+    filename: "030_fix_gate_timezone_20260716.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        "SELECT 1 FROM schema_migrations WHERE filename = ? LIMIT 1",
+        ["030_fix_gate_timezone_20260716.sql"],
+      );
+      return rows.length > 0;
+    },
+  },
 ];
 
 module.exports = migrations;

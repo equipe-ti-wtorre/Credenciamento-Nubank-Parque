@@ -6,11 +6,14 @@ const serviceAccessCreateSchema = Joi.object({
   start_date: Joi.date().iso().required(),
   end_date: Joi.date().iso().min(Joi.ref("start_date")).required(),
   finalidade: Joi.string().trim().max(500).required().messages({
-    "string.empty": "Informe a finalidade do serviço.",
-    "any.required": "Informe a finalidade do serviço.",
+    "string.empty": "Informe o nome do evento.",
+    "any.required": "Informe o nome do evento.",
   }),
   requesting_department: Joi.string().trim().max(200).required(),
-  observacao: Joi.string().trim().max(500).allow("", null).optional(),
+  observacao: Joi.string().trim().max(500).required().messages({
+    "string.empty": "Informe a descrição do serviço.",
+    "any.required": "Informe a descrição do serviço.",
+  }),
   notificar_entrada: Joi.boolean().optional(),
   notificar_entrada_colaborador: Joi.boolean().optional(),
   notificar_entrada_veiculo: Joi.boolean().optional(),

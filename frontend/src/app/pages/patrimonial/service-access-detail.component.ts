@@ -394,7 +394,7 @@ type ModalMode = 'search' | 'create';
               </div>
 
               <p *ngIf="service()!.observacao" class="cred-note">
-                Observação: {{ service()!.observacao }}
+                Descrição do serviço: {{ service()!.observacao }}
               </p>
               <p class="cred-note">
                 Notificação colaborador:
@@ -1177,7 +1177,7 @@ type ModalMode = 'search' | 'create';
     <app-modal
       [open]="showEditModal()"
       title="Editar acesso"
-      subtitle="Atualize período, finalidade, setor aprovador e observação."
+      subtitle="Atualize período, nome do evento, setor aprovador e descrição do serviço."
       size="md"
       (close)="fecharModalEditar()"
     >
@@ -1207,7 +1207,7 @@ type ModalMode = 'search' | 'create';
           </div>
         </div>
         <div>
-          <label class="form-label" for="edit-finalidade">Finalidade</label>
+          <label class="form-label" for="edit-finalidade">Nome do evento</label>
           <input
             id="edit-finalidade"
             [(ngModel)]="editForm.finalidade"
@@ -1230,14 +1230,13 @@ type ModalMode = 'search' | 'create';
           </select>
         </div>
         <div>
-          <label class="form-label" for="edit-obs">
-            Observação <span class="form-label__optional">(opcional)</span>
-          </label>
+          <label class="form-label" for="edit-obs">Descrição do serviço</label>
           <textarea
             id="edit-obs"
             [(ngModel)]="editForm.observacao"
             name="editObs"
             rows="3"
+            required
             class="form-field"
           ></textarea>
         </div>
@@ -2051,8 +2050,13 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   }
 
   salvarEdicao() {
-    if (!this.editForm.start_date || !this.editForm.end_date || !this.editForm.finalidade.trim()) {
-      this.notification.error('Preencha datas e finalidade.');
+    if (
+      !this.editForm.start_date ||
+      !this.editForm.end_date ||
+      !this.editForm.finalidade.trim() ||
+      !this.editForm.observacao.trim()
+    ) {
+      this.notification.error('Preencha datas, nome do evento e descrição do serviço.');
       return;
     }
     if (!this.editForm.id_setor) {
@@ -2075,7 +2079,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
         end_date: this.editForm.end_date,
         finalidade: this.editForm.finalidade.trim(),
         requesting_department: setorNome,
-        observacao: this.editForm.observacao.trim() || null,
+        observacao: this.editForm.observacao.trim(),
         id_setor: this.editForm.id_setor,
         notificar_entrada_colaborador: this.editForm.notificar_entrada_colaborador,
         notificar_entrada_veiculo: this.editForm.notificar_entrada_veiculo,

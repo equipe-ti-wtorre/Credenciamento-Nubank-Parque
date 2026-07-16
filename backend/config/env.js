@@ -33,6 +33,7 @@ const env = {
     name: process.env.DB_NAME || "credenciamento",
     poolLimit: Number(process.env.DB_POOL_LIMIT) || 10,
     connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS) || 30000,
+    timezone: process.env.DB_TIMEZONE || "-03:00",
   },
   adminEmail: process.env.ADMIN_EMAIL,
   adminPassword: process.env.ADMIN_PASSWORD,

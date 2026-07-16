@@ -1375,6 +1375,7 @@ async function initializeDatabase() {
 
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${env.db.name}\`;`);
     await connection.changeUser({ database: env.db.name });
+    await connection.query("SET SESSION time_zone = ?", [env.db.timezone]);
     startupOk(`Banco '${env.db.name}' selecionado.`);
 
     await connection.query(`

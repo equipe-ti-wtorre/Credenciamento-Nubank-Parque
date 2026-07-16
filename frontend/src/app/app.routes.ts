@@ -62,6 +62,15 @@ export const routes: Routes = [
     data: { permission: { module: 'approvals', action: 'view' }, title: 'Aprovação' },
   },
   {
+    path: 'acessos-servico/:id',
+    loadComponent: () =>
+      import('./pages/patrimonial/service-access-view-page.component').then(
+        (m) => m.ServiceAccessViewPageComponent,
+      ),
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard],
+    data: { permission: { module: 'service_access', action: 'view' }, title: 'Acesso de serviço' },
+  },
+  {
     path: '',
     component: MainLayoutComponent,
     canActivate: [AuthGuard],
