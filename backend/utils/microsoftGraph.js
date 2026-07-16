@@ -391,7 +391,6 @@ function buildActivityNotificationBody(content, safeWebUrl, catalogAppId, opts =
       activityType: TEAMS_ACTIVITY_TYPE,
       previewText: { content: activityMessage },
       templateParameters: [
-        { name: "actor", value: activityActor },
         { name: "message", value: activityMessage },
       ],
     };
