@@ -227,7 +227,10 @@ async function deactivateIntegration(id) {
   await db.execute("UPDATE teams_integrations SET ativo = 0 WHERE id = ?", [id]);
 }
 
-async function sendNotification(integrationId, { email, mensagem, path, adaptiveCard } = {}) {
+async function sendNotification(
+  integrationId,
+  { email, mensagem, path, adaptiveCard, activityActor, activityMessage } = {},
+) {
   const row = await findById(integrationId);
   if (!row || !row.ativo) {
     return { ok: false, message: "Integração não encontrada ou inativa." };
@@ -292,6 +295,8 @@ async function sendNotification(integrationId, { email, mensagem, path, adaptive
       teamsAppId: resolveTeamsAppId(row),
       teamsAppExternalId: env.teamsAppExternalId,
       azureClientId,
+      activityActor,
+      activityMessage,
     },
   );
 
@@ -415,7 +420,7 @@ async function notifyOperationsChannel(mensagem) {
  * (o e-mail normalmente só existe em um Graph/AD).
  * @param {string} email
  * @param {string} mensagem
- * @param {{ path?: string, adaptiveCard?: object }} [options]
+ * @param {{ path?: string, adaptiveCard?: object, activityActor?: string, activityMessage?: string }} [options]
  */
 async function notifyUser(email, mensagem, options = {}) {
   const [rows] = await db.execute(
@@ -430,6 +435,8 @@ async function notifyUser(email, mensagem, options = {}) {
     mensagem,
     path: options.path,
     adaptiveCard: options.adaptiveCard,
+    activityActor: options.activityActor,
+    activityMessage: options.activityMessage,
   };
 
   const attempts = [];

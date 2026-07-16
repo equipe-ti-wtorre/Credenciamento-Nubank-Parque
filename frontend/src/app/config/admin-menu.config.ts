@@ -31,13 +31,6 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
     route: '/admin/frota',
   },
   {
-    label: 'Acessos de Serviço',
-    icon: '🔧',
-    iconKey: 'wrench',
-    route: '/admin/acessos-servico',
-  },
-  { label: 'Eventos', icon: '📅', iconKey: 'calendar', route: '/admin/eventos' },
-  {
     label: 'Produtos',
     icon: '📦',
     iconKey: 'box',
@@ -66,8 +59,6 @@ export const ADMIN_MENU_MODULE_MAP: Record<string, string> = {
   '/admin/aprovacoes-documento': 'document_approvals',
   '/admin/setores': 'sectors',
   '/admin/frota': 'fleet',
-  '/admin/acessos-servico': 'service_access',
-  '/admin/eventos': 'events',
   '/admin/mercadorias-produtos': 'merchandise_products',
   '/admin/mercadorias-locais': 'merchandise_locations',
   '/admin/mercadorias/relatorios': 'merchandise_reports',

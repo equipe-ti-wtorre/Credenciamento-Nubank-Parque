@@ -11,6 +11,9 @@ export interface ServiceAccessCollaborator {
   collaborator_picture?: string | null;
   id_collaborator_role: number;
   role_description: string;
+  /** Função no cadastro master (pode diferir da função neste acesso). */
+  master_id_collaborator_role?: number | null;
+  master_role_description?: string | null;
   access_id: string | null;
   access_check_in: string | null;
   access_check_out: string | null;
@@ -43,6 +46,9 @@ export interface ServiceAccessItem {
   finalidade: string;
   requesting_department: string;
   observacao: string | null;
+  notificar_entrada?: boolean;
+  notificar_entrada_colaborador?: boolean;
+  notificar_entrada_veiculo?: boolean;
   id_setor?: number | null;
   setor_nome?: string | null;
   id_aprovacao?: number | null;
@@ -94,8 +100,18 @@ export class PatrimonialService {
     observacao?: string | null;
     id_company?: number;
     id_setor: number;
+    notificar_entrada?: boolean;
+    notificar_entrada_colaborador?: boolean;
+    notificar_entrada_veiculo?: boolean;
+    notify_approvers?: boolean;
   }): Observable<{ service: ServiceAccessItem }> {
     return this.api.post<{ service: ServiceAccessItem }>('/patrimonial/services', data);
+  }
+
+  deleteDraft(id: number): Observable<{ deleted: boolean; id_service_access: number }> {
+    return this.api.delete<{ deleted: boolean; id_service_access: number }>(
+      `/patrimonial/services/${id}/draft`,
+    );
   }
 
   update(
@@ -107,6 +123,9 @@ export class PatrimonialService {
       requesting_department: string;
       observacao: string | null;
       id_setor: number;
+      notificar_entrada: boolean;
+      notificar_entrada_colaborador: boolean;
+      notificar_entrada_veiculo: boolean;
     }>,
   ): Observable<{ service: ServiceAccessItem }> {
     return this.api.put<{ service: ServiceAccessItem }>(`/patrimonial/services/${id}`, data);
@@ -181,6 +200,8 @@ export class PatrimonialService {
     body: {
       collaborators: { id_collaborator: number; id_collaborator_role: number }[];
       vehicles: { id_vehicle: number }[];
+      notify_approvers?: boolean;
+      id_setor?: number;
     },
   ): Observable<{ service: ServiceAccessItem; relationsChanged: boolean }> {
     return this.api.put<{ service: ServiceAccessItem; relationsChanged: boolean }>(
@@ -262,9 +283,14 @@ export class PatrimonialService {
     id: number,
     previewToken: string,
     decisoes: import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmBody['decisoes'],
+    options?: { notify_approvers?: boolean },
   ) {
     return this.api.post<
       import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmResult
-    >(`/patrimonial/services/${id}/bulk-import/confirm`, { previewToken, decisoes });
+    >(`/patrimonial/services/${id}/bulk-import/confirm`, {
+      previewToken,
+      decisoes,
+      ...(options?.notify_approvers === false ? { notify_approvers: false } : {}),
+    });
   }
 }

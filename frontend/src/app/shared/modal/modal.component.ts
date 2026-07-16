@@ -36,6 +36,7 @@ let modalIdCounter = 0;
           [class.modal-panel--md]="size === 'md'"
           [class.modal-panel--lg]="size === 'lg'"
           [class.modal-panel--xl]="size === 'xl'"
+          [class.modal-panel--2xl]="size === '2xl'"
           role="dialog"
           aria-modal="true"
           [attr.aria-labelledby]="title ? titleId : null"
@@ -69,7 +70,7 @@ let modalIdCounter = 0;
             </div>
           }
 
-          <div class="modal-body">
+          <div class="modal-body" [class.modal-body--no-scroll]="!bodyScroll">
             <ng-content></ng-content>
           </div>
 
@@ -85,10 +86,12 @@ export class ModalComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() open = false;
   @Input() title = '';
   @Input() subtitle = '';
-  @Input() size: 'sm' | 'md' | 'lg' | 'xl' = 'md';
+  @Input() size: 'sm' | 'md' | 'lg' | 'xl' | '2xl' = 'md';
   @Input() showClose = true;
   @Input() closeOnBackdrop = true;
   @Input() focusFirstField = true;
+  /** Quando false, o corpo do modal não rola — o conteúdo interno controla o scroll. */
+  @Input() bodyScroll = true;
 
   /** Quando true, Esc emite escapePress em vez de close (ex.: edição inline ativa). */
   @Input() interceptEscape = false;

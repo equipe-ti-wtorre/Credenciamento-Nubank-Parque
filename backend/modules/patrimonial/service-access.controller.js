@@ -67,7 +67,7 @@ exports.getById = async (req, res, next) => {
 exports.create = async (req, res, next) => {
   try {
     const { error, value } = serviceAccessCreateSchema.validate(req.body);
-    if (error) throw new AppError(error.details[0].message, 400);
+    if (error) throw new AppError(error.details[0].message, 422);
     const service = await serviceAccessService.createServiceAccess(req, value);
     attachAudit(req, {
       action: "CREATE",
@@ -78,13 +78,28 @@ exports.create = async (req, res, next) => {
     const { approvalCreated, ...servicePayload } = service;
     res.status(201).json({ service: servicePayload });
 
-    if (approvalCreated) {
+    if (approvalCreated && value.notify_approvers !== false) {
       scheduleApprovalNotify(req, {
         id_aprovacao: approvalCreated.id,
         id_setor: value.id_setor,
         aprovacao_status: "PENDENTE",
       });
     }
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteDraft = async (req, res, next) => {
+  try {
+    const result = await serviceAccessService.deleteDraftServiceAccess(req, req.params.id);
+    attachAudit(req, {
+      action: "DELETE",
+      module: "patrimonial",
+      event: "service_access.draft.delete",
+      resource: { type: "service_access", id: result.id_service_access },
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -115,7 +130,7 @@ exports.update = async (req, res, next) => {
 exports.syncRelations = async (req, res, next) => {
   try {
     const { error, value } = serviceAccessRelationsSchema.validate(req.body);
-    if (error) throw new AppError(error.details[0].message, 400);
+    if (error) throw new AppError(error.details[0].message, 422);
     const service = await serviceAccessService.syncServiceAccessRelations(
       req,
       req.params.id,
@@ -134,7 +149,12 @@ exports.syncRelations = async (req, res, next) => {
       },
     });
     res.json({ service: servicePayload, relationsChanged: !!relationsChanged });
-    if (approvalNotify) {
+    if (
+      approvalNotify ||
+      (value.notify_approvers === true &&
+        servicePayload.id_aprovacao &&
+        servicePayload.aprovacao_status === "PENDENTE")
+    ) {
       scheduleApprovalNotify(req, servicePayload);
     }
   } catch (err) {
@@ -508,16 +528,23 @@ exports.unifiedBulkConfirm = async (req, res, next) => {
       },
     });
     res.json(result);
+    const notifyApprovers = req.body?.notify_approvers !== false;
     const changed =
-      (result.colaboradores?.created || 0) +
-        (result.colaboradores?.updated || 0) +
-        (result.colaboradores?.linked || 0) +
-        (result.veiculos?.created || 0) +
-        (result.veiculos?.updated || 0) +
-        (result.veiculos?.linked || 0) +
-        (result.motoristas?.linked || 0) >
+      (result.colaboradores?.created ||
+        result.colaboradores?.inseridos ||
+        0) +
+        (result.colaboradores?.updated ||
+          result.colaboradores?.atualizados ||
+          0) +
+        (result.colaboradores?.linked ||
+          result.colaboradores?.vinculados ||
+          0) +
+        (result.veiculos?.created || result.veiculos?.inseridos || 0) +
+        (result.veiculos?.updated || result.veiculos?.atualizados || 0) +
+        (result.veiculos?.linked || result.veiculos?.vinculados || 0) +
+        (result.motoristas?.linked || result.motoristas?.vinculados || 0) >
       0;
-    if (changed) {
+    if (changed && notifyApprovers) {
       void notifyServiceIfPending(req, req.params.id);
     }
   } catch (err) {

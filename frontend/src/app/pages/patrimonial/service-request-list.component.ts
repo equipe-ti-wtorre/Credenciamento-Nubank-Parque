@@ -1,26 +1,18 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { PatrimonialService, ServiceAccessItem } from '../../services/patrimonial.service';
 import { CompanyItem, CompanyService } from '../../services/company.service';
-import { ApprovalService, EligibleSector } from '../../services/approval.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService } from '../../core/services/auth.service';
-import { ModalComponent } from '../../shared/modal/modal.component';
 import {
   ActionBtnComponent,
   ActionDropdownComponent,
   ActionDropdownItemDirective,
   ActionMenuComponent,
 } from '../../shared/actions';
-import {
-  STATUS_AGUARDANDO_APROVACAO,
-  STATUS_AGUARDANDO_PRODUTORA,
-  STATUS_APROVADO,
-  STATUS_NEGADO,
-  statusBadgeClass,
-} from '../../services/credential.service';
+import { statusBadgeClass } from '../../services/credential.service';
+import { ServiceAccessCreateWizardComponent } from './service-access-create-wizard.component';
 
 function formatDateBr(value: string | null | undefined): string {
   if (!value) return '—';
@@ -35,13 +27,11 @@ function formatDateBr(value: string | null | undefined): string {
   standalone: true,
   imports: [
     CommonModule,
-    FormsModule,
-    RouterLink,
-    ModalComponent,
     ActionBtnComponent,
     ActionMenuComponent,
     ActionDropdownComponent,
     ActionDropdownItemDirective,
+    ServiceAccessCreateWizardComponent,
   ],
   template: `
     <div class="w-full">
@@ -56,7 +46,7 @@ function formatDateBr(value: string | null | undefined): string {
           <button type="button" class="btn-secondary" (click)="carregar()" [disabled]="loading()">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
-          <button type="button" class="btn-primary" (click)="abrirModal()">+ Novo acesso</button>
+          <button type="button" class="btn-primary" (click)="abrirWizard()">+ Novo acesso</button>
         </div>
       </div>
 
@@ -98,69 +88,16 @@ function formatDateBr(value: string | null | undefined): string {
               </td>
               <td class="px-4 py-3">
                 <span
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold"
+                  class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
                   [ngClass]="statusBadgeClass(s.id_access_status)"
                 >
-                  <svg
-                    *ngIf="s.id_access_status === STATUS_APROVADO"
-                    class="w-3.5 h-3.5 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                  <svg
-                    *ngIf="s.id_access_status === STATUS_NEGADO"
-                    class="w-3.5 h-3.5 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M18 6 6 18M6 6l12 12" />
-                  </svg>
-                  <svg
-                    *ngIf="s.id_access_status === STATUS_AGUARDANDO_APROVACAO"
-                    class="w-3.5 h-3.5 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 7v5l3 2" />
-                  </svg>
-                  <svg
-                    *ngIf="s.id_access_status === STATUS_AGUARDANDO_PRODUTORA"
-                    class="w-3.5 h-3.5 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M5 2h14v4H5zM5 18h14v4H5z" />
-                    <path d="M8 6v2a4 4 0 0 0 8 0V6M8 18v-2a4 4 0 0 1 8 0v2" />
-                  </svg>
                   {{ s.access_status_description }}
                 </span>
               </td>
               <td class="px-4 py-3">
                 <span
-                  class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
-                  [class.bg-emerald-100]="s.status"
+                  class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+                  [class.bg-emerald-50]="s.status"
                   [class.text-emerald-700]="s.status"
                   [class.bg-slate-100]="!s.status"
                   [class.text-slate-600]="!s.status"
@@ -168,173 +105,56 @@ function formatDateBr(value: string | null | undefined): string {
                   {{ s.status ? 'Sim' : 'Não' }}
                 </span>
               </td>
-              <td class="px-4 py-3 text-right whitespace-nowrap">
-                <div class="flex justify-end">
-                  <app-action-menu>
-                    <app-action-btn icon="grid" title="Gerenciar" variant="neutral" (action)="abrirDetalhe(s)" />
-                    <app-action-dropdown *ngIf="isAdmin">
-                      <button appActionDropdownItem type="button" (click)="toggleEnabled(s)">
-                        <svg
-                          class="action-dropdown__item-icon"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="1.75"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-                          <path d="M12 2v10" />
-                        </svg>
-                        {{ s.status ? 'Desabilitar' : 'Habilitar' }}
-                      </button>
-                    </app-action-dropdown>
-                  </app-action-menu>
-                </div>
+              <td class="px-4 py-3 text-right">
+                <app-action-menu>
+                  <app-action-btn
+                    icon="grid"
+                    title="Gerenciar"
+                    variant="neutral"
+                    (action)="abrirDetalhe(s)"
+                  />
+                  <app-action-dropdown *ngIf="isAdmin">
+                    <button appActionDropdownItem type="button" (click)="toggleEnabled(s)">
+                      {{ s.status ? 'Desabilitar' : 'Habilitar' }}
+                    </button>
+                  </app-action-dropdown>
+                </app-action-menu>
               </td>
             </tr>
             <tr *ngIf="!loading() && services().length === 0">
-              <td colspan="7" class="px-4 py-8 text-center text-slate-500">Nenhum acesso cadastrado.</td>
+              <td colspan="9" class="px-4 py-8 text-center text-slate-500">
+                Nenhum acesso de serviço encontrado.
+              </td>
+            </tr>
+            <tr *ngIf="loading()">
+              <td colspan="9" class="px-4 py-8 text-center text-slate-500">Carregando...</td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <app-modal
-      [open]="showModal()"
-      title="Novo acesso de serviço"
-      subtitle="Cadastre período, finalidade e setor aprovador. Após criar, adicione colaboradores e veículos."
-      size="lg"
-      (close)="fecharModal()"
-    >
-      <form id="service-access-form" class="space-y-3" (ngSubmit)="salvar()">
-        <div *ngIf="isAdmin">
-          <label class="form-label" for="svc-company">Empresa</label>
-          <select
-            id="svc-company"
-            [(ngModel)]="form.id_company"
-            name="id_company"
-            required
-            class="form-select"
-          >
-            <option [ngValue]="null">Selecione...</option>
-            <option *ngFor="let c of companies()" [ngValue]="c.id_company">
-              {{ c.fancy_name || c.company_name }}
-            </option>
-          </select>
-          <p class="text-xs text-slate-500 mt-1">
-            Não encontrou a empresa?
-            <a routerLink="/admin/empresas" class="text-[var(--color-primary-dark)] font-medium hover:underline">
-              Cadastrar empresa
-            </a>
-          </p>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="form-label" for="svc-start">Data início</label>
-            <input
-              id="svc-start"
-              [(ngModel)]="form.start_date"
-              name="start_date"
-              type="date"
-              required
-              class="form-field"
-            />
-          </div>
-          <div>
-            <label class="form-label" for="svc-end">Data fim</label>
-            <input
-              id="svc-end"
-              [(ngModel)]="form.end_date"
-              name="end_date"
-              type="date"
-              required
-              class="form-field"
-            />
-          </div>
-        </div>
-        <div>
-          <label class="form-label" for="svc-finalidade">Finalidade</label>
-          <input
-            id="svc-finalidade"
-            [(ngModel)]="form.finalidade"
-            name="finalidade"
-            required
-            class="form-field"
-          />
-        </div>
-        <div>
-          <label class="form-label" for="svc-setor">Setor aprovador</label>
-          <select
-            id="svc-setor"
-            [(ngModel)]="form.id_setor"
-            name="id_setor"
-            required
-            class="form-select"
-          >
-            <option [ngValue]="null" disabled>Selecione o setor</option>
-            <option *ngFor="let s of sectors()" [ngValue]="s.id">
-              {{ s.nome }}
-            </option>
-          </select>
-        </div>
-        <div>
-          <label class="form-label" for="svc-obs">
-            Observação <span class="form-label__optional">(opcional)</span>
-          </label>
-          <textarea
-            id="svc-obs"
-            [(ngModel)]="form.observacao"
-            name="observacao"
-            rows="3"
-            class="form-field"
-          ></textarea>
-        </div>
-      </form>
-      <div modal-footer class="modal-footer">
-        <button type="button" class="btn-action-secondary" (click)="fecharModal()">Cancelar</button>
-        <button
-          type="submit"
-          form="service-access-form"
-          class="btn-action-primary"
-          [disabled]="saving()"
-        >
-          {{ saving() ? 'Criando...' : 'Criar e gerenciar' }}
-        </button>
-      </div>
-    </app-modal>
+    <app-service-access-create-wizard
+      [open]="showWizard()"
+      [isAdmin]="isAdmin"
+      [companies]="companies()"
+      (closed)="onWizardClosed($event)"
+      (completed)="onWizardCompleted($event)"
+    />
   `,
 })
 export class ServiceRequestListComponent implements OnInit {
   services = signal<ServiceAccessItem[]>([]);
   companies = signal<CompanyItem[]>([]);
   loading = signal(false);
-  saving = signal(false);
-  showModal = signal(false);
-  sectors = signal<EligibleSector[]>([]);
+  showWizard = signal(false);
   isAdmin = false;
   formatDateBr = formatDateBr;
   readonly statusBadgeClass = statusBadgeClass;
-  readonly STATUS_APROVADO = STATUS_APROVADO;
-  readonly STATUS_NEGADO = STATUS_NEGADO;
-  readonly STATUS_AGUARDANDO_APROVACAO = STATUS_AGUARDANDO_APROVACAO;
-  readonly STATUS_AGUARDANDO_PRODUTORA = STATUS_AGUARDANDO_PRODUTORA;
-  form = {
-    start_date: '',
-    end_date: '',
-    finalidade: '',
-    requesting_department: '',
-    observacao: '',
-    id_company: null as number | null,
-    id_setor: null as number | null,
-  };
 
   constructor(
     private patrimonialService: PatrimonialService,
     private companyService: CompanyService,
-    private approvalService: ApprovalService,
     private notification: NotificationService,
     private authService: AuthService,
     private router: Router,
@@ -370,75 +190,22 @@ export class ServiceRequestListComponent implements OnInit {
     });
   }
 
-  abrirModal() {
-    this.form = {
-      start_date: '',
-      end_date: '',
-      finalidade: '',
-      requesting_department: '',
-      observacao: '',
-      id_company: null,
-      id_setor: null,
-    };
-    this.approvalService.listEligibleSectors('ACESSO_SERVICO').subscribe({
-      next: (res) => this.sectors.set(res.sectors),
-      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar setores.'),
-    });
+  abrirWizard() {
     if (this.isAdmin) {
       this.carregarEmpresas();
     }
-    this.showModal.set(true);
+    this.showWizard.set(true);
   }
 
-  fecharModal() {
-    this.showModal.set(false);
+  onWizardClosed(_event: { createdId: number | null }) {
+    this.showWizard.set(false);
+    this.carregar();
   }
 
-  salvar() {
-    if (this.isAdmin && !this.form.id_company) {
-      this.notification.error('Selecione a empresa.');
-      return;
-    }
-    if (!this.form.finalidade.trim()) {
-      this.notification.error('Preencha a finalidade.');
-      return;
-    }
-    if (!this.form.start_date || !this.form.end_date) {
-      this.notification.error('Informe o período do acesso.');
-      return;
-    }
-    if (!this.form.id_setor) {
-      this.notification.error('Selecione o setor aprovador.');
-      return;
-    }
-    const setorNome = this.sectors().find((s) => s.id === this.form.id_setor)?.nome?.trim();
-    if (!setorNome) {
-      this.notification.error('Setor aprovador inválido.');
-      return;
-    }
-    this.saving.set(true);
-    this.patrimonialService
-      .create({
-        start_date: this.form.start_date,
-        end_date: this.form.end_date,
-        finalidade: this.form.finalidade.trim(),
-        requesting_department: setorNome,
-        observacao: this.form.observacao.trim() || null,
-        id_setor: this.form.id_setor,
-        ...(this.isAdmin && this.form.id_company ? { id_company: this.form.id_company } : {}),
-      })
-      .subscribe({
-        next: (res) => {
-          this.saving.set(false);
-          this.fecharModal();
-          this.notification.success('Acesso criado. Adicione colaboradores e veículos.');
-          this.router.navigate(['/admin/acessos-servico', res.service.id_service_access]);
-        },
-        error: (err) => {
-          this.saving.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao criar acesso.');
-        },
-      });
+  onWizardCompleted(event: { service: ServiceAccessItem }) {
+    this.showWizard.set(false);
+    this.carregar();
+    this.router.navigate(['/admin/acessos-servico', event.service.id_service_access]);
   }
 
   abrirDetalhe(s: ServiceAccessItem) {

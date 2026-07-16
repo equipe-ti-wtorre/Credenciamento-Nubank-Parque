@@ -260,14 +260,6 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     if (hasPermission(user, 'events', 'view')) {
       operacaoItems.push({ label: 'Eventos', route: '/admin/eventos', iconHtml: this.iconFor('calendar') });
     }
-    if (hasPermission(user, 'fleet', 'view')) {
-      operacaoItems.push({
-        label: 'Frota',
-        route: '/admin/frota',
-        iconLibrary: 'image',
-        iconSrc: 'assets/icons/frota.png',
-      });
-    }
     if (hasPermission(user, 'service_access', 'view')) {
       operacaoItems.push({
         label: 'Acessos de Serviço',

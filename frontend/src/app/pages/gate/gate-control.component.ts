@@ -19,7 +19,6 @@ import {
   CollaboratorService,
 } from '../../services/collaborator.service';
 import {
-  GateNextAction,
   GateService,
   GateTodayCredential,
   GateTodayService,
@@ -37,324 +36,24 @@ interface GateSubstituteTarget {
 
 type FeedbackState = 'idle' | 'success' | 'denied';
 
+export type GateStatusFilter = 'todos' | 'wait' | 'in' | 'done';
+export type GateTypeFilter = 'todos' | 'veiculo' | 'colaborador';
+
+interface GateStats {
+  total: number;
+  wait: number;
+  in: number;
+  done: number;
+  veiculo: number;
+  colaborador: number;
+}
+
 @Component({
   selector: 'app-gate-control',
   standalone: true,
   imports: [CommonModule, FormsModule, ModalComponent],
-  styles: [
-    `
-      @keyframes gate-deny-blink {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.55;
-        }
-      }
-      .gate-deny-blink {
-        animation: gate-deny-blink 0.55s ease-in-out infinite;
-      }
-      .gate-scan-sr {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        margin: -1px;
-        overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        white-space: nowrap;
-        border: 0;
-      }
-    `,
-  ],
-  template: `
-    <div class="w-full max-w-6xl mx-auto" data-gate-root>
-      <div class="mb-4 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
-        <div>
-          <h2 class="page-section-title">Portaria</h2>
-          <p class="page-section-subtitle">
-            Leitor de código ativo — use a tabela abaixo como contingência manual
-          </p>
-        </div>
-        <p class="text-xs text-slate-500" *ngIf="processing()">Processando leitura...</p>
-      </div>
-
-      <div class="flex gap-2 mb-4">
-        <button
-          type="button"
-          class="text-sm px-4 py-2 rounded-xl border"
-          [class.btn-primary]="gateMode() === 'events'"
-          [class.btn-secondary]="gateMode() !== 'events'"
-          (click)="setGateMode('events')"
-        >
-          Eventos
-        </button>
-        <button
-          type="button"
-          class="text-sm px-4 py-2 rounded-xl border"
-          [class.btn-primary]="gateMode() === 'patrimonial'"
-          [class.btn-secondary]="gateMode() !== 'patrimonial'"
-          (click)="setGateMode('patrimonial')"
-        >
-          Patrimonial
-        </button>
-      </div>
-
-      <!-- UX primária: input discreto para scanner -->
-      <label class="gate-scan-sr">
-        Leitura de código de acesso
-        <input
-          #scanInput
-          type="text"
-          [(ngModel)]="scanValue"
-          (keydown.enter)="onScanSubmit($event)"
-          [disabled]="processing()"
-          autocomplete="off"
-          autocorrect="off"
-          spellcheck="false"
-        />
-      </label>
-
-      <!-- UX secundária: lista manual -->
-      <div class="card-surface p-4 mb-6" data-gate-manual>
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-          <h3 class="text-sm font-bold text-slate-600 uppercase">
-            {{ gateMode() === 'events' ? 'Credenciais de hoje' : 'Serviços de hoje' }}
-          </h3>
-          <button
-            type="button"
-            class="btn-secondary text-xs shrink-0"
-            (click)="loadTodayList()"
-            [disabled]="todayLoading()"
-          >
-            {{ todayLoading() ? 'Atualizando...' : 'Atualizar lista' }}
-          </button>
-        </div>
-
-        <input
-          type="search"
-          [(ngModel)]="manualSearch"
-          placeholder="Buscar por nome, documento ou empresa..."
-          class="w-full mb-4 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-          data-gate-manual-search
-        />
-
-        <p *ngIf="todayLoading()" class="text-sm text-slate-500 py-6 text-center">Carregando...</p>
-        <p
-          *ngIf="!todayLoading() && gateMode() === 'events' && todayCredentials().length === 0"
-          class="text-sm text-slate-500 py-6 text-center"
-        >
-          Nenhuma credencial aprovada para o dia operacional atual.
-        </p>
-        <p
-          *ngIf="!todayLoading() && gateMode() === 'patrimonial' && todayServices().length === 0"
-          class="text-sm text-slate-500 py-6 text-center"
-        >
-          Nenhum serviço patrimonial aprovado para hoje.
-        </p>
-
-        <div *ngIf="!todayLoading() && gateMode() === 'events' && todayCredentials().length > 0" class="overflow-x-auto">
-          <table class="w-full text-sm text-left">
-            <thead>
-              <tr class="border-b border-[var(--app-border)] text-xs uppercase text-slate-500">
-                <th class="py-2 pr-2 font-bold">Nome</th>
-                <th class="py-2 pr-2 font-bold">Documento</th>
-                <th class="py-2 pr-2 font-bold hidden md:table-cell">Função</th>
-                <th class="py-2 pr-2 font-bold hidden lg:table-cell">Empresa</th>
-                <th class="py-2 pr-2 font-bold">Entrada</th>
-                <th class="py-2 pr-2 font-bold">Saída</th>
-                <th class="py-2 font-bold text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                *ngFor="let row of filteredTodayCredentials()"
-                class="border-b border-[var(--app-border)] last:border-0 hover:bg-slate-50/80"
-              >
-                <td class="py-2 pr-2 font-medium">{{ row.collaborator.name }}</td>
-                <td class="py-2 pr-2 font-mono text-xs">{{ row.collaborator.document_masked }}</td>
-                <td class="py-2 pr-2 hidden md:table-cell text-slate-600">{{ row.collaborator.role }}</td>
-                <td class="py-2 pr-2 hidden lg:table-cell text-slate-600">{{ row.company.name }}</td>
-                <td class="py-2 pr-2 text-xs whitespace-nowrap">
-                  {{ formatTimestamp(row.access_check_in) }}
-                </td>
-                <td class="py-2 pr-2 text-xs whitespace-nowrap">
-                  {{ formatTimestamp(row.access_check_out) }}
-                </td>
-                <td class="py-2 text-right whitespace-nowrap">
-                  <div class="flex justify-end gap-1 flex-wrap">
-                    <button
-                      type="button"
-                      class="text-xs px-2 py-1 rounded-lg font-semibold disabled:opacity-40"
-                      [class.bg-emerald-600]="row.next_action === 'CHECK_IN'"
-                      [class.text-white]="row.next_action === 'CHECK_IN'"
-                      [class.bg-amber-600]="row.next_action === 'CHECK_OUT'"
-                      [class.text-white]="row.next_action === 'CHECK_OUT'"
-                      [class.bg-slate-200]="row.next_action === 'COMPLETED'"
-                      [class.text-slate-500]="row.next_action === 'COMPLETED'"
-                      [disabled]="row.next_action === 'COMPLETED' || processing()"
-                      (click)="onManualValidate(row)"
-                      [title]="manualActionTitle(row.next_action)"
-                    >
-                      {{ manualActionLabel(row.next_action) }}
-                    </button>
-                    <button
-                      type="button"
-                      class="text-xs px-2 py-1 rounded-lg font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40"
-                      [disabled]="processing()"
-                      (click)="openSubstituteModal(row)"
-                    >
-                      Substituir
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p class="text-xs text-slate-500 mt-2">
-            Exibindo {{ filteredTodayCredentials().length }} de {{ todayCredentials().length }} credencial(is)
-          </p>
-        </div>
-
-        <div *ngIf="!todayLoading() && gateMode() === 'patrimonial' && todayServices().length > 0" class="overflow-x-auto">
-          <table class="w-full text-sm text-left">
-            <thead>
-              <tr class="border-b border-[var(--app-border)] text-xs uppercase text-slate-500">
-                <th class="py-2 pr-2 font-bold">Tipo</th>
-                <th class="py-2 pr-2 font-bold">Identificação</th>
-                <th class="py-2 pr-2 font-bold">Empresa</th>
-                <th class="py-2 pr-2 font-bold">Finalidade</th>
-                <th class="py-2 pr-2 font-bold">Entrada</th>
-                <th class="py-2 pr-2 font-bold">Saída</th>
-                <th class="py-2 font-bold text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let row of filteredTodayServices()" class="border-b border-[var(--app-border)] last:border-0">
-                <td class="py-2 pr-2">{{ row.kind === 'vehicle' ? 'Veículo' : 'Colaborador' }}</td>
-                <td class="py-2 pr-2 font-medium">
-                  <span *ngIf="row.vehicle" class="font-mono">{{ row.vehicle.plate }}</span>
-                  <span *ngIf="row.collaborator">
-                    {{ row.collaborator.name }}
-                    <span class="block text-xs text-slate-500 font-mono">{{ row.collaborator.document_masked }}</span>
-                  </span>
-                </td>
-                <td class="py-2 pr-2">{{ row.company.name }}</td>
-                <td class="py-2 pr-2">{{ row.finalidade }}</td>
-                <td class="py-2 pr-2 text-xs">{{ formatTimestamp(row.check_in) }}</td>
-                <td class="py-2 pr-2 text-xs">{{ formatTimestamp(row.check_out) }}</td>
-                <td class="py-2 text-right">
-                  <button
-                    type="button"
-                    class="btn-primary text-xs py-1 px-2"
-                    [disabled]="row.next_action === 'COMPLETED' || processing()"
-                    (click)="onManualValidateService(row)"
-                  >
-                    {{ manualActionLabel(row.next_action) }}
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div
-        *ngIf="feedback() === 'success' && (lastSuccess() || lastServiceSuccess())"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-emerald-600 text-white"
-      >
-        <div class="text-center max-w-lg" *ngIf="lastSuccess() as success">
-          <p class="text-sm uppercase tracking-widest opacity-90 mb-2">Acesso autorizado</p>
-          <p class="text-4xl md:text-5xl font-bold mb-3">{{ success.collaborator.name }}</p>
-          <p class="text-xl opacity-95">{{ success.collaborator.role }}</p>
-          <p class="text-lg mt-2 opacity-90">{{ success.company.fancy_name }}</p>
-          <p class="text-2xl font-semibold mt-6">{{ actionLabel(success.action_registered) }}</p>
-        </div>
-        <div class="text-center max-w-lg" *ngIf="!lastSuccess() && lastServiceSuccess() as service">
-          <p class="text-sm uppercase tracking-widest opacity-90 mb-2">Acesso autorizado</p>
-          <p class="text-4xl md:text-5xl font-bold mb-3">
-            {{ service.collaborator?.name || service.vehicle?.plate }}
-          </p>
-          <p class="text-xl opacity-95" *ngIf="service.collaborator">{{ service.collaborator.role }}</p>
-          <p class="text-lg mt-2 opacity-90">{{ service.company?.fancy_name }}</p>
-          <p class="text-2xl font-semibold mt-6">{{ actionLabel(service.action_registered!) }}</p>
-        </div>
-      </div>
-
-      <div
-        *ngIf="feedback() === 'denied'"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-red-700 text-white gate-deny-blink"
-      >
-        <div class="text-center max-w-lg px-4">
-          <p class="text-sm uppercase tracking-widest opacity-90 mb-4">Acesso negado</p>
-          <p class="text-3xl md:text-4xl font-bold leading-tight">{{ denyReason() }}</p>
-          <p *ngIf="denyCode()" class="text-sm mt-4 opacity-80 font-mono">{{ denyCode() }}</p>
-        </div>
-      </div>
-
-      <app-modal
-        data-gate-substitute-modal
-        [open]="showSubstituteModal()"
-        title="Substituir colaborador"
-        [subtitle]="substituteTarget() ? 'Credencial: ' + substituteTarget()!.name : ''"
-        size="md"
-        (close)="closeSubstituteModal()"
-      >
-        <label class="text-xs font-bold text-slate-500 uppercase">Tipo de documento</label>
-        <select
-          class="w-full mt-1 mb-3 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-          [(ngModel)]="substituteDocTypeId"
-        >
-          <option *ngFor="let t of documentTypes()" [ngValue]="t.id_collaborator_document_type">
-            {{ t.description }}
-          </option>
-        </select>
-
-        <label class="text-xs font-bold text-slate-500 uppercase">CPF / Passaporte</label>
-        <div class="flex gap-2 mt-1 mb-4">
-          <input
-            type="text"
-            [(ngModel)]="substituteDocument"
-            class="flex-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
-            placeholder="Documento do substituto"
-            (keydown.enter)="searchSubstitute()"
-          />
-          <button
-            type="button"
-            class="btn-secondary shrink-0"
-            (click)="searchSubstitute()"
-            [disabled]="substituteSearching()"
-          >
-            Buscar
-          </button>
-        </div>
-
-        <div
-          *ngIf="substituteCandidate()"
-          class="mb-4 p-3 rounded-xl bg-slate-50 border border-[var(--app-border)] text-sm"
-        >
-          <p class="font-semibold">{{ substituteCandidate()!.name }}</p>
-          <p class="text-slate-500">{{ substituteCandidate()!.document }}</p>
-          <p *ngIf="substituteCandidate()!.is_blacklisted" class="text-red-600 text-xs mt-1 font-bold">
-            Colaborador na lista de bloqueio
-          </p>
-        </div>
-
-        <div modal-footer class="modal-footer">
-          <button type="button" class="btn-action-secondary" (click)="closeSubstituteModal()">Cancelar</button>
-          <button
-            type="button"
-            class="btn-action-primary"
-            (click)="confirmSubstitute()"
-            [disabled]="!substituteCandidate() || substituteCandidate()!.is_blacklisted || substituteSubmitting()"
-          >
-            Confirmar substituição
-          </button>
-        </div>
-      </app-modal>
-    </div>
-  `,
+  templateUrl: './gate-control.component.html',
+  styleUrl: './gate-control.component.scss',
 })
 export class GateControlComponent implements AfterViewInit, OnDestroy {
   @ViewChild('scanInput') scanInput?: ElementRef<HTMLInputElement>;
@@ -365,48 +64,97 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   private cdr = inject(ChangeDetectorRef);
 
   scanValue = '';
-  manualSearch = '';
+  manualSearch = signal('');
+  statusFilter = signal<GateStatusFilter>('todos');
+  typeFilter = signal<GateTypeFilter>('todos');
   processing = signal(false);
   feedback = signal<FeedbackState>('idle');
   lastSuccess = signal<GateValidateSuccess | null>(null);
   lastServiceSuccess = signal<GateServiceValidateResponse | null>(null);
   denyReason = signal('');
   denyCode = signal('');
+  refreshSpin = signal(false);
 
-  gateMode = signal<'events' | 'patrimonial'>('events');
+  /** Tick for relative-time labels ("há X min") — bumped every 30s when someone is inside. */
+  private relTick = signal(0);
+
+  gateMode = signal<'events' | 'patrimonial'>('patrimonial');
   todayCredentials = signal<GateTodayCredential[]>([]);
   todayServices = signal<GateTodayService[]>([]);
   todayLoading = signal(false);
+  thumbnailUrls = signal<Record<string, string>>({});
+  successPhotoUrl = signal<string | null>(null);
+
+  private thumbnailLoadId = 0;
+
+  stats = computed((): GateStats => {
+    this.relTick();
+    if (this.gateMode() === 'patrimonial') {
+      const list = this.todayServices();
+      return {
+        total: list.length,
+        wait: list.filter((r) => r.next_action === 'CHECK_IN').length,
+        in: list.filter((r) => r.next_action === 'CHECK_OUT').length,
+        done: list.filter((r) => r.next_action === 'COMPLETED').length,
+        veiculo: list.filter((r) => r.kind === 'vehicle').length,
+        colaborador: list.filter((r) => r.kind === 'collaborator').length,
+      };
+    }
+    const list = this.todayCredentials();
+    return {
+      total: list.length,
+      wait: list.filter((r) => r.next_action === 'CHECK_IN').length,
+      in: list.filter((r) => r.next_action === 'CHECK_OUT').length,
+      done: list.filter((r) => r.next_action === 'COMPLETED').length,
+      veiculo: 0,
+      colaborador: list.length,
+    };
+  });
 
   filteredTodayCredentials = computed(() => {
-    const q = this.manualSearch.trim().toLowerCase();
-    const list = this.todayCredentials();
-    if (!q) return list;
-    return list.filter((row) => {
-      const haystack = [
-        row.collaborator.name,
-        row.collaborator.document_masked,
-        row.collaborator.role,
-        row.company.name,
-        row.event_name,
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(q);
+    this.relTick();
+    const q = this.manualSearch().trim().toLowerCase();
+    const status = this.statusFilter();
+    return this.todayCredentials().filter((row) => {
+      if (status === 'wait' && row.next_action !== 'CHECK_IN') return false;
+      if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
+      if (status === 'done' && row.next_action !== 'COMPLETED') return false;
+      if (q) {
+        const haystack = [
+          row.collaborator.name,
+          row.collaborator.document_masked,
+          row.collaborator.role,
+          row.company.name,
+          row.event_name,
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
     });
   });
 
   filteredTodayServices = computed(() => {
-    const q = this.manualSearch.trim().toLowerCase();
-    const list = this.todayServices();
-    if (!q) return list;
-    return list.filter((row) => {
-      const parts = [row.company.name, row.finalidade, row.kind];
-      if (row.vehicle) parts.push(row.vehicle.plate);
-      if (row.collaborator) {
-        parts.push(row.collaborator.name, row.collaborator.document_masked, row.collaborator.role);
+    this.relTick();
+    const q = this.manualSearch().trim().toLowerCase();
+    const status = this.statusFilter();
+    const type = this.typeFilter();
+    return this.todayServices().filter((row) => {
+      if (type === 'veiculo' && row.kind !== 'vehicle') return false;
+      if (type === 'colaborador' && row.kind !== 'collaborator') return false;
+      if (status === 'wait' && row.next_action !== 'CHECK_IN') return false;
+      if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
+      if (status === 'done' && row.next_action !== 'COMPLETED') return false;
+      if (q) {
+        const parts = [row.company.name, row.finalidade, row.kind];
+        if (row.vehicle) parts.push(row.vehicle.plate);
+        if (row.collaborator) {
+          parts.push(row.collaborator.name, row.collaborator.document_masked, row.collaborator.role);
+        }
+        if (!parts.join(' ').toLowerCase().includes(q)) return false;
       }
-      return parts.join(' ').toLowerCase().includes(q);
+      return true;
     });
   });
 
@@ -420,6 +168,8 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   substituteSubmitting = signal(false);
 
   private feedbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private relTimer: ReturnType<typeof setInterval> | null = null;
+  private refreshSpinTimer: ReturnType<typeof setTimeout> | null = null;
   private denyAudio: HTMLAudioElement | null = null;
   private skipNextFocusRestore = false;
 
@@ -427,10 +177,23 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.loadDocumentTypes();
     this.loadTodayList();
     this.focusScanInput();
+    this.relTimer = setInterval(() => {
+      const hasInside =
+        this.todayCredentials().some((r) => r.next_action === 'CHECK_OUT') ||
+        this.todayServices().some((r) => r.next_action === 'CHECK_OUT');
+      if (hasInside) {
+        this.relTick.update((n) => n + 1);
+        this.cdr.markForCheck();
+      }
+    }, 30_000);
   }
 
   ngOnDestroy(): void {
     if (this.feedbackTimer) clearTimeout(this.feedbackTimer);
+    if (this.relTimer) clearInterval(this.relTimer);
+    if (this.refreshSpinTimer) clearTimeout(this.refreshSpinTimer);
+    this.revokeThumbnails();
+    this.clearSuccessPhoto();
   }
 
   @HostListener('document:click', ['$event'])
@@ -444,32 +207,56 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.focusScanInput();
   }
 
+  setStatusFilter(filter: GateStatusFilter): void {
+    this.statusFilter.set(filter);
+  }
+
+  setTypeFilter(filter: GateTypeFilter): void {
+    this.typeFilter.set(filter);
+  }
+
+  onRefreshClick(): void {
+    this.refreshSpin.set(true);
+    if (this.refreshSpinTimer) clearTimeout(this.refreshSpinTimer);
+    this.refreshSpinTimer = setTimeout(() => {
+      this.refreshSpin.set(false);
+      this.cdr.markForCheck();
+    }, 600);
+    this.loadTodayList();
+  }
+
   actionLabel(action: 'CHECK_IN' | 'CHECK_OUT'): string {
     return action === 'CHECK_IN' ? 'Entrada' : 'Saída';
   }
 
-  manualActionLabel(next: GateNextAction): string {
-    if (next === 'CHECK_IN') return 'Entrada';
-    if (next === 'CHECK_OUT') return 'Saída';
-    return 'Concluído';
-  }
-
-  manualActionTitle(next: GateNextAction): string {
-    if (next === 'CHECK_IN') return 'Registrar entrada';
-    if (next === 'CHECK_OUT') return 'Registrar saída';
-    return 'Fluxo já concluído';
-  }
-
-  formatTimestamp(value: string | null): string {
+  formatClock(value: string | null): string {
     if (!value) return '—';
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return '—';
     return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   }
 
+  /** @deprecated Prefer formatClock for UI; kept for compatibility. */
+  formatTimestamp(value: string | null): string {
+    return this.formatClock(value);
+  }
+
+  relFrom(value: string | null): string {
+    this.relTick();
+    if (!value) return '';
+    const ts = new Date(value).getTime();
+    if (Number.isNaN(ts)) return '';
+    const m = Math.max(0, Math.round((Date.now() - ts) / 60_000));
+    if (m < 1) return 'agora';
+    if (m < 60) return `há ${m} min`;
+    return `há ${Math.floor(m / 60)}h ${m % 60}min`;
+  }
+
   setGateMode(mode: 'events' | 'patrimonial'): void {
     this.gateMode.set(mode);
-    this.manualSearch = '';
+    this.manualSearch.set('');
+    this.statusFilter.set('todos');
+    this.typeFilter.set('todos');
     this.loadTodayList();
     this.focusScanInput();
   }
@@ -481,6 +268,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         next: (res) => {
           this.todayServices.set(res.services);
           this.todayLoading.set(false);
+          this.loadThumbnailsFromServices(res.services);
           this.cdr.markForCheck();
         },
         error: (err: HttpErrorResponse) => {
@@ -495,6 +283,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       next: (res) => {
         this.todayCredentials.set(res.credentials);
         this.todayLoading.set(false);
+        this.loadThumbnailsFromCredentials(res.credentials);
         this.cdr.markForCheck();
       },
       error: (err: HttpErrorResponse) => {
@@ -503,6 +292,87 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         this.cdr.markForCheck();
       },
     });
+  }
+
+  pictureUrl(accessId: string): string | null {
+    return this.thumbnailUrls()[accessId] ?? null;
+  }
+
+  initials(name: string): string {
+    const parts = String(name || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  private loadThumbnailsFromCredentials(list: GateTodayCredential[]): void {
+    this.revokeThumbnails();
+    const loadId = ++this.thumbnailLoadId;
+    for (const row of list) {
+      const picture = row.collaborator.picture;
+      if (!picture) continue;
+      this.collaboratorService.getPictureBlob(picture).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          if (loadId !== this.thumbnailLoadId) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          this.thumbnailUrls.update((map) => ({ ...map, [row.access_id]: url }));
+          this.cdr.markForCheck();
+        },
+        error: () => undefined,
+      });
+    }
+  }
+
+  private loadThumbnailsFromServices(list: GateTodayService[]): void {
+    this.revokeThumbnails();
+    const loadId = ++this.thumbnailLoadId;
+    for (const row of list) {
+      const picture = row.collaborator?.picture;
+      if (!picture) continue;
+      this.collaboratorService.getPictureBlob(picture).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          if (loadId !== this.thumbnailLoadId) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          this.thumbnailUrls.update((map) => ({ ...map, [row.access_id]: url }));
+          this.cdr.markForCheck();
+        },
+        error: () => undefined,
+      });
+    }
+  }
+
+  private revokeThumbnails(): void {
+    for (const url of Object.values(this.thumbnailUrls())) {
+      URL.revokeObjectURL(url);
+    }
+    this.thumbnailUrls.set({});
+  }
+
+  private loadSuccessPhoto(picture: string | null | undefined): void {
+    this.clearSuccessPhoto();
+    if (!picture) return;
+    this.collaboratorService.getPictureBlob(picture).subscribe({
+      next: (blob) => {
+        this.successPhotoUrl.set(URL.createObjectURL(blob));
+        this.cdr.markForCheck();
+      },
+      error: () => undefined,
+    });
+  }
+
+  private clearSuccessPhoto(): void {
+    const url = this.successPhotoUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.successPhotoUrl.set(null);
   }
 
   onScanSubmit(event: Event): void {
@@ -549,10 +419,12 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       this.lastServiceSuccess.set(res);
       this.lastSuccess.set(null);
       this.feedback.set('success');
+      this.loadSuccessPhoto(res.collaborator?.picture);
       this.clearFeedbackTimer();
       this.feedbackTimer = setTimeout(() => {
         this.feedback.set('idle');
         this.lastServiceSuccess.set(null);
+        this.clearSuccessPhoto();
         this.focusScanInput();
         this.cdr.markForCheck();
       }, 2000);
@@ -563,7 +435,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.showDenied(res.reason || 'Acesso negado.', res.error_code || 'DENIED');
   }
 
-  private handleValidateResponse(accessId: string, res: GateValidateResponse): void {
+  private handleValidateResponse(_accessId: string, res: GateValidateResponse): void {
     this.processing.set(false);
     this.scanValue = '';
 
@@ -589,10 +461,12 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.lastSuccess.set(res);
     this.lastServiceSuccess.set(null);
     this.feedback.set('success');
+    this.loadSuccessPhoto(res.collaborator.picture);
     this.clearFeedbackTimer();
     this.feedbackTimer = setTimeout(() => {
       this.feedback.set('idle');
       this.lastSuccess.set(null);
+      this.clearSuccessPhoto();
       this.focusScanInput();
       this.cdr.markForCheck();
     }, 2000);

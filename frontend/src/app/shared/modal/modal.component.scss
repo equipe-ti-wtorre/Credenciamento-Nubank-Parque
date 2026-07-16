@@ -32,6 +32,10 @@
   max-width: 48rem;
 }
 
+.modal-panel--2xl {
+  max-width: 64rem;
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;
@@ -94,6 +98,18 @@
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+}
+
+.modal-body--no-scroll {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-body--no-scroll > * {
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
 }
 
 .modal-footer {

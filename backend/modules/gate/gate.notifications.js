@@ -10,7 +10,7 @@ const log = child({ module: "gate.notifications" });
 
 /**
  * Destinatários elegíveis: solicitante do acesso + aprovadores/gestores do setor.
- * Sem opt-in global — notificam sempre.
+ * Opt-in por kind: notificar_entrada_colaborador / notificar_entrada_veiculo.
  */
 async function listGateCheckInRecipients(idServiceAccess) {
   const [saRows] = await db.query(
@@ -132,21 +132,49 @@ async function notifyServiceGateCheckIn({
   finalidade,
 }) {
   try {
+    const isVehicle = kind === "vehicle";
+    const [flagRows] = await db.query(
+      `SELECT notificar_entrada,
+              notificar_entrada_colaborador,
+              notificar_entrada_veiculo
+         FROM service_access
+        WHERE id_service_access = ?
+        LIMIT 1`,
+      [idServiceAccess],
+    );
+    const flags = flagRows[0];
+    if (!flags) return;
+
+    const kindEnabled = isVehicle
+      ? flags.notificar_entrada_veiculo == null
+        ? Number(flags.notificar_entrada) !== 0
+        : Number(flags.notificar_entrada_veiculo) !== 0
+      : flags.notificar_entrada_colaborador == null
+        ? Number(flags.notificar_entrada) !== 0
+        : Number(flags.notificar_entrada_colaborador) !== 0;
+
+    if (!kindEnabled) return;
+
     const recipients = await listGateCheckInRecipients(idServiceAccess);
     if (!recipients.length) return;
 
-    const who =
-      kind === "vehicle"
-        ? `Veículo ${subjectName || ""}`.trim()
-        : `Colaborador ${subjectName || ""}`.trim();
+    const subject = (subjectName || "").trim() || (isVehicle ? "Veículo" : "Colaborador");
+    const titulo = isVehicle ? "Entrada de veículo" : "Entrada de colaborador";
+    const alertTipo = isVehicle
+      ? "gate.service.vehicle.check_in"
+      : "gate.service.collaborator.check_in";
+    const who = isVehicle ? `Veículo ${subject}` : `Colaborador ${subject}`;
     const mensagem = `${who} entrou na portaria — Acesso de serviço #${idServiceAccess}${
       finalidade ? ` (${finalidade})` : ""
     }.`;
+    const activityMessage = `${subject} — Serviço #${idServiceAccess}${
+      finalidade ? ` (${finalidade})` : ""
+    }`;
     const path = `/admin/acessos-servico/${idServiceAccess}`;
     const detailUrl = teamsService.buildUserDeepLink(path);
 
     const card = buildInfoCard({
-      titulo: "Entrada na portaria",
+      titulo,
       mensagem,
       tipoLabel: "Acesso de serviço",
       idEntidade: idServiceAccess,
@@ -160,6 +188,8 @@ async function notifyServiceGateCheckIn({
           await teamsService.notifyUser(user.email, mensagem, {
             path,
             adaptiveCard: card,
+            activityActor: titulo,
+            activityMessage,
           });
         } catch (err) {
           log.warn({ err, email: user.email }, "Falha Teams ao notificar check-in");
@@ -171,8 +201,8 @@ async function notifyServiceGateCheckIn({
       await alertsService.createAlertsForUsers(
         recipients.map((r) => r.id),
         {
-          tipo: "gate.service.check_in",
-          titulo: "Entrada na portaria",
+          tipo: alertTipo,
+          titulo,
           mensagem,
           link: path,
           tipoReferencia: "service_access",

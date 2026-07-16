@@ -1,0 +1,526 @@
+<div class="gate-page" data-gate-root>
+  <label class="gate-scan-sr">
+    Leitura de código de acesso
+    <input
+      #scanInput
+      type="text"
+      [(ngModel)]="scanValue"
+      (keydown.enter)="onScanSubmit($event)"
+      [disabled]="processing()"
+      autocomplete="off"
+      autocorrect="off"
+      spellcheck="false"
+    />
+  </label>
+
+  <div class="panel" data-gate-manual>
+    <div class="panel-head">
+      <div class="ctx-tabs">
+        <button
+          type="button"
+          class="ctx-tab"
+          [class.active]="gateMode() === 'patrimonial'"
+          (click)="setGateMode('patrimonial')"
+        >
+          Patrimonial
+        </button>
+        <button
+          type="button"
+          class="ctx-tab"
+          [class.active]="gateMode() === 'events'"
+          (click)="setGateMode('events')"
+        >
+          Eventos
+        </button>
+      </div>
+      <button
+        type="button"
+        class="btn-ghost"
+        [class.spin]="refreshSpin()"
+        (click)="onRefreshClick()"
+        [disabled]="todayLoading()"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
+        </svg>
+        {{ todayLoading() ? 'Atualizando…' : 'Atualizar lista' }}
+      </button>
+    </div>
+
+    <div class="status-tabs">
+      <button
+        type="button"
+        class="stab"
+        [class.active]="statusFilter() === 'todos'"
+        (click)="setStatusFilter('todos')"
+      >
+        Todos <span class="cnt">{{ stats().total }}</span>
+      </button>
+      <button
+        type="button"
+        class="stab"
+        [class.active]="statusFilter() === 'wait'"
+        (click)="setStatusFilter('wait')"
+      >
+        <span class="dot wait"></span>Aguardando <span class="cnt">{{ stats().wait }}</span>
+      </button>
+      <button
+        type="button"
+        class="stab"
+        [class.active]="statusFilter() === 'in'"
+        (click)="setStatusFilter('in')"
+      >
+        <span class="dot in"></span>Dentro agora <span class="cnt">{{ stats().in }}</span>
+      </button>
+      <button
+        type="button"
+        class="stab"
+        [class.active]="statusFilter() === 'done'"
+        (click)="setStatusFilter('done')"
+      >
+        <span class="dot done"></span>Concluídos <span class="cnt">{{ stats().done }}</span>
+      </button>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-field">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+        <input
+          type="search"
+          [ngModel]="manualSearch()"
+          (ngModelChange)="manualSearch.set($event)"
+          [placeholder]="
+            gateMode() === 'patrimonial'
+              ? 'Buscar por nome, documento ou empresa…'
+              : 'Buscar por nome, documento, empresa ou evento…'
+          "
+          data-gate-manual-search
+        />
+      </div>
+      <div class="segmented" *ngIf="gateMode() === 'patrimonial'">
+        <button
+          type="button"
+          class="seg"
+          [class.active]="typeFilter() === 'todos'"
+          (click)="setTypeFilter('todos')"
+        >
+          Todos
+        </button>
+        <button
+          type="button"
+          class="seg"
+          [class.active]="typeFilter() === 'veiculo'"
+          (click)="setTypeFilter('veiculo')"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13" />
+            <path d="M5 13h14v4h-2v-1H7v1H5z" />
+          </svg>
+          Veículos
+        </button>
+        <button
+          type="button"
+          class="seg"
+          [class.active]="typeFilter() === 'colaborador'"
+          (click)="setTypeFilter('colaborador')"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="8" r="3.2" />
+            <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+          </svg>
+          Colaboradores
+        </button>
+      </div>
+    </div>
+
+    <p *ngIf="todayLoading()" class="empty-state">
+      <span class="es-title">Carregando…</span>
+    </p>
+
+    <!-- Eventos -->
+    <ng-container *ngIf="!todayLoading() && gateMode() === 'events'">
+      <div class="table-head" *ngIf="filteredTodayCredentials().length > 0">
+        <div>Tipo</div>
+        <div>Identificação</div>
+        <div>Empresa</div>
+        <div>Evento</div>
+        <div>Status / Entrada</div>
+        <div class="col-actions">Ações</div>
+      </div>
+
+      <div *ngIf="todayCredentials().length === 0" class="empty-state">
+        <div class="es-ico" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+        </div>
+        <div class="es-title">Nenhuma credencial encontrada</div>
+        Nenhuma credencial aprovada para o dia operacional atual.
+      </div>
+
+      <div
+        *ngIf="todayCredentials().length > 0 && filteredTodayCredentials().length === 0"
+        class="empty-state"
+      >
+        <div class="es-ico" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+        </div>
+        <div class="es-title">Nenhuma credencial encontrada</div>
+        Ajuste a busca ou os filtros para ver os registros de hoje.
+      </div>
+
+      <div
+        *ngFor="let row of filteredTodayCredentials()"
+        class="row events-row"
+        [class.state-in]="row.next_action === 'CHECK_OUT'"
+        [class.state-done]="row.next_action === 'COMPLETED'"
+      >
+        <div class="c-type">
+          <span class="type colaborador">
+            <span class="ico">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="8" r="3.2" />
+                <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+              </svg>
+            </span>
+            Colaborador
+          </span>
+        </div>
+        <div class="c-ident ident">
+          <div class="ident-row">
+            <img
+              *ngIf="pictureUrl(row.access_id) as url"
+              [src]="url"
+              [alt]="'Foto de ' + row.collaborator.name"
+              class="ident-photo"
+            />
+            <div
+              *ngIf="!pictureUrl(row.access_id)"
+              class="ident-photo ident-photo--fallback"
+              aria-hidden="true"
+            >
+              {{ initials(row.collaborator.name) }}
+            </div>
+            <div class="ident-text">
+              <div class="name">{{ row.collaborator.name }}</div>
+              <div class="doc">{{ row.collaborator.document_masked }}</div>
+              <div class="role" *ngIf="row.collaborator.role">{{ row.collaborator.role }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="c-empresa empresa">{{ row.company.name }}</div>
+        <div class="c-finalidade finalidade">{{ row.event_name }}</div>
+        <div class="c-entrada">
+          <ng-container [ngSwitch]="row.next_action">
+            <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
+            <div *ngSwitchCase="'CHECK_OUT'">
+              <span class="status-pill in"
+                ><span class="d"></span>Dentro {{ relFrom(row.access_check_in) }}</span
+              >
+              <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.access_check_in) }}</div>
+            </div>
+            <div *ngSwitchDefault class="rel">
+              {{ formatClock(row.access_check_in) }} → {{ formatClock(row.access_check_out) }}
+            </div>
+          </ng-container>
+        </div>
+        <div class="actions">
+          <button
+            *ngIf="row.next_action === 'CHECK_IN'"
+            type="button"
+            class="btn-act entrada"
+            [disabled]="processing()"
+            (click)="onManualValidate(row)"
+            title="Registrar entrada"
+          >
+            Entrada
+          </button>
+          <button
+            *ngIf="row.next_action === 'CHECK_OUT'"
+            type="button"
+            class="btn-act saida"
+            [disabled]="processing()"
+            (click)="onManualValidate(row)"
+            title="Registrar saída"
+          >
+            Saída
+          </button>
+          <span *ngIf="row.next_action === 'COMPLETED'" class="btn-act finished">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            Concluído
+          </span>
+          <button
+            type="button"
+            class="btn-act substitute"
+            [disabled]="processing()"
+            (click)="openSubstituteModal(row)"
+          >
+            Substituir
+          </button>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- Patrimonial -->
+    <ng-container *ngIf="!todayLoading() && gateMode() === 'patrimonial'">
+      <div class="table-head" *ngIf="filteredTodayServices().length > 0">
+        <div>Tipo</div>
+        <div>Identificação</div>
+        <div>Empresa</div>
+        <div>Finalidade</div>
+        <div>Status / Entrada</div>
+        <div class="col-actions">Ações</div>
+      </div>
+
+      <div *ngIf="todayServices().length === 0" class="empty-state">
+        <div class="es-ico" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+        </div>
+        <div class="es-title">Nenhum serviço encontrado</div>
+        Nenhum serviço patrimonial aprovado para hoje.
+      </div>
+
+      <div
+        *ngIf="todayServices().length > 0 && filteredTodayServices().length === 0"
+        class="empty-state"
+      >
+        <div class="es-ico" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+        </div>
+        <div class="es-title">Nenhum serviço encontrado</div>
+        Ajuste a busca ou os filtros para ver os registros de hoje.
+      </div>
+
+      <div
+        *ngFor="let row of filteredTodayServices()"
+        class="row"
+        [class.state-in]="row.next_action === 'CHECK_OUT'"
+        [class.state-done]="row.next_action === 'COMPLETED'"
+      >
+        <div class="c-type">
+          <span
+            class="type"
+            [class.veiculo]="row.kind === 'vehicle'"
+            [class.colaborador]="row.kind === 'collaborator'"
+          >
+            <span class="ico">
+              <svg
+                *ngIf="row.kind === 'vehicle'"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13" />
+                <path
+                  d="M5 13h14v4a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H8v1a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"
+                />
+                <circle cx="7.5" cy="15.5" r=".6" fill="currentColor" />
+                <circle cx="16.5" cy="15.5" r=".6" fill="currentColor" />
+              </svg>
+              <svg
+                *ngIf="row.kind === 'collaborator'"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle cx="12" cy="8" r="3.2" />
+                <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+              </svg>
+            </span>
+            {{ row.kind === 'vehicle' ? 'Veículo' : 'Colaborador' }}
+          </span>
+        </div>
+        <div class="c-ident ident">
+          <span *ngIf="row.vehicle" class="plate">{{ row.vehicle.plate }}</span>
+          <div *ngIf="row.collaborator" class="ident-row">
+            <img
+              *ngIf="pictureUrl(row.access_id) as url"
+              [src]="url"
+              [alt]="'Foto de ' + row.collaborator.name"
+              class="ident-photo"
+            />
+            <div
+              *ngIf="!pictureUrl(row.access_id)"
+              class="ident-photo ident-photo--fallback"
+              aria-hidden="true"
+            >
+              {{ initials(row.collaborator.name) }}
+            </div>
+            <div class="ident-text">
+              <div class="name">{{ row.collaborator.name }}</div>
+              <div class="doc">{{ row.collaborator.document_masked }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="c-empresa empresa">{{ row.company.name }}</div>
+        <div class="c-finalidade finalidade">{{ row.finalidade }}</div>
+        <div class="c-entrada">
+          <ng-container [ngSwitch]="row.next_action">
+            <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
+            <div *ngSwitchCase="'CHECK_OUT'">
+              <span class="status-pill in"
+                ><span class="d"></span>Dentro {{ relFrom(row.check_in) }}</span
+              >
+              <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.check_in) }}</div>
+            </div>
+            <div *ngSwitchDefault class="rel">
+              {{ formatClock(row.check_in) }} → {{ formatClock(row.check_out) }}
+            </div>
+          </ng-container>
+        </div>
+        <div class="actions">
+          <button
+            *ngIf="row.next_action === 'CHECK_IN'"
+            type="button"
+            class="btn-act entrada"
+            [disabled]="processing()"
+            (click)="onManualValidateService(row)"
+            title="Registrar entrada"
+          >
+            Entrada
+          </button>
+          <button
+            *ngIf="row.next_action === 'CHECK_OUT'"
+            type="button"
+            class="btn-act saida"
+            [disabled]="processing()"
+            (click)="onManualValidateService(row)"
+            title="Registrar saída"
+          >
+            Saída
+          </button>
+          <span *ngIf="row.next_action === 'COMPLETED'" class="btn-act finished">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            Concluído
+          </span>
+        </div>
+      </div>
+    </ng-container>
+  </div>
+
+  <div
+    *ngIf="feedback() === 'success' && (lastSuccess() || lastServiceSuccess())"
+    class="gate-overlay-success"
+  >
+    <div class="gate-overlay-inner" *ngIf="lastSuccess() as success">
+      <img
+        *ngIf="successPhotoUrl() as photo"
+        [src]="photo"
+        [alt]="'Foto de ' + success.collaborator.name"
+        class="overlay-photo"
+      />
+      <p class="text-sm uppercase tracking-widest opacity-90 mb-2">Acesso autorizado</p>
+      <p class="text-4xl md:text-5xl font-bold mb-3">{{ success.collaborator.name }}</p>
+      <p class="text-xl opacity-95">{{ success.collaborator.role }}</p>
+      <p class="text-lg mt-2 opacity-90">{{ success.company.fancy_name }}</p>
+      <p class="text-2xl font-semibold mt-6">{{ actionLabel(success.action_registered) }}</p>
+    </div>
+    <div class="gate-overlay-inner" *ngIf="!lastSuccess() && lastServiceSuccess() as service">
+      <img
+        *ngIf="service.collaborator && successPhotoUrl() as photo"
+        [src]="photo"
+        [alt]="'Foto de ' + service.collaborator.name"
+        class="overlay-photo"
+      />
+      <p class="text-sm uppercase tracking-widest opacity-90 mb-2">Acesso autorizado</p>
+      <p class="text-4xl md:text-5xl font-bold mb-3">
+        {{ service.collaborator?.name || service.vehicle?.plate }}
+      </p>
+      <p class="text-xl opacity-95" *ngIf="service.collaborator">{{ service.collaborator.role }}</p>
+      <p class="text-lg mt-2 opacity-90">{{ service.company?.fancy_name }}</p>
+      <p class="text-2xl font-semibold mt-6">{{ actionLabel(service.action_registered!) }}</p>
+    </div>
+  </div>
+
+  <div *ngIf="feedback() === 'denied'" class="gate-overlay-denied gate-deny-blink">
+    <div class="gate-overlay-inner px-4">
+      <p class="text-sm uppercase tracking-widest opacity-90 mb-4">Acesso negado</p>
+      <p class="text-3xl md:text-4xl font-bold leading-tight">{{ denyReason() }}</p>
+      <p *ngIf="denyCode()" class="text-sm mt-4 opacity-80 font-mono">{{ denyCode() }}</p>
+    </div>
+  </div>
+
+  <app-modal
+    data-gate-substitute-modal
+    [open]="showSubstituteModal()"
+    title="Substituir colaborador"
+    [subtitle]="substituteTarget() ? 'Credencial: ' + substituteTarget()!.name : ''"
+    size="md"
+    (close)="closeSubstituteModal()"
+  >
+    <label class="text-xs font-bold text-slate-500 uppercase">Tipo de documento</label>
+    <select
+      class="w-full mt-1 mb-3 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+      [(ngModel)]="substituteDocTypeId"
+    >
+      <option *ngFor="let t of documentTypes()" [ngValue]="t.id_collaborator_document_type">
+        {{ t.description }}
+      </option>
+    </select>
+
+    <label class="text-xs font-bold text-slate-500 uppercase">CPF / Passaporte</label>
+    <div class="flex gap-2 mt-1 mb-4">
+      <input
+        type="text"
+        [(ngModel)]="substituteDocument"
+        class="flex-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
+        placeholder="Documento do substituto"
+        (keydown.enter)="searchSubstitute()"
+      />
+      <button
+        type="button"
+        class="btn-secondary shrink-0"
+        (click)="searchSubstitute()"
+        [disabled]="substituteSearching()"
+      >
+        Buscar
+      </button>
+    </div>
+
+    <div
+      *ngIf="substituteCandidate()"
+      class="mb-4 p-3 rounded-xl bg-slate-50 border border-[var(--app-border)] text-sm"
+    >
+      <p class="font-semibold">{{ substituteCandidate()!.name }}</p>
+      <p class="text-slate-500">{{ substituteCandidate()!.document }}</p>
+      <p *ngIf="substituteCandidate()!.is_blacklisted" class="text-red-600 text-xs mt-1 font-bold">
+        Colaborador na lista de bloqueio
+      </p>
+    </div>
+
+    <div modal-footer class="modal-footer">
+      <button type="button" class="btn-action-secondary" (click)="closeSubstituteModal()">Cancelar</button>
+      <button
+        type="button"
+        class="btn-action-primary"
+        (click)="confirmSubstitute()"
+        [disabled]="!substituteCandidate() || substituteCandidate()!.is_blacklisted || substituteSubmitting()"
+      >
+        Confirmar substituição
+      </button>
+    </div>
+  </app-modal>
+</div>

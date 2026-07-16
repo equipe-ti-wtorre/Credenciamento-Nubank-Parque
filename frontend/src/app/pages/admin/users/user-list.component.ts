@@ -63,20 +63,27 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
       </div>
 
       <div class="card-surface p-4 mb-4 shrink-0">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-3 items-end">
           <div>
             <label class="text-xs font-bold text-slate-500 uppercase">Buscar</label>
             <input
               [(ngModel)]="searchInput"
+              (ngModelChange)="aplicarFiltros()"
               name="search"
               placeholder="Nome ou e-mail"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
             />
           </div>
           <div>
+            <button type="button" (click)="limparFiltros()" class="btn-secondary text-sm py-2 px-4">
+              Limpar
+            </button>
+          </div>
+          <div>
             <label class="text-xs font-bold text-slate-500 uppercase">Perfil</label>
             <select
               [(ngModel)]="filterPerfilId"
+              (ngModelChange)="aplicarFiltros()"
               name="filterPerfilId"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
             >
@@ -84,14 +91,6 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
               <option *ngFor="let p of availableProfiles" [ngValue]="p.id">{{ p.nome }}</option>
             </select>
           </div>
-        </div>
-        <div class="flex gap-2 mt-3">
-          <button type="button" (click)="aplicarFiltros()" class="btn-primary text-sm py-1.5 px-4">
-            Filtrar
-          </button>
-          <button type="button" (click)="limparFiltros()" class="btn-secondary text-sm py-1.5 px-4">
-            Limpar
-          </button>
         </div>
       </div>
 

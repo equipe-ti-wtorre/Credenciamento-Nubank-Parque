@@ -396,6 +396,14 @@ type ModalMode = 'search' | 'create';
               <p *ngIf="service()!.observacao" class="cred-note">
                 Observação: {{ service()!.observacao }}
               </p>
+              <p class="cred-note">
+                Notificação colaborador:
+                {{
+                  service()!.notificar_entrada_colaborador === false ? 'desligada' : 'ligada'
+                }}
+                · Veículo:
+                {{ service()!.notificar_entrada_veiculo === false ? 'desligada' : 'ligada' }}
+              </p>
             </div>
 
             <div class="cred-actions">
@@ -1147,14 +1155,24 @@ type ModalMode = 'search' | 'create';
       </div>
     </app-modal>
 
-    <app-service-access-bulk-import-wizard
+    <app-modal
       [open]="showBulkModal()"
-      [serviceAccessId]="serviceId"
-      [accessName]="service()?.finalidade || ''"
-      [companyName]="service()?.company_fancy_name || ''"
-      (closed)="fecharBulk()"
-      (completed)="onBulkCompleted()"
-    />
+      title="Importar para o acesso"
+      [subtitle]="bulkModalSubtitle"
+      size="xl"
+      [closeOnBackdrop]="false"
+      [focusFirstField]="false"
+      (close)="fecharBulk()"
+    >
+      <app-service-access-bulk-import-wizard
+        [open]="showBulkModal()"
+        [serviceAccessId]="serviceId"
+        [accessName]="service()?.finalidade || ''"
+        [companyName]="service()?.company_fancy_name || ''"
+        (closed)="fecharBulk()"
+        (completed)="onBulkCompleted()"
+      />
+    </app-modal>
 
     <app-modal
       [open]="showEditModal()"
@@ -1222,6 +1240,30 @@ type ModalMode = 'search' | 'create';
             rows="3"
             class="form-field"
           ></textarea>
+        </div>
+        <div class="space-y-2">
+          <p class="text-sm font-medium text-slate-800">Notificações de entrada na portaria</p>
+          <p class="text-xs text-slate-500">
+            Avisa solicitante e aprovadores no check-in, conforme o tipo selecionado.
+          </p>
+          <label class="flex items-start gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              class="mt-1"
+              [(ngModel)]="editForm.notificar_entrada_colaborador"
+              name="editNotificarEntradaColaborador"
+            />
+            <span class="text-sm text-slate-800">Entrada de colaborador</span>
+          </label>
+          <label class="flex items-start gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              class="mt-1"
+              [(ngModel)]="editForm.notificar_entrada_veiculo"
+              name="editNotificarEntradaVeiculo"
+            />
+            <span class="text-sm text-slate-800">Entrada de veículo</span>
+          </label>
         </div>
       </form>
       <div modal-footer class="modal-footer">
@@ -1343,6 +1385,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     finalidade: '',
     observacao: '',
     id_setor: null as number | null,
+    notificar_entrada_colaborador: true,
+    notificar_entrada_veiculo: true,
   };
 
   decisionMode = signal<'approve' | 'reject' | null>(null);
@@ -1389,6 +1433,13 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   private veicSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
   showBulkModal = signal(false);
+
+  get bulkModalSubtitle(): string {
+    const nome = this.service()?.finalidade || 'Acesso';
+    const emp = this.service()?.company_fancy_name || '';
+    const left = emp ? `${nome} · ${emp}` : nome;
+    return `${left} — colaboradores e veículos em uma planilha.`;
+  }
 
   draftCollaborators = signal<ServiceAccessCollaborator[]>([]);
   draftVehicles = signal<ServiceAccessVehicle[]>([]);
@@ -1925,6 +1976,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       finalidade: svc.finalidade || '',
       observacao: svc.observacao || '',
       id_setor: svc.id_setor ?? null,
+      notificar_entrada_colaborador: svc.notificar_entrada_colaborador !== false,
+      notificar_entrada_veiculo: svc.notificar_entrada_veiculo !== false,
     };
     this.showEditModal.set(true);
   }
@@ -2024,6 +2077,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
         requesting_department: setorNome,
         observacao: this.editForm.observacao.trim() || null,
         id_setor: this.editForm.id_setor,
+        notificar_entrada_colaborador: this.editForm.notificar_entrada_colaborador,
+        notificar_entrada_veiculo: this.editForm.notificar_entrada_veiculo,
       })
       .subscribe({
         next: (res) => {

@@ -368,8 +368,17 @@ async function resolveTeamsCatalogAppId(accessToken, { teamsAppId, externalId })
   return null;
 }
 
-function buildActivityNotificationBody(content, safeWebUrl, catalogAppId) {
-  const preview = String(content).slice(0, 150);
+/**
+ * @param {string} content Fallback message (also used as activityMessage when not provided).
+ * @param {string} safeWebUrl
+ * @param {string|null} catalogAppId
+ * @param {{ activityActor?: string, activityMessage?: string }} [opts]
+ */
+function buildActivityNotificationBody(content, safeWebUrl, catalogAppId, opts = {}) {
+  const activityMessage = String(opts.activityMessage || content || "").slice(0, 150);
+  const activityActor = String(
+    opts.activityActor || env.organizationName || "Credenciamento",
+  ).slice(0, 50);
 
   if (catalogAppId) {
     return {
@@ -380,19 +389,22 @@ function buildActivityNotificationBody(content, safeWebUrl, catalogAppId) {
       },
       teamsAppId: catalogAppId,
       activityType: TEAMS_ACTIVITY_TYPE,
-      previewText: { content: preview },
-      templateParameters: [{ name: "message", value: preview }],
+      previewText: { content: activityMessage },
+      templateParameters: [
+        { name: "actor", value: activityActor },
+        { name: "message", value: activityMessage },
+      ],
     };
   }
 
   return {
     topic: {
       source: "text",
-      value: env.organizationName,
+      value: activityActor,
       webUrl: safeWebUrl,
     },
     activityType: "systemDefault",
-    previewText: { content: preview },
+    previewText: { content: activityMessage },
   };
 }
 
@@ -497,7 +509,10 @@ async function sendUserActivityNotification(
   }
 
   const url = `https://graph.microsoft.com/v1.0/users/${resolved.user.id}/teamwork/sendActivityNotification`;
-  const body = buildActivityNotificationBody(content, safeWebUrl, catalogAppId);
+  const body = buildActivityNotificationBody(content, safeWebUrl, catalogAppId, {
+    activityActor: options.activityActor,
+    activityMessage: options.activityMessage,
+  });
 
   const postNotification = () =>
     axios.post(url, body, {

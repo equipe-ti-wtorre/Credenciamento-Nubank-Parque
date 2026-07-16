@@ -6,6 +6,7 @@ export interface GateCollaboratorInfo {
   name: string;
   document_masked: string;
   role: string;
+  picture?: string | null;
 }
 
 export interface GateCompanyInfo {
@@ -103,7 +104,7 @@ export interface GateTodayService {
   id: number;
   access_id: string;
   vehicle?: { plate: string; description?: string };
-  collaborator?: { name: string; document_masked: string; role: string };
+  collaborator?: { name: string; document_masked: string; role: string; picture?: string | null };
   company: { name: string };
   finalidade: string;
   check_in: string | null;
@@ -116,7 +117,7 @@ export interface GateServiceValidateResponse {
   type?: 'SERVICE';
   kind?: 'vehicle' | 'collaborator';
   vehicle?: { plate: string };
-  collaborator?: { name: string; document_masked: string; role: string };
+  collaborator?: { name: string; document_masked: string; role: string; picture?: string | null };
   company?: { fancy_name: string };
   action_registered?: 'CHECK_IN' | 'CHECK_OUT';
   reason?: string;

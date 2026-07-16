@@ -15,10 +15,12 @@ const GATE_CREDENTIAL_SELECT = `
          ast.description AS access_status_description,
          c.name AS collaborator_name,
          c.document AS collaborator_document,
+         c.picture AS collaborator_picture,
          cdt.description AS document_type_description,
          cr.description AS role_description,
          sub.name AS substitute_name,
          sub.document AS substitute_document,
+         sub.picture AS substitute_picture,
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
          ed.date AS event_day_date,
@@ -93,12 +95,14 @@ function resolveEffectiveCollaborator(row) {
       name: row.substitute_name,
       document: row.substitute_document,
       documentType: row.substitute_document_type_description,
+      picture: row.substitute_picture || null,
     };
   }
   return {
     name: row.collaborator_name,
     document: row.collaborator_document,
     documentType: row.document_type_description,
+    picture: row.collaborator_picture || null,
   };
 }
 
@@ -113,6 +117,7 @@ function buildSuccessPayload(row, actionRegistered) {
         name: effective.name,
         document_masked: maskDocument(effective.document, effective.documentType),
         role: row.role_description,
+        picture: effective.picture || null,
       },
       company: {
         fancy_name: row.company_fancy_name,
@@ -173,6 +178,7 @@ function mapTodayCredentialRow(row) {
       name: effective.name,
       document_masked: maskDocument(effective.document, effective.documentType),
       role: row.role_description,
+      picture: effective.picture || null,
     },
     company: {
       name: row.company_fancy_name,
@@ -192,10 +198,12 @@ const GATE_TODAY_LIST_SELECT = `
          edcc.access_check_out,
          c.name AS collaborator_name,
          c.document AS collaborator_document,
+         c.picture AS collaborator_picture,
          cdt.description AS document_type_description,
          cr.description AS role_description,
          sub.name AS substitute_name,
          sub.document AS substitute_document,
+         sub.picture AS substitute_picture,
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
          e.name AS event_name
@@ -351,10 +359,12 @@ const SERVICE_COLLABORATOR_SELECT = `
          ast.description AS access_status_description,
          c.name AS collaborator_name,
          c.document AS collaborator_document,
+         c.picture AS collaborator_picture,
          cdt.description AS document_type_description,
          cr.description AS role_description,
          sub.name AS substitute_name,
          sub.document AS substitute_document,
+         sub.picture AS substitute_picture,
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
          bl_main.id_collaborator AS main_blacklisted_id,
@@ -407,7 +417,6 @@ async function findServiceCollaboratorByAccessId(accessId) {
 
 async function isServiceDateAllowed(serviceRow) {
   if (!serviceRow) return false;
-  if (!serviceRow.status) return false;
   const [rows] = await db.execute(
     `SELECT 1 FROM service_access
      WHERE id_service_access = ?
@@ -417,6 +426,30 @@ async function isServiceDateAllowed(serviceRow) {
     [serviceRow.id_service_access],
   );
   return rows.length > 0;
+}
+
+/** Calendar day key (YYYY-MM-DD). With mysql2 dateStrings, DATETIME arrives as string. */
+function toDateKey(value) {
+  if (value == null) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    return value.slice(0, 10);
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+async function getMysqlTodayKey() {
+  const [rows] = await db.execute(`SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS d`);
+  return rows[0]?.d || null;
+}
+
+function isTimestampToday(value, todayKey) {
+  if (!value || !todayKey) return false;
+  return toDateKey(value) === todayKey;
 }
 
 function validateServiceAccessBase(row) {
@@ -443,30 +476,34 @@ function resolveEffectiveServiceCollaborator(row) {
       name: row.substitute_name,
       document: row.substitute_document,
       documentType: row.substitute_document_type_description,
+      picture: row.substitute_picture || null,
     };
   }
   return {
     name: row.collaborator_name,
     document: row.collaborator_document,
     documentType: row.document_type_description,
+    picture: row.collaborator_picture || null,
   };
 }
 
-function resolveServiceVehicleNextAction(row) {
-  if (!row.check_in) return "CHECK_IN";
-  if (!row.check_out) return "CHECK_OUT";
+function resolveServiceVehicleNextAction(row, todayKey) {
+  if (!isTimestampToday(row.check_in, todayKey)) return "CHECK_IN";
+  if (!isTimestampToday(row.check_out, todayKey)) return "CHECK_OUT";
   return null;
 }
 
-function resolveServiceCollaboratorNextAction(row) {
-  if (!row.access_check_in) return "CHECK_IN";
-  if (!row.access_check_out) return "CHECK_OUT";
+function resolveServiceCollaboratorNextAction(row, todayKey) {
+  if (!isTimestampToday(row.access_check_in, todayKey)) return "CHECK_IN";
+  if (!isTimestampToday(row.access_check_out, todayKey)) return "CHECK_OUT";
   return null;
 }
 
-function mapTodayServiceVehicleRow(row) {
+function mapTodayServiceVehicleRow(row, todayKey) {
   const effective = resolveEffectiveVehicle(row);
-  const next = resolveServiceVehicleNextAction(row);
+  const next = resolveServiceVehicleNextAction(row, todayKey);
+  const checkInToday = isTimestampToday(row.check_in, todayKey) ? row.check_in : null;
+  const checkOutToday = isTimestampToday(row.check_out, todayKey) ? row.check_out : null;
   return {
     kind: "vehicle",
     id: row.id_service_access_vehicle,
@@ -477,15 +514,21 @@ function mapTodayServiceVehicleRow(row) {
     },
     company: { name: row.company_fancy_name },
     finalidade: row.finalidade,
-    check_in: row.check_in || null,
-    check_out: row.check_out || null,
+    check_in: checkInToday,
+    check_out: checkOutToday,
     next_action: next || "COMPLETED",
   };
 }
 
-function mapTodayServiceCollaboratorRow(row) {
+function mapTodayServiceCollaboratorRow(row, todayKey) {
   const effective = resolveEffectiveServiceCollaborator(row);
-  const next = resolveServiceCollaboratorNextAction(row);
+  const next = resolveServiceCollaboratorNextAction(row, todayKey);
+  const checkInToday = isTimestampToday(row.access_check_in, todayKey)
+    ? row.access_check_in
+    : null;
+  const checkOutToday = isTimestampToday(row.access_check_out, todayKey)
+    ? row.access_check_out
+    : null;
   return {
     kind: "collaborator",
     id: row.id_service_access_collaborator,
@@ -494,11 +537,12 @@ function mapTodayServiceCollaboratorRow(row) {
       name: effective.name,
       document_masked: maskDocument(effective.document, effective.documentType),
       role: row.role_description,
+      picture: effective.picture || null,
     },
     company: { name: row.company_fancy_name },
     finalidade: row.finalidade,
-    check_in: row.access_check_in || null,
-    check_out: row.access_check_out || null,
+    check_in: checkInToday,
+    check_out: checkOutToday,
     next_action: next || "COMPLETED",
   };
 }
@@ -535,10 +579,12 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
          COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          c.name AS collaborator_name,
          c.document AS collaborator_document,
+         c.picture AS collaborator_picture,
          cdt.description AS document_type_description,
          cr.description AS role_description,
          sub.name AS substitute_name,
          sub.document AS substitute_document,
+         sub.picture AS substitute_picture,
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name
   FROM service_access_collaborator sac
@@ -559,12 +605,15 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
 `;
 
 async function listTodayExpectedServices() {
-  const [vehicleRows, collaboratorRows] = await Promise.all([
+  const [todayKey, vehicleResult, collaboratorResult] = await Promise.all([
+    getMysqlTodayKey(),
     db.execute(GATE_TODAY_SERVICE_VEHICLES_SELECT, [STATUS_APROVADO]),
     db.execute(GATE_TODAY_SERVICE_COLLABORATORS_SELECT, [STATUS_APROVADO]),
   ]);
-  const vehicles = vehicleRows[0].map(mapTodayServiceVehicleRow);
-  const collaborators = collaboratorRows[0].map(mapTodayServiceCollaboratorRow);
+  const vehicles = vehicleResult[0].map((row) => mapTodayServiceVehicleRow(row, todayKey));
+  const collaborators = collaboratorResult[0].map((row) =>
+    mapTodayServiceCollaboratorRow(row, todayKey),
+  );
   return [...vehicles, ...collaborators];
 }
 
@@ -602,6 +651,7 @@ function buildServiceCollaboratorSuccessPayload(row, actionRegistered) {
         name: effective.name,
         document_masked: maskDocument(effective.document, effective.documentType),
         role: row.role_description,
+        picture: effective.picture || null,
       },
       company: { fancy_name: row.company_fancy_name },
       action_registered: actionRegistered,
@@ -631,16 +681,25 @@ async function validateServiceVehicleAccess(accessId) {
     };
   }
 
-  const action = resolveServiceVehicleNextAction(row);
+  const todayKey = await getMysqlTodayKey();
+  const action = resolveServiceVehicleNextAction(row, todayKey);
   if (!action) {
     return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
   }
 
-  const column = action === "CHECK_IN" ? "check_in" : "check_out";
-  await db.execute(
-    `UPDATE service_access_vehicle SET ${column} = NOW() WHERE id_service_access_vehicle = ?`,
-    [row.id_service_access_vehicle],
-  );
+  if (action === "CHECK_IN") {
+    await db.execute(
+      `UPDATE service_access_vehicle
+       SET check_in = NOW(), check_out = NULL
+       WHERE id_service_access_vehicle = ?`,
+      [row.id_service_access_vehicle],
+    );
+  } else {
+    await db.execute(
+      `UPDATE service_access_vehicle SET check_out = NOW() WHERE id_service_access_vehicle = ?`,
+      [row.id_service_access_vehicle],
+    );
+  }
 
   const updated = await findServiceVehicleByAccessId(accessId);
   logger.info(
@@ -669,16 +728,27 @@ async function validateServiceCollaboratorAccess(accessId) {
     };
   }
 
-  const action = resolveServiceCollaboratorNextAction(row);
+  const todayKey = await getMysqlTodayKey();
+  const action = resolveServiceCollaboratorNextAction(row, todayKey);
   if (!action) {
     return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
   }
 
-  const column = action === "CHECK_IN" ? "access_check_in" : "access_check_out";
-  await db.execute(
-    `UPDATE service_access_collaborator SET ${column} = NOW() WHERE id_service_access_collaborator = ?`,
-    [row.id_service_access_collaborator],
-  );
+  if (action === "CHECK_IN") {
+    await db.execute(
+      `UPDATE service_access_collaborator
+       SET access_check_in = NOW(), access_check_out = NULL
+       WHERE id_service_access_collaborator = ?`,
+      [row.id_service_access_collaborator],
+    );
+  } else {
+    await db.execute(
+      `UPDATE service_access_collaborator
+       SET access_check_out = NOW()
+       WHERE id_service_access_collaborator = ?`,
+      [row.id_service_access_collaborator],
+    );
+  }
 
   const updated = await findServiceCollaboratorByAccessId(accessId);
   logger.info(

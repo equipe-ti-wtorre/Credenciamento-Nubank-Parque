@@ -5,18 +5,28 @@ const serviceAccessCreateSchema = Joi.object({
   id_setor: Joi.number().integer().positive().required(),
   start_date: Joi.date().iso().required(),
   end_date: Joi.date().iso().min(Joi.ref("start_date")).required(),
-  finalidade: Joi.string().trim().max(200).required(),
+  finalidade: Joi.string().trim().max(500).required().messages({
+    "string.empty": "Informe a finalidade do serviço.",
+    "any.required": "Informe a finalidade do serviço.",
+  }),
   requesting_department: Joi.string().trim().max(200).required(),
   observacao: Joi.string().trim().max(500).allow("", null).optional(),
+  notificar_entrada: Joi.boolean().optional(),
+  notificar_entrada_colaborador: Joi.boolean().optional(),
+  notificar_entrada_veiculo: Joi.boolean().optional(),
+  notify_approvers: Joi.boolean().default(true),
 });
 
 const serviceAccessUpdateSchema = Joi.object({
   start_date: Joi.date().iso().optional(),
   end_date: Joi.date().iso().optional(),
-  finalidade: Joi.string().trim().max(200).optional(),
+  finalidade: Joi.string().trim().max(500).optional(),
   requesting_department: Joi.string().trim().max(200).optional(),
   observacao: Joi.string().trim().max(500).allow("", null).optional(),
   id_setor: Joi.number().integer().positive().optional(),
+  notificar_entrada: Joi.boolean().optional(),
+  notificar_entrada_colaborador: Joi.boolean().optional(),
+  notificar_entrada_veiculo: Joi.boolean().optional(),
 })
   .min(1)
   .custom((value, helpers) => {
@@ -69,6 +79,8 @@ const serviceAccessRelationsSchema = Joi.object({
       }),
     )
     .required(),
+  notify_approvers: Joi.boolean().optional(),
+  id_setor: Joi.number().integer().positive().optional(),
 });
 
 module.exports = {

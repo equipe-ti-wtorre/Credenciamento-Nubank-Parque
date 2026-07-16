@@ -5,6 +5,7 @@ const { buildCompanyScope, applyScopeToWhere } = require("../companies/company.s
 const collaboratorService = require("../collaborators/collaborator.service");
 const vehicleService = require("./vehicle.service");
 const {
+  STATUS_AGUARDANDO_PRODUTORA,
   STATUS_AGUARDANDO_APROVACAO,
   STATUS_APROVADO,
   STATUS_NEGADO,
@@ -69,6 +70,57 @@ function formatDateField(value) {
   return String(value).slice(0, 10);
 }
 
+/** Resolve flags de notificação de entrada (colaborador/veículo + legado OR). */
+function resolveNotifyEntradaFlags(data, existing = null) {
+  const hasColab = data.notificar_entrada_colaborador !== undefined;
+  const hasVeic = data.notificar_entrada_veiculo !== undefined;
+  const hasLegacy = data.notificar_entrada !== undefined;
+  const legacyVal = hasLegacy ? (data.notificar_entrada !== false ? 1 : 0) : null;
+
+  let colab;
+  let veic;
+
+  if (hasColab || hasVeic) {
+    colab = hasColab
+      ? data.notificar_entrada_colaborador !== false
+        ? 1
+        : 0
+      : existing
+        ? existing.notificar_entrada_colaborador !== false
+          ? 1
+          : 0
+        : legacyVal != null
+          ? legacyVal
+          : 1;
+    veic = hasVeic
+      ? data.notificar_entrada_veiculo !== false
+        ? 1
+        : 0
+      : existing
+        ? existing.notificar_entrada_veiculo !== false
+          ? 1
+          : 0
+        : legacyVal != null
+          ? legacyVal
+          : 1;
+  } else if (hasLegacy) {
+    colab = legacyVal;
+    veic = legacyVal;
+  } else if (existing) {
+    colab = existing.notificar_entrada_colaborador !== false ? 1 : 0;
+    veic = existing.notificar_entrada_veiculo !== false ? 1 : 0;
+  } else {
+    colab = 1;
+    veic = 1;
+  }
+
+  return {
+    notificar_entrada_colaborador: colab,
+    notificar_entrada_veiculo: veic,
+    notificar_entrada: colab || veic ? 1 : 0,
+  };
+}
+
 function resolveCompanyIdForCreate(req, bodyCompanyId) {
   const scope = buildCompanyScope(req);
   if (scope.mode === "admin") {
@@ -112,10 +164,13 @@ async function loadServiceCollaborators(idServiceAccess) {
             c.name AS collaborator_name,
             c.document AS collaborator_document,
             c.picture AS collaborator_picture,
-            cr.description AS role_description
+            c.id_collaborator_role AS master_id_collaborator_role,
+            cr.description AS role_description,
+            crm.description AS master_role_description
      FROM service_access_collaborator sac
      INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
      INNER JOIN collaborator_role cr ON cr.id_collaborator_role = sac.id_collaborator_role
+     LEFT JOIN collaborator_role crm ON crm.id_collaborator_role = c.id_collaborator_role
      WHERE sac.id_service_access = ?
      ORDER BY c.name ASC`,
     [idServiceAccess],
@@ -128,6 +183,8 @@ async function loadServiceCollaborators(idServiceAccess) {
     collaborator_picture: r.collaborator_picture || null,
     id_collaborator_role: r.id_collaborator_role,
     role_description: r.role_description,
+    master_id_collaborator_role: r.master_id_collaborator_role ?? null,
+    master_role_description: r.master_role_description || null,
     access_id: r.access_id,
     access_check_in: r.access_check_in,
     access_check_out: r.access_check_out,
@@ -178,6 +235,19 @@ function mapServiceRow(row, { collaborators = [], vehicles = [] } = {}) {
     finalidade: row.finalidade || row.service_type,
     requesting_department: row.requesting_department,
     observacao: row.observacao ?? row.description,
+    notificar_entrada_colaborador:
+      row.notificar_entrada_colaborador == null
+        ? row.notificar_entrada == null
+          ? true
+          : !!row.notificar_entrada
+        : !!row.notificar_entrada_colaborador,
+    notificar_entrada_veiculo:
+      row.notificar_entrada_veiculo == null
+        ? row.notificar_entrada == null
+          ? true
+          : !!row.notificar_entrada
+        : !!row.notificar_entrada_veiculo,
+    notificar_entrada: row.notificar_entrada == null ? true : !!row.notificar_entrada,
     id_setor: row.id_setor || null,
     setor_nome: row.setor_nome || null,
     id_aprovacao: row.id_aprovacao || null,
@@ -237,6 +307,11 @@ async function listServiceAccess(req, { page = 1, limit = 20, filters = {} } = {
 
   const conditions = [...scopeWhere.conditions, ...filterData.conditions];
   const params = [...scopeWhere.params, ...filterData.params];
+  // Rascunhos do wizard (Aguardando Produtora) ficam ocultos até o envio final.
+  if (!filters.include_drafts) {
+    conditions.push("sa.id_access_status <> ?");
+    params.push(STATUS_AGUARDANDO_PRODUTORA);
+  }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const offset = (page - 1) * limit;
 
@@ -344,7 +419,10 @@ async function createServiceAccess(req, data) {
   const endDate = formatDateField(data.end_date);
   const finalidade = data.finalidade.trim();
   const observacao = data.observacao?.trim() || null;
+  const notifyFlags = resolveNotifyEntradaFlags(data);
   const idSetor = Number(data.id_setor);
+  const asDraft = data.notify_approvers === false;
+  const initialStatus = asDraft ? STATUS_AGUARDANDO_PRODUTORA : STATUS_AGUARDANDO_APROVACAO;
 
   const conn = await db.getConnection();
   try {
@@ -363,11 +441,12 @@ async function createServiceAccess(req, data) {
     const [saResult] = await conn.execute(
       `INSERT INTO service_access (
          id_company, id_access_status, service_type, description,
-         id_usuario, start_date, end_date, finalidade, requesting_department, observacao, status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+         id_usuario, start_date, end_date, finalidade, requesting_department, observacao,
+         notificar_entrada, notificar_entrada_colaborador, notificar_entrada_veiculo, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         idCompany,
-        STATUS_AGUARDANDO_APROVACAO,
+        initialStatus,
         finalidade,
         observacao,
         userId,
@@ -376,9 +455,19 @@ async function createServiceAccess(req, data) {
         finalidade,
         department,
         observacao,
+        notifyFlags.notificar_entrada,
+        notifyFlags.notificar_entrada_colaborador,
+        notifyFlags.notificar_entrada_veiculo,
       ],
     );
     const serviceId = saResult.insertId;
+
+    // Wizard de criação: grava rascunho sem abrir aprovação/evento até o envio final.
+    if (asDraft) {
+      await conn.commit();
+      const service = await getServiceAccessById(req, serviceId);
+      return { ...service, approvalCreated: null };
+    }
 
     const approval = await approvalsService.createApprovalFor(conn, {
       tipoEntidade: "ACESSO_SERVICO",
@@ -421,6 +510,10 @@ async function updateServiceAccessPeriod(req, id, data) {
 
   const datesChanged =
     !datesEqual(startDate, existing.start_date) || !datesEqual(endDate, existing.end_date);
+
+  if (datesChanged) {
+    await assertCollaboratorsNoDateOverlap(id, startDate, endDate);
+  }
 
   const serviceRow = await getServiceAccessRow(id);
   const conn = await db.getConnection();
@@ -467,6 +560,17 @@ async function updateServiceAccess(req, id, data) {
     data.observacao !== undefined
       ? data.observacao?.trim() || null
       : existing.observacao;
+  const notifyFieldsSent =
+    data.notificar_entrada !== undefined ||
+    data.notificar_entrada_colaborador !== undefined ||
+    data.notificar_entrada_veiculo !== undefined;
+  const notifyFlags = resolveNotifyEntradaFlags(data, existing);
+  const flagChanged =
+    notifyFieldsSent &&
+    (!!notifyFlags.notificar_entrada_colaborador !==
+      !!existing.notificar_entrada_colaborador ||
+      !!notifyFlags.notificar_entrada_veiculo !== !!existing.notificar_entrada_veiculo ||
+      !!notifyFlags.notificar_entrada !== !!existing.notificar_entrada);
 
   const datesChanged =
     !datesEqual(startDate, existing.start_date) || !datesEqual(endDate, existing.end_date);
@@ -481,6 +585,10 @@ async function updateServiceAccess(req, id, data) {
 
   const contentChanged = datesChanged || otherChanged;
 
+  if (datesChanged) {
+    await assertCollaboratorsNoDateOverlap(id, startDate, endDate);
+  }
+
   if (prevStatus === STATUS_APROVADO) {
     if (otherChanged) {
       throw new AppError(
@@ -489,20 +597,68 @@ async function updateServiceAccess(req, id, data) {
       );
     }
     if (!datesChanged) {
+      if (flagChanged) {
+        await db.execute(
+          `UPDATE service_access
+           SET notificar_entrada = ?,
+               notificar_entrada_colaborador = ?,
+               notificar_entrada_veiculo = ?
+           WHERE id_service_access = ?`,
+          [
+            notifyFlags.notificar_entrada,
+            notifyFlags.notificar_entrada_colaborador,
+            notifyFlags.notificar_entrada_veiculo,
+            id,
+          ],
+        );
+        const detail = await getServiceAccessById(req, id);
+        return { ...detail, approvalNotify: false, contentChanged: false };
+      }
       return { ...existing, approvalNotify: false, contentChanged: false };
     }
   }
 
   if (!contentChanged) {
+    if (flagChanged) {
+      await db.execute(
+        `UPDATE service_access
+         SET notificar_entrada = ?,
+             notificar_entrada_colaborador = ?,
+             notificar_entrada_veiculo = ?
+         WHERE id_service_access = ?`,
+        [
+          notifyFlags.notificar_entrada,
+          notifyFlags.notificar_entrada_colaborador,
+          notifyFlags.notificar_entrada_veiculo,
+          id,
+        ],
+      );
+      const detail = await getServiceAccessById(req, id);
+      return { ...detail, approvalNotify: false, contentChanged: false };
+    }
     return { ...existing, approvalNotify: false, contentChanged: false };
   }
 
   await db.execute(
     `UPDATE service_access
      SET start_date = ?, end_date = ?, finalidade = ?, service_type = ?,
-         requesting_department = ?, observacao = ?, description = ?
+         requesting_department = ?, observacao = ?, description = ?,
+         notificar_entrada = ?, notificar_entrada_colaborador = ?,
+         notificar_entrada_veiculo = ?
      WHERE id_service_access = ?`,
-    [startDate, endDate, finalidade, finalidade, requestingDepartment, observacao, observacao, id],
+    [
+      startDate,
+      endDate,
+      finalidade,
+      finalidade,
+      requestingDepartment,
+      observacao,
+      observacao,
+      notifyFlags.notificar_entrada,
+      notifyFlags.notificar_entrada_colaborador,
+      notifyFlags.notificar_entrada_veiculo,
+      id,
+    ],
   );
 
   let idSetor = data.id_setor != null ? Number(data.id_setor) : existing.id_setor || null;
@@ -746,6 +902,87 @@ async function assertCollaboratorForService(serviceRow, collaborator) {
   }
 }
 
+/**
+ * Bloqueia o mesmo colaborador em outro acesso de serviço com datas sobrepostas
+ * (status ativo e não negado). Espelha assertNoDuplicateOnEventDay de credenciais.
+ */
+async function findOverlappingServiceCollaborator(
+  idCollaborator,
+  startDate,
+  endDate,
+  excludeServiceAccessId,
+) {
+  const start = formatDateField(startDate);
+  const end = formatDateField(endDate);
+  if (!idCollaborator || !start || !end) return null;
+
+  // Negados e rascunhos do wizard (não enviados) não contam como conflito.
+  const params = [idCollaborator, STATUS_NEGADO, STATUS_AGUARDANDO_PRODUTORA, end, start];
+  let excludeSql = "";
+  if (excludeServiceAccessId != null) {
+    excludeSql = " AND sa.id_service_access <> ?";
+    params.push(Number(excludeServiceAccessId));
+  }
+
+  const [rows] = await db.execute(
+    `SELECT sa.id_service_access,
+            sa.finalidade,
+            sa.start_date,
+            sa.end_date,
+            c.fancy_name AS company_fancy_name
+       FROM service_access_collaborator sac
+       INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+       INNER JOIN company c ON c.id_company = sa.id_company
+      WHERE sac.id_collaborator = ?
+        AND sa.status = 1
+        AND sa.id_access_status <> ?
+        AND sa.id_access_status <> ?
+        AND sa.start_date <= ?
+        AND sa.end_date >= ?
+        ${excludeSql}
+      LIMIT 1`,
+    params,
+  );
+  return rows[0] || null;
+}
+
+async function assertNoOverlappingServiceCollaborator(
+  idCollaborator,
+  startDate,
+  endDate,
+  excludeServiceAccessId,
+) {
+  const conflict = await findOverlappingServiceCollaborator(
+    idCollaborator,
+    startDate,
+    endDate,
+    excludeServiceAccessId,
+  );
+  if (!conflict) return;
+
+  const label = [conflict.company_fancy_name, conflict.finalidade]
+    .filter(Boolean)
+    .join(" — ");
+  throw new AppError(
+    `Colaborador já está cadastrado em outro acesso de serviço com data sobreposta${
+      label ? ` (${label})` : ""
+    }.`,
+    409,
+  );
+}
+
+async function assertCollaboratorsNoDateOverlap(idServiceAccess, startDate, endDate) {
+  const collaborators = await loadServiceCollaborators(idServiceAccess);
+  for (const c of collaborators) {
+    await assertNoOverlappingServiceCollaborator(
+      c.id_collaborator,
+      startDate,
+      endDate,
+      idServiceAccess,
+    );
+  }
+}
+
 async function assertVehicleForService(serviceRow, vehicle) {
   if (!vehicle.status) {
     throw new AppError(`Veículo ${vehicle.plate} está inativo.`, 400);
@@ -955,7 +1192,7 @@ async function assertRoleExists(id) {
     `SELECT id_collaborator_role FROM collaborator_role WHERE id_collaborator_role = ? LIMIT 1`,
     [id],
   );
-  if (!rows[0]) throw new AppError("Função/cargo inválido.", 400);
+  if (!rows[0]) throw new AppError("Função/cargo inválido.", 422);
 }
 
 async function addCollaborator(req, id, data) {
@@ -968,6 +1205,12 @@ async function addCollaborator(req, id, data) {
   if (!collaborator) throw new AppError("Colaborador não encontrado.", 404);
   await assertCollaboratorForService(serviceRow, collaborator);
   await assertRoleExists(data.id_collaborator_role);
+  await assertNoOverlappingServiceCollaborator(
+    data.id_collaborator,
+    serviceRow.start_date,
+    serviceRow.end_date,
+    id,
+  );
 
   const [existing] = await db.execute(
     `SELECT 1 FROM service_access_collaborator WHERE id_service_access = ? AND id_collaborator = ? LIMIT 1`,
@@ -1119,6 +1362,12 @@ async function bulkAddCollaborators(req, id, file) {
     try {
       await assertCollaboratorForService(serviceRow, collaborator);
       await assertRoleExists(roleId);
+      await assertNoOverlappingServiceCollaborator(
+        collaborator.id_collaborator,
+        serviceRow.start_date,
+        serviceRow.end_date,
+        id,
+      );
 
       const [existing] = await db.execute(
         `SELECT 1 FROM service_access_collaborator WHERE id_service_access = ? AND id_collaborator = ? LIMIT 1`,
@@ -1402,6 +1651,15 @@ async function isVehicleLinked(serviceId, vehicleId) {
 }
 
 async function linkCollaboratorToService(serviceId, collaboratorId, roleId) {
+  const serviceRow = await getServiceAccessRow(serviceId);
+  if (!serviceRow) throw new AppError("Acesso de serviço não encontrado.", 404);
+  await assertNoOverlappingServiceCollaborator(
+    collaboratorId,
+    serviceRow.start_date,
+    serviceRow.end_date,
+    serviceId,
+  );
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -1538,6 +1796,32 @@ async function previewBulkServiceCollaborators(req, id, file) {
 
     try {
       await assertCollaboratorForService(serviceRow, collaborator);
+    } catch (err) {
+      const item = {
+        line,
+        status: "error",
+        key: { document: collaborator.document },
+        incoming: payload,
+        message: err.message,
+      };
+      rows.push(item);
+      sessionRows.push({
+        ...item,
+        existingId: collaborator.id_collaborator,
+        roleId: null,
+        alreadyLinked: false,
+        validated: null,
+      });
+      continue;
+    }
+
+    try {
+      await assertNoOverlappingServiceCollaborator(
+        collaborator.id_collaborator,
+        serviceRow.start_date,
+        serviceRow.end_date,
+        id,
+      );
     } catch (err) {
       const item = {
         line,
@@ -2080,6 +2364,11 @@ async function confirmUnifiedBulkImport(req, id, body) {
     userId: req.user?.id || null,
   });
 
+  // Em rascunho (wizard), não reabre/cria aprovação — isso ocorre só no envio final.
+  if (body?.notify_approvers === false) {
+    return result;
+  }
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -2163,6 +2452,15 @@ async function syncServiceAccessRelations(req, id, data) {
     (v) => !currentVeh.some((x) => Number(x.id_vehicle) === Number(v.id_vehicle)),
   );
 
+  for (const c of toAddCollab) {
+    await assertNoOverlappingServiceCollaborator(
+      c.id_collaborator,
+      serviceRow.start_date,
+      serviceRow.end_date,
+      id,
+    );
+  }
+
   const relationsChanged =
     toRemoveCollab.length > 0 ||
     toAddCollab.length > 0 ||
@@ -2170,7 +2468,11 @@ async function syncServiceAccessRelations(req, id, data) {
     toRemoveVeh.length > 0 ||
     toAddVeh.length > 0;
 
-  if (!relationsChanged) {
+  const submitForApproval = data.notify_approvers === true;
+  const idSetor =
+    data.id_setor != null ? Number(data.id_setor) : serviceRow.id_setor || null;
+
+  if (!relationsChanged && !submitForApproval) {
     const detail = await getServiceAccessById(req, id);
     return { ...detail, relationsChanged: false, approvalNotify: false };
   }
@@ -2220,7 +2522,11 @@ async function syncServiceAccessRelations(req, id, data) {
     }
 
     reopenResult = await reopenServiceAccessForApproval(conn, serviceRow, {
-      force: status === STATUS_APROVADO || status === STATUS_NEGADO,
+      force:
+        submitForApproval ||
+        status === STATUS_APROVADO ||
+        status === STATUS_NEGADO,
+      idSetor: idSetor || undefined,
       idSolicitante: req.user?.id || serviceRow.id_usuario || null,
     });
     await conn.commit();
@@ -2235,16 +2541,58 @@ async function syncServiceAccessRelations(req, id, data) {
   const idAprovacao = detail.id_aprovacao || reopenResult.idAprovacao || null;
   return {
     ...detail,
-    relationsChanged: true,
-    approvalNotify: !!idAprovacao,
+    relationsChanged,
+    approvalNotify: submitForApproval && !!idAprovacao,
     id_aprovacao: idAprovacao,
   };
+}
+
+async function deleteDraftServiceAccess(req, id) {
+  assertCanManageServices(req);
+  const serviceRow = await getServiceAccessRow(id);
+  if (!serviceRow) throw new AppError("Acesso de serviço não encontrado.", 404);
+  await assertServiceInScope(req, serviceRow);
+
+  const status = Number(serviceRow.id_access_status);
+  if (status !== STATUS_AGUARDANDO_PRODUTORA) {
+    throw new AppError(
+      "Somente rascunhos (não enviados para aprovação) podem ser descartados.",
+      409,
+    );
+  }
+
+  const [pending] = await db.execute(
+    `SELECT id FROM aprovacoes
+      WHERE tipo_entidade = 'ACESSO_SERVICO' AND id_entidade = ? AND status = 'PENDENTE'
+      LIMIT 1`,
+    [id],
+  );
+  if (pending.length) {
+    throw new AppError("Não é possível descartar: já existe aprovação pendente.", 409);
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(`DELETE FROM service_access_collaborator WHERE id_service_access = ?`, [id]);
+    await conn.execute(`DELETE FROM service_access_vehicle WHERE id_service_access = ?`, [id]);
+    await conn.execute(`DELETE FROM service_access WHERE id_service_access = ?`, [id]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  return { deleted: true, id_service_access: Number(id) };
 }
 
 module.exports = {
   listServiceAccess,
   getServiceAccessById,
   createServiceAccess,
+  deleteDraftServiceAccess,
   updateServiceAccess,
   updateServiceAccessPeriod,
   updateServiceAccessStatus,
@@ -2268,4 +2616,5 @@ module.exports = {
   previewUnifiedBulkImport,
   confirmUnifiedBulkImport,
   repairOrphanApprovals,
+  assertNoOverlappingServiceCollaborator,
 };

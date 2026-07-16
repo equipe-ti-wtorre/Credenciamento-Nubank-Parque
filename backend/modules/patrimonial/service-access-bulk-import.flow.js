@@ -4,6 +4,10 @@ const { normalizeCpf } = require("../../utils/cpf");
 const { isValidPlate } = require("../../utils/plate");
 const helpers = require("./service-access-bulk-import");
 
+function assertNoOverlappingServiceCollaborator(...args) {
+  return require("./service-access.service").assertNoOverlappingServiceCollaborator(...args);
+}
+
 const {
   KIND,
   PREVIEW_TOKEN_CONSUMIDO,
@@ -59,6 +63,15 @@ async function previewUnifiedBulkImport(ctx) {
   const sessionCollaborators = [];
   const spreadsheetByDocument = new Map();
 
+  const indexSheetDocument = (document, line) => {
+    const doc = String(document || "").trim();
+    if (!doc) return;
+    const entry = { line, sessionIndex: sessionCollaborators.length - 1 };
+    spreadsheetByDocument.set(doc, entry);
+    const cpf = typeof normalizeCpf === "function" ? normalizeCpf(doc) : null;
+    if (cpf && cpf !== doc) spreadsheetByDocument.set(cpf, entry);
+  };
+
   for (const item of rawCols) {
     const mapped = mapRowByHeaders(item.raw);
     if (isExampleCollaboratorRow(mapped)) continue;
@@ -85,7 +98,7 @@ async function previewUnifiedBulkImport(ctx) {
       incoming.tipo_de_documento,
       "id_collaborator_document_type",
     );
-    const roleResolved = resolveByFoldedDescription(
+    let roleResolved = resolveByFoldedDescription(
       roles,
       incoming.funcao_cargo,
       "id_collaborator_role",
@@ -97,8 +110,113 @@ async function previewUnifiedBulkImport(ctx) {
       erros.push(`Função / Cargo fora da lista: ${incoming.funcao_cargo}`);
     }
 
+    const isRoleOnlyError = (msg) =>
+      msg === "Função / Cargo obrigatória." ||
+      msg.startsWith("Função / Cargo fora da lista");
+
     let normalizedDocument = null;
-    if (!erros.length && typeResolved) {
+
+    if (erros.length) {
+      const hasNonRoleErrors = erros.some((e) => !isRoleOnlyError(e));
+      let roleOnlyHandled = false;
+
+      if (
+        !hasNonRoleErrors &&
+        incoming.documento &&
+        incoming.tipo_de_documento &&
+        incoming.nome_completo &&
+        typeResolved
+      ) {
+        const docResult = await validateDocumentByType(incoming.documento, typeResolved.id);
+        if (!docResult.error) {
+          normalizedDocument = docResult.value;
+          const existing = await findCollaboratorByDocType(normalizedDocument, typeResolved.id);
+
+          // Já cadastrado com função: usa a do master e segue o fluxo normal (libera veículos/motorista).
+          if (!roleResolved && existing?.id_collaborator_role) {
+            roleResolved = {
+              id: existing.id_collaborator_role,
+              description: existing.role_description || null,
+            };
+            for (let i = erros.length - 1; i >= 0; i -= 1) {
+              if (isRoleOnlyError(erros[i])) erros.splice(i, 1);
+            }
+            roleOnlyHandled = true; // recuperado — não emitir erro nem continue
+          } else if (!roleResolved) {
+            const linkRecord = existing
+              ? await isCollaboratorLinked(serviceId, existing.id_collaborator)
+              : null;
+            const vinculo = linkRecord ? "ja_vinculado" : "a_vincular";
+            const resolvido = {
+              id_collaborator_document_type: typeResolved.id,
+              ...(existing ? { id_collaborator: existing.id_collaborator } : {}),
+            };
+            const row = {
+              linha: line,
+              cadastro: "erro",
+              vinculo,
+              chave: { documento: normalizedDocument, tipo: typeResolved.description },
+              resolvido,
+              divergencias: [],
+              divergencias_vinculo: [],
+              erros: [...erros],
+              nome: incoming.nome_completo,
+              pendente_funcao: true,
+            };
+            colaboradores.push(row);
+            sessionCollaborators.push({
+              ...row,
+              existingId: existing?.id_collaborator || null,
+              roleId: null,
+              validated: null,
+              linkRecord,
+            });
+            indexSheetDocument(normalizedDocument, line);
+            roleOnlyHandled = true;
+            continue;
+          } else {
+            // Função da planilha válida — limpa erros residuais e segue
+            for (let i = erros.length - 1; i >= 0; i -= 1) {
+              if (isRoleOnlyError(erros[i])) erros.splice(i, 1);
+            }
+            roleOnlyHandled = true;
+          }
+        } else {
+          erros.push(docResult.error);
+        }
+      }
+
+      if (erros.length && !roleOnlyHandled) {
+        const row = {
+          linha: line,
+          cadastro: "erro",
+          vinculo: "a_vincular",
+          chave: { documento: incoming.documento, tipo: incoming.tipo_de_documento || null },
+          resolvido: null,
+          divergencias: [],
+          divergencias_vinculo: [],
+          erros,
+          nome: incoming.nome_completo || null,
+        };
+        colaboradores.push(row);
+        sessionCollaborators.push({
+          ...row,
+          existingId: null,
+          roleId: roleResolved?.id || null,
+          validated: null,
+          linkRecord: null,
+        });
+        indexSheetDocument(incoming.documento || normalizedDocument, line);
+        continue;
+      }
+
+      if (erros.length) {
+        continue;
+      }
+      // erros vazios após recuperação de função → cai no fluxo normal abaixo
+    }
+
+    if (typeResolved) {
       const docResult = await validateDocumentByType(incoming.documento, typeResolved.id);
       if (docResult.error) erros.push(docResult.error);
       else normalizedDocument = docResult.value;
@@ -124,6 +242,7 @@ async function previewUnifiedBulkImport(ctx) {
         validated: null,
         linkRecord: null,
       });
+      indexSheetDocument(incoming.documento || normalizedDocument, line);
       continue;
     }
 
@@ -166,6 +285,7 @@ async function previewUnifiedBulkImport(ctx) {
           validated: null,
           linkRecord: null,
         });
+        indexSheetDocument(normalizedDocument, line);
         continue;
       }
 
@@ -191,12 +311,28 @@ async function previewUnifiedBulkImport(ctx) {
         validated: validated.value,
         linkRecord: null,
       });
-      spreadsheetByDocument.set(validated.value.document, {
-        line,
-        sessionIndex: sessionCollaborators.length - 1,
-      });
+      indexSheetDocument(validated.value.document, line);
       continue;
     }
+
+    const masterRoleId = existing.id_collaborator_role ?? null;
+    const masterRoleDesc =
+      existing.role_description ||
+      roles.find((r) => r.id_collaborator_role === masterRoleId)?.description ||
+      null;
+    const buildRoleDivergences = () =>
+      masterRoleId != null &&
+      roleResolved?.id != null &&
+      Number(masterRoleId) !== Number(roleResolved.id)
+        ? [
+            {
+              campo: "id_collaborator_role",
+              rotulo: "Função / Cargo",
+              atual: masterRoleDesc,
+              novo: roleResolved.description,
+            },
+          ]
+        : [];
 
     if (!existing.status) {
       const row = {
@@ -205,11 +341,15 @@ async function previewUnifiedBulkImport(ctx) {
         vinculo,
         chave: { documento: existing.document, tipo: typeResolved.description },
         resolvido: {
+          id_collaborator: existing.id_collaborator,
           id_collaborator_document_type: typeResolved.id,
           id_collaborator_role: roleResolved.id,
+          ...(masterRoleId != null
+            ? { id_collaborator_role_atual: Number(masterRoleId) }
+            : {}),
         },
         divergencias: [],
-        divergencias_vinculo: [],
+        divergencias_vinculo: buildRoleDivergences(),
         erros: ["Colaborador inativo."],
         nome: existing.name,
       };
@@ -221,6 +361,7 @@ async function previewUnifiedBulkImport(ctx) {
         validated: null,
         linkRecord,
       });
+      indexSheetDocument(existing.document, line);
       continue;
     }
 
@@ -235,11 +376,15 @@ async function previewUnifiedBulkImport(ctx) {
         vinculo,
         chave: { documento: existing.document, tipo: typeResolved.description },
         resolvido: {
+          id_collaborator: existing.id_collaborator,
           id_collaborator_document_type: typeResolved.id,
           id_collaborator_role: roleResolved.id,
+          ...(masterRoleId != null
+            ? { id_collaborator_role_atual: Number(masterRoleId) }
+            : {}),
         },
         divergencias: [],
-        divergencias_vinculo: [],
+        divergencias_vinculo: buildRoleDivergences(),
         erros: ["Colaborador consta na lista de bloqueio."],
         nome: existing.name,
       };
@@ -251,7 +396,48 @@ async function previewUnifiedBulkImport(ctx) {
         validated: null,
         linkRecord,
       });
+      indexSheetDocument(existing.document, line);
       continue;
+    }
+
+    if (vinculo === "a_vincular") {
+      try {
+        await assertNoOverlappingServiceCollaborator(
+          existing.id_collaborator,
+          serviceRow.start_date,
+          serviceRow.end_date,
+          serviceId,
+        );
+      } catch (err) {
+        const row = {
+          linha: line,
+          cadastro: "erro",
+          vinculo,
+          chave: { documento: existing.document, tipo: typeResolved.description },
+          resolvido: {
+            id_collaborator: existing.id_collaborator,
+            id_collaborator_document_type: typeResolved.id,
+            id_collaborator_role: roleResolved.id,
+            ...(masterRoleId != null
+              ? { id_collaborator_role_atual: Number(masterRoleId) }
+              : {}),
+          },
+          divergencias: [],
+          divergencias_vinculo: buildRoleDivergences(),
+          erros: [err.message || "Conflito de data com outro acesso."],
+          nome: existing.name,
+        };
+        colaboradores.push(row);
+        sessionCollaborators.push({
+          ...row,
+          existingId: existing.id_collaborator,
+          roleId: roleResolved.id,
+          validated: null,
+          linkRecord,
+        });
+        indexSheetDocument(existing.document, line);
+        continue;
+      }
     }
 
     const masterIncoming = {
@@ -273,18 +459,8 @@ async function previewUnifiedBulkImport(ctx) {
       }),
     );
 
-    const linkRoleId = linkRecord?.id_collaborator_role ?? null;
-    const linkRoleDesc =
-      roles.find((r) => r.id_collaborator_role === linkRoleId)?.description || null;
-    const divergencias_vinculo = [];
-    if (linkRecord && Number(linkRoleId) !== Number(roleResolved.id)) {
-      divergencias_vinculo.push({
-        campo: "id_collaborator_role",
-        rotulo: "Função / Cargo",
-        atual: linkRoleDesc,
-        novo: roleResolved.description,
-      });
-    }
+    // Sempre cadastro (master) → planilha — decisão amarela no wizard
+    const divergencias_vinculo = buildRoleDivergences();
 
     const cadastro = masterDiffs.length ? "atualizacao" : "inalterado";
     const row = {
@@ -296,6 +472,9 @@ async function previewUnifiedBulkImport(ctx) {
         id_collaborator: existing.id_collaborator,
         id_collaborator_document_type: typeResolved.id,
         id_collaborator_role: roleResolved.id,
+        ...(masterRoleId != null
+          ? { id_collaborator_role_atual: Number(masterRoleId) }
+          : {}),
       },
       divergencias: masterDiffs,
       divergencias_vinculo,
@@ -307,6 +486,7 @@ async function previewUnifiedBulkImport(ctx) {
       ...row,
       existingId: existing.id_collaborator,
       roleId: roleResolved.id,
+      masterRoleId,
       validated: {
         name: masterIncoming.name,
         rg: masterIncoming.rg,
@@ -315,10 +495,7 @@ async function previewUnifiedBulkImport(ctx) {
       },
       linkRecord,
     });
-    spreadsheetByDocument.set(existing.document, {
-      line,
-      sessionIndex: sessionCollaborators.length - 1,
-    });
+    indexSheetDocument(existing.document, line);
   }
 
   const veiculos = [];
@@ -680,10 +857,28 @@ async function confirmUnifiedBulkImport(ctx) {
           continue;
         }
 
-        const applyRole = decision.aplicarFuncao !== false;
+        const applyRole = decision.aplicarFuncao === true;
         const roleId = applyRole
           ? row.roleId
-          : row.linkRecord?.id_collaborator_role || row.roleId;
+          : row.linkRecord?.id_collaborator_role ||
+            row.masterRoleId ||
+            null;
+        if (!roleId) {
+          result.colaboradores.erros.push({
+            linha: line,
+            motivo: "Função / Cargo obrigatória para vincular.",
+          });
+          continue;
+        }
+
+        if (row.vinculo === "a_vincular" || !row.linkRecord) {
+          await assertNoOverlappingServiceCollaborator(
+            collaboratorId,
+            serviceRow.start_date,
+            serviceRow.end_date,
+            serviceId,
+          );
+        }
 
         const [linkIns] = await conn.execute(
           `INSERT INTO service_access_collaborator
