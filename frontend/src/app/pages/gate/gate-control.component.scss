@@ -188,24 +188,24 @@
   gap: 6px;
   flex-shrink: 0;
   align-self: center;
-  margin: 6px 0;
-  padding: 7px 12px;
-  border: 1px solid var(--line);
+  margin: 6px 0 6px auto;
+  padding: 7px 14px;
+  border: 1px solid var(--wtorre);
   border-radius: 10px;
-  background: #fff;
-  color: var(--ink);
+  background: var(--wtorre);
+  color: #fff;
   font-family: var(--font-display);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .btn-manual-release:hover {
-  background: var(--wtorre-tonal-bg, #fef2f2);
-  border-color: var(--wtorre, #c8102e);
-  color: var(--wtorre, #c8102e);
+  background: var(--wtorre-600, #1746c4);
+  border-color: var(--wtorre-600, #1746c4);
+  color: #fff;
 }
 
 .status-tabs {
@@ -443,6 +443,10 @@
 
 .row.state-pending {
   background: linear-gradient(90deg, rgba(194, 65, 12, 0.05), transparent 40%);
+}
+
+.row.state-rejected {
+  background: linear-gradient(90deg, rgba(217, 48, 37, 0.05), transparent 40%);
 }
 
 .type {
@@ -710,6 +714,11 @@
 .status-pill.pending {
   background: #fff4e8;
   color: #c2410c;
+}
+
+.status-pill.rejected {
+  background: #fdeceb;
+  color: #d93025;
 }
 
 .status-pill.in {

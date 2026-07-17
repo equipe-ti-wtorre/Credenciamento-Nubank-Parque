@@ -570,11 +570,14 @@ function buildWeekDays(row, weekDates, todayKey, accessedDates, lastCheckIn) {
 }
 
 function mapTodayServiceVehicleRow(row, todayKey, ctx) {
+  const rejected = Number(row.id_access_status) === STATUS_NEGADO;
   const pending = Number(row.id_access_status) === STATUS_AGUARDANDO_APROVACAO;
   const effective = resolveEffectiveVehicle(row);
-  const next = pending
-    ? "PENDING_APPROVAL"
-    : resolveServiceVehicleNextAction(row, todayKey) || "COMPLETED";
+  const next = rejected
+    ? "REJECTED"
+    : pending
+      ? "PENDING_APPROVAL"
+      : resolveServiceVehicleNextAction(row, todayKey) || "COMPLETED";
   const checkInToday = isTimestampToday(row.check_in, todayKey) ? row.check_in : null;
   const checkOutToday = isTimestampToday(row.check_out, todayKey) ? row.check_out : null;
   const accessedDates = ctx.logDates.get(`vehicle:${row.id_service_access_vehicle}`) || new Set();
@@ -594,7 +597,13 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
     start_date: toDateKey(row.start_date),
     end_date: toDateKey(row.end_date),
     week_days: buildWeekDays(row, ctx.weekDates, todayKey, accessedDates, row.check_in),
-    approved_by: pending ? null : ctx.approvers.get(Number(row.id_service_access)) || null,
+    approved_by:
+      pending || rejected
+        ? null
+        : ctx.approvers.get(Number(row.id_service_access)) || null,
+    rejected_by: rejected
+      ? ctx.rejectors.get(Number(row.id_service_access)) || null
+      : null,
     id_service_access: Number(row.id_service_access),
     id_aprovacao: pending
       ? ctx.pendingApprovals.get(Number(row.id_service_access))?.id_aprovacao || null
@@ -609,11 +618,14 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
 }
 
 function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
+  const rejected = Number(row.id_access_status) === STATUS_NEGADO;
   const pending = Number(row.id_access_status) === STATUS_AGUARDANDO_APROVACAO;
   const effective = resolveEffectiveServiceCollaborator(row);
-  const next = pending
-    ? "PENDING_APPROVAL"
-    : resolveServiceCollaboratorNextAction(row, todayKey) || "COMPLETED";
+  const next = rejected
+    ? "REJECTED"
+    : pending
+      ? "PENDING_APPROVAL"
+      : resolveServiceCollaboratorNextAction(row, todayKey) || "COMPLETED";
   const checkInToday = isTimestampToday(row.access_check_in, todayKey)
     ? row.access_check_in
     : null;
@@ -644,7 +656,13 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
     start_date: toDateKey(row.start_date),
     end_date: toDateKey(row.end_date),
     week_days: buildWeekDays(row, ctx.weekDates, todayKey, accessedDates, row.access_check_in),
-    approved_by: pending ? null : ctx.approvers.get(Number(row.id_service_access)) || null,
+    approved_by:
+      pending || rejected
+        ? null
+        : ctx.approvers.get(Number(row.id_service_access)) || null,
+    rejected_by: rejected
+      ? ctx.rejectors.get(Number(row.id_service_access)) || null
+      : null,
     id_service_access: Number(row.id_service_access),
     id_aprovacao: pending ? pendingInfo?.id_aprovacao || null : null,
     id_setor: pending ? pendingInfo?.id_setor || null : null,
@@ -672,15 +690,19 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
   INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
-  WHERE sa.id_access_status IN (?, ?)
+  WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND CURDATE() BETWEEN sa.start_date AND sa.end_date
     AND (
       (sa.id_access_status = ? AND sav.access_id IS NOT NULL)
-      OR sa.id_access_status = ?
+      OR sa.id_access_status IN (?, ?)
     )
   ORDER BY
-    CASE WHEN sa.id_access_status = ? THEN 0 ELSE 1 END,
+    CASE
+      WHEN sa.id_access_status = ? THEN 0
+      WHEN sa.id_access_status = ? THEN 1
+      ELSE 2
+    END,
     COALESCE(sub.plate, v.plate) ASC
 `;
 
@@ -716,15 +738,19 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
   LEFT JOIN collaborator_document_type sub_cdt
     ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
   INNER JOIN company co ON co.id_company = sa.id_company
-  WHERE sa.id_access_status IN (?, ?)
+  WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND CURDATE() BETWEEN sa.start_date AND sa.end_date
     AND (
       (sa.id_access_status = ? AND sac.access_id IS NOT NULL)
-      OR sa.id_access_status = ?
+      OR sa.id_access_status IN (?, ?)
     )
   ORDER BY
-    CASE WHEN sa.id_access_status = ? THEN 0 ELSE 1 END,
+    CASE
+      WHEN sa.id_access_status = ? THEN 0
+      WHEN sa.id_access_status = ? THEN 1
+      ELSE 2
+    END,
     COALESCE(sub.name, c.name) ASC
 `;
 
@@ -770,6 +796,39 @@ async function loadServiceApprovers(serviceAccessIds) {
     });
   }
   return approvers;
+}
+
+/** Última decisão REPROVADO por acesso de serviço. */
+async function loadServiceRejectors(serviceAccessIds) {
+  const rejectors = new Map();
+  if (!serviceAccessIds.length) return rejectors;
+  const placeholders = serviceAccessIds.map(() => "?").join(",");
+  const [rows] = await db.execute(
+    `SELECT a.id_entidade,
+            ad.id_usuario,
+            ad.decidido_em,
+            u.nome_completo AS usuario_nome,
+            s.nome AS setor_nome
+     FROM aprovacao_decisoes ad
+     INNER JOIN aprovacoes a ON a.id = ad.id_aprovacao
+     INNER JOIN usuarios u ON u.id = ad.id_usuario
+     LEFT JOIN setores s ON s.id = a.id_setor
+     WHERE a.tipo_entidade = 'ACESSO_SERVICO'
+       AND ad.decisao = 'REPROVADO'
+       AND a.id_entidade IN (${placeholders})
+     ORDER BY ad.decidido_em ASC, ad.id ASC`,
+    serviceAccessIds,
+  );
+  for (const row of rows) {
+    rejectors.set(Number(row.id_entidade), {
+      id: Number(row.id_usuario),
+      name: row.usuario_nome,
+      initials: initialsFromName(row.usuario_nome),
+      sector: row.setor_nome || null,
+      decided_at: row.decidido_em,
+    });
+  }
+  return rejectors;
 }
 
 /** Aprovação PENDENTE por acesso de serviço: Map<id_service_access, {id_aprovacao,id_setor,setor_nome}>. */
@@ -838,9 +897,12 @@ async function listTodayExpectedServices() {
   const statusParams = [
     STATUS_APROVADO,
     STATUS_AGUARDANDO_APROVACAO,
+    STATUS_NEGADO,
     STATUS_APROVADO,
     STATUS_AGUARDANDO_APROVACAO,
+    STATUS_NEGADO,
     STATUS_AGUARDANDO_APROVACAO,
+    STATUS_NEGADO,
   ];
   const [todayKey, vehicleResult, collaboratorResult] = await Promise.all([
     getMysqlTodayKey(),
@@ -856,8 +918,9 @@ async function listTodayExpectedServices() {
       [...vehicleRows, ...collaboratorRows].map((r) => Number(r.id_service_access)),
     ),
   ];
-  const [approvers, pendingApprovals, logDates] = await Promise.all([
+  const [approvers, rejectors, pendingApprovals, logDates] = await Promise.all([
     loadServiceApprovers(serviceAccessIds),
+    loadServiceRejectors(serviceAccessIds),
     loadPendingApprovals(serviceAccessIds),
     loadWeekDayLogs(
       weekDates,
@@ -865,13 +928,51 @@ async function listTodayExpectedServices() {
       collaboratorRows.map((r) => r.id_service_access_collaborator),
     ),
   ]);
-  const ctx = { weekDates, approvers, pendingApprovals, logDates };
+  const ctx = { weekDates, approvers, rejectors, pendingApprovals, logDates };
 
   const vehicles = vehicleRows.map((row) => mapTodayServiceVehicleRow(row, todayKey, ctx));
   const collaborators = collaboratorRows.map((row) =>
     mapTodayServiceCollaboratorRow(row, todayKey, ctx),
   );
-  return [...vehicles, ...collaborators];
+  return sortTodayServicesByAccessPriority([...vehicles, ...collaborators]);
+}
+
+/** Aguardando entrada → liberação pendente → dentro → concluídos → reprovado; data mais nova acima. */
+function sortTodayServicesByAccessPriority(list) {
+  const rank = {
+    CHECK_IN: 0,
+    PENDING_APPROVAL: 1,
+    CHECK_OUT: 2,
+    COMPLETED: 3,
+    REJECTED: 4,
+  };
+  return list.sort((a, b) => {
+    const ra = rank[a.next_action] ?? 9;
+    const rb = rank[b.next_action] ?? 9;
+    if (ra !== rb) return ra - rb;
+    const ta = entrySortTimestamp(a);
+    const tb = entrySortTimestamp(b);
+    if (ta !== tb) return tb - ta;
+    const na = String(
+      a.collaborator?.name || a.vehicle?.plate || a.finalidade || "",
+    ).toLocaleLowerCase("pt-BR");
+    const nb = String(
+      b.collaborator?.name || b.vehicle?.plate || b.finalidade || "",
+    ).toLocaleLowerCase("pt-BR");
+    return na.localeCompare(nb, "pt-BR");
+  });
+}
+
+/** Preferência: horário de check-in; senão data da aprovação/reprovação. */
+function entrySortTimestamp(row) {
+  const raw =
+    row.check_in ||
+    row.approved_by?.decided_at ||
+    row.rejected_by?.decided_at ||
+    null;
+  if (!raw) return 0;
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 function buildServiceVehicleSuccessPayload(row, actionRegistered) {
@@ -1157,15 +1258,6 @@ async function listManualReleaseMeta() {
          FROM setor_fluxos sf
          JOIN setores s ON s.id = sf.id_setor
         WHERE sf.tipo_entidade = 'ACESSO_SERVICO' AND sf.ativo = 1 AND s.ativo = 1
-          AND EXISTS (
-            SELECT 1
-              FROM setor_usuarios su
-              JOIN usuarios u ON u.id = su.id_usuario
-             WHERE su.id_setor = s.id
-               AND su.ativo = 1
-               AND u.ativo = 1
-               AND su.papel IN ('APROVADOR', 'GESTOR')
-          )
         ORDER BY s.nome`,
     ),
     db.execute(
@@ -1268,7 +1360,8 @@ async function createManualRelease(req, data) {
   const idCompany = Number(data.id_company);
   const idSetor = Number(data.id_setor);
   const finalidade = String(data.finalidade).trim();
-  const observacao = data.observacao?.trim() || null;
+  const observacao = String(data.observacao).trim();
+  if (!observacao) throw new AppError("Informe a descrição do serviço.", 400);
 
   const [deptRows] = await db.execute(
     `SELECT departamento FROM usuarios WHERE id = ? LIMIT 1`,
@@ -1498,6 +1591,7 @@ async function cancelPendingServiceApproval(req, idServiceAccess) {
   }
 
   const userId = req.user?.id;
+  if (!userId) throw new AppError("Usuário não autenticado.", 401);
   const isAdmin = !!req.user?.is_super_admin;
   const isSolicitante = Number(row.id_solicitante) === Number(userId);
   if (!isAdmin && !isSolicitante) {
@@ -1513,9 +1607,16 @@ async function cancelPendingServiceApproval(req, idServiceAccess) {
     await conn.beginTransaction();
     await conn.execute(
       `UPDATE aprovacoes
-          SET status = 'CANCELADO', finalizado_em = NOW()
+          SET status = 'REPROVADO', finalizado_em = NOW()
         WHERE id = ? AND status = 'PENDENTE'`,
       [row.id_aprovacao],
+    );
+    await conn.execute(
+      `INSERT INTO aprovacao_decisoes (id_aprovacao, nivel, id_usuario, decisao, comentario)
+       SELECT a.id, a.nivel_atual, ?, 'REPROVADO', ?
+         FROM aprovacoes a
+        WHERE a.id = ?`,
+      [userId, "Cancelado na portaria.", row.id_aprovacao],
     );
     await conn.execute(
       `UPDATE service_access SET id_access_status = ? WHERE id_service_access = ?`,

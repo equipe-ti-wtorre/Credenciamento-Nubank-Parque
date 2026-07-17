@@ -20,6 +20,10 @@ import { ApprovalService, EligibleSector } from '../../services/approval.service
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService, AuthUser, isSuperAdmin } from '../../core/services/auth.service';
 import { ModalComponent } from '../../shared/modal/modal.component';
+import {
+  PeriodoRangePickerComponent,
+  PeriodoRangeValue,
+} from '../../shared/periodo-range-picker';
 import { ServiceAccessBulkImportWizardComponent } from './service-access-bulk-import-wizard.component';
 
 function formatDateBr(value: string | null | undefined): string {
@@ -35,7 +39,14 @@ type ModalMode = 'search' | 'create';
 @Component({
   selector: 'app-service-access-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ModalComponent, ServiceAccessBulkImportWizardComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterLink,
+    ModalComponent,
+    PeriodoRangePickerComponent,
+    ServiceAccessBulkImportWizardComponent,
+  ],
   styles: [
     `
       :host {
@@ -50,6 +61,51 @@ type ModalMode = 'search' | 'create';
         --cred-off: #64748b;
         --cred-off-soft: #eef0f4;
         --cred-field-h: 40px;
+      }
+
+      .period-modal-form {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+      }
+      .period-modal-form ::ng-deep .prp-trigger {
+        min-height: 2.25rem;
+        padding: 0 10px;
+        font-size: 0.8125rem;
+        width: 100%;
+      }
+      .period-modal-form ::ng-deep .prp-panel {
+        padding: 10px 10px 8px;
+        border-radius: 12px;
+        width: 100%;
+      }
+      .period-modal-form ::ng-deep .prp-nav {
+        margin-bottom: 8px;
+      }
+      .period-modal-form ::ng-deep .prp-nav__title {
+        font-size: 0.8125rem;
+      }
+      .period-modal-form ::ng-deep .prp-nav__btn {
+        width: 28px;
+        height: 28px;
+      }
+      .period-modal-form ::ng-deep .prp-weekdays span {
+        font-size: 0.6875rem;
+        padding: 2px 0;
+      }
+      .period-modal-form ::ng-deep .prp-day {
+        aspect-ratio: auto;
+        height: 34px;
+        font-size: 0.8125rem;
+        border-radius: 8px;
+      }
+      .period-modal-form ::ng-deep .prp-foot {
+        margin-top: 8px;
+        padding-top: 8px;
+      }
+      .period-modal-form ::ng-deep .prp-foot__label,
+      .period-modal-form ::ng-deep .prp-clear {
+        font-size: 0.75rem;
       }
 
       .cred-back {
@@ -1321,35 +1377,19 @@ type ModalMode = 'search' | 'create';
     <app-modal
       [open]="showPeriodModal()"
       title="Ajustar período"
-      subtitle="A alteração reabre o fluxo de aprovação. Quem já tinha credencial permanece até a nova decisão."
       size="sm"
       (close)="fecharModalPeriodo()"
     >
-      <form id="period-access-form" class="space-y-3" (ngSubmit)="salvarPeriodo()">
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="form-label" for="period-start">Data início</label>
-            <input
-              id="period-start"
-              type="date"
-              [(ngModel)]="periodForm.start_date"
-              name="periodStartDate"
-              required
-              class="form-field"
-            />
-          </div>
-          <div>
-            <label class="form-label" for="period-end">Data fim</label>
-            <input
-              id="period-end"
-              type="date"
-              [(ngModel)]="periodForm.end_date"
-              name="periodEndDate"
-              required
-              class="form-field"
-            />
-          </div>
-        </div>
+      <form id="period-access-form" class="period-modal-form" (ngSubmit)="salvarPeriodo()">
+        <app-periodo-range-picker
+          [(ngModel)]="periodRange"
+          name="periodRange"
+          label="Período do acesso"
+          inputId="period-access-range"
+          [inline]="true"
+          [controlInvalid]="periodTouched() && !periodRange?.inicio"
+          [controlTouched]="periodTouched()"
+        />
       </form>
       <div modal-footer class="modal-footer">
         <button type="button" class="btn-action-secondary" (click)="fecharModalPeriodo()">Cancelar</button>
@@ -1376,7 +1416,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   editSaving = signal(false);
   showPeriodModal = signal(false);
   periodSaving = signal(false);
-  periodForm = { start_date: '', end_date: '' };
+  periodTouched = signal(false);
+  periodRange: PeriodoRangeValue | null = null;
   sectors = signal<EligibleSector[]>([]);
   editForm = {
     start_date: '',
@@ -1798,7 +1839,13 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
         },
         error: (err) => {
           this.relationsSaving.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao salvar colaboradores/veículos.');
+          void this.notification.notifyHttpError(err, 'Falha ao salvar colaboradores/veículos.').then(
+            (result) => {
+              if (result && 'isDenied' in result && result.isDenied) {
+                this.removeOverlapCollaboratorFromDraft(err);
+              }
+            },
+          );
         },
       });
   }
@@ -1988,10 +2035,10 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   abrirModalPeriodo() {
     const svc = this.service();
     if (!svc || (svc.id_access_status !== 3 && svc.id_access_status !== 4)) return;
-    this.periodForm = {
-      start_date: this.toDateInput(svc.start_date),
-      end_date: this.toDateInput(svc.end_date),
-    };
+    const start = this.toDateInput(svc.start_date);
+    const end = this.toDateInput(svc.end_date);
+    this.periodRange = start && end ? { inicio: start, fim: end } : null;
+    this.periodTouched.set(false);
     this.showPeriodModal.set(true);
   }
 
@@ -2002,19 +2049,22 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   salvarPeriodo() {
     const svc = this.service();
     if (!svc) return;
-    if (!this.periodForm.start_date || !this.periodForm.end_date) {
-      this.notification.error('Informe as datas de início e fim.');
+    this.periodTouched.set(true);
+    const inicio = this.periodRange?.inicio || '';
+    const fim = this.periodRange?.fim || '';
+    if (!inicio || !fim) {
+      this.notification.error('Informe o período do acesso.');
       return;
     }
-    if (this.periodForm.end_date < this.periodForm.start_date) {
+    if (fim < inicio) {
       this.notification.error('Data fim deve ser igual ou posterior à data início.');
       return;
     }
     this.periodSaving.set(true);
     this.patrimonialService
       .updatePeriod(svc.id_service_access, {
-        start_date: this.periodForm.start_date,
-        end_date: this.periodForm.end_date,
+        start_date: inicio,
+        end_date: fim,
       })
       .subscribe({
         next: (res) => {
@@ -2026,9 +2076,68 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
         },
         error: (err) => {
           this.periodSaving.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao ajustar período.');
+          void this.notification.notifyHttpError(err, 'Falha ao ajustar período.').then((result) => {
+            if (result && 'isDenied' in result && result.isDenied) {
+              this.removeOverlapCollaboratorAndRetryPeriod(err);
+            }
+          });
         },
       });
+  }
+
+  /** Remove o colaborador em conflito deste acesso e tenta ajustar o período de novo. */
+  private removeOverlapCollaboratorAndRetryPeriod(err: unknown): void {
+    const details = this.notification.getServiceOverlapDetails(err);
+    const idCollaborator = Number(details?.id_collaborator);
+    if (!Number.isFinite(idCollaborator) || idCollaborator <= 0) {
+      this.notification.error('Não foi possível identificar o colaborador para remover.');
+      return;
+    }
+
+    const link = this.draftCollaborators().find((c) => c.id_collaborator === idCollaborator);
+    const name = details?.collaborator_name || link?.collaborator_name || 'Colaborador';
+
+    const remainingCollab = this.draftCollaborators()
+      .filter((c) => c.id_collaborator !== idCollaborator)
+      .map((c) => ({
+        id_collaborator: c.id_collaborator,
+        id_collaborator_role: c.id_collaborator_role,
+      }));
+    const vehicles = this.draftVehicles().map((v) => ({ id_vehicle: v.id_vehicle }));
+
+    this.periodSaving.set(true);
+    this.patrimonialService.syncRelations(this.serviceId, {
+      collaborators: remainingCollab,
+      vehicles,
+    }).subscribe({
+      next: (res) => {
+        this.service.set(res.service);
+        this.syncDraftFromService(res.service);
+        this.notification.success(`${name} removido deste acesso.`);
+        this.salvarPeriodo();
+      },
+      error: (syncErr) => {
+        this.periodSaving.set(false);
+        this.notification.notifyHttpError(syncErr, 'Falha ao remover colaborador.');
+      },
+    });
+  }
+
+  private removeOverlapCollaboratorFromDraft(err: unknown): void {
+    const details = this.notification.getServiceOverlapDetails(err);
+    const idCollaborator = Number(details?.id_collaborator);
+    if (!Number.isFinite(idCollaborator) || idCollaborator <= 0) return;
+    const before = this.draftCollaborators().length;
+    this.draftCollaborators.update((list) =>
+      list.filter((c) => c.id_collaborator !== idCollaborator),
+    );
+    if (this.draftCollaborators().length < before) {
+      this.markRelationsDirty();
+      const name = details?.collaborator_name || 'Colaborador';
+      this.notification.success(
+        `${name} removido da lista. Clique em Salvar para confirmar.`,
+      );
+    }
   }
 
   carregarSetores() {

@@ -54,7 +54,10 @@ const manualReleaseSchema = Joi.object({
     "string.empty": "Informe o nome do evento.",
     "any.required": "Informe o nome do evento.",
   }),
-  observacao: Joi.string().trim().max(500).allow("", null).optional(),
+  observacao: Joi.string().trim().max(500).required().messages({
+    "string.empty": "Informe a descrição do serviço.",
+    "any.required": "Informe a descrição do serviço.",
+  }),
   /** IDs de colaboradores já cadastrados (função vem do cadastro de cada um). */
   id_collaborators: Joi.array()
     .items(Joi.number().integer().positive())

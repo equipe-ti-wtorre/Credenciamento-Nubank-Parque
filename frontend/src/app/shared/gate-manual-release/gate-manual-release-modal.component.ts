@@ -169,6 +169,10 @@ export class GateManualReleaseModalComponent implements OnChanges {
       this.notify.error('Informe o nome do evento.');
       return;
     }
+    if (!this.observacao.trim()) {
+      this.notify.error('Informe a descrição do serviço.');
+      return;
+    }
     this.step.set('colaborador');
   }
 
@@ -303,7 +307,7 @@ export class GateManualReleaseModalComponent implements OnChanges {
       id_company: this.idCompany,
       id_setor: this.idSetor,
       finalidade: this.finalidade.trim(),
-      observacao: this.observacao.trim() || null,
+      observacao: this.observacao.trim(),
     };
 
     const ids = this.selected().map((c) => c.id_collaborator);
@@ -335,7 +339,7 @@ export class GateManualReleaseModalComponent implements OnChanges {
       },
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);
-        this.notify.error(err.error?.message || 'Não foi possível enviar a solicitação.');
+        this.notify.error(err.error?.message || 'Não foi possível enviar a solicitação.', undefined, err);
         this.cdr.markForCheck();
       },
     });

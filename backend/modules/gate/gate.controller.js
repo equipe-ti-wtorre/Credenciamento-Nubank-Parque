@@ -351,7 +351,7 @@ exports.cancelPendingServiceApproval = async (req, res, next) => {
       },
     });
     res.json({
-      message: "Solicitação cancelada.",
+      message: "Solicitação reprovada.",
       ...result,
     });
   } catch (err) {

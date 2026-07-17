@@ -60,7 +60,7 @@
         />
       </div>
       <div>
-        <label class="form-label" for="gmr-obs">Descrição do serviço</label>
+        <label class="form-label" for="gmr-obs">Descrição do serviço <span class="req">*</span></label>
         <textarea
           id="gmr-obs"
           class="form-field mt-1"
@@ -68,6 +68,7 @@
           [(ngModel)]="observacao"
           name="gmrObs"
           maxlength="500"
+          required
         ></textarea>
       </div>
     </div>

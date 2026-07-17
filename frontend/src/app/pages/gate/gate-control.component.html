@@ -90,18 +90,6 @@
     </div>
 
     <div class="status-tabs-row">
-      <button
-        *ngIf="gateMode() === 'patrimonial'"
-        type="button"
-        class="btn-manual-release"
-        (click)="openManualRelease()"
-        data-gate-manual-release
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-        Liberação manual
-      </button>
       <div class="status-tabs">
         <button
           type="button"
@@ -136,6 +124,18 @@
           <span class="dot done"></span>Concluídos <span class="cnt">{{ stats().done }}</span>
         </button>
       </div>
+      <button
+        *ngIf="gateMode() === 'patrimonial'"
+        type="button"
+        class="btn-manual-release"
+        (click)="openManualRelease()"
+        data-gate-manual-release
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        Liberação manual
+      </button>
     </div>
 
     <div class="toolbar">
@@ -368,6 +368,7 @@
         [class.state-in]="row.next_action === 'CHECK_OUT'"
         [class.state-done]="row.next_action === 'COMPLETED'"
         [class.state-pending]="row.next_action === 'PENDING_APPROVAL'"
+        [class.state-rejected]="row.next_action === 'REJECTED'"
       >
         <div class="c-type">
           <span
@@ -459,33 +460,51 @@
           </div>
         </div>
         <div class="c-aprovador">
-          <div *ngIf="row.approved_by as approver; else noApprover" class="approver">
-            <img
-              *ngIf="approverPhotoUrl(approver.id) as photo"
-              [src]="photo"
-              [alt]="approver.name"
-              class="approver-avatar approver-avatar--photo"
-            />
-            <span
-              *ngIf="!approverPhotoUrl(approver.id)"
-              class="approver-avatar"
-              aria-hidden="true"
-              >{{ approver.initials }}</span
-            >
-            <div class="approver-text">
-              <div class="approver-name">{{ approver.name }}</div>
-              <div class="approver-meta">
-                <ng-container *ngIf="approver.sector">{{ approver.sector }} · </ng-container
-                >{{ formatShortDateTime(approver.decided_at) }}
+          <ng-container *ngIf="row.next_action === 'REJECTED'; else approvedBlock">
+            <div *ngIf="row.rejected_by as rejector; else noRejector" class="approver">
+              <span class="approver-avatar" aria-hidden="true">{{ rejector.initials }}</span>
+              <div class="approver-text">
+                <div class="approver-name">{{ rejector.name }}</div>
+                <div class="approver-meta">
+                  <ng-container *ngIf="rejector.sector">{{ rejector.sector }} · </ng-container
+                  >{{ formatShortDateTime(rejector.decided_at) }}
+                </div>
               </div>
             </div>
-          </div>
-          <ng-template #noApprover><span class="approver-empty">—</span></ng-template>
+            <ng-template #noRejector><span class="approver-empty">—</span></ng-template>
+          </ng-container>
+          <ng-template #approvedBlock>
+            <div *ngIf="row.approved_by as approver; else noApprover" class="approver">
+              <img
+                *ngIf="approverPhotoUrl(approver.id) as photo"
+                [src]="photo"
+                [alt]="approver.name"
+                class="approver-avatar approver-avatar--photo"
+              />
+              <span
+                *ngIf="!approverPhotoUrl(approver.id)"
+                class="approver-avatar"
+                aria-hidden="true"
+                >{{ approver.initials }}</span
+              >
+              <div class="approver-text">
+                <div class="approver-name">{{ approver.name }}</div>
+                <div class="approver-meta">
+                  <ng-container *ngIf="approver.sector">{{ approver.sector }} · </ng-container
+                  >{{ formatShortDateTime(approver.decided_at) }}
+                </div>
+              </div>
+            </div>
+            <ng-template #noApprover><span class="approver-empty">—</span></ng-template>
+          </ng-template>
         </div>
         <div class="c-entrada">
           <ng-container [ngSwitch]="row.next_action">
             <span *ngSwitchCase="'PENDING_APPROVAL'" class="status-pill pending"
               ><span class="d"></span>Liberação pendente</span
+            >
+            <span *ngSwitchCase="'REJECTED'" class="status-pill rejected"
+              ><span class="d"></span>Reprovado</span
             >
             <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
             <div *ngSwitchCase="'CHECK_OUT'">
@@ -519,8 +538,8 @@
               class="btn-act-icon cancel"
               [disabled]="processing() || isNotifying(row) || isCancelling(row)"
               (click)="onCancelPending(row)"
-              title="Cancelar solicitação"
-              aria-label="Cancelar solicitação"
+              title="Reprovar solicitação"
+              aria-label="Reprovar solicitação"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 6h18" />
@@ -530,7 +549,9 @@
               </svg>
             </button>
           </ng-container>
-          <ng-container *ngIf="row.next_action !== 'PENDING_APPROVAL'">
+          <ng-container
+            *ngIf="row.next_action !== 'PENDING_APPROVAL' && row.next_action !== 'REJECTED'"
+          >
             <button
               *ngIf="row.next_action === 'CHECK_IN'"
               type="button"

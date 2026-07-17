@@ -37,7 +37,12 @@ export interface GateValidateDenied {
 
 export type GateValidateResponse = GateValidateSuccess | GateValidateDenied;
 
-export type GateNextAction = 'CHECK_IN' | 'CHECK_OUT' | 'COMPLETED' | 'PENDING_APPROVAL';
+export type GateNextAction =
+  | 'CHECK_IN'
+  | 'CHECK_OUT'
+  | 'COMPLETED'
+  | 'PENDING_APPROVAL'
+  | 'REJECTED';
 
 export interface GateTodayCredential {
   id: number;
@@ -200,7 +205,7 @@ export interface GateManualReleasePayload {
   id_company: number;
   id_setor: number;
   finalidade: string;
-  observacao?: string | null;
+  observacao: string;
   id_collaborators?: number[];
   collaborators?: {
     id_collaborator_document_type: number;
@@ -265,6 +270,7 @@ export interface GateTodayService {
   end_date: string | null;
   week_days: GateWeekDay[];
   approved_by: GateApprovedBy | null;
+  rejected_by?: GateApprovedBy | null;
   id_service_access?: number;
   id_aprovacao?: number | null;
   id_setor?: number | null;

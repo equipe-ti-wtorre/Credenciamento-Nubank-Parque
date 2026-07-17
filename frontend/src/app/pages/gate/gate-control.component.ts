@@ -167,28 +167,65 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const q = this.manualSearch().trim().toLowerCase();
     const status = this.statusFilter();
     const type = this.typeFilter();
-    return this.todayServices().filter((row) => {
-      if (type === 'veiculo' && row.kind !== 'vehicle') return false;
-      if (type === 'colaborador' && row.kind !== 'collaborator') return false;
-      if (
-        status === 'wait' &&
-        row.next_action !== 'CHECK_IN' &&
-        row.next_action !== 'PENDING_APPROVAL'
-      ) {
-        return false;
-      }
-      if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
-      if (status === 'done' && row.next_action !== 'COMPLETED') return false;
-      if (q) {
-        const parts = [row.company.name, row.finalidade, row.kind];
-        if (row.vehicle) parts.push(row.vehicle.plate);
-        if (row.collaborator) {
-          parts.push(row.collaborator.name, row.collaborator.document_masked, row.collaborator.role);
+    const rank: Record<string, number> = {
+      CHECK_IN: 0,
+      PENDING_APPROVAL: 1,
+      CHECK_OUT: 2,
+      COMPLETED: 3,
+      REJECTED: 4,
+    };
+    const entryTs = (row: GateTodayService): number => {
+      const raw =
+        row.check_in ||
+        row.approved_by?.decided_at ||
+        row.rejected_by?.decided_at ||
+        null;
+      if (!raw) return 0;
+      const ms = new Date(raw).getTime();
+      return Number.isFinite(ms) ? ms : 0;
+    };
+    return this.todayServices()
+      .filter((row) => {
+        if (type === 'veiculo' && row.kind !== 'vehicle') return false;
+        if (type === 'colaborador' && row.kind !== 'collaborator') return false;
+        if (
+          status === 'wait' &&
+          row.next_action !== 'CHECK_IN' &&
+          row.next_action !== 'PENDING_APPROVAL'
+        ) {
+          return false;
         }
-        if (!parts.join(' ').toLowerCase().includes(q)) return false;
-      }
-      return true;
-    });
+        if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
+        if (status === 'done' && row.next_action !== 'COMPLETED') return false;
+        if (q) {
+          const parts = [row.company.name, row.finalidade, row.kind];
+          if (row.vehicle) parts.push(row.vehicle.plate);
+          if (row.collaborator) {
+            parts.push(
+              row.collaborator.name,
+              row.collaborator.document_masked,
+              row.collaborator.role,
+            );
+          }
+          if (!parts.join(' ').toLowerCase().includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const ra = rank[a.next_action] ?? 9;
+        const rb = rank[b.next_action] ?? 9;
+        if (ra !== rb) return ra - rb;
+        const ta = entryTs(a);
+        const tb = entryTs(b);
+        if (ta !== tb) return tb - ta;
+        const na = String(
+          a.collaborator?.name || a.vehicle?.plate || a.finalidade || '',
+        ).toLocaleLowerCase('pt-BR');
+        const nb = String(
+          b.collaborator?.name || b.vehicle?.plate || b.finalidade || '',
+        ).toLocaleLowerCase('pt-BR');
+        return na.localeCompare(nb, 'pt-BR');
+      });
   });
 
   showReleaseModal = signal(false);
@@ -710,7 +747,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     if (!id || this.processing() || this.isNotifying(row) || this.isCancelling(row)) return;
     const label =
       row.collaborator?.name || row.vehicle?.plate || row.finalidade || 'esta solicitação';
-    if (!window.confirm(`Cancelar a liberação de ${label}?`)) return;
+    if (!window.confirm(`Reprovar a liberação de ${label}?`)) return;
 
     this.cancellingIds.update((m) => ({ ...m, [id]: true }));
     this.gateService.cancelServiceApproval(id).subscribe({
@@ -720,9 +757,20 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
           delete next[id];
           return next;
         });
-        this.notify.success(res.message || 'Solicitação cancelada.');
+        this.notify.success(res.message || 'Solicitação reprovada.');
         this.todayServices.update((list) =>
-          list.filter((r) => r.id_service_access !== id),
+          list.map((r) =>
+            r.id_service_access === id
+              ? {
+                  ...r,
+                  next_action: 'REJECTED' as const,
+                  id_aprovacao: null,
+                  id_setor: null,
+                  setor_nome: null,
+                  approved_by: null,
+                }
+              : r,
+          ),
         );
         this.cdr.markForCheck();
       },

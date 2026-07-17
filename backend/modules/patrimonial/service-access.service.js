@@ -563,9 +563,8 @@ async function updateServiceAccessPeriod(req, id, data) {
   const datesChanged =
     !datesEqual(startDate, existing.start_date) || !datesEqual(endDate, existing.end_date);
 
-  if (datesChanged) {
-    await assertCollaboratorsNoDateOverlap(id, startDate, endDate);
-  }
+  // Sempre valida conflito de colaboradores no novo período antes de reabrir aprovação.
+  await assertCollaboratorsNoDateOverlap(id, startDate, endDate);
 
   const serviceRow = await getServiceAccessRow(id);
   const conn = await db.getConnection();
@@ -956,7 +955,7 @@ async function assertCollaboratorForService(serviceRow, collaborator) {
 
 /**
  * Bloqueia o mesmo colaborador em outro acesso de serviço com datas sobrepostas
- * (status ativo e não negado). Espelha assertNoDuplicateOnEventDay de credenciais.
+ * (status ativo e não negado). Rascunhos com vínculo também contam.
  */
 async function findOverlappingServiceCollaborator(
   idCollaborator,
@@ -968,8 +967,8 @@ async function findOverlappingServiceCollaborator(
   const end = formatDateField(endDate);
   if (!idCollaborator || !start || !end) return null;
 
-  // Negados e rascunhos do wizard (não enviados) não contam como conflito.
-  const params = [idCollaborator, STATUS_NEGADO, STATUS_AGUARDANDO_PRODUTORA, end, start];
+  // Negados não contam como conflito.
+  const params = [idCollaborator, idCollaborator, STATUS_NEGADO, end, start];
   let excludeSql = "";
   if (excludeServiceAccessId != null) {
     excludeSql = " AND sa.id_service_access <> ?";
@@ -985,9 +984,8 @@ async function findOverlappingServiceCollaborator(
        FROM service_access_collaborator sac
        INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
        INNER JOIN company c ON c.id_company = sa.id_company
-      WHERE sac.id_collaborator = ?
+      WHERE (sac.id_collaborator = ? OR sac.id_substitute = ?)
         AND sa.status = 1
-        AND sa.id_access_status <> ?
         AND sa.id_access_status <> ?
         AND sa.start_date <= ?
         AND sa.end_date >= ?
@@ -1003,6 +1001,7 @@ async function assertNoOverlappingServiceCollaborator(
   startDate,
   endDate,
   excludeServiceAccessId,
+  collaboratorName = null,
 ) {
   const conflict = await findOverlappingServiceCollaborator(
     idCollaborator,
@@ -1012,14 +1011,33 @@ async function assertNoOverlappingServiceCollaborator(
   );
   if (!conflict) return;
 
+  let name = collaboratorName && String(collaboratorName).trim();
+  if (!name) {
+    const [nameRows] = await db.execute(
+      `SELECT name FROM collaborator WHERE id_collaborator = ? LIMIT 1`,
+      [idCollaborator],
+    );
+    name = nameRows[0]?.name || "Colaborador";
+  }
+
   const label = [conflict.company_fancy_name, conflict.finalidade]
     .filter(Boolean)
     .join(" — ");
   throw new AppError(
-    `Colaborador já está cadastrado em outro acesso de serviço com data sobreposta${
+    `${name} já está cadastrado em outro acesso de serviço com data sobreposta${
       label ? ` (${label})` : ""
     }.`,
     409,
+    true,
+    {
+      collaborator_name: name,
+      id_collaborator: Number(idCollaborator),
+      conflict_label: label || null,
+      conflict_id_service_access: Number(conflict.id_service_access),
+      conflict_start_date: formatDateField(conflict.start_date),
+      conflict_end_date: formatDateField(conflict.end_date),
+    },
+    "SERVICE_COLLABORATOR_DATE_OVERLAP",
   );
 }
 
@@ -1031,6 +1049,7 @@ async function assertCollaboratorsNoDateOverlap(idServiceAccess, startDate, endD
       startDate,
       endDate,
       idServiceAccess,
+      c.collaborator_name,
     );
   }
 }
@@ -2504,15 +2523,6 @@ async function syncServiceAccessRelations(req, id, data) {
     (v) => !currentVeh.some((x) => Number(x.id_vehicle) === Number(v.id_vehicle)),
   );
 
-  for (const c of toAddCollab) {
-    await assertNoOverlappingServiceCollaborator(
-      c.id_collaborator,
-      serviceRow.start_date,
-      serviceRow.end_date,
-      id,
-    );
-  }
-
   const relationsChanged =
     toRemoveCollab.length > 0 ||
     toAddCollab.length > 0 ||
@@ -2523,6 +2533,17 @@ async function syncServiceAccessRelations(req, id, data) {
   const submitForApproval = data.notify_approvers === true;
   const idSetor =
     data.id_setor != null ? Number(data.id_setor) : serviceRow.id_setor || null;
+
+  // Inclusões novas sempre; no envio à aprovação, revalida a lista inteira.
+  const collabsToValidate = submitForApproval ? desiredCollab : toAddCollab;
+  for (const c of collabsToValidate) {
+    await assertNoOverlappingServiceCollaborator(
+      c.id_collaborator,
+      serviceRow.start_date,
+      serviceRow.end_date,
+      id,
+    );
+  }
 
   if (!relationsChanged && !submitForApproval) {
     const detail = await getServiceAccessById(req, id);
