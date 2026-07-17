@@ -15,4 +15,22 @@ router.get("/services/today", ...canView, gateController.listTodayServices);
 router.post("/services/validate", ...canCreate, gateController.validateService);
 router.post("/services/substitute", ...canEdit, gateController.substituteService);
 
+router.get("/manual-release/meta", ...canView, gateController.manualReleaseMeta);
+router.get(
+  "/manual-release/collaborators/search",
+  ...canView,
+  gateController.manualReleaseSearchCollaborator,
+);
+router.post("/services/manual-release", ...canCreate, gateController.createManualRelease);
+router.post(
+  "/services/:id/notify-approval",
+  ...canCreate,
+  gateController.notifyPendingServiceApproval,
+);
+router.post(
+  "/services/:id/cancel-approval",
+  ...canCreate,
+  gateController.cancelPendingServiceApproval,
+);
+
 module.exports = router;

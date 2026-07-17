@@ -1,10 +1,15 @@
 import { Injectable } from '@angular/core';
+import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
 export interface GateCollaboratorInfo {
+  id_collaborator?: number;
   name: string;
+  /** Documento completo (para conferência na liberação). */
+  document?: string | null;
   document_masked: string;
+  document_type?: string | null;
   role: string;
   picture?: string | null;
 }
@@ -32,7 +37,7 @@ export interface GateValidateDenied {
 
 export type GateValidateResponse = GateValidateSuccess | GateValidateDenied;
 
-export type GateNextAction = 'CHECK_IN' | 'CHECK_OUT' | 'COMPLETED';
+export type GateNextAction = 'CHECK_IN' | 'CHECK_OUT' | 'COMPLETED' | 'PENDING_APPROVAL';
 
 export interface GateTodayCredential {
   id: number;
@@ -97,6 +102,152 @@ export class GateService {
   }): Observable<unknown> {
     return this.api.post('/gate/services/substitute', payload);
   }
+
+  getManualReleaseMeta(): Observable<GateManualReleaseMeta> {
+    return this.api.get<GateManualReleaseMeta>('/gate/manual-release/meta');
+  }
+
+  searchManualReleaseCollaborator(
+    document: string,
+    id_collaborator_document_type: number,
+  ): Observable<{ found: boolean; collaborator: GateManualReleaseCollaborator }> {
+    const params = new HttpParams()
+      .set('document', document)
+      .set('id_collaborator_document_type', String(id_collaborator_document_type));
+    return this.api.get<{ found: boolean; collaborator: GateManualReleaseCollaborator }>(
+      '/gate/manual-release/collaborators/search',
+      params,
+    );
+  }
+
+  /** Typeahead: busca por nome ou documento, retorna lista. */
+  searchManualReleaseCollaborators(
+    q: string,
+  ): Observable<{ results: GateManualReleaseCollaborator[] }> {
+    const params = new HttpParams().set('q', q);
+    return this.api.get<{ results: GateManualReleaseCollaborator[] }>(
+      '/gate/manual-release/collaborators/search',
+      params,
+    );
+  }
+
+  createManualRelease(
+    payload: GateManualReleasePayload,
+  ): Observable<{ release: GateManualReleaseResult }> {
+    return this.api.post<{ release: GateManualReleaseResult }>(
+      '/gate/services/manual-release',
+      payload,
+    );
+  }
+
+  notifyServiceApproval(
+    idServiceAccess: number,
+  ): Observable<{
+    message: string;
+    id_service_access: number;
+    id_aprovacao: number;
+    id_setor: number;
+    setor_nome: string;
+    notified: number;
+  }> {
+    return this.api.post(`/gate/services/${idServiceAccess}/notify-approval`, {});
+  }
+
+  cancelServiceApproval(
+    idServiceAccess: number,
+  ): Observable<{
+    message: string;
+    id_service_access: number;
+    id_aprovacao: number;
+    id_setor: number;
+    setor_nome: string | null;
+  }> {
+    return this.api.post(`/gate/services/${idServiceAccess}/cancel-approval`, {});
+  }
+}
+
+export interface GateManualReleaseSector {
+  id: number;
+  nome: string;
+}
+
+export interface GateManualReleaseCompany {
+  id_company: number;
+  fancy_name: string;
+  company_name: string;
+}
+
+export interface GateManualReleaseMeta {
+  sectors: GateManualReleaseSector[];
+  companies: GateManualReleaseCompany[];
+  document_types: { id_collaborator_document_type: number; description: string }[];
+  roles: { id_collaborator_role: number; description: string }[];
+}
+
+export interface GateManualReleaseCollaborator {
+  id_collaborator: number;
+  name: string;
+  document: string;
+  id_collaborator_document_type?: number;
+  id_collaborator_role?: number;
+  is_blacklisted: boolean;
+  status?: boolean;
+  document_type?: { id_collaborator_document_type: number; description: string } | null;
+  role?: { id_collaborator_role: number; description: string } | null;
+}
+
+export interface GateManualReleasePayload {
+  id_company: number;
+  id_setor: number;
+  finalidade: string;
+  observacao?: string | null;
+  id_collaborators?: number[];
+  collaborators?: {
+    id_collaborator_document_type: number;
+    id_collaborator_role: number;
+    document: string;
+    name: string;
+    rg?: string | null;
+    phone?: string | null;
+  }[];
+}
+
+export interface GateManualReleaseResult {
+  id_service_access: number;
+  id_aprovacao: number;
+  id_setor: number;
+  setor_nome: string;
+  finalidade: string;
+  company: { id_company: number; fancy_name: string };
+  collaborator: {
+    id_collaborator: number;
+    name: string;
+    document: string;
+    role_description: string;
+  };
+  collaborators?: {
+    id_collaborator: number;
+    name: string;
+    document: string;
+    role_description: string | null;
+  }[];
+}
+
+export type GateWeekDayStatus = 'accessed' | 'missed' | 'waiting' | 'none';
+
+export interface GateWeekDay {
+  date: string;
+  weekday: string;
+  status: GateWeekDayStatus;
+  is_today: boolean;
+}
+
+export interface GateApprovedBy {
+  id?: number;
+  name: string;
+  initials: string;
+  sector: string | null;
+  decided_at: string | null;
 }
 
 export interface GateTodayService {
@@ -104,12 +255,20 @@ export interface GateTodayService {
   id: number;
   access_id: string;
   vehicle?: { plate: string; description?: string };
-  collaborator?: { name: string; document_masked: string; role: string; picture?: string | null };
+  collaborator?: GateCollaboratorInfo;
   company: { name: string };
   finalidade: string;
   check_in: string | null;
   check_out: string | null;
   next_action: GateNextAction;
+  start_date: string | null;
+  end_date: string | null;
+  week_days: GateWeekDay[];
+  approved_by: GateApprovedBy | null;
+  id_service_access?: number;
+  id_aprovacao?: number | null;
+  id_setor?: number | null;
+  setor_nome?: string | null;
 }
 
 export interface GateServiceValidateResponse {

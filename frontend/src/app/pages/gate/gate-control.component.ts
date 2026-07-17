@@ -22,12 +22,22 @@ import {
   GateService,
   GateTodayCredential,
   GateTodayService,
+  GateWeekDay,
   GateServiceValidateResponse,
   GateValidateResponse,
   GateValidateSuccess,
+  GateManualReleaseResult,
 } from '../../services/gate.service';
 import { NotificationService } from '../../core/services/notification.service';
+import { AuthService } from '../../core/services/auth.service';
+import { MicrosoftProfileService } from '../../core/services/microsoft-profile.service';
 import { ModalComponent } from '../../shared/modal/modal.component';
+import {
+  GateReleaseModalComponent,
+  GateReleaseResult,
+  GateReleaseTarget,
+} from '../../shared/gate-release/gate-release-modal.component';
+import { GateManualReleaseModalComponent } from '../../shared/gate-manual-release/gate-manual-release-modal.component';
 
 interface GateSubstituteTarget {
   access_id: string;
@@ -54,16 +64,25 @@ interface GateStats {
 @Component({
   selector: 'app-gate-control',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModalComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ModalComponent,
+    GateReleaseModalComponent,
+    GateManualReleaseModalComponent,
+  ],
   templateUrl: './gate-control.component.html',
   styleUrl: './gate-control.component.scss',
 })
 export class GateControlComponent implements AfterViewInit, OnDestroy {
   @ViewChild('scanInput') scanInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('gateRoot') gateRoot?: ElementRef<HTMLElement>;
 
   private gateService = inject(GateService);
   private collaboratorService = inject(CollaboratorService);
+  private microsoftProfile = inject(MicrosoftProfileService);
   private notify = inject(NotificationService);
+  private authService = inject(AuthService);
   private cdr = inject(ChangeDetectorRef);
 
   scanValue = '';
@@ -77,6 +96,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   denyReason = signal('');
   denyCode = signal('');
   refreshSpin = signal(false);
+  fullscreenMode = signal(false);
 
   /** Tick for relative-time labels ("há X min") — bumped every 30s when someone is inside. */
   private relTick = signal(0);
@@ -86,9 +106,11 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   todayServices = signal<GateTodayService[]>([]);
   todayLoading = signal(false);
   thumbnailUrls = signal<Record<string, string>>({});
+  approverPhotoUrls = signal<Record<number, string>>({});
   successPhotoUrl = signal<string | null>(null);
 
   private thumbnailLoadId = 0;
+  private approverPhotoLoadId = 0;
 
   stats = computed((): GateStats => {
     this.relTick();
@@ -96,7 +118,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       const list = this.todayServices();
       return {
         total: list.length,
-        wait: list.filter((r) => r.next_action === 'CHECK_IN').length,
+        wait: list.filter(
+          (r) => r.next_action === 'CHECK_IN' || r.next_action === 'PENDING_APPROVAL',
+        ).length,
         in: list.filter((r) => r.next_action === 'CHECK_OUT').length,
         done: list.filter((r) => r.next_action === 'COMPLETED').length,
         veiculo: list.filter((r) => r.kind === 'vehicle').length,
@@ -146,7 +170,13 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     return this.todayServices().filter((row) => {
       if (type === 'veiculo' && row.kind !== 'vehicle') return false;
       if (type === 'colaborador' && row.kind !== 'collaborator') return false;
-      if (status === 'wait' && row.next_action !== 'CHECK_IN') return false;
+      if (
+        status === 'wait' &&
+        row.next_action !== 'CHECK_IN' &&
+        row.next_action !== 'PENDING_APPROVAL'
+      ) {
+        return false;
+      }
       if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
       if (status === 'done' && row.next_action !== 'COMPLETED') return false;
       if (q) {
@@ -161,6 +191,12 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     });
   });
 
+  showReleaseModal = signal(false);
+  releaseTarget = signal<GateReleaseTarget | null>(null);
+  operatorName = signal('');
+
+  showManualReleaseModal = signal(false);
+
   showSubstituteModal = signal(false);
   substituteTarget = signal<GateSubstituteTarget | null>(null);
   documentTypes = signal<CollaboratorDocumentType[]>([]);
@@ -172,14 +208,25 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
 
   private feedbackTimer: ReturnType<typeof setTimeout> | null = null;
   private relTimer: ReturnType<typeof setInterval> | null = null;
+  private listRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private refreshSpinTimer: ReturnType<typeof setTimeout> | null = null;
   private denyAudio: HTMLAudioElement | null = null;
   private skipNextFocusRestore = false;
+  private readonly onFullscreenChange = (): void => {
+    if (!document.fullscreenElement && this.fullscreenMode()) {
+      this.exitFullscreenMode(false);
+    }
+  };
 
   ngAfterViewInit(): void {
     this.loadDocumentTypes();
     this.loadTodayList();
     this.focusScanInput();
+    void this.authService.getCurrentUser().then((user) => {
+      this.operatorName.set(user?.nome_completo || '');
+      this.cdr.markForCheck();
+    });
+    document.addEventListener('fullscreenchange', this.onFullscreenChange);
     this.relTimer = setInterval(() => {
       const hasInside =
         this.todayCredentials().some((r) => r.next_action === 'CHECK_OUT') ||
@@ -189,19 +236,28 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         this.cdr.markForCheck();
       }
     }, 30_000);
+    this.listRefreshTimer = setInterval(() => {
+      if (!this.processing()) {
+        this.loadTodayList();
+      }
+    }, 60_000);
   }
 
   ngOnDestroy(): void {
     if (this.feedbackTimer) clearTimeout(this.feedbackTimer);
     if (this.relTimer) clearInterval(this.relTimer);
+    if (this.listRefreshTimer) clearInterval(this.listRefreshTimer);
     if (this.refreshSpinTimer) clearTimeout(this.refreshSpinTimer);
+    document.removeEventListener('fullscreenchange', this.onFullscreenChange);
+    this.exitFullscreenMode(true);
     this.revokeThumbnails();
+    this.revokeApproverPhotos();
     this.clearSuccessPhoto();
   }
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
-    if (this.showSubstituteModal()) return;
+    if (this.showSubstituteModal() || this.showReleaseModal() || this.showManualReleaseModal()) return;
     const target = event.target as HTMLElement | null;
     if (!target) return;
     if (target.closest('[data-gate-manual]') || target.closest('[data-gate-substitute-modal]')) {
@@ -228,8 +284,81 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.loadTodayList();
   }
 
+  toggleFullscreen(): void {
+    if (this.fullscreenMode()) {
+      this.exitFullscreenMode(true);
+    } else {
+      this.enterFullscreenMode();
+    }
+  }
+
+  private enterFullscreenMode(): void {
+    this.fullscreenMode.set(true);
+    document.body.classList.add('gate-kiosk');
+    const el = this.gateRoot?.nativeElement;
+    if (el?.requestFullscreen) {
+      void el.requestFullscreen().catch(() => {
+        /* CSS kiosk fallback when Fullscreen API is blocked */
+      });
+    }
+    this.cdr.markForCheck();
+  }
+
+  private exitFullscreenMode(exitNative: boolean): void {
+    this.fullscreenMode.set(false);
+    document.body.classList.remove('gate-kiosk');
+    if (exitNative && document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  }
+
   actionLabel(action: 'CHECK_IN' | 'CHECK_OUT'): string {
     return action === 'CHECK_IN' ? 'Entrada' : 'Saída';
+  }
+
+  isSingleDay(row: GateTodayService): boolean {
+    return !!row.start_date && row.start_date === row.end_date;
+  }
+
+  /** Ex.: "Sex, 18/07" para o pill de dia único. */
+  formatDayPill(date: string | null): string {
+    if (!date) return '';
+    const d = new Date(`${date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return date;
+    const weekday = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+    const dayMonth = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}, ${dayMonth}`;
+  }
+
+  dayTitle(day: GateWeekDay): string {
+    const labels: Record<GateWeekDay['status'], string> = {
+      accessed: 'Acessou',
+      missed: 'Não acessou',
+      waiting: 'Aguardando',
+      none: 'Sem acesso no dia',
+    };
+    const d = new Date(`${day.date}T00:00:00`);
+    const dateLabel = Number.isNaN(d.getTime())
+      ? day.date
+      : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    return `${dateLabel} · ${labels[day.status]}${day.is_today ? ' (hoje)' : ''}`;
+  }
+
+  /** Ex.: "14/07 16:22" para a data da aprovação. */
+  formatShortDateTime(value: string | null): string {
+    const d = this.parseGateDate(value);
+    if (!d) return '';
+    const date = d.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      timeZone: GATE_DISPLAY_TIMEZONE,
+    });
+    const time = d.toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: GATE_DISPLAY_TIMEZONE,
+    });
+    return `${date} ${time}`;
   }
 
   private parseGateDate(value: string | null): Date | null {
@@ -289,6 +418,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
           this.todayServices.set(res.services);
           this.todayLoading.set(false);
           this.loadThumbnailsFromServices(res.services);
+          void this.loadApproverPhotos(res.services);
           this.cdr.markForCheck();
         },
         error: (err: HttpErrorResponse) => {
@@ -299,6 +429,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       });
       return;
     }
+    this.revokeApproverPhotos();
     this.gateService.listToday().subscribe({
       next: (res) => {
         this.todayCredentials.set(res.credentials);
@@ -316,6 +447,11 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
 
   pictureUrl(accessId: string): string | null {
     return this.thumbnailUrls()[accessId] ?? null;
+  }
+
+  approverPhotoUrl(userId: number | undefined | null): string | null {
+    if (userId == null) return null;
+    return this.approverPhotoUrls()[userId] ?? null;
   }
 
   initials(name: string): string {
@@ -370,11 +506,42 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  private async loadApproverPhotos(list: GateTodayService[]): Promise<void> {
+    this.revokeApproverPhotos();
+    const loadId = ++this.approverPhotoLoadId;
+    const ids = [
+      ...new Set(
+        list
+          .map((row) => row.approved_by?.id)
+          .filter((id): id is number => typeof id === 'number' && id > 0),
+      ),
+    ];
+    await Promise.all(
+      ids.map(async (id) => {
+        const url = await this.microsoftProfile.fetchUserPhotoObjectUrl(id);
+        if (!url) return;
+        if (loadId !== this.approverPhotoLoadId) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        this.approverPhotoUrls.update((map) => ({ ...map, [id]: url }));
+        this.cdr.markForCheck();
+      }),
+    );
+  }
+
   private revokeThumbnails(): void {
     for (const url of Object.values(this.thumbnailUrls())) {
       URL.revokeObjectURL(url);
     }
     this.thumbnailUrls.set({});
+  }
+
+  private revokeApproverPhotos(): void {
+    for (const url of Object.values(this.approverPhotoUrls())) {
+      URL.revokeObjectURL(url);
+    }
+    this.approverPhotoUrls.set({});
   }
 
   private loadSuccessPhoto(picture: string | null | undefined): void {
@@ -406,16 +573,208 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   onManualValidate(row: GateTodayCredential): void {
     if (this.processing() || row.next_action === 'COMPLETED') return;
     this.skipNextFocusRestore = true;
+    if (row.next_action === 'CHECK_IN') {
+      this.openReleaseModal({
+        access_id: row.access_id,
+        collaborator: row.collaborator,
+        company_name: row.company.name,
+      });
+      return;
+    }
     this.processScan(row.access_id);
   }
 
   onManualValidateService(row: GateTodayService): void {
-    if (this.processing() || row.next_action === 'COMPLETED') return;
+    if (
+      this.processing() ||
+      row.next_action === 'COMPLETED' ||
+      row.next_action === 'PENDING_APPROVAL'
+    ) {
+      return;
+    }
     this.skipNextFocusRestore = true;
+    if (row.next_action === 'CHECK_IN' && row.kind === 'collaborator' && row.collaborator) {
+      this.openReleaseModal({
+        access_id: row.access_id,
+        collaborator: row.collaborator,
+        company_name: row.company.name,
+      });
+      return;
+    }
     this.processScan(row.access_id);
   }
 
+  private openReleaseModal(target: GateReleaseTarget): void {
+    this.releaseTarget.set(target);
+    this.showReleaseModal.set(true);
+  }
+
+  /**
+   * Scan de colaborador aguardando entrada abre o wizard de liberação;
+   * demais casos (saída, veículos, código fora da lista) validam direto.
+   */
+  private tryOpenReleaseFromScan(accessId: string): boolean {
+    if (this.showReleaseModal()) return false;
+    if (this.gateMode() === 'patrimonial') {
+      const row = this.todayServices().find((r) => r.access_id === accessId);
+      if (row && row.kind === 'collaborator' && row.collaborator && row.next_action === 'CHECK_IN') {
+        this.openReleaseModal({
+          access_id: row.access_id,
+          collaborator: row.collaborator,
+          company_name: row.company.name,
+        });
+        return true;
+      }
+      return false;
+    }
+    const row = this.todayCredentials().find((r) => r.access_id === accessId);
+    if (row && row.next_action === 'CHECK_IN') {
+      this.openReleaseModal({
+        access_id: row.access_id,
+        collaborator: row.collaborator,
+        company_name: row.company.name,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  onReleaseConfirm(result: GateReleaseResult): void {
+    this.showReleaseModal.set(false);
+    this.releaseTarget.set(null);
+    this.executeValidation(result.access_id);
+  }
+
+  onReleaseClose(): void {
+    this.showReleaseModal.set(false);
+    this.releaseTarget.set(null);
+    this.focusScanInput();
+  }
+
+  openManualRelease(): void {
+    this.showManualReleaseModal.set(true);
+  }
+
+  onManualReleaseClose(): void {
+    this.showManualReleaseModal.set(false);
+    this.focusScanInput();
+  }
+
+  onManualReleaseSubmitted(_result: GateManualReleaseResult): void {
+    this.showManualReleaseModal.set(false);
+    this.loadTodayList();
+    this.focusScanInput();
+  }
+
+  notifyingIds = signal<Record<number, boolean>>({});
+  cancellingIds = signal<Record<number, boolean>>({});
+
+  isNotifying(row: GateTodayService): boolean {
+    const id = row.id_service_access;
+    return id != null && !!this.notifyingIds()[id];
+  }
+
+  isCancelling(row: GateTodayService): boolean {
+    const id = row.id_service_access;
+    return id != null && !!this.cancellingIds()[id];
+  }
+
+  onNotifySector(row: GateTodayService): void {
+    const id = row.id_service_access;
+    if (!id || this.processing() || this.isNotifying(row) || this.isCancelling(row)) return;
+    this.notifyingIds.update((m) => ({ ...m, [id]: true }));
+    this.gateService.notifyServiceApproval(id).subscribe({
+      next: (res) => {
+        this.notifyingIds.update((m) => {
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+        this.notify.success(res.message || `Setor ${res.setor_nome} notificado.`);
+        this.cdr.markForCheck();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.notifyingIds.update((m) => {
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+        this.notify.error(err.error?.message || 'Não foi possível notificar o setor.');
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  onCancelPending(row: GateTodayService): void {
+    const id = row.id_service_access;
+    if (!id || this.processing() || this.isNotifying(row) || this.isCancelling(row)) return;
+    const label =
+      row.collaborator?.name || row.vehicle?.plate || row.finalidade || 'esta solicitação';
+    if (!window.confirm(`Cancelar a liberação de ${label}?`)) return;
+
+    this.cancellingIds.update((m) => ({ ...m, [id]: true }));
+    this.gateService.cancelServiceApproval(id).subscribe({
+      next: (res) => {
+        this.cancellingIds.update((m) => {
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+        this.notify.success(res.message || 'Solicitação cancelada.');
+        this.todayServices.update((list) =>
+          list.filter((r) => r.id_service_access !== id),
+        );
+        this.cdr.markForCheck();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.cancellingIds.update((m) => {
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+        this.notify.error(err.error?.message || 'Não foi possível cancelar a solicitação.');
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  onReleasePictureUpdated(evt: { access_id: string; picture: string }): void {
+    this.todayCredentials.update((list) =>
+      list.map((r) =>
+        r.access_id === evt.access_id
+          ? { ...r, collaborator: { ...r.collaborator, picture: evt.picture } }
+          : r,
+      ),
+    );
+    this.todayServices.update((list) =>
+      list.map((r) =>
+        r.access_id === evt.access_id && r.collaborator
+          ? { ...r, collaborator: { ...r.collaborator, picture: evt.picture } }
+          : r,
+      ),
+    );
+    this.collaboratorService.getPictureBlob(evt.picture).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const previous = this.thumbnailUrls()[evt.access_id];
+        if (previous) URL.revokeObjectURL(previous);
+        this.thumbnailUrls.update((map) => ({ ...map, [evt.access_id]: url }));
+        this.cdr.markForCheck();
+      },
+      error: () => undefined,
+    });
+  }
+
   private processScan(accessId: string): void {
+    if (this.processing()) return;
+    if (this.tryOpenReleaseFromScan(accessId)) {
+      this.scanValue = '';
+      return;
+    }
+    this.executeValidation(accessId);
+  }
+
+  private executeValidation(accessId: string): void {
     if (this.processing()) return;
     this.processing.set(true);
     if (this.gateMode() === 'patrimonial') {

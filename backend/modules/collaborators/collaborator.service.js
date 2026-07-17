@@ -374,6 +374,51 @@ async function searchByDocument(req, { document, id_collaborator_document_type }
   };
 }
 
+/** Typeahead por nome ou documento (formatado ou só dígitos). Retorna lista mascarada. */
+async function searchCollaboratorsByTerm(req, { q, limit = 8 }) {
+  assertCanSearchCollaborator(req);
+  const term = String(q || "").trim();
+  if (term.length < 2) return { results: [] };
+
+  const like = `%${term}%`;
+  const conditions = ["c.name LIKE ?", "c.document LIKE ?"];
+  const params = [like, like];
+
+  const digits = term.replace(/\D/g, "");
+  if (digits.length >= 3) {
+    conditions.push(
+      "REPLACE(REPLACE(REPLACE(REPLACE(c.document, '.', ''), '-', ''), '/', ''), ' ', '') LIKE ?",
+    );
+    params.push(`%${digits}%`);
+  }
+
+  const max = Math.min(20, Math.max(1, Number(limit) || 8));
+  const [rows] = await db.execute(
+    `${COLLABORATOR_SELECT}
+     WHERE c.status = 1 AND (${conditions.join(" OR ")})
+     ORDER BY c.name ASC
+     LIMIT ${max}`,
+    params,
+  );
+  if (!rows.length) return { results: [] };
+
+  const ids = rows.map((r) => r.id_collaborator);
+  const [blRows] = await db.execute(
+    `SELECT id_collaborator FROM collaborator_black_list
+     WHERE id_collaborator IN (${ids.map(() => "?").join(",")})`,
+    ids,
+  );
+  const blacklisted = new Set(blRows.map((r) => Number(r.id_collaborator)));
+
+  return {
+    results: rows.map((row) =>
+      toMaskedCollaborator(row, {
+        isBlacklisted: blacklisted.has(Number(row.id_collaborator)),
+      }),
+    ),
+  };
+}
+
 async function getCollaboratorById(req, id) {
   const row = await findCollaboratorById(id);
   if (!row) throw new AppError("Colaborador não encontrado.", 404);
@@ -901,6 +946,7 @@ module.exports = {
   countRoleUsage,
   listCollaborators,
   searchByDocument,
+  searchCollaboratorsByTerm,
   getCollaboratorById,
   createCollaborator,
   getCollaboratorBulkTemplate,

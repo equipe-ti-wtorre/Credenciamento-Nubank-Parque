@@ -20,6 +20,18 @@ export class MicrosoftProfileService {
     }
   }
 
+  /** Foto de outro usuário autenticado (Microsoft Graph via backend). */
+  async fetchUserPhotoObjectUrl(userId: number): Promise<string | null> {
+    if (!Number.isFinite(userId) || userId <= 0) return null;
+    try {
+      const blob = await firstValueFrom(this.api.getBlob(`/auth/users/${userId}/photo`));
+      if (!blob?.size) return null;
+      return URL.createObjectURL(this.normalizeImageBlob(blob));
+    } catch {
+      return null;
+    }
+  }
+
   /** Fallback: token delegado do MSAL no browser. */
   async fetchPhotoObjectUrlFromGraph(accessToken: string): Promise<string | null> {
     try {

@@ -1,0 +1,309 @@
+<app-modal
+  data-gate-release-modal
+  [open]="open"
+  title="Liberação de acesso"
+  [subtitle]="subtitle()"
+  size="md"
+  [closeOnBackdrop]="false"
+  [focusFirstField]="false"
+  (close)="onClose()"
+>
+  <div class="grl" *ngIf="target as t">
+    <!-- Stepper -->
+    <div class="grl-stepper" aria-label="Etapas da liberação">
+      <div
+        class="grl-step"
+        [class.is-active]="step() === 'docs'"
+        [class.is-done]="stepIndex() > 1"
+      >
+        <span class="grl-step__dot">
+          <ng-container *ngIf="stepIndex() > 1; else dot1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </ng-container>
+          <ng-template #dot1>1</ng-template>
+        </span>
+        <span class="grl-step__label">Documentos</span>
+      </div>
+      <span class="grl-step__line" [class.is-done]="stepIndex() > 1"></span>
+      <div
+        class="grl-step"
+        [class.is-active]="step() === 'photo'"
+        [class.is-done]="stepIndex() > 2"
+      >
+        <span class="grl-step__dot">
+          <ng-container *ngIf="stepIndex() > 2; else dot2">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </ng-container>
+          <ng-template #dot2>2</ng-template>
+        </span>
+        <span class="grl-step__label">Foto</span>
+      </div>
+      <span class="grl-step__line" [class.is-done]="stepIndex() > 2"></span>
+      <div class="grl-step" [class.is-active]="step() === 'confirm'">
+        <span class="grl-step__dot">3</span>
+        <span class="grl-step__label">Liberação</span>
+      </div>
+    </div>
+
+    <!-- Card da pessoa -->
+    <div class="grl-person">
+      <span class="grl-person__avatar" aria-hidden="true">{{ initials(t.collaborator.name) }}</span>
+      <div class="grl-person__text">
+        <div class="grl-person__name">{{ t.collaborator.name }}</div>
+        <div class="grl-person__meta">
+          {{ t.company_name }} · {{ documentDisplay() }}
+          <ng-container *ngIf="t.collaborator.role"> · {{ t.collaborator.role }}</ng-container>
+        </div>
+      </div>
+    </div>
+
+    <!-- Etapa 1: Documentos -->
+    <ng-container *ngIf="step() === 'docs'">
+      <div class="grl-doc-card">
+        <div class="grl-doc-card__text">
+          <div class="grl-doc-card__title">{{ documentLabel() }}</div>
+          <div class="grl-doc-card__number">Nº {{ documentDisplay() }}</div>
+        </div>
+        <span class="grl-badge grl-badge--ok">Registrado</span>
+      </div>
+
+      <label class="grl-check" [class.is-checked]="docConfirmed()">
+        <input
+          type="checkbox"
+          [ngModel]="docConfirmed()"
+          (ngModelChange)="docConfirmed.set($event)"
+        />
+        <span class="grl-check__text">
+          <span class="grl-check__title">Documento confere com a pessoa presente</span>
+          <span class="grl-check__hint">
+            Confirmo que verifiquei o documento físico apresentado na portaria.
+          </span>
+        </span>
+      </label>
+    </ng-container>
+
+    <!-- Etapa 2: Foto -->
+    <ng-container *ngIf="step() === 'photo'">
+      <div class="grl-photo-stage">
+        <div
+          class="grl-photo-frame"
+          [class.grl-photo-frame--ok]="hasPhoto()"
+          [class.grl-photo-frame--empty]="!hasPhoto()"
+        >
+          <img
+            *ngIf="photoUrl() as url"
+            [src]="url"
+            [alt]="'Foto de ' + t.collaborator.name"
+            class="grl-photo-frame__img"
+          />
+          <svg
+            *ngIf="!photoUrl()"
+            class="grl-photo-frame__placeholder"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 21a8 8 0 0 1 16 0z" />
+          </svg>
+          <span *ngIf="hasPhoto()" class="grl-photo-frame__check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </span>
+        </div>
+      </div>
+
+      <p *ngIf="photoLoading()" class="grl-photo-loading">Carregando foto…</p>
+
+      <ng-container *ngIf="!photoLoading()">
+        <ng-container *ngIf="hasPhoto(); else noPhoto">
+          <div class="grl-banner grl-banner--success" role="status">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span>
+              <strong>{{ capturedNow() ? 'Foto capturada e cadastrada' : 'Foto cadastrada' }}</strong>
+              no Control iD e Dahua. O acesso facial está habilitado para este credenciado.
+            </span>
+          </div>
+
+          <label class="grl-check" [class.is-checked]="photoConfirmed()">
+            <input
+              type="checkbox"
+              [ngModel]="photoConfirmed()"
+              (ngModelChange)="photoConfirmed.set($event)"
+            />
+            <span class="grl-check__text">
+              <span class="grl-check__title">A foto confere com a pessoa presente</span>
+              <span class="grl-check__hint">Rosto compatível com o cadastro biométrico.</span>
+            </span>
+          </label>
+        </ng-container>
+
+        <ng-template #noPhoto>
+          <div class="grl-banner grl-banner--danger" role="alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+              <path d="M12 9v4" />
+              <path d="M12 17h.01" />
+            </svg>
+            <span>
+              <strong>Sem foto cadastrada.</strong> O acesso facial não funcionará. Capture a foto
+              agora ou libere manualmente pela catraca.
+            </span>
+          </div>
+
+          <div class="grl-photo-actions">
+            <button
+              type="button"
+              class="btn-action-primary"
+              (click)="openWebcam()"
+              [disabled]="!canCapture || photoBusy()"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+                <circle cx="12" cy="13" r="3" />
+              </svg>
+              {{ photoBusy() ? 'Processando…' : 'Capturar foto' }}
+            </button>
+            <button
+              type="button"
+              class="btn-action-secondary"
+              (click)="releaseWithoutPhoto()"
+              [disabled]="photoBusy()"
+            >
+              Liberar sem foto
+            </button>
+          </div>
+        </ng-template>
+      </ng-container>
+    </ng-container>
+
+    <!-- Etapa 3: Confirmar -->
+    <ng-container *ngIf="step() === 'confirm'">
+      <div class="grl-summary">
+        <div class="grl-summary__row">
+          <span class="grl-summary__icon grl-summary__icon--ok" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </span>
+          <div class="grl-summary__text">
+            <div class="grl-summary__title">Documentos conferidos</div>
+            <div class="grl-summary__hint">
+              {{ documentLabel() }} · Nº {{ documentDisplay() }}
+            </div>
+          </div>
+        </div>
+
+        <div class="grl-summary__row" *ngIf="hasPhoto() && !withoutPhoto(); else summaryNoPhoto">
+          <span class="grl-summary__icon grl-summary__icon--ok" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </span>
+          <div class="grl-summary__text">
+            <div class="grl-summary__title">Foto validada</div>
+            <div class="grl-summary__hint">Cadastro biométrico Control iD / Dahua</div>
+          </div>
+        </div>
+        <ng-template #summaryNoPhoto>
+          <div class="grl-summary__row">
+            <span class="grl-summary__icon grl-summary__icon--warn" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 8v5" />
+                <path d="M12 17h.01" />
+              </svg>
+            </span>
+            <div class="grl-summary__text">
+              <div class="grl-summary__title">Sem foto — acesso manual</div>
+              <div class="grl-summary__hint">Liberação pela catraca sem biometria facial</div>
+            </div>
+          </div>
+        </ng-template>
+
+        <div class="grl-summary__row">
+          <span class="grl-summary__icon grl-summary__icon--user" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="8" r="3.5" />
+              <path d="M5 20a7 7 0 0 1 14 0z" />
+            </svg>
+          </span>
+          <div class="grl-summary__text">
+            <div class="grl-summary__title">Liberado por</div>
+            <div class="grl-summary__hint">{{ operatorName || 'Operador da portaria' }} · agora</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grl-banner grl-banner--info" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5" />
+          <path d="M12 8h.01" />
+        </svg>
+        <span>
+          Ao confirmar, o registro de <strong>entrada</strong> será criado e o status mudará para
+          <strong>Dentro agora</strong>.
+        </span>
+      </div>
+    </ng-container>
+  </div>
+
+  <div modal-footer class="modal-footer grl-footer">
+    <button
+      *ngIf="step() !== 'docs'"
+      type="button"
+      class="btn-action-secondary"
+      (click)="goBack()"
+    >
+      Voltar
+    </button>
+    <span class="grl-footer__spacer"></span>
+    <button
+      *ngIf="step() === 'docs'"
+      type="button"
+      class="btn-action-primary"
+      [disabled]="!docConfirmed()"
+      (click)="advanceFromDocs()"
+    >
+      Avançar
+    </button>
+    <button
+      *ngIf="step() === 'photo'"
+      type="button"
+      class="btn-action-primary"
+      [disabled]="!canAdvancePhoto()"
+      (click)="advanceFromPhoto()"
+    >
+      Avançar
+    </button>
+    <button
+      *ngIf="step() === 'confirm'"
+      type="button"
+      class="grl-btn-confirm"
+      (click)="onConfirm()"
+    >
+      Confirmar entrada
+    </button>
+  </div>
+</app-modal>
+
+<app-webcam-capture-modal
+  [open]="showWebcam()"
+  (cancel)="cancelWebcam()"
+  (captured)="onWebcamCaptured($event)"
+/>
+
+<app-face-crop-modal
+  [open]="showFaceCrop()"
+  [imageUrl]="faceCropSourceUrl()"
+  [fileName]="faceCropSourceName()"
+  (cancel)="cancelFaceCrop()"
+  (cropped)="onFaceCropped($event)"
+/>

@@ -10,7 +10,10 @@ const {
   eventSubstituteSchema,
   serviceValidateSchema,
   serviceSubstituteSchema,
+  manualReleaseSchema,
 } = require("./gate.schema");
+const { notifyApprovalCreated } = require("../approvals/approvals.notifications");
+const { validateSearchQuery } = require("../collaborators/collaborator.schema");
 
 function respondDenial(res, req, denial) {
   if (denial.critical) {
@@ -218,6 +221,139 @@ exports.substituteService = async (req, res, next) => {
     });
 
     res.json(result.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.manualReleaseMeta = async (req, res, next) => {
+  try {
+    const meta = await gateService.listManualReleaseMeta();
+    res.json(meta);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.manualReleaseSearchCollaborator = async (req, res, next) => {
+  try {
+    // Typeahead: um único termo (nome ou documento) retorna lista de resultados.
+    if (req.query.q !== undefined) {
+      const q = String(req.query.q || "").trim();
+      if (q.length < 2) {
+        res.json({ results: [] });
+        return;
+      }
+      const result = await gateService.searchManualReleaseCollaborators(req, { q });
+      res.json(result);
+      return;
+    }
+
+    const validated = await validateSearchQuery(req.query);
+    if (validated.error) throw new AppError(validated.error, 400);
+
+    const result = await gateService.searchManualReleaseCollaborator(req, validated.value);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.createManualRelease = async (req, res, next) => {
+  try {
+    const { error, value } = manualReleaseSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 422);
+
+    const result = await gateService.createManualRelease(req, value);
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "gate",
+      event: "gate.service.manual_release",
+      resource: {
+        type: "service_access",
+        id: result.id_service_access,
+      },
+      metadata: {
+        id_aprovacao: result.id_aprovacao,
+        id_setor: result.id_setor,
+        id_collaborators: (result.collaborators || []).map((c) => c.id_collaborator),
+      },
+    });
+
+    if (result.id_aprovacao && result.id_setor) {
+      setImmediate(() => {
+        void notifyApprovalCreated({
+          idAprovacao: result.id_aprovacao,
+          idSetor: result.id_setor,
+          idSolicitante: req.user.id,
+        }).then((out) => {
+          if (!out?.notified) {
+            console.warn(
+              "[gate.manual_release] setor sem notificação",
+              result.id_aprovacao,
+              result.id_setor,
+              out?.reason,
+            );
+          }
+        }).catch((err) => {
+          console.warn("[gate.manual_release] falha ao notificar", err?.message || err);
+        });
+      });
+    }
+
+    res.status(201).json({ release: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.notifyPendingServiceApproval = async (req, res, next) => {
+  try {
+    const result = await gateService.notifyPendingServiceApproval(req, req.params.id);
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "gate",
+      event: "gate.service.notify_approval",
+      resource: {
+        type: "service_access",
+        id: result.id_service_access,
+      },
+      metadata: {
+        id_aprovacao: result.id_aprovacao,
+        id_setor: result.id_setor,
+        notified: result.notified,
+      },
+    });
+    res.json({
+      message: `Setor ${result.setor_nome} notificado (${result.notified} destinatário${result.notified === 1 ? "" : "s"}).`,
+      ...result,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.cancelPendingServiceApproval = async (req, res, next) => {
+  try {
+    const result = await gateService.cancelPendingServiceApproval(req, req.params.id);
+    attachAudit(req, {
+      action: "CANCEL",
+      module: "gate",
+      event: "gate.service.cancel_approval",
+      resource: {
+        type: "service_access",
+        id: result.id_service_access,
+      },
+      metadata: {
+        id_aprovacao: result.id_aprovacao,
+        id_setor: result.id_setor,
+      },
+    });
+    res.json({
+      message: "Solicitação cancelada.",
+      ...result,
+    });
   } catch (err) {
     next(err);
   }

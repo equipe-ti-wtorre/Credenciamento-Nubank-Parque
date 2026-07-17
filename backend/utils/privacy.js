@@ -17,6 +17,20 @@ function maskDocument(document, typeDescription) {
   return `${"*".repeat(Math.min(doc.length - 4, 8))}${doc.slice(-4)}`;
 }
 
+/** Formata documento completo para conferência na portaria (sem mascarar). */
+function formatDocument(document, typeDescription) {
+  if (document == null || document === "") return null;
+  const doc = String(document).trim();
+  const type = String(typeDescription || "").trim();
+  if (type === DOC_TYPE_CPF) {
+    const digits = doc.replace(/\D/g, "");
+    if (digits.length === 11) {
+      return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+    }
+  }
+  return doc;
+}
+
 function maskPhone(phone) {
   if (phone == null || phone === "") return null;
   const digits = String(phone).replace(/\D/g, "");
@@ -64,6 +78,7 @@ function toMaskedCollaborator(row, { isBlacklisted = false } = {}) {
 module.exports = {
   DOC_TYPE_CPF,
   maskDocument,
+  formatDocument,
   maskPhone,
   mapDocumentType,
   mapRole,

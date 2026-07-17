@@ -2,11 +2,20 @@ const db = require("../../config/db");
 const env = require("../../config/env");
 const { child } = require("../../config/logger");
 const AppError = require("../../utils/AppError");
-const { maskDocument } = require("../../utils/privacy");
+const { maskDocument, formatDocument } = require("../../utils/privacy");
 const collaboratorService = require("../collaborators/collaborator.service");
 const vehicleService = require("../patrimonial/vehicle.service");
-const { STATUS_APROVADO } = require("../credentials/credentials.schema");
+const approvalsService = require("../approvals/approvals.service");
+const {
+  STATUS_APROVADO,
+  STATUS_AGUARDANDO_APROVACAO,
+  STATUS_NEGADO,
+} = require("../credentials/credentials.schema");
 const { normalizePlate } = require("../../utils/plate");
+const { validateAndNormalizeCollaboratorPayload } = require("../collaborators/collaborator.schema");
+const {
+  assertNoOverlappingServiceCollaborator,
+} = require("../patrimonial/service-access.service");
 
 const logger = child({ module: "gate" });
 
@@ -92,6 +101,7 @@ function isWithinEventDayWindow(eventDayDate) {
 function resolveEffectiveCollaborator(row) {
   if (row.id_substitute) {
     return {
+      id: row.id_substitute,
       name: row.substitute_name,
       document: row.substitute_document,
       documentType: row.substitute_document_type_description,
@@ -99,6 +109,7 @@ function resolveEffectiveCollaborator(row) {
     };
   }
   return {
+    id: row.id_collaborator,
     name: row.collaborator_name,
     document: row.collaborator_document,
     documentType: row.document_type_description,
@@ -175,8 +186,11 @@ function mapTodayCredentialRow(row) {
     id: row.id_event_day_company_collaborator,
     access_id: row.access_id,
     collaborator: {
+      id_collaborator: effective.id,
       name: effective.name,
+      document: formatDocument(effective.document, effective.documentType),
       document_masked: maskDocument(effective.document, effective.documentType),
+      document_type: effective.documentType || null,
       role: row.role_description,
       picture: effective.picture || null,
     },
@@ -193,6 +207,7 @@ function mapTodayCredentialRow(row) {
 const GATE_TODAY_LIST_SELECT = `
   SELECT edcc.id_event_day_company_collaborator,
          edcc.access_id,
+         edcc.id_collaborator,
          edcc.id_substitute,
          edcc.access_check_in,
          edcc.access_check_out,
@@ -473,6 +488,7 @@ function resolveEffectiveVehicle(row) {
 function resolveEffectiveServiceCollaborator(row) {
   if (row.id_substitute) {
     return {
+      id: row.id_substitute,
       name: row.substitute_name,
       document: row.substitute_document,
       documentType: row.substitute_document_type_description,
@@ -480,11 +496,27 @@ function resolveEffectiveServiceCollaborator(row) {
     };
   }
   return {
+    id: row.id_collaborator,
     name: row.collaborator_name,
     document: row.collaborator_document,
     documentType: row.document_type_description,
     picture: row.collaborator_picture || null,
   };
+}
+
+/**
+ * Persiste o histórico diário de portaria (gate_access_day_log). As colunas em
+ * service_access_* guardam apenas o estado do dia corrente; o log preserva todos os dias.
+ */
+async function recordServiceDayLog(kind, idRef, idServiceAccess, accessId, action) {
+  const column = action === "CHECK_IN" ? "check_in" : "check_out";
+  const extraUpdate = action === "CHECK_IN" ? ", check_out = NULL" : "";
+  await db.execute(
+    `INSERT INTO gate_access_day_log (kind, id_ref, id_service_access, access_id, access_date, ${column})
+     VALUES (?, ?, ?, ?, CURDATE(), NOW())
+     ON DUPLICATE KEY UPDATE ${column} = NOW()${extraUpdate}`,
+    [kind, idRef, idServiceAccess, accessId],
+  );
 }
 
 function resolveServiceVehicleNextAction(row, todayKey) {
@@ -499,15 +531,57 @@ function resolveServiceCollaboratorNextAction(row, todayKey) {
   return null;
 }
 
-function mapTodayServiceVehicleRow(row, todayKey) {
+const WEEKDAY_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
+
+/** Domingo–sábado da semana que contém todayKey (YYYY-MM-DD). */
+function buildWeekDates(todayKey) {
+  const base = new Date(`${todayKey}T00:00:00`);
+  const start = new Date(base);
+  start.setDate(base.getDate() - base.getDay());
+  const dates = [];
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    dates.push(toDateKey(d));
+  }
+  return dates;
+}
+
+/**
+ * Status de cada dia da semana corrente para a linha da portaria.
+ * accessedDates: dias (YYYY-MM-DD) com check_in registrado no gate_access_day_log.
+ * lastCheckIn: último check-in do estado atual (cobre registros anteriores ao log).
+ */
+function buildWeekDays(row, weekDates, todayKey, accessedDates, lastCheckIn) {
+  const startKey = toDateKey(row.start_date);
+  const endKey = toDateKey(row.end_date);
+  const lastCheckInKey = toDateKey(lastCheckIn);
+  return weekDates.map((date, idx) => {
+    const isToday = date === todayKey;
+    let status = "none";
+    if (startKey && endKey && date >= startKey && date <= endKey) {
+      const accessed = accessedDates.has(date) || (lastCheckInKey != null && date === lastCheckInKey);
+      if (accessed) status = "accessed";
+      else if (date < todayKey) status = "missed";
+      else status = "waiting";
+    }
+    return { date, weekday: WEEKDAY_LETTERS[idx], status, is_today: isToday };
+  });
+}
+
+function mapTodayServiceVehicleRow(row, todayKey, ctx) {
+  const pending = Number(row.id_access_status) === STATUS_AGUARDANDO_APROVACAO;
   const effective = resolveEffectiveVehicle(row);
-  const next = resolveServiceVehicleNextAction(row, todayKey);
+  const next = pending
+    ? "PENDING_APPROVAL"
+    : resolveServiceVehicleNextAction(row, todayKey) || "COMPLETED";
   const checkInToday = isTimestampToday(row.check_in, todayKey) ? row.check_in : null;
   const checkOutToday = isTimestampToday(row.check_out, todayKey) ? row.check_out : null;
+  const accessedDates = ctx.logDates.get(`vehicle:${row.id_service_access_vehicle}`) || new Set();
   return {
     kind: "vehicle",
     id: row.id_service_access_vehicle,
-    access_id: row.access_id,
+    access_id: row.access_id || `pending-sav-${row.id_service_access_vehicle}`,
     vehicle: {
       plate: effective.plate,
       description: row.vehicle_description,
@@ -516,26 +590,49 @@ function mapTodayServiceVehicleRow(row, todayKey) {
     finalidade: row.finalidade,
     check_in: checkInToday,
     check_out: checkOutToday,
-    next_action: next || "COMPLETED",
+    next_action: next,
+    start_date: toDateKey(row.start_date),
+    end_date: toDateKey(row.end_date),
+    week_days: buildWeekDays(row, ctx.weekDates, todayKey, accessedDates, row.check_in),
+    approved_by: pending ? null : ctx.approvers.get(Number(row.id_service_access)) || null,
+    id_service_access: Number(row.id_service_access),
+    id_aprovacao: pending
+      ? ctx.pendingApprovals.get(Number(row.id_service_access))?.id_aprovacao || null
+      : null,
+    id_setor: pending
+      ? ctx.pendingApprovals.get(Number(row.id_service_access))?.id_setor || null
+      : null,
+    setor_nome: pending
+      ? ctx.pendingApprovals.get(Number(row.id_service_access))?.setor_nome || null
+      : null,
   };
 }
 
-function mapTodayServiceCollaboratorRow(row, todayKey) {
+function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
+  const pending = Number(row.id_access_status) === STATUS_AGUARDANDO_APROVACAO;
   const effective = resolveEffectiveServiceCollaborator(row);
-  const next = resolveServiceCollaboratorNextAction(row, todayKey);
+  const next = pending
+    ? "PENDING_APPROVAL"
+    : resolveServiceCollaboratorNextAction(row, todayKey) || "COMPLETED";
   const checkInToday = isTimestampToday(row.access_check_in, todayKey)
     ? row.access_check_in
     : null;
   const checkOutToday = isTimestampToday(row.access_check_out, todayKey)
     ? row.access_check_out
     : null;
+  const accessedDates =
+    ctx.logDates.get(`collaborator:${row.id_service_access_collaborator}`) || new Set();
+  const pendingInfo = ctx.pendingApprovals.get(Number(row.id_service_access)) || null;
   return {
     kind: "collaborator",
     id: row.id_service_access_collaborator,
-    access_id: row.access_id,
+    access_id: row.access_id || `pending-sac-${row.id_service_access_collaborator}`,
     collaborator: {
+      id_collaborator: effective.id,
       name: effective.name,
+      document: formatDocument(effective.document, effective.documentType),
       document_masked: maskDocument(effective.document, effective.documentType),
+      document_type: effective.documentType || null,
       role: row.role_description,
       picture: effective.picture || null,
     },
@@ -543,7 +640,15 @@ function mapTodayServiceCollaboratorRow(row, todayKey) {
     finalidade: row.finalidade,
     check_in: checkInToday,
     check_out: checkOutToday,
-    next_action: next || "COMPLETED",
+    next_action: next,
+    start_date: toDateKey(row.start_date),
+    end_date: toDateKey(row.end_date),
+    week_days: buildWeekDays(row, ctx.weekDates, todayKey, accessedDates, row.access_check_in),
+    approved_by: pending ? null : ctx.approvers.get(Number(row.id_service_access)) || null,
+    id_service_access: Number(row.id_service_access),
+    id_aprovacao: pending ? pendingInfo?.id_aprovacao || null : null,
+    id_setor: pending ? pendingInfo?.id_setor || null : null,
+    setor_nome: pending ? pendingInfo?.setor_nome || null : null,
   };
 }
 
@@ -553,6 +658,10 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
          sav.check_in,
          sav.check_out,
          sav.id_substitute_vehicle,
+         sa.id_service_access,
+         sa.id_access_status,
+         sa.start_date,
+         sa.end_date,
          COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          v.plate AS vehicle_plate,
          v.description AS vehicle_description,
@@ -563,11 +672,16 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
   INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
-  WHERE sa.id_access_status = ?
+  WHERE sa.id_access_status IN (?, ?)
     AND sa.status = 1
-    AND sav.access_id IS NOT NULL
     AND CURDATE() BETWEEN sa.start_date AND sa.end_date
-  ORDER BY COALESCE(sub.plate, v.plate) ASC
+    AND (
+      (sa.id_access_status = ? AND sav.access_id IS NOT NULL)
+      OR sa.id_access_status = ?
+    )
+  ORDER BY
+    CASE WHEN sa.id_access_status = ? THEN 0 ELSE 1 END,
+    COALESCE(sub.plate, v.plate) ASC
 `;
 
 const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
@@ -575,7 +689,12 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
          sac.access_id,
          sac.access_check_in,
          sac.access_check_out,
+         sac.id_collaborator,
          sac.id_substitute,
+         sa.id_service_access,
+         sa.id_access_status,
+         sa.start_date,
+         sa.end_date,
          COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          c.name AS collaborator_name,
          c.document AS collaborator_document,
@@ -597,22 +716,160 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
   LEFT JOIN collaborator_document_type sub_cdt
     ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
   INNER JOIN company co ON co.id_company = sa.id_company
-  WHERE sa.id_access_status = ?
+  WHERE sa.id_access_status IN (?, ?)
     AND sa.status = 1
-    AND sac.access_id IS NOT NULL
     AND CURDATE() BETWEEN sa.start_date AND sa.end_date
-  ORDER BY COALESCE(sub.name, c.name) ASC
+    AND (
+      (sa.id_access_status = ? AND sac.access_id IS NOT NULL)
+      OR sa.id_access_status = ?
+    )
+  ORDER BY
+    CASE WHEN sa.id_access_status = ? THEN 0 ELSE 1 END,
+    COALESCE(sub.name, c.name) ASC
 `;
 
+function initialsFromName(name) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return "?";
+  const first = parts[0][0];
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return `${first}${last}`.toUpperCase();
+}
+
+/** Última decisão APROVADO por acesso de serviço: Map<id_service_access, approved_by>. */
+async function loadServiceApprovers(serviceAccessIds) {
+  const approvers = new Map();
+  if (!serviceAccessIds.length) return approvers;
+  const placeholders = serviceAccessIds.map(() => "?").join(",");
+  const [rows] = await db.execute(
+    `SELECT a.id_entidade,
+            ad.id_usuario,
+            ad.decidido_em,
+            u.nome_completo AS usuario_nome,
+            s.nome AS setor_nome
+     FROM aprovacao_decisoes ad
+     INNER JOIN aprovacoes a ON a.id = ad.id_aprovacao
+     INNER JOIN usuarios u ON u.id = ad.id_usuario
+     LEFT JOIN setores s ON s.id = a.id_setor
+     WHERE a.tipo_entidade = 'ACESSO_SERVICO'
+       AND ad.decisao = 'APROVADO'
+       AND a.id_entidade IN (${placeholders})
+     ORDER BY ad.decidido_em ASC, ad.id ASC`,
+    serviceAccessIds,
+  );
+  for (const row of rows) {
+    approvers.set(Number(row.id_entidade), {
+      id: Number(row.id_usuario),
+      name: row.usuario_nome,
+      initials: initialsFromName(row.usuario_nome),
+      sector: row.setor_nome || null,
+      decided_at: row.decidido_em,
+    });
+  }
+  return approvers;
+}
+
+/** Aprovação PENDENTE por acesso de serviço: Map<id_service_access, {id_aprovacao,id_setor,setor_nome}>. */
+async function loadPendingApprovals(serviceAccessIds) {
+  const pending = new Map();
+  if (!serviceAccessIds.length) return pending;
+  const placeholders = serviceAccessIds.map(() => "?").join(",");
+  const [rows] = await db.execute(
+    `SELECT a.id AS id_aprovacao,
+            a.id_entidade,
+            a.id_setor,
+            s.nome AS setor_nome
+       FROM aprovacoes a
+       INNER JOIN setores s ON s.id = a.id_setor
+      WHERE a.tipo_entidade = 'ACESSO_SERVICO'
+        AND a.status = 'PENDENTE'
+        AND a.id_entidade IN (${placeholders})
+      ORDER BY a.id DESC`,
+    serviceAccessIds,
+  );
+  for (const row of rows) {
+    const key = Number(row.id_entidade);
+    if (pending.has(key)) continue;
+    pending.set(key, {
+      id_aprovacao: Number(row.id_aprovacao),
+      id_setor: Number(row.id_setor),
+      setor_nome: row.setor_nome || null,
+    });
+  }
+  return pending;
+}
+
+/** Dias com check_in na semana: Map<"kind:id_ref", Set<YYYY-MM-DD>>. */
+async function loadWeekDayLogs(weekDates, vehicleIds, collaboratorIds) {
+  const logDates = new Map();
+  const conditions = [];
+  const params = [weekDates[0], weekDates[6]];
+  if (vehicleIds.length) {
+    conditions.push(`(kind = 'vehicle' AND id_ref IN (${vehicleIds.map(() => "?").join(",")}))`);
+    params.push(...vehicleIds);
+  }
+  if (collaboratorIds.length) {
+    conditions.push(
+      `(kind = 'collaborator' AND id_ref IN (${collaboratorIds.map(() => "?").join(",")}))`,
+    );
+    params.push(...collaboratorIds);
+  }
+  if (!conditions.length) return logDates;
+  const [rows] = await db.execute(
+    `SELECT kind, id_ref, access_date
+     FROM gate_access_day_log
+     WHERE access_date BETWEEN ? AND ?
+       AND check_in IS NOT NULL
+       AND (${conditions.join(" OR ")})`,
+    params,
+  );
+  for (const row of rows) {
+    const key = `${row.kind}:${row.id_ref}`;
+    if (!logDates.has(key)) logDates.set(key, new Set());
+    logDates.get(key).add(toDateKey(row.access_date));
+  }
+  return logDates;
+}
+
 async function listTodayExpectedServices() {
+  const statusParams = [
+    STATUS_APROVADO,
+    STATUS_AGUARDANDO_APROVACAO,
+    STATUS_APROVADO,
+    STATUS_AGUARDANDO_APROVACAO,
+    STATUS_AGUARDANDO_APROVACAO,
+  ];
   const [todayKey, vehicleResult, collaboratorResult] = await Promise.all([
     getMysqlTodayKey(),
-    db.execute(GATE_TODAY_SERVICE_VEHICLES_SELECT, [STATUS_APROVADO]),
-    db.execute(GATE_TODAY_SERVICE_COLLABORATORS_SELECT, [STATUS_APROVADO]),
+    db.execute(GATE_TODAY_SERVICE_VEHICLES_SELECT, statusParams),
+    db.execute(GATE_TODAY_SERVICE_COLLABORATORS_SELECT, statusParams),
   ]);
-  const vehicles = vehicleResult[0].map((row) => mapTodayServiceVehicleRow(row, todayKey));
-  const collaborators = collaboratorResult[0].map((row) =>
-    mapTodayServiceCollaboratorRow(row, todayKey),
+  const vehicleRows = vehicleResult[0];
+  const collaboratorRows = collaboratorResult[0];
+
+  const weekDates = buildWeekDates(todayKey);
+  const serviceAccessIds = [
+    ...new Set(
+      [...vehicleRows, ...collaboratorRows].map((r) => Number(r.id_service_access)),
+    ),
+  ];
+  const [approvers, pendingApprovals, logDates] = await Promise.all([
+    loadServiceApprovers(serviceAccessIds),
+    loadPendingApprovals(serviceAccessIds),
+    loadWeekDayLogs(
+      weekDates,
+      vehicleRows.map((r) => r.id_service_access_vehicle),
+      collaboratorRows.map((r) => r.id_service_access_collaborator),
+    ),
+  ]);
+  const ctx = { weekDates, approvers, pendingApprovals, logDates };
+
+  const vehicles = vehicleRows.map((row) => mapTodayServiceVehicleRow(row, todayKey, ctx));
+  const collaborators = collaboratorRows.map((row) =>
+    mapTodayServiceCollaboratorRow(row, todayKey, ctx),
   );
   return [...vehicles, ...collaborators];
 }
@@ -700,6 +957,13 @@ async function validateServiceVehicleAccess(accessId) {
       [row.id_service_access_vehicle],
     );
   }
+  await recordServiceDayLog(
+    "vehicle",
+    row.id_service_access_vehicle,
+    row.id_service_access,
+    accessId,
+    action,
+  );
 
   const updated = await findServiceVehicleByAccessId(accessId);
   logger.info(
@@ -749,6 +1013,13 @@ async function validateServiceCollaboratorAccess(accessId) {
       [row.id_service_access_collaborator],
     );
   }
+  await recordServiceDayLog(
+    "collaborator",
+    row.id_service_access_collaborator,
+    row.id_service_access,
+    accessId,
+    action,
+  );
 
   const updated = await findServiceCollaboratorByAccessId(accessId);
   logger.info(
@@ -877,6 +1148,395 @@ async function substituteServiceAccess(accessId, payload) {
   return buildServiceDenial("SERVICE_NOT_FOUND", 404);
 }
 
+async function listManualReleaseMeta() {
+  await approvalsService.ensureActiveFlowsForTipo("ACESSO_SERVICO");
+
+  const [[sectors], [companies], documentTypes, roles] = await Promise.all([
+    db.execute(
+      `SELECT s.id, s.nome
+         FROM setor_fluxos sf
+         JOIN setores s ON s.id = sf.id_setor
+        WHERE sf.tipo_entidade = 'ACESSO_SERVICO' AND sf.ativo = 1 AND s.ativo = 1
+          AND EXISTS (
+            SELECT 1
+              FROM setor_usuarios su
+              JOIN usuarios u ON u.id = su.id_usuario
+             WHERE su.id_setor = s.id
+               AND su.ativo = 1
+               AND u.ativo = 1
+               AND su.papel IN ('APROVADOR', 'GESTOR')
+          )
+        ORDER BY s.nome`,
+    ),
+    db.execute(
+      `SELECT id_company, fancy_name, company_name
+         FROM company
+        WHERE status = 1
+        ORDER BY COALESCE(fancy_name, company_name) ASC`,
+    ),
+    collaboratorService.listDocumentTypes(),
+    collaboratorService.listRoles(),
+  ]);
+
+  return {
+    sectors: sectors.map((s) => ({ id: Number(s.id), nome: s.nome })),
+    companies: companies.map((c) => ({
+      id_company: Number(c.id_company),
+      fancy_name: c.fancy_name || c.company_name,
+      company_name: c.company_name,
+    })),
+    document_types: documentTypes,
+    roles,
+  };
+}
+
+async function searchManualReleaseCollaborator(req, { document, id_collaborator_document_type }) {
+  return collaboratorService.searchByDocument(req, {
+    document,
+    id_collaborator_document_type,
+  });
+}
+
+async function searchManualReleaseCollaborators(req, { q }) {
+  return collaboratorService.searchCollaboratorsByTerm(req, { q });
+}
+
+async function resolveManualReleasePeople(data) {
+  const people = [];
+  const seen = new Set();
+
+  for (const rawId of data.id_collaborators || []) {
+    const id = Number(rawId);
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+    const existing = await collaboratorService.findCollaboratorById(id);
+    if (!existing) throw new AppError(`Colaborador #${id} não encontrado.`, 404);
+    if (!existing.status) throw new AppError(`Colaborador ${existing.name} está inativo.`, 400);
+    const isBlacklisted = await collaboratorService.checkBlacklist(id);
+    if (isBlacklisted) {
+      throw new AppError(
+        `Colaborador ${existing.name} consta na lista de restrição. Sem possibilidade de liberar.`,
+        422,
+      );
+    }
+    const roleId = Number(existing.id_collaborator_role);
+    if (!roleId) throw new AppError(`Colaborador ${existing.name} sem função cadastrada.`, 422);
+    seen.add(id);
+    people.push({
+      id_collaborator: id,
+      name: existing.name,
+      document: existing.document,
+      id_collaborator_role: roleId,
+      role_description: existing.role_description || null,
+      created: false,
+    });
+  }
+
+  for (const draft of data.collaborators || []) {
+    const validated = await validateAndNormalizeCollaboratorPayload(draft);
+    if (validated.error) throw new AppError(validated.error, 422);
+    const created = await collaboratorService.insertCollaboratorRecord(validated.value);
+    const id = Number(created.id_collaborator);
+    if (seen.has(id)) continue;
+    const isBlacklisted = await collaboratorService.checkBlacklist(id);
+    if (isBlacklisted) {
+      throw new AppError(
+        `Colaborador ${created.name} consta na lista de restrição. Sem possibilidade de liberar.`,
+        422,
+      );
+    }
+    seen.add(id);
+    people.push({
+      id_collaborator: id,
+      name: created.name,
+      document: created.document,
+      id_collaborator_role: Number(created.id_collaborator_role),
+      role_description: created.role?.description || created.role_description || null,
+      created: true,
+    });
+  }
+
+  if (!people.length) {
+    throw new AppError("Selecione ao menos um colaborador.", 422);
+  }
+  return people;
+}
+
+async function createManualRelease(req, data) {
+  const userId = req.user?.id || null;
+  if (!userId) throw new AppError("Usuário não autenticado.", 401);
+
+  const idCompany = Number(data.id_company);
+  const idSetor = Number(data.id_setor);
+  const finalidade = String(data.finalidade).trim();
+  const observacao = data.observacao?.trim() || null;
+
+  const [deptRows] = await db.execute(
+    `SELECT departamento FROM usuarios WHERE id = ? LIMIT 1`,
+    [userId],
+  );
+  const requestingDepartment =
+    (deptRows[0]?.departamento && String(deptRows[0].departamento).trim()) || "Portaria";
+
+  const [companyRows] = await db.execute(
+    `SELECT id_company, fancy_name, status FROM company WHERE id_company = ? LIMIT 1`,
+    [idCompany],
+  );
+  if (!companyRows.length) throw new AppError("Empresa não encontrada.", 404);
+  if (!companyRows[0].status) throw new AppError("Empresa inativa.", 400);
+
+  await approvalsService.ensureActiveFlowsForTipo("ACESSO_SERVICO");
+  const [setorRows] = await db.execute(
+    `SELECT s.id, s.nome
+       FROM setores s
+       INNER JOIN setor_fluxos sf
+         ON sf.id_setor = s.id AND sf.tipo_entidade = 'ACESSO_SERVICO' AND sf.ativo = 1
+      WHERE s.id = ? AND s.ativo = 1
+      LIMIT 1`,
+    [idSetor],
+  );
+  if (!setorRows.length) {
+    throw new AppError("Setor aprovador inválido ou sem fluxo ativo para acesso de serviço.", 400);
+  }
+
+  const eligibleApprovers = await approvalsService.listEligibleApprovers(idSetor, 1, {
+    excludeUserIds: [],
+  });
+  if (!eligibleApprovers.length) {
+    throw new AppError(
+      `O setor ${setorRows[0].nome} não possui aprovador ou gestor ativo. Inclua membros no setor ou escolha outro setor.`,
+      422,
+    );
+  }
+
+  const people = await resolveManualReleasePeople(data);
+
+  const todayKey = await getMysqlTodayKey();
+  if (!todayKey) throw new AppError("Não foi possível obter a data atual.", 500);
+
+  for (const person of people) {
+    await assertNoOverlappingServiceCollaborator(
+      person.id_collaborator,
+      todayKey,
+      todayKey,
+      null,
+    );
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [saResult] = await conn.execute(
+      `INSERT INTO service_access (
+         id_company, id_access_status, service_type, description,
+         id_usuario, start_date, end_date, finalidade, requesting_department, observacao,
+         notificar_entrada, notificar_entrada_colaborador, notificar_entrada_veiculo, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 0, 1)`,
+      [
+        idCompany,
+        STATUS_AGUARDANDO_APROVACAO,
+        finalidade,
+        observacao,
+        userId,
+        todayKey,
+        todayKey,
+        finalidade,
+        requestingDepartment,
+        observacao,
+      ],
+    );
+    const serviceId = saResult.insertId;
+
+    for (const person of people) {
+      await conn.execute(
+        `INSERT INTO service_access_collaborator (id_service_access, id_collaborator, id_collaborator_role)
+         VALUES (?, ?, ?)`,
+        [serviceId, person.id_collaborator, person.id_collaborator_role],
+      );
+    }
+
+    const approval = await approvalsService.createApprovalFor(conn, {
+      tipoEntidade: "ACESSO_SERVICO",
+      idEntidade: serviceId,
+      idSetor,
+      idSolicitante: userId,
+    });
+
+    await conn.commit();
+
+    const first = people[0];
+    return {
+      id_service_access: serviceId,
+      id_aprovacao: approval.id,
+      id_setor: idSetor,
+      setor_nome: setorRows[0].nome,
+      id_access_status: STATUS_AGUARDANDO_APROVACAO,
+      start_date: todayKey,
+      end_date: todayKey,
+      finalidade,
+      company: {
+        id_company: idCompany,
+        fancy_name: companyRows[0].fancy_name,
+      },
+      collaborator: {
+        id_collaborator: first.id_collaborator,
+        name: first.name,
+        document: first.document,
+        id_collaborator_role: first.id_collaborator_role,
+        role_description: first.role_description,
+      },
+      collaborators: people.map((p) => ({
+        id_collaborator: p.id_collaborator,
+        name: p.name,
+        document: p.document,
+        id_collaborator_role: p.id_collaborator_role,
+        role_description: p.role_description,
+      })),
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+async function notifyPendingServiceApproval(req, idServiceAccess) {
+  const id = Number(idServiceAccess);
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new AppError("Acesso de serviço inválido.", 400);
+  }
+
+  const [rows] = await db.execute(
+    `SELECT sa.id_service_access, sa.id_access_status, sa.status,
+            a.id AS id_aprovacao, a.id_setor, a.id_solicitante, a.status AS aprovacao_status,
+            s.nome AS setor_nome
+       FROM service_access sa
+       LEFT JOIN aprovacoes a
+         ON a.tipo_entidade = 'ACESSO_SERVICO'
+        AND a.id_entidade = sa.id_service_access
+        AND a.status = 'PENDENTE'
+       LEFT JOIN setores s ON s.id = a.id_setor
+      WHERE sa.id_service_access = ?
+      ORDER BY a.id DESC
+      LIMIT 1`,
+    [id],
+  );
+  const row = rows[0];
+  if (!row) throw new AppError("Acesso de serviço não encontrado.", 404);
+  if (!row.status) throw new AppError("Acesso de serviço desabilitado.", 400);
+  if (Number(row.id_access_status) !== STATUS_AGUARDANDO_APROVACAO) {
+    throw new AppError("Este acesso não está aguardando liberação.", 400);
+  }
+  if (!row.id_aprovacao || !row.id_setor) {
+    throw new AppError("Não há aprovação pendente vinculada a este acesso.", 404);
+  }
+
+  const eligible = await approvalsService.listEligibleApprovers(Number(row.id_setor), 1, {
+    excludeUserIds: [],
+  });
+  if (!eligible.length) {
+    throw new AppError(
+      `O setor ${row.setor_nome || ""} não possui aprovador ou gestor ativo para notificar.`.trim(),
+      422,
+    );
+  }
+
+  const { notifyApprovalCreated } = require("../approvals/approvals.notifications");
+  const result = await notifyApprovalCreated({
+    idAprovacao: Number(row.id_aprovacao),
+    idSetor: Number(row.id_setor),
+    idSolicitante: row.id_solicitante || req.user?.id || null,
+  });
+
+  if (!result?.notified) {
+    throw new AppError(
+      result?.reason === "no_approvers"
+        ? `O setor ${row.setor_nome || ""} não possui aprovador ativo.`
+        : "Não foi possível notificar o setor. Tente novamente.",
+      422,
+    );
+  }
+
+  return {
+    id_service_access: id,
+    id_aprovacao: Number(row.id_aprovacao),
+    id_setor: Number(row.id_setor),
+    setor_nome: row.setor_nome,
+    notified: result.notified,
+  };
+}
+
+async function cancelPendingServiceApproval(req, idServiceAccess) {
+  const id = Number(idServiceAccess);
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new AppError("Acesso de serviço inválido.", 400);
+  }
+
+  const [rows] = await db.execute(
+    `SELECT sa.id_service_access, sa.id_access_status, sa.status,
+            a.id AS id_aprovacao, a.id_setor, a.id_solicitante, a.status AS aprovacao_status,
+            s.nome AS setor_nome
+       FROM service_access sa
+       LEFT JOIN aprovacoes a
+         ON a.tipo_entidade = 'ACESSO_SERVICO'
+        AND a.id_entidade = sa.id_service_access
+        AND a.status = 'PENDENTE'
+       LEFT JOIN setores s ON s.id = a.id_setor
+      WHERE sa.id_service_access = ?
+      ORDER BY a.id DESC
+      LIMIT 1`,
+    [id],
+  );
+  const row = rows[0];
+  if (!row) throw new AppError("Acesso de serviço não encontrado.", 404);
+  if (Number(row.id_access_status) !== STATUS_AGUARDANDO_APROVACAO) {
+    throw new AppError("Este acesso não está aguardando liberação.", 400);
+  }
+  if (!row.id_aprovacao) {
+    throw new AppError("Não há aprovação pendente vinculada a este acesso.", 404);
+  }
+
+  const userId = req.user?.id;
+  const isAdmin = !!req.user?.is_super_admin;
+  const isSolicitante = Number(row.id_solicitante) === Number(userId);
+  if (!isAdmin && !isSolicitante) {
+    // Portaria: quem tem permissão de criar na gate pode cancelar liberação manual pendente.
+    const { hasPermission } = require("../../utils/permissions");
+    if (!hasPermission(req.user, "gate", "create") && !hasPermission(req.user, "gate", "edit")) {
+      throw new AppError("Sem permissão para cancelar esta solicitação.", 403);
+    }
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `UPDATE aprovacoes
+          SET status = 'CANCELADO', finalizado_em = NOW()
+        WHERE id = ? AND status = 'PENDENTE'`,
+      [row.id_aprovacao],
+    );
+    await conn.execute(
+      `UPDATE service_access SET id_access_status = ? WHERE id_service_access = ?`,
+      [STATUS_NEGADO, id],
+    );
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  return {
+    id_service_access: id,
+    id_aprovacao: Number(row.id_aprovacao),
+    id_setor: Number(row.id_setor),
+    setor_nome: row.setor_nome,
+  };
+}
+
 module.exports = {
   validateEventAccess,
   substituteEventCollaborator,
@@ -884,5 +1544,11 @@ module.exports = {
   validateServiceAccess,
   substituteServiceAccess,
   listTodayExpectedServices,
+  listManualReleaseMeta,
+  searchManualReleaseCollaborator,
+  searchManualReleaseCollaborators,
+  createManualRelease,
+  notifyPendingServiceApproval,
+  cancelPendingServiceApproval,
   DENIAL_MESSAGES,
 };

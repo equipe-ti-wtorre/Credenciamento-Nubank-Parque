@@ -1,0 +1,433 @@
+// Wizard de liberação de acesso na portaria (3 etapas)
+
+:host {
+  display: contents;
+}
+
+.grl {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+// --- Stepper ---
+
+.grl-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 6px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.grl-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+
+  &__dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    background: #f1f5f9;
+    color: #94a3b8;
+    border: 1.5px solid #e2e8f0;
+    flex-shrink: 0;
+
+    svg {
+      width: 13px;
+      height: 13px;
+    }
+  }
+
+  &__label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  &.is-active {
+    color: var(--text-primary);
+
+    .grl-step__dot {
+      background: var(--wtorre);
+      border-color: var(--wtorre);
+      color: #fff;
+    }
+
+    .grl-step__label {
+      font-weight: 700;
+    }
+  }
+
+  &.is-done {
+    color: #64748b;
+
+    .grl-step__dot {
+      background: #16a34a;
+      border-color: #16a34a;
+      color: #fff;
+    }
+  }
+
+  &__line {
+    flex: 1;
+    height: 2px;
+    min-width: 16px;
+    border-radius: 2px;
+    background: #e2e8f0;
+
+    &.is-done {
+      background: #16a34a;
+    }
+  }
+}
+
+// --- Card da pessoa ---
+
+.grl-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--wtorre-tonal-bg);
+
+  &__avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 9999px;
+    background: #fff;
+    color: var(--wtorre);
+    font-size: 0.85rem;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  &__name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  &__meta {
+    font-size: 0.8rem;
+    color: #64748b;
+    margin-top: 1px;
+  }
+}
+
+// --- Etapa 1: documento ---
+
+.grl-doc-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: #fff;
+
+  &__title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  &__number {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    margin-top: 4px;
+  }
+}
+
+.grl-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+
+  &--ok {
+    background: #dcfce7;
+    color: #15803d;
+  }
+}
+
+// --- Checkbox de confirmação ---
+
+.grl-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1.5px solid var(--app-border);
+  border-radius: 14px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  input[type='checkbox'] {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    accent-color: var(--wtorre);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  &__title {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  &__hint {
+    display: block;
+    font-size: 0.78rem;
+    color: #64748b;
+    margin-top: 1px;
+  }
+
+  &:hover {
+    border-color: #cbd5e1;
+  }
+
+  &.is-checked {
+    border-color: var(--wtorre);
+    background: color-mix(in srgb, var(--wtorre) 4%, white);
+  }
+}
+
+// --- Etapa 2: foto ---
+
+.grl-photo-stage {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.grl-photo-frame {
+  position: relative;
+  width: 150px;
+  height: 190px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+
+  &__img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 14px;
+  }
+
+  &--ok {
+    border: 2px solid #16a34a;
+    padding: 3px;
+    background: #f0fdf4;
+    color: #16a34a;
+  }
+
+  &--empty {
+    border: 1.5px solid #e2e8f0;
+    background: #f1f5f9;
+    color: #94a3b8;
+  }
+
+  &__placeholder {
+    width: 64px;
+    height: 64px;
+  }
+
+  &__check {
+    position: absolute;
+    right: -8px;
+    bottom: -8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 9999px;
+    background: #16a34a;
+    color: #fff;
+    border: 3px solid #fff;
+
+    svg {
+      width: 14px;
+      height: 14px;
+    }
+  }
+}
+
+.grl-photo-loading {
+  text-align: center;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.grl-photo-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+// --- Banners ---
+
+.grl-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+
+  svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  &--success {
+    background: #f0fdf4;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+  }
+
+  &--danger {
+    background: var(--danger-soft-bg);
+    color: #9f1239;
+    border: 1px solid var(--danger-border);
+  }
+
+  &--info {
+    background: var(--wtorre-tonal-bg);
+    color: #1e3a8a;
+    border: 1px solid color-mix(in srgb, var(--wtorre) 22%, white);
+  }
+}
+
+// --- Etapa 3: resumo ---
+
+.grl-summary {
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+
+    & + & {
+      border-top: 1px solid var(--app-border);
+    }
+  }
+
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+
+    svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    &--ok {
+      background: #dcfce7;
+      color: #16a34a;
+    }
+
+    &--warn {
+      background: #fef3c7;
+      color: #b45309;
+
+      svg {
+        width: 16px;
+        height: 16px;
+      }
+    }
+
+    &--user {
+      background: #e0e7ff;
+      color: #4338ca;
+    }
+  }
+
+  &__title {
+    font-size: 0.87rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  &__hint {
+    font-size: 0.78rem;
+    color: #64748b;
+    margin-top: 1px;
+  }
+}
+
+// --- Footer ---
+
+.grl-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  &__spacer {
+    flex: 1;
+  }
+}
+
+.grl-btn-confirm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  min-height: var(--form-field-height);
+  border-radius: var(--form-radius);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+  background: #16a34a;
+  transition: background 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #15803d;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}

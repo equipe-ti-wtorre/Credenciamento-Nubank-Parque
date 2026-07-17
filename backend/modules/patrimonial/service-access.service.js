@@ -223,7 +223,57 @@ async function loadServiceVehicles(idServiceAccess) {
   }));
 }
 
-function mapServiceRow(row, { collaborators = [], vehicles = [] } = {}) {
+async function loadServiceAccessHistory(idServiceAccess) {
+  const [rows] = await db.execute(
+    `SELECT gal.id,
+            gal.kind,
+            gal.id_ref,
+            gal.access_date,
+            gal.check_in,
+            gal.check_out,
+            c.name AS collaborator_name,
+            c.document AS collaborator_document,
+            cr.description AS collaborator_role,
+            v.plate,
+            v.brand,
+            v.model,
+            v.color
+       FROM gate_access_day_log gal
+       LEFT JOIN service_access_collaborator sac
+         ON gal.kind = 'collaborator'
+        AND sac.id_service_access_collaborator = gal.id_ref
+       LEFT JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
+       LEFT JOIN collaborator_role cr
+         ON cr.id_collaborator_role = sac.id_collaborator_role
+       LEFT JOIN service_access_vehicle sav
+         ON gal.kind = 'vehicle'
+        AND sav.id_service_access_vehicle = gal.id_ref
+       LEFT JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
+      WHERE gal.id_service_access = ?
+        AND gal.check_in IS NOT NULL
+      ORDER BY gal.access_date DESC, gal.check_in DESC`,
+    [idServiceAccess],
+  );
+
+  return rows.map((r) => ({
+    id: Number(r.id),
+    kind: r.kind,
+    id_ref: Number(r.id_ref),
+    access_date: formatDateField(r.access_date),
+    check_in: r.check_in,
+    check_out: r.check_out,
+    subject_name: r.kind === "vehicle" ? r.plate : r.collaborator_name,
+    subject_detail:
+      r.kind === "vehicle"
+        ? [r.brand, r.model, r.color].filter(Boolean).join(" ") || null
+        : [r.collaborator_document, r.collaborator_role].filter(Boolean).join(" · ") || null,
+  }));
+}
+
+function mapServiceRow(
+  row,
+  { collaborators = [], vehicles = [], accessHistory = [] } = {},
+) {
   return {
     id_service_access: row.id_service_access,
     id_company: row.id_company,
@@ -262,6 +312,7 @@ function mapServiceRow(row, { collaborators = [], vehicles = [] } = {}) {
     company_fancy_name: row.company_fancy_name,
     collaborators,
     vehicles,
+    access_history: accessHistory,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
   };
@@ -395,7 +446,8 @@ async function getServiceAccessById(req, id) {
 
   const collaborators = await loadServiceCollaborators(id);
   const vehicles = await loadServiceVehicles(id);
-  return mapServiceRow(rows[0], { collaborators, vehicles });
+  const accessHistory = await loadServiceAccessHistory(id);
+  return mapServiceRow(rows[0], { collaborators, vehicles, accessHistory });
 }
 
 async function getServiceAccessRow(id) {

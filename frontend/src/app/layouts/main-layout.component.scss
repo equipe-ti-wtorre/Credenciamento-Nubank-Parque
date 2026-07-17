@@ -509,3 +509,28 @@
     }
   }
 }
+
+/* Portaria kiosk: hide chrome when Fullscreen API is unavailable or as CSS fallback */
+body.gate-kiosk {
+  overflow: hidden;
+
+  .wt-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .wt-sidebar,
+  .wt-topbar {
+    display: none !important;
+  }
+
+  .wt-main {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .wt-content {
+    padding: 0;
+    height: 100vh;
+    overflow: auto;
+  }
+}

@@ -35,6 +35,17 @@ export interface ServiceAccessVehicle {
   id_substitute_vehicle: number | null;
 }
 
+export interface ServiceAccessHistoryItem {
+  id: number;
+  kind: 'collaborator' | 'vehicle';
+  id_ref: number;
+  access_date: string;
+  check_in: string;
+  check_out: string | null;
+  subject_name: string;
+  subject_detail: string | null;
+}
+
 export interface ServiceAccessItem {
   id_service_access: number;
   id_company: number;
@@ -57,6 +68,7 @@ export interface ServiceAccessItem {
   company_fancy_name?: string;
   collaborators: ServiceAccessCollaborator[];
   vehicles: ServiceAccessVehicle[];
+  access_history?: ServiceAccessHistoryItem[];
   criado_em?: string;
   atualizado_em?: string;
 }

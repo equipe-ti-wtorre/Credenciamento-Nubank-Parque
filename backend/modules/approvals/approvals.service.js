@@ -1269,6 +1269,7 @@ module.exports = {
   PAPEIS_CAN_OPEN,
   registerEntityFinalizer,
   listEligibleSectors,
+  ensureActiveFlowsForTipo,
   assertUserCanOpenForSector,
   listEligibleApprovers,
   createApprovalFor,

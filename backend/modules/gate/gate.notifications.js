@@ -170,6 +170,40 @@ function dedupeItems(items, keyFn) {
   return out;
 }
 
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function dateFromTimestamp(ts) {
+  const date = new Date(ts || Date.now());
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function formatDateBr(ts) {
+  const date = dateFromTimestamp(ts);
+  return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+function formatTimeBr(ts) {
+  const date = dateFromTimestamp(ts);
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+function formatDateTimeBr(ts) {
+  return `${formatDateBr(ts)} ${formatTimeBr(ts)}`;
+}
+
+function groupItemsByDay(items, labelFn) {
+  const byDay = new Map();
+  for (const item of items) {
+    const day = formatDateBr(item.at);
+    const list = byDay.get(day) || [];
+    list.push(`${labelFn(item)} (${formatTimeBr(item.at)})`);
+    byDay.set(day, list);
+  }
+  return [...byDay.entries()].map(([day, entries]) => `${day}: ${entries.join(", ")}`);
+}
+
 function enqueueBatch(key, item, meta, flushFn) {
   let batch = pendingBatches.get(key);
   if (!batch) {
@@ -290,23 +324,24 @@ function buildServiceCheckInCopy(idServiceAccess, finalidade, items) {
       ? "gate.service.vehicle.check_in"
       : "gate.service.collaborator.check_in";
     const who = isVehicle ? `Veículo ${subject}` : `Colaborador ${subject}`;
+    const when = formatDateTimeBr(item.at);
     return {
       titulo,
-      mensagem: `${who} entrou na portaria — ${ref}.`,
-      activityMessage: `${subject} — ${activityRef}`,
+      mensagem: `${who} entrou na portaria em ${when} — ${ref}.`,
+      activityMessage: `${subject} — ${when} — ${activityRef}`,
       activityActor: titulo,
       alertTipo,
     };
   }
 
-  const names = items.map((it) => {
+  const historyLines = groupItemsByDay(items, (it) => {
     if (it.subjectName) return it.subjectName;
     return it.kind === "vehicle" ? "Veículo" : "Colaborador";
   });
   const n = items.length;
   return {
     titulo: "Entradas na portaria",
-    mensagem: `${n} entradas na portaria — ${ref}: ${names.join(", ")}.`,
+    mensagem: `${n} entradas na portaria — ${ref}:\n${historyLines.join("\n")}`,
     activityMessage: `${n} acessos — ${activityRef}`,
     activityActor: "Entradas na portaria",
     alertTipo: "gate.service.check_in",
@@ -319,18 +354,22 @@ function buildEventCheckInCopy(idEvent, eventName, items) {
   if (items.length === 1) {
     const item = items[0];
     const who = `Colaborador ${item.collaboratorName || ""}`.trim();
+    const when = formatDateTimeBr(item.at);
     return {
       titulo: "Entrada na portaria",
-      mensagem: `${who} entrou na portaria${eventLabel} (credencial #${item.credentialId}).`,
+      mensagem: `${who} entrou na portaria em ${when}${eventLabel} (credencial #${item.credentialId}).`,
       alertTipo: "gate.event.check_in",
     };
   }
 
-  const names = items.map((it) => it.collaboratorName || `credencial #${it.credentialId}`);
+  const historyLines = groupItemsByDay(
+    items,
+    (it) => it.collaboratorName || `credencial #${it.credentialId}`,
+  );
   const n = items.length;
   return {
     titulo: "Entradas na portaria",
-    mensagem: `${n} entradas na portaria${eventLabel}: ${names.join(", ")}.`,
+    mensagem: `${n} entradas na portaria${eventLabel}:\n${historyLines.join("\n")}`,
     alertTipo: "gate.event.check_in",
   };
 }

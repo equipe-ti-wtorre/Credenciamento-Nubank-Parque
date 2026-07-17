@@ -1,0 +1,344 @@
+<app-modal
+  [open]="open"
+  title="Liberação manual"
+  subtitle="Solicite aprovação do setor para liberar a entrada de colaboradores."
+  size="lg"
+  (close)="onClose()"
+>
+  <div class="gmr-stepper" aria-label="Etapas da liberação manual">
+    <div class="gmr-step" [class.is-active]="step() === 'dados'" [class.is-done]="step() !== 'dados'">
+      <span class="gmr-step__n">1</span>
+      <span class="gmr-step__label">Dados</span>
+    </div>
+    <div class="gmr-step__line"></div>
+    <div
+      class="gmr-step"
+      [class.is-active]="step() === 'colaborador'"
+      [class.is-done]="step() === 'confirmar'"
+    >
+      <span class="gmr-step__n">2</span>
+      <span class="gmr-step__label">Colaboradores</span>
+    </div>
+    <div class="gmr-step__line"></div>
+    <div class="gmr-step" [class.is-active]="step() === 'confirmar'">
+      <span class="gmr-step__n">3</span>
+      <span class="gmr-step__label">Confirmar</span>
+    </div>
+  </div>
+
+  <p *ngIf="loadingMeta()" class="gmr-loading">Carregando…</p>
+
+  <ng-container *ngIf="!loadingMeta()">
+    <!-- Etapa 1: Dados -->
+    <div *ngIf="step() === 'dados'" class="gmr-body space-y-3">
+      <div>
+        <label class="form-label" for="gmr-company">Empresa</label>
+        <select id="gmr-company" class="form-select mt-1" [(ngModel)]="idCompany" name="gmrCompany">
+          <option [ngValue]="null">Selecione…</option>
+          <option *ngFor="let c of companies()" [ngValue]="c.id_company">
+            {{ c.fancy_name }}
+          </option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="gmr-setor">Setor aprovador</label>
+        <select id="gmr-setor" class="form-select mt-1" [(ngModel)]="idSetor" name="gmrSetor">
+          <option [ngValue]="null">Selecione…</option>
+          <option *ngFor="let s of sectors()" [ngValue]="s.id">{{ s.nome }}</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="gmr-finalidade">Nome do evento</label>
+        <input
+          id="gmr-finalidade"
+          type="text"
+          class="form-field mt-1"
+          [(ngModel)]="finalidade"
+          name="gmrFinalidade"
+          maxlength="500"
+          placeholder="Ex.: Show, visita técnica, manutenção…"
+        />
+      </div>
+      <div>
+        <label class="form-label" for="gmr-obs">Descrição do serviço</label>
+        <textarea
+          id="gmr-obs"
+          class="form-field mt-1"
+          rows="2"
+          [(ngModel)]="observacao"
+          name="gmrObs"
+          maxlength="500"
+        ></textarea>
+      </div>
+    </div>
+
+    <!-- Etapa 2: Colaboradores -->
+    <div *ngIf="step() === 'colaborador'" class="gmr-body">
+      <div class="gmr-modes" role="group" aria-label="Modo do colaborador">
+        <button
+          type="button"
+          class="gmr-mode"
+          [class.is-active]="colabMode() === 'search'"
+          (click)="setColabMode('search')"
+        >
+          Buscar
+        </button>
+        <button
+          type="button"
+          class="gmr-mode"
+          [class.is-active]="colabMode() === 'create'"
+          (click)="setColabMode('create')"
+        >
+          Cadastrar
+        </button>
+      </div>
+
+      <div *ngIf="colabMode() === 'search'" class="space-y-3">
+        <div>
+          <label class="form-label" for="gmr-search-term">Nome ou documento</label>
+          <input
+            id="gmr-search-term"
+            type="text"
+            class="form-field mt-1"
+            [ngModel]="searchTerm"
+            (ngModelChange)="onSearchTermChange($event)"
+            name="gmrSearchTerm"
+            autocomplete="off"
+            placeholder="Digite o nome, CPF ou passaporte…"
+          />
+
+          <p *ngIf="searching()" class="gmr-search-status">Buscando…</p>
+          <p
+            *ngIf="!searching() && searchTerm.trim().length >= 2 && !searchResults().length"
+            class="gmr-search-status"
+          >
+            Nenhum colaborador encontrado.
+          </p>
+
+          <div *ngIf="searchResults().length" class="gmr-results" role="listbox">
+            <button
+              *ngFor="let r of searchResults()"
+              type="button"
+              class="gmr-result"
+              [class.gmr-result--blocked]="r.is_blacklisted"
+              role="option"
+              (click)="selectCandidate(r)"
+            >
+              <span class="gmr-result__name">{{ r.name }}</span>
+              <span class="gmr-result__meta">
+                {{ r.document }}
+                <ng-container *ngIf="r.role?.description"> · {{ r.role?.description }}</ng-container>
+              </span>
+              <span *ngIf="r.is_blacklisted" class="gmr-result__warn">Lista de restrição</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="colabMode() === 'create'" class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="form-label" for="gmr-create-type">Tipo de documento</label>
+            <select
+              id="gmr-create-type"
+              class="form-select mt-1"
+              [(ngModel)]="createDocTypeId"
+              name="gmrCreateType"
+            >
+              <option *ngFor="let t of documentTypes()" [ngValue]="t.id_collaborator_document_type">
+                {{ t.description }}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" for="gmr-create-doc">Documento</label>
+            <input
+              id="gmr-create-doc"
+              type="text"
+              class="form-field mt-1"
+              [(ngModel)]="createDocument"
+              name="gmrCreateDoc"
+            />
+          </div>
+        </div>
+        <div>
+          <label class="form-label" for="gmr-create-name">Nome completo</label>
+          <input
+            id="gmr-create-name"
+            type="text"
+            class="form-field mt-1"
+            [(ngModel)]="createName"
+            name="gmrCreateName"
+          />
+        </div>
+        <div>
+          <label class="form-label" for="gmr-create-role">Função</label>
+          <select
+            id="gmr-create-role"
+            class="form-select mt-1"
+            [(ngModel)]="createRoleId"
+            name="gmrCreateRole"
+          >
+            <option *ngFor="let r of roles()" [ngValue]="r.id_collaborator_role">
+              {{ r.description }}
+            </option>
+          </select>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="form-label" for="gmr-create-rg">RG (opcional)</label>
+            <input
+              id="gmr-create-rg"
+              type="text"
+              class="form-field mt-1"
+              [(ngModel)]="createRg"
+              name="gmrCreateRg"
+            />
+          </div>
+          <div>
+            <label class="form-label" for="gmr-create-phone">Telefone (opcional)</label>
+            <input
+              id="gmr-create-phone"
+              type="text"
+              class="form-field mt-1"
+              [(ngModel)]="createPhone"
+              name="gmrCreatePhone"
+            />
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <button type="button" class="btn-secondary" (click)="addPendingCreate()">
+            Adicionar à lista
+          </button>
+        </div>
+      </div>
+
+      <div *ngIf="totalSelected()" class="gmr-selected">
+        <div class="gmr-selected__head">
+          Selecionados ({{ totalSelected() }})
+        </div>
+        <div
+          *ngFor="let c of selected()"
+          class="gmr-candidate"
+          [class.gmr-candidate--blocked]="c.is_blacklisted"
+        >
+          <div class="min-w-0">
+            <p class="gmr-candidate__name">{{ c.name }}</p>
+            <p class="gmr-candidate__doc">
+              {{ c.document }}
+              <ng-container *ngIf="c.role?.description"> · {{ c.role?.description }}</ng-container>
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn-secondary text-xs py-1 px-2 shrink-0"
+            (click)="removeSelected(c.id_collaborator)"
+          >
+            Remover
+          </button>
+        </div>
+        <div *ngFor="let p of pendingCreates()" class="gmr-candidate">
+          <div class="min-w-0">
+            <p class="gmr-candidate__name">{{ p.name }}</p>
+            <p class="gmr-candidate__doc">
+              {{ p.document }} · {{ p.role_description }}
+              <span class="gmr-candidate__tag">Novo</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn-secondary text-xs py-1 px-2 shrink-0"
+            (click)="removePendingCreate(p.key)"
+          >
+            Remover
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Etapa 3: Confirmar -->
+    <div *ngIf="step() === 'confirmar'" class="gmr-body">
+      <dl class="gmr-summary">
+        <div>
+          <dt>Empresa</dt>
+          <dd>{{ companyLabel() }}</dd>
+        </div>
+        <div>
+          <dt>Setor</dt>
+          <dd>{{ sectorLabel() }}</dd>
+        </div>
+        <div>
+          <dt>Nome do evento</dt>
+          <dd>{{ finalidade }}</dd>
+        </div>
+        <div *ngIf="observacao.trim()">
+          <dt>Descrição do serviço</dt>
+          <dd>{{ observacao }}</dd>
+        </div>
+        <div>
+          <dt>Colaboradores ({{ totalSelected() }})</dt>
+          <dd>
+            <ul class="gmr-people">
+              <li *ngFor="let c of selected()">
+                <span class="gmr-people__name">{{ c.name }}</span>
+                <span class="gmr-mono">
+                  {{ c.document }}
+                  <ng-container *ngIf="c.role?.description"> · {{ c.role?.description }}</ng-container>
+                </span>
+              </li>
+              <li *ngFor="let p of pendingCreates()">
+                <span class="gmr-people__name">{{ p.name }}</span>
+                <span class="gmr-mono">{{ p.document }} · {{ p.role_description }}</span>
+              </li>
+            </ul>
+          </dd>
+        </div>
+      </dl>
+      <p class="gmr-hint">
+        A solicitação será enviada ao setor com status <strong>aguardando aprovação</strong>. Após a
+        aprovação, os colaboradores poderão entrar pela portaria.
+      </p>
+    </div>
+  </ng-container>
+
+  <div modal-footer class="modal-footer flex flex-wrap justify-end gap-2">
+    <button type="button" class="btn-secondary" [disabled]="submitting()" (click)="onClose()">
+      Cancelar
+    </button>
+    <button
+      *ngIf="step() === 'colaborador' || step() === 'confirmar'"
+      type="button"
+      class="btn-secondary"
+      [disabled]="submitting()"
+      (click)="step() === 'colaborador' ? goDados() : goColaborador()"
+    >
+      Voltar
+    </button>
+    <button
+      *ngIf="step() === 'dados'"
+      type="button"
+      class="btn-primary"
+      [disabled]="loadingMeta()"
+      (click)="goColaborador()"
+    >
+      Continuar
+    </button>
+    <button
+      *ngIf="step() === 'colaborador'"
+      type="button"
+      class="btn-primary"
+      (click)="goConfirmar()"
+    >
+      Continuar
+    </button>
+    <button
+      *ngIf="step() === 'confirmar'"
+      type="button"
+      class="btn-primary"
+      [disabled]="submitting()"
+      (click)="submit()"
+    >
+      {{ submitting() ? 'Enviando…' : 'Enviar para aprovação' }}
+    </button>
+  </div>
+</app-modal>

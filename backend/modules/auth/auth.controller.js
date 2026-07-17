@@ -135,3 +135,18 @@ exports.profilePhoto = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.userPhoto = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new AppError("Usuário inválido.", 400);
+    }
+    const { buffer, contentType } = await authService.getProfilePhoto(id);
+    res.set("Cache-Control", "private, max-age=3600");
+    res.type(contentType);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+};

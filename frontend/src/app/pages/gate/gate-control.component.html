@@ -1,4 +1,9 @@
-<div class="gate-page" data-gate-root>
+<div
+  #gateRoot
+  class="gate-page"
+  data-gate-root
+  [class.is-kiosk]="fullscreenMode()"
+>
   <label class="gate-scan-sr">
     Leitura de código de acesso
     <input
@@ -33,53 +38,104 @@
           Eventos
         </button>
       </div>
-      <button
-        type="button"
-        class="btn-ghost"
-        [class.spin]="refreshSpin()"
-        (click)="onRefreshClick()"
-        [disabled]="todayLoading()"
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
-        </svg>
-        {{ todayLoading() ? 'Atualizando…' : 'Atualizar lista' }}
-      </button>
+      <div class="panel-head-actions">
+        <button
+          type="button"
+          class="btn-ghost"
+          [class.spin]="refreshSpin()"
+          (click)="onRefreshClick()"
+          [disabled]="todayLoading()"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
+          </svg>
+          {{ todayLoading() ? 'Atualizando…' : 'Atualizar lista' }}
+        </button>
+        <button
+          type="button"
+          class="btn-ghost"
+          (click)="toggleFullscreen()"
+          [attr.title]="fullscreenMode() ? 'Sair da tela cheia' : 'Tela cheia'"
+          [attr.aria-label]="fullscreenMode() ? 'Sair da tela cheia' : 'Tela cheia'"
+        >
+          <svg
+            *ngIf="!fullscreenMode()"
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+          </svg>
+          <svg
+            *ngIf="fullscreenMode()"
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3" />
+          </svg>
+          {{ fullscreenMode() ? 'Sair da tela cheia' : 'Tela cheia' }}
+        </button>
+      </div>
     </div>
 
-    <div class="status-tabs">
+    <div class="status-tabs-row">
       <button
+        *ngIf="gateMode() === 'patrimonial'"
         type="button"
-        class="stab"
-        [class.active]="statusFilter() === 'todos'"
-        (click)="setStatusFilter('todos')"
+        class="btn-manual-release"
+        (click)="openManualRelease()"
+        data-gate-manual-release
       >
-        Todos <span class="cnt">{{ stats().total }}</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        Liberação manual
       </button>
-      <button
-        type="button"
-        class="stab"
-        [class.active]="statusFilter() === 'wait'"
-        (click)="setStatusFilter('wait')"
-      >
-        <span class="dot wait"></span>Aguardando <span class="cnt">{{ stats().wait }}</span>
-      </button>
-      <button
-        type="button"
-        class="stab"
-        [class.active]="statusFilter() === 'in'"
-        (click)="setStatusFilter('in')"
-      >
-        <span class="dot in"></span>Dentro agora <span class="cnt">{{ stats().in }}</span>
-      </button>
-      <button
-        type="button"
-        class="stab"
-        [class.active]="statusFilter() === 'done'"
-        (click)="setStatusFilter('done')"
-      >
-        <span class="dot done"></span>Concluídos <span class="cnt">{{ stats().done }}</span>
-      </button>
+      <div class="status-tabs">
+        <button
+          type="button"
+          class="stab"
+          [class.active]="statusFilter() === 'todos'"
+          (click)="setStatusFilter('todos')"
+        >
+          Todos <span class="cnt">{{ stats().total }}</span>
+        </button>
+        <button
+          type="button"
+          class="stab"
+          [class.active]="statusFilter() === 'wait'"
+          (click)="setStatusFilter('wait')"
+        >
+          <span class="dot wait"></span>Aguardando <span class="cnt">{{ stats().wait }}</span>
+        </button>
+        <button
+          type="button"
+          class="stab"
+          [class.active]="statusFilter() === 'in'"
+          (click)="setStatusFilter('in')"
+        >
+          <span class="dot in"></span>Dentro agora <span class="cnt">{{ stats().in }}</span>
+        </button>
+        <button
+          type="button"
+          class="stab"
+          [class.active]="statusFilter() === 'done'"
+          (click)="setStatusFilter('done')"
+        >
+          <span class="dot done"></span>Concluídos <span class="cnt">{{ stats().done }}</span>
+        </button>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -143,7 +199,7 @@
     <!-- Eventos -->
     <ng-container *ngIf="!todayLoading() && gateMode() === 'events'">
       <div class="table-head" *ngIf="filteredTodayCredentials().length > 0">
-        <div>Tipo</div>
+        <div title="Tipo" aria-label="Tipo"></div>
         <div>Identificação</div>
         <div>Empresa</div>
         <div>Evento</div>
@@ -183,14 +239,13 @@
         [class.state-done]="row.next_action === 'COMPLETED'"
       >
         <div class="c-type">
-          <span class="type colaborador">
+          <span class="type colaborador" title="Colaborador" aria-label="Colaborador">
             <span class="ico">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="8" r="3.2" />
                 <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
               </svg>
             </span>
-            Colaborador
           </span>
         </div>
         <div class="c-ident ident">
@@ -272,11 +327,12 @@
 
     <!-- Patrimonial -->
     <ng-container *ngIf="!todayLoading() && gateMode() === 'patrimonial'">
-      <div class="table-head" *ngIf="filteredTodayServices().length > 0">
-        <div>Tipo</div>
+      <div class="table-head services-head" *ngIf="filteredTodayServices().length > 0">
+        <div title="Tipo" aria-label="Tipo"></div>
         <div>Identificação</div>
         <div>Empresa</div>
-        <div>Finalidade</div>
+        <div>Dias de acesso</div>
+        <div>Aprovado por</div>
         <div>Status / Entrada</div>
         <div class="col-actions">Ações</div>
       </div>
@@ -308,15 +364,18 @@
 
       <div
         *ngFor="let row of filteredTodayServices()"
-        class="row"
+        class="row services-row"
         [class.state-in]="row.next_action === 'CHECK_OUT'"
         [class.state-done]="row.next_action === 'COMPLETED'"
+        [class.state-pending]="row.next_action === 'PENDING_APPROVAL'"
       >
         <div class="c-type">
           <span
             class="type"
             [class.veiculo]="row.kind === 'vehicle'"
             [class.colaborador]="row.kind === 'collaborator'"
+            [attr.title]="row.kind === 'vehicle' ? 'Veículo' : 'Colaborador'"
+            [attr.aria-label]="row.kind === 'vehicle' ? 'Veículo' : 'Colaborador'"
           >
             <span class="ico">
               <svg
@@ -348,7 +407,6 @@
                 <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
               </svg>
             </span>
-            {{ row.kind === 'vehicle' ? 'Veículo' : 'Colaborador' }}
           </span>
         </div>
         <div class="c-ident ident">
@@ -373,10 +431,62 @@
             </div>
           </div>
         </div>
-        <div class="c-empresa empresa">{{ row.company.name }}</div>
-        <div class="c-finalidade finalidade">{{ row.finalidade }}</div>
+        <div class="c-empresa empresa">
+          <div class="empresa-name">{{ row.company.name }}</div>
+          <div class="empresa-finalidade">Finalidade: {{ row.finalidade }}</div>
+        </div>
+        <div class="c-dias">
+          <span *ngIf="isSingleDay(row)" class="day-pill">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
+            {{ formatDayPill(row.start_date) }}
+          </span>
+          <div *ngIf="!isSingleDay(row)" class="day-dots">
+            <span
+              *ngFor="let day of row.week_days"
+              class="day-dot"
+              [class.accessed]="day.status === 'accessed'"
+              [class.missed]="day.status === 'missed'"
+              [class.waiting]="day.status === 'waiting'"
+              [class.none]="day.status === 'none'"
+              [class.today]="day.is_today"
+              [title]="dayTitle(day)"
+            >
+              {{ day.weekday }}
+            </span>
+          </div>
+        </div>
+        <div class="c-aprovador">
+          <div *ngIf="row.approved_by as approver; else noApprover" class="approver">
+            <img
+              *ngIf="approverPhotoUrl(approver.id) as photo"
+              [src]="photo"
+              [alt]="approver.name"
+              class="approver-avatar approver-avatar--photo"
+            />
+            <span
+              *ngIf="!approverPhotoUrl(approver.id)"
+              class="approver-avatar"
+              aria-hidden="true"
+              >{{ approver.initials }}</span
+            >
+            <div class="approver-text">
+              <div class="approver-name">{{ approver.name }}</div>
+              <div class="approver-meta">
+                <ng-container *ngIf="approver.sector">{{ approver.sector }} · </ng-container
+                >{{ formatShortDateTime(approver.decided_at) }}
+              </div>
+            </div>
+          </div>
+          <ng-template #noApprover><span class="approver-empty">—</span></ng-template>
+        </div>
         <div class="c-entrada">
           <ng-container [ngSwitch]="row.next_action">
+            <span *ngSwitchCase="'PENDING_APPROVAL'" class="status-pill pending"
+              ><span class="d"></span>Liberação pendente</span
+            >
             <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
             <div *ngSwitchCase="'CHECK_OUT'">
               <span class="status-pill in"
@@ -390,33 +500,74 @@
           </ng-container>
         </div>
         <div class="actions">
-          <button
-            *ngIf="row.next_action === 'CHECK_IN'"
-            type="button"
-            class="btn-act entrada"
-            [disabled]="processing()"
-            (click)="onManualValidateService(row)"
-            title="Registrar entrada"
-          >
-            Entrada
-          </button>
-          <button
-            *ngIf="row.next_action === 'CHECK_OUT'"
-            type="button"
-            class="btn-act saida"
-            [disabled]="processing()"
-            (click)="onManualValidateService(row)"
-            title="Registrar saída"
-          >
-            Saída
-          </button>
-          <span *ngIf="row.next_action === 'COMPLETED'" class="btn-act finished">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-            Concluído
-          </span>
+          <ng-container *ngIf="row.next_action === 'PENDING_APPROVAL'">
+            <button
+              type="button"
+              class="btn-act-icon notify"
+              [disabled]="processing() || isNotifying(row) || isCancelling(row)"
+              (click)="onNotifySector(row)"
+              title="Notificar o setor"
+              aria-label="Notificar o setor"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m22 2-7 20-4-9-9-4z" />
+                <path d="M22 2 11 13" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="btn-act-icon cancel"
+              [disabled]="processing() || isNotifying(row) || isCancelling(row)"
+              (click)="onCancelPending(row)"
+              title="Cancelar solicitação"
+              aria-label="Cancelar solicitação"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                <path d="M10 11v6M14 11v6" />
+              </svg>
+            </button>
+          </ng-container>
+          <ng-container *ngIf="row.next_action !== 'PENDING_APPROVAL'">
+            <button
+              *ngIf="row.next_action === 'CHECK_IN'"
+              type="button"
+              class="btn-act entrada"
+              [disabled]="processing()"
+              (click)="onManualValidateService(row)"
+              title="Registrar entrada"
+            >
+              Entrada
+            </button>
+            <button
+              *ngIf="row.next_action === 'CHECK_OUT'"
+              type="button"
+              class="btn-act saida"
+              [disabled]="processing()"
+              (click)="onManualValidateService(row)"
+              title="Registrar saída"
+            >
+              Saída
+            </button>
+            <span *ngIf="row.next_action === 'COMPLETED'" class="btn-act finished">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              Concluído
+            </span>
+          </ng-container>
         </div>
+      </div>
+
+      <div class="days-legend" *ngIf="filteredTodayServices().length > 0">
+        <span class="legend-label">Dias de acesso:</span>
+        <span class="legend-item"><span class="day-dot legend accessed"></span>Acessou</span>
+        <span class="legend-item"><span class="day-dot legend missed"></span>Não acessou</span>
+        <span class="legend-item"><span class="day-dot legend waiting"></span>Aguardando</span>
+        <span class="legend-item"><span class="day-dot legend none"></span>Sem acesso no dia</span>
+        <span class="legend-item"><span class="day-dot legend today"></span>Hoje</span>
       </div>
     </ng-container>
   </div>
@@ -523,4 +674,19 @@
       </button>
     </div>
   </app-modal>
+
+  <app-gate-release-modal
+    [open]="showReleaseModal()"
+    [target]="releaseTarget()"
+    [operatorName]="operatorName()"
+    (close)="onReleaseClose()"
+    (confirm)="onReleaseConfirm($event)"
+    (pictureUpdated)="onReleasePictureUpdated($event)"
+  />
+
+  <app-gate-manual-release-modal
+    [open]="showManualReleaseModal()"
+    (close)="onManualReleaseClose()"
+    (submitted)="onManualReleaseSubmitted($event)"
+  />
 </div>

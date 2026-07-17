@@ -144,10 +144,13 @@ async function notifyApprovalCreated({ idAprovacao, idSetor, idSolicitante }) {
         { idAprovacao, idSetor, idSolicitante },
         "Nenhum APROVADOR/GESTOR ativo no setor para notificar na criação",
       );
-      return;
+      return { notified: 0, reason: "no_approvers" };
     }
     const ctx = await loadApprovalContext(idAprovacao);
-    if (!ctx) return;
+    if (!ctx) {
+      log.warn({ idAprovacao }, "Contexto da aprovação não encontrado para notificação");
+      return { notified: 0, reason: "missing_context" };
+    }
     const extras = await loadEntityExtras(ctx);
     const mensagem = buildMessage(ctx, "Nova solicitação aguardando sua aprovação (nível 1).");
     const card = buildApprovalDecisionCard(
@@ -165,8 +168,19 @@ async function notifyApprovalCreated({ idAprovacao, idSetor, idSolicitante }) {
       idReferencia: idAprovacao,
       adaptiveCard: card,
     });
+    log.info(
+      {
+        idAprovacao,
+        idSetor,
+        approverIds: approvers.map((a) => a.id),
+        emails: approvers.map((a) => a.email),
+      },
+      "Notificação de nova aprovação enviada",
+    );
+    return { notified: approvers.length };
   } catch (err) {
     log.warn({ err, idAprovacao }, "Falha ao notificar criação de aprovação");
+    return { notified: 0, reason: "error" };
   }
 }
 

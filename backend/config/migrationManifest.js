@@ -216,6 +216,10 @@ const migrations = [
       return rows.length > 0;
     },
   },
+  {
+    filename: "031_gate_access_day_log.sql",
+    validate: (conn) => tableExists(conn, "gate_access_day_log"),
+  },
 ];
 
 module.exports = migrations;
