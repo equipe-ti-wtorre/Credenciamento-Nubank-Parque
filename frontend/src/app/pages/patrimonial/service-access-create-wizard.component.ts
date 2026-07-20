@@ -277,6 +277,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                 [open]="true"
                 [embedded]="true"
                 [serviceAccessId]="createdId()"
+                [draftSyncToken]="draftSyncToken()"
                 [accessName]="finalidade"
                 [companyName]="companyName()"
                 [notifyApprovers]="false"
@@ -676,10 +677,10 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         <div class="wcrt-foot__right">
           @if (step() === 'dados') {
             <button
-              type="submit"
-              form="wcrt-dados-form"
+              type="button"
               class="btn-action-primary"
               [disabled]="busy()"
+              (click)="runCreate()"
             >
               Continuar
             </button>
@@ -1586,6 +1587,8 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
 
   step = signal<WizardStep>('dados');
   createdId = signal<number | null>(null);
+  /** Incrementado após ensureDraft para o embed de import sincronizar datas antes do preview. */
+  draftSyncToken = signal(0);
   busy = signal(false);
   sectors = signal<EligibleSector[]>([]);
   roles = signal<CollaboratorRole[]>([]);
@@ -1813,9 +1816,46 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   /** Cria/atualiza rascunho sob demanda (upload/modelo) — sem aprovação/notificação. */
   prepararImportacao() {
     this.dadosForm.markAllAsTouched();
-    if (this.dadosForm.invalid) return;
+    if (this.dadosForm.invalid) {
+      this.notification.error('Preencha os dados do acesso (período, nome e setor) antes de importar.');
+      return;
+    }
     // Sempre sincroniza datas/dados: ao voltar no wizard o período pode ter mudado.
-    this.ensureDraft(() => {});
+    this.ensureDraft(() => {
+      this.draftSyncToken.update((n) => n + 1);
+    });
+  }
+
+  /** Continuar do passo 1: valida formulário e overlap; sincroniza rascunho se já existir. */
+  runCreate() {
+    this.dadosFormSubmitted = true;
+    this.dadosForm.markAllAsTouched();
+    if (this.dadosForm.invalid) {
+      if (!this.finalidade.trim()) {
+        this.finalidadeInput?.nativeElement.focus();
+      } else if (!this.observacao.trim()) {
+        this.observacaoInput?.nativeElement.focus();
+      }
+      return;
+    }
+    const setorNome = this.sectors().find((s) => s.id === this.idSetor)?.nome?.trim();
+    if (!setorNome) {
+      this.notification.error('Setor aprovador inválido.');
+      return;
+    }
+
+    this.revalidateCollaboratorsOverlap(() => {
+      const advance = () => {
+        this.clearOverlapCellErrors();
+        this.step.set('pessoas');
+      };
+      // Com rascunho (ex.: após import), grava o novo período no servidor antes de avançar.
+      if (this.createdId()) {
+        this.ensureDraft(advance);
+      } else {
+        advance();
+      }
+    });
   }
 
   onImportCompleted(event?: {
@@ -1881,7 +1921,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   onBack() {
     if (this.busy()) return;
     if (this.step() === 'pessoas') {
-      this.step.set('dados');
+      this.clearPeopleAndForceNewImport(() => this.step.set('dados'));
       return;
     }
     if (this.step() === 'revisar') {
@@ -1892,7 +1932,54 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   }
 
   goToStep(step: WizardStep) {
+    if (step === 'dados' && this.step() !== 'dados') {
+      this.clearPeopleAndForceNewImport(() => this.step.set('dados'));
+      return;
+    }
     this.step.set(step);
+  }
+
+  /**
+   * Ao voltar para Dados: limpa listas locais, descarta o rascunho no servidor
+   * e força novo import com o período atualizado.
+   */
+  private clearPeopleAndForceNewImport(then: () => void) {
+    this.draftCollaborators.set([]);
+    this.draftVehicles.set([]);
+    this.pendingFromSheet.set([]);
+    this.pendingRoleProposals = [];
+    this.onlyPending.set(false);
+    this.filterQuery.set('');
+    this.colabQuery = '';
+    this.veicQuery = '';
+    this.colabResults.set([]);
+    this.veicResults.set([]);
+
+    const id = this.createdId();
+    if (!id) {
+      this.notification.info('Colaboradores e veículos foram limpos. Importe a planilha novamente após ajustar o período.');
+      then();
+      return;
+    }
+
+    this.busy.set(true);
+    this.patrimonialService.deleteDraft(id).subscribe({
+      next: () => {
+        this.createdId.set(null);
+        this.draftSyncToken.set(0);
+        this.busy.set(false);
+        this.notification.info('Colaboradores e veículos foram limpos. Importe a planilha novamente após ajustar o período.');
+        then();
+      },
+      error: () => {
+        // Mesmo se o delete falhar, zera o id local para forçar novo rascunho no import.
+        this.createdId.set(null);
+        this.draftSyncToken.set(0);
+        this.busy.set(false);
+        this.notification.info('Colaboradores e veículos foram limpos. Importe a planilha novamente após ajustar o período.');
+        then();
+      },
+    });
   }
 
   goReview() {
@@ -1917,55 +2004,8 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
         );
         return;
       }
-      this.step.set('revisar');
+      this.revalidateCollaboratorsOverlap(() => this.step.set('revisar'));
     });
-  }
-
-  /** Continuar do passo 1: valida formulário e overlap local; não persiste o acesso. */
-  runCreate() {
-    this.dadosFormSubmitted = true;
-    this.dadosForm.markAllAsTouched();
-    if (this.dadosForm.invalid) {
-      if (!this.finalidade.trim()) {
-        this.finalidadeInput?.nativeElement.focus();
-      } else if (!this.observacao.trim()) {
-        this.observacaoInput?.nativeElement.focus();
-      }
-      return;
-    }
-    const setorNome = this.sectors().find((s) => s.id === this.idSetor)?.nome?.trim();
-    if (!setorNome) {
-      this.notification.error('Setor aprovador inválido.');
-      return;
-    }
-
-    const collabIds = this.draftCollaborators()
-      .map((c) => Number(c.id_collaborator))
-      .filter((id) => Number.isFinite(id) && id > 0);
-
-    if (collabIds.length === 0) {
-      this.step.set('pessoas');
-      return;
-    }
-
-    this.busy.set(true);
-    this.patrimonialService
-      .validateCollaboratorsOverlap({
-        start_date: this.startDate,
-        end_date: this.endDate,
-        id_collaborators: collabIds,
-        exclude_service_access_id: this.createdId(),
-      })
-      .subscribe({
-        next: () => {
-          this.busy.set(false);
-          this.step.set('pessoas');
-        },
-        error: (err) => {
-          this.busy.set(false);
-          this.notification.notifyHttpError(err, 'Conflito de datas nos colaboradores.');
-        },
-      });
   }
 
   runSubmit() {
@@ -1980,10 +2020,6 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
       this.step.set('pessoas');
       return;
     }
-
-    const collabIds = this.draftCollaborators()
-      .map((c) => Number(c.id_collaborator))
-      .filter((id) => Number.isFinite(id) && id > 0);
 
     const submitAfterValidate = () => {
       this.ensureDraft((id) => {
@@ -2020,31 +2056,99 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
       });
     };
 
-    if (collabIds.length === 0) {
-      submitAfterValidate();
+    // Revalida overlap com as datas atuais do formulário (ex.: voltou e alterou o período).
+    this.revalidateCollaboratorsOverlap(submitAfterValidate, { onConflictGoToDados: true });
+  }
+
+  /**
+   * Revalida conflito de período com as datas do formulário.
+   * Se a lista local estiver vazia mas houver rascunho (createdId), busca IDs no servidor.
+   */
+  private revalidateCollaboratorsOverlap(
+    onOk: () => void,
+    opts?: { onConflictGoToDados?: boolean },
+  ) {
+    const localIds = this.draftCollaborators()
+      .map((c) => Number(c.id_collaborator))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    const runValidate = (collabIds: number[]) => {
+      if (collabIds.length === 0) {
+        onOk();
+        return;
+      }
+      this.busy.set(true);
+      this.patrimonialService
+        .validateCollaboratorsOverlap({
+          start_date: this.startDate,
+          end_date: this.endDate,
+          id_collaborators: collabIds,
+          exclude_service_access_id: this.createdId(),
+        })
+        .subscribe({
+          next: () => {
+            this.busy.set(false);
+            onOk();
+          },
+          error: (err) => {
+            this.busy.set(false);
+            this.notification.notifyHttpError(err, 'Conflito de datas nos colaboradores.');
+            if (opts?.onConflictGoToDados) {
+              this.step.set('dados');
+            }
+          },
+        });
+    };
+
+    if (localIds.length > 0) {
+      runValidate([...new Set(localIds)]);
       return;
     }
 
-    // Revalida overlap com as datas atuais do formulário (ex.: voltou e alterou o período).
+    const draftId = this.createdId();
+    if (!draftId) {
+      onOk();
+      return;
+    }
+
     this.busy.set(true);
-    this.patrimonialService
-      .validateCollaboratorsOverlap({
-        start_date: this.startDate,
-        end_date: this.endDate,
-        id_collaborators: collabIds,
-        exclude_service_access_id: this.createdId(),
-      })
-      .subscribe({
-        next: () => {
-          this.busy.set(false);
-          submitAfterValidate();
-        },
-        error: (err) => {
-          this.busy.set(false);
-          this.notification.notifyHttpError(err, 'Conflito de datas nos colaboradores.');
+    this.patrimonialService.getById(draftId).subscribe({
+      next: (res) => {
+        this.busy.set(false);
+        const serverIds = (res.service.collaborators || [])
+          .map((c) => Number(c.id_collaborator))
+          .filter((id) => Number.isFinite(id) && id > 0);
+        runValidate([...new Set(serverIds)]);
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.notification.notifyHttpError(err, 'Falha ao validar colaboradores do rascunho.');
+        if (opts?.onConflictGoToDados) {
           this.step.set('dados');
-        },
-      });
+        }
+      },
+    });
+  }
+
+  private isOverlapCellError(e: CellError): boolean {
+    const m = String(e.message || '').toLowerCase();
+    return (
+      m.includes('sobrepost') ||
+      m.includes('conflito de data') ||
+      m.includes('data sobreposta') ||
+      m.includes('outro acesso de serviço')
+    );
+  }
+
+  /** Remove erros de overlap locais após o período ser revalidado com sucesso. */
+  private clearOverlapCellErrors() {
+    const strip = (list: DraftCollaborator[]) =>
+      list.map((c) => ({
+        ...c,
+        cellErrors: c.cellErrors.filter((e) => !this.isOverlapCellError(e)),
+      }));
+    this.draftCollaborators.update(strip);
+    this.pendingFromSheet.update(strip);
   }
 
   private buildDadosPayload() {
@@ -2979,6 +3083,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   private reset() {
     this.step.set('dados');
     this.createdId.set(null);
+    this.draftSyncToken.set(0);
     this.busy.set(false);
     this.submitted = false;
     this.dadosFormSubmitted = false;

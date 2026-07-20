@@ -858,6 +858,11 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   @Input({ required: true }) open = false;
   /** 0/null = ainda sem rascunho; pede ao pai via draftRequired antes das APIs. */
   @Input() serviceAccessId: number | null = null;
+  /**
+   * Incrementado pelo pai após create/update do rascunho (datas sincronizadas).
+   * O embed espera este token antes de preview/upload quando pediu draftRequired.
+   */
+  @Input() draftSyncToken = 0;
   @Input() accessName = '';
   @Input() companyName = '';
   /** Quando false, a confirmação não dispara notificação aos aprovadores. */
@@ -1002,15 +1007,22 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges) {
-    if (!changes['serviceAccessId'] || !this.hasServiceId()) return;
+    const syncReady =
+      (changes['draftSyncToken'] || changes['serviceAccessId']) && this.hasServiceId();
+    if (!syncReady) return;
+
     if (this.pendingTemplate) {
       this.pendingTemplate = false;
-      this.downloadTemplate();
+      this.downloadTemplateNow();
     }
     if (this.pendingUpload) {
       const f = this.pendingUpload;
       this.pendingUpload = null;
-      this.setFile(f);
+      this.file.set(f);
+      this.uploadError.set(null);
+      if (this.embedded) {
+        this.runPreview();
+      }
     }
   }
 
@@ -1018,10 +1030,9 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     return Number(this.serviceAccessId) > 0;
   }
 
-  private ensureServiceIdOrRequest(): boolean {
-    if (this.hasServiceId()) return true;
+  /** Sempre pede ao pai sincronizar datas do formulário no rascunho antes das APIs. */
+  private requestDraftSync(): void {
     this.draftRequired.emit();
-    return false;
   }
 
   onFileSelected(ev: Event) {
@@ -1048,19 +1059,28 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
       this.uploadError.set('Arquivo excede 5 MB.');
       return;
     }
-    if (!this.ensureServiceIdOrRequest()) {
+    // No wizard de criação (embedded): sempre sincroniza o período do formulário no rascunho.
+    if (this.embedded || !this.hasServiceId()) {
       this.pendingUpload = f;
+      this.requestDraftSync();
       return;
     }
     this.file.set(f);
-    if (this.embedded) {
-      this.runPreview();
-    }
   }
 
   downloadTemplate() {
-    if (!this.ensureServiceIdOrRequest()) {
+    if (this.embedded || !this.hasServiceId()) {
       this.pendingTemplate = true;
+      this.requestDraftSync();
+      return;
+    }
+    this.downloadTemplateNow();
+  }
+
+  private downloadTemplateNow() {
+    if (!this.hasServiceId()) {
+      this.pendingTemplate = true;
+      this.requestDraftSync();
       return;
     }
     this.templateDownloading.set(true);
