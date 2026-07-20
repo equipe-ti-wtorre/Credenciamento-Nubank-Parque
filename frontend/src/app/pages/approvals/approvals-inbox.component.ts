@@ -1334,6 +1334,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     if (status === 'APROVADO') return 'aprovada';
     if (status === 'REPROVADO') return 'reprovada';
     if (status === 'CANCELADO') return 'cancelada';
+    if (status === 'EXPIRADO') return 'finalizada (tempo de autorização expirada)';
     return 'finalizada';
   }
 

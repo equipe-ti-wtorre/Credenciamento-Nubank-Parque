@@ -7,6 +7,7 @@ export const STATUS_AGUARDANDO_PRODUTORA = 1;
 export const STATUS_AGUARDANDO_APROVACAO = 2;
 export const STATUS_APROVADO = 3;
 export const STATUS_NEGADO = 4;
+export const STATUS_EXPIRADO = 5;
 
 export interface CredentialCollaboratorBrief {
   id_collaborator: number;
@@ -116,6 +117,8 @@ export function statusBadgeClass(statusId: number): string {
       return 'bg-emerald-100 text-emerald-800';
     case STATUS_NEGADO:
       return 'bg-rose-100 text-rose-800';
+    case STATUS_EXPIRADO:
+      return 'bg-slate-200 text-slate-600';
     default:
       return 'bg-slate-100 text-slate-700';
   }

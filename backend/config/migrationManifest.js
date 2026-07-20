@@ -220,6 +220,24 @@ const migrations = [
     filename: "031_gate_access_day_log.sql",
     validate: (conn) => tableExists(conn, "gate_access_day_log"),
   },
+  {
+    filename: "032_authorization_expiration.sql",
+    validate: async (conn) => {
+      const [statusRows] = await conn.query(
+        `SELECT 1 FROM access_status WHERE id_access_status = 5 LIMIT 1`,
+      );
+      if (!statusRows.length) return false;
+      const [colRows] = await conn.query(
+        `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'aprovacoes'
+            AND COLUMN_NAME = 'status'
+          LIMIT 1`,
+      );
+      const columnType = String(colRows[0]?.COLUMN_TYPE || "").toUpperCase();
+      return columnType.includes("'EXPIRADO'");
+    },
+  },
 ];
 
 module.exports = migrations;

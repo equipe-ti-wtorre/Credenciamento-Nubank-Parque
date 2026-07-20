@@ -8,6 +8,7 @@ const {
   STATUS_AGUARDANDO_APROVACAO,
   STATUS_APROVADO,
   STATUS_NEGADO,
+  STATUS_EXPIRADO,
 } = require("../credentials/credentials.schema");
 const { buildEventScope: buildScopeFromUser } = require("../../utils/permissions");
 
@@ -470,6 +471,13 @@ async function markRejected(conn, idEntidade) {
   ]);
 }
 
+async function markExpired(conn, idEntidade) {
+  await conn.execute(`UPDATE event SET id_access_status = ? WHERE id_event = ?`, [
+    STATUS_EXPIRADO,
+    idEntidade,
+  ]);
+}
+
 async function resolveEventSetorId(conn, idEvent) {
   const [rows] = await conn.execute(
     `SELECT id_setor FROM aprovacoes
@@ -498,7 +506,11 @@ async function resolveEventSetorId(conn, idEvent) {
 async function reopenEventForApproval(conn, eventRow, { force = false, idSetor = null, idSolicitante = null } = {}) {
   const idEvent = eventRow.id_event || eventRow.id;
   const status = Number(eventRow.id_access_status);
-  const needsReopen = force || status === STATUS_APROVADO || status === STATUS_NEGADO;
+  const needsReopen =
+    force ||
+    status === STATUS_APROVADO ||
+    status === STATUS_NEGADO ||
+    status === STATUS_EXPIRADO;
 
   const [pending] = await conn.execute(
     `SELECT id FROM aprovacoes
@@ -606,8 +618,12 @@ async function updateEventPeriod(req, id, data) {
 
     let reopenResult = { reopened: false, created: false, idAprovacao: null };
     if (datesChanged) {
+      const currentStatus = Number(eventRow.id_access_status);
       reopenResult = await reopenEventForApproval(conn, eventRow, {
-        force: Number(eventRow.id_access_status) === STATUS_APROVADO,
+        force:
+          currentStatus === STATUS_APROVADO ||
+          currentStatus === STATUS_NEGADO ||
+          currentStatus === STATUS_EXPIRADO,
         idSolicitante: req.user?.id || null,
       });
     }
@@ -774,4 +790,5 @@ module.exports = {
   removeCompanyFromEventDay,
   markApproved,
   markRejected,
+  markExpired,
 };

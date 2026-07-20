@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, computed, inject, OnDestroy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import Swal from 'sweetalert2';
@@ -70,11 +70,12 @@ interface CompanyFormState {
       </div>
 
       <div class="card-surface p-4 mb-4 shrink-0">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
           <div>
             <label class="text-xs font-bold text-slate-500 uppercase">CNPJ</label>
             <input
               [(ngModel)]="filterCnpj"
+              (ngModelChange)="onTextFilterChange()"
               name="filterCnpj"
               placeholder="Somente números"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
@@ -84,6 +85,7 @@ interface CompanyFormState {
             <label class="text-xs font-bold text-slate-500 uppercase">Nome</label>
             <input
               [(ngModel)]="filterName"
+              (ngModelChange)="onTextFilterChange()"
               name="filterName"
               placeholder="Razão social ou fantasia"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
@@ -93,6 +95,7 @@ interface CompanyFormState {
             <label class="text-xs font-bold text-slate-500 uppercase">Tipo</label>
             <select
               [(ngModel)]="filterTypeId"
+              (ngModelChange)="aplicarFiltros()"
               name="filterTypeId"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
             >
@@ -100,10 +103,11 @@ interface CompanyFormState {
               <option *ngFor="let t of types()" [ngValue]="t.id_company_type">{{ t.description }}</option>
             </select>
           </div>
-        </div>
-        <div class="flex gap-2 mt-3">
-          <button type="button" (click)="aplicarFiltros()" class="btn-primary text-sm py-1.5 px-4">Filtrar</button>
-          <button type="button" (click)="limparFiltros()" class="btn-secondary text-sm py-1.5 px-4">Limpar</button>
+          <div>
+            <button type="button" (click)="limparFiltros()" class="btn-secondary w-full justify-center text-sm py-2 px-4">
+              Limpar
+            </button>
+          </div>
         </div>
       </div>
 
@@ -319,7 +323,7 @@ interface CompanyFormState {
     </app-modal>
   `,
 })
-export class CompanyListComponent {
+export class CompanyListComponent implements OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   readonly formatCnpj = formatCnpj;
 
@@ -345,6 +349,9 @@ export class CompanyListComponent {
   appliedName = '';
   appliedTypeId: number | null = null;
 
+  private readonly filterDebounceMs = 350;
+  private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
   form: CompanyFormState = this.emptyForm();
 
   stats = computed(() => {
@@ -362,6 +369,10 @@ export class CompanyListComponent {
   ) {
     this.carregarTipos();
     this.carregar();
+  }
+
+  ngOnDestroy() {
+    this.clearFilterDebounce();
   }
 
   private emptyForm(): CompanyFormState {
@@ -405,7 +416,13 @@ export class CompanyListComponent {
       });
   }
 
+  onTextFilterChange() {
+    this.clearFilterDebounce();
+    this.filterDebounceTimer = setTimeout(() => this.aplicarFiltros(), this.filterDebounceMs);
+  }
+
   aplicarFiltros() {
+    this.clearFilterDebounce();
     this.appliedCnpj = this.filterCnpj.trim();
     this.appliedName = this.filterName.trim();
     this.appliedTypeId = this.filterTypeId;
@@ -413,6 +430,7 @@ export class CompanyListComponent {
   }
 
   limparFiltros() {
+    this.clearFilterDebounce();
     this.filterCnpj = '';
     this.filterName = '';
     this.filterTypeId = null;
@@ -420,6 +438,13 @@ export class CompanyListComponent {
     this.appliedName = '';
     this.appliedTypeId = null;
     this.carregar(1);
+  }
+
+  private clearFilterDebounce() {
+    if (this.filterDebounceTimer !== null) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
+    }
   }
 
   irPagina(page: number) {

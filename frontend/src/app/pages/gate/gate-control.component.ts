@@ -27,6 +27,11 @@ import {
   GateValidateResponse,
   GateValidateSuccess,
   GateManualReleaseResult,
+  GateCalendarItem,
+  GateCalendarTypeKey,
+  GateCalendarDetailResponse,
+  GateCalendarCollaborator,
+  GateCalendarVehicle,
 } from '../../services/gate.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -60,6 +65,49 @@ interface GateStats {
   veiculo: number;
   colaborador: number;
 }
+
+type GateMode = 'events' | 'patrimonial' | 'calendar';
+
+interface CalendarDayCell {
+  dateKey: string;
+  dayNum: number;
+  inMonth: boolean;
+  isToday: boolean;
+  items: GateCalendarItem[];
+  visibleItems: GateCalendarItem[];
+  hiddenCount: number;
+}
+
+const CAL_MESES = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+];
+const CAL_MES_ABBR = [
+  'JAN',
+  'FEV',
+  'MAR',
+  'ABR',
+  'MAI',
+  'JUN',
+  'JUL',
+  'AGO',
+  'SET',
+  'OUT',
+  'NOV',
+  'DEZ',
+];
+const CAL_DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const CAL_DAY_CHIP_LIMIT = 2;
 
 @Component({
   selector: 'app-gate-control',
@@ -101,7 +149,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   /** Tick for relative-time labels ("há X min") — bumped every 30s when someone is inside. */
   private relTick = signal(0);
 
-  gateMode = signal<'events' | 'patrimonial'>('patrimonial');
+  gateMode = signal<GateMode>('patrimonial');
   todayCredentials = signal<GateTodayCredential[]>([]);
   todayServices = signal<GateTodayService[]>([]);
   todayLoading = signal(false);
@@ -112,8 +160,127 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   private thumbnailLoadId = 0;
   private approverPhotoLoadId = 0;
 
+  calendarItems = signal<GateCalendarItem[]>([]);
+  calendarSelected = signal<GateCalendarItem | null>(null);
+  calendarDetailOpen = signal(false);
+  calendarDetailLoading = signal(false);
+  calendarDetailItem = signal<GateCalendarItem | null>(null);
+  calendarDetailCollaborators = signal<GateCalendarCollaborator[]>([]);
+  calendarDetailVehicles = signal<GateCalendarVehicle[]>([]);
+  calendarLoading = signal(false);
+  dayListOpen = signal(false);
+  dayListDateKey = signal<string | null>(null);
+  private now = new Date();
+  viewYear = signal(this.now.getFullYear());
+  viewMonth = signal(this.now.getMonth());
+
+  readonly calDow = CAL_DOW;
+
+  monthLabel = computed(() => `${CAL_MESES[this.viewMonth()]} ${this.viewYear()}`);
+
+  todayDateKey = computed(() => {
+    this.relTick();
+    return this.formatLocalDateKey(new Date());
+  });
+
+  calendarCells = computed((): CalendarDayCell[] => {
+    const y = this.viewYear();
+    const m = this.viewMonth();
+    const todayKey = this.todayDateKey();
+    const items = this.calendarItems();
+    const byDate = new Map<string, GateCalendarItem[]>();
+    for (const item of items) {
+      const list = byDate.get(item.date) || [];
+      list.push(item);
+      byDate.set(item.date, list);
+    }
+
+    const first = new Date(y, m, 1);
+    const startDow = first.getDay();
+    const daysIn = new Date(y, m + 1, 0).getDate();
+    const prevDays = new Date(y, m, 0).getDate();
+    const cellsCount = Math.ceil((startDow + daysIn) / 7) * 7;
+    const cells: CalendarDayCell[] = [];
+
+    for (let i = 0; i < cellsCount; i += 1) {
+      const dayNum = i - startDow + 1;
+      const inMonth = dayNum >= 1 && dayNum <= daysIn;
+      let realY = y;
+      let realM = m;
+      let realD = dayNum;
+      if (dayNum < 1) {
+        realM = m - 1;
+        realD = prevDays + dayNum;
+        if (realM < 0) {
+          realM = 11;
+          realY -= 1;
+        }
+      } else if (dayNum > daysIn) {
+        realM = m + 1;
+        realD = dayNum - daysIn;
+        if (realM > 11) {
+          realM = 0;
+          realY += 1;
+        }
+      }
+      const dateKey = `${realY}-${String(realM + 1).padStart(2, '0')}-${String(realD).padStart(2, '0')}`;
+      const dayItems = inMonth ? byDate.get(dateKey) || [] : [];
+      cells.push({
+        dateKey,
+        dayNum: realD,
+        inMonth,
+        isToday: dateKey === todayKey,
+        items: dayItems,
+        visibleItems: dayItems.slice(0, CAL_DAY_CHIP_LIMIT),
+        hiddenCount: Math.max(0, dayItems.length - CAL_DAY_CHIP_LIMIT),
+      });
+    }
+    return cells;
+  });
+
+  dayListItems = computed(() => {
+    const key = this.dayListDateKey();
+    if (!key) return [];
+    return this.calendarItems()
+      .filter((item) => item.date === key)
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  });
+
+  dayListTitle = computed(() => {
+    const key = this.dayListDateKey();
+    if (!key) return '';
+    return this.formatFullDateKey(key);
+  });
+
+  dayListSubtitle = computed(() => {
+    const n = this.dayListItems().length;
+    if (n === 0) return 'Nenhum item';
+    if (n === 1) return '1 item';
+    return `${n} itens`;
+  });
+
+  upcomingItems = computed(() => {
+    const today = this.todayDateKey();
+    const seen = new Set<string>();
+    const out: GateCalendarItem[] = [];
+    for (const item of this.calendarItems()) {
+      if (item.date < today) continue;
+      const uniq = `${item.kind}:${item.source_id}:${item.date}`;
+      if (seen.has(uniq)) continue;
+      seen.add(uniq);
+      out.push(item);
+    }
+    return out.sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return a.name.localeCompare(b.name, 'pt-BR');
+    });
+  });
+
   stats = computed((): GateStats => {
     this.relTick();
+    if (this.gateMode() === 'calendar') {
+      return { total: 0, wait: 0, in: 0, done: 0, veiculo: 0, colaborador: 0 };
+    }
     if (this.gateMode() === 'patrimonial') {
       const list = this.todayServices();
       return {
@@ -438,16 +605,23 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     return `há ${Math.floor(m / 60)}h ${m % 60}min`;
   }
 
-  setGateMode(mode: 'events' | 'patrimonial'): void {
+  setGateMode(mode: GateMode): void {
     this.gateMode.set(mode);
     this.manualSearch.set('');
     this.statusFilter.set('todos');
     this.typeFilter.set('todos');
+    this.calendarSelected.set(null);
+    this.closeCalendarDetail();
+    this.closeDayList();
     this.loadTodayList();
     this.focusScanInput();
   }
 
   loadTodayList(): void {
+    if (this.gateMode() === 'calendar') {
+      this.loadCalendar();
+      return;
+    }
     this.todayLoading.set(true);
     if (this.gateMode() === 'patrimonial') {
       this.gateService.listTodayServices().subscribe({
@@ -480,6 +654,209 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         this.cdr.markForCheck();
       },
     });
+  }
+
+  private calendarRangeKeys(): { from: string; to: string } {
+    const y = this.viewYear();
+    const m = this.viewMonth();
+    const first = new Date(y, m, 1);
+    const startDow = first.getDay();
+    const daysIn = new Date(y, m + 1, 0).getDate();
+    const cellsCount = Math.ceil((startDow + daysIn) / 7) * 7;
+    const gridStart = new Date(y, m, 1 - startDow);
+    const gridEnd = new Date(y, m, 1 - startDow + cellsCount - 1);
+    return {
+      from: this.formatLocalDateKey(gridStart),
+      to: this.formatLocalDateKey(gridEnd),
+    };
+  }
+
+  loadCalendar(): void {
+    const { from, to } = this.calendarRangeKeys();
+    this.calendarLoading.set(true);
+    this.gateService.listCalendar(from, to).subscribe({
+      next: (res) => {
+        this.calendarItems.set(res.items || []);
+        this.calendarLoading.set(false);
+        this.cdr.markForCheck();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.calendarLoading.set(false);
+        this.notify.error(err.error?.message || 'Falha ao carregar o calendário.');
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  prevCalendarMonth(): void {
+    let m = this.viewMonth() - 1;
+    let y = this.viewYear();
+    if (m < 0) {
+      m = 11;
+      y -= 1;
+    }
+    this.viewMonth.set(m);
+    this.viewYear.set(y);
+    this.closeCalendarDetail();
+    this.closeDayList();
+    this.loadCalendar();
+  }
+
+  nextCalendarMonth(): void {
+    let m = this.viewMonth() + 1;
+    let y = this.viewYear();
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+    this.viewMonth.set(m);
+    this.viewYear.set(y);
+    this.closeCalendarDetail();
+    this.closeDayList();
+    this.loadCalendar();
+  }
+
+  goCalendarToday(): void {
+    const now = new Date();
+    this.viewYear.set(now.getFullYear());
+    this.viewMonth.set(now.getMonth());
+    this.closeCalendarDetail();
+    this.closeDayList();
+    this.loadCalendar();
+  }
+
+  openCalendarItem(item: GateCalendarItem): void {
+    this.closeDayList();
+    this.calendarSelected.set(item);
+    this.calendarDetailItem.set(item);
+    this.calendarDetailCollaborators.set([]);
+    this.calendarDetailVehicles.set([]);
+    this.calendarDetailOpen.set(true);
+    this.calendarDetailLoading.set(true);
+    this.gateService.getCalendarDetail(item.kind, item.source_id, item.date).subscribe({
+      next: (res: GateCalendarDetailResponse) => {
+        this.calendarDetailItem.set(res.item);
+        this.calendarDetailCollaborators.set(res.collaborators || []);
+        this.calendarDetailVehicles.set(res.vehicles || []);
+        this.calendarDetailLoading.set(false);
+        this.cdr.markForCheck();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.calendarDetailLoading.set(false);
+        this.notify.error(err.error?.message || 'Falha ao carregar o detalhe.');
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  openDayList(cell: CalendarDayCell): void {
+    if (!cell.inMonth) return;
+    this.closeCalendarDetail();
+    this.dayListDateKey.set(cell.dateKey);
+    this.dayListOpen.set(true);
+  }
+
+  closeDayList(): void {
+    this.dayListOpen.set(false);
+    this.dayListDateKey.set(null);
+  }
+
+  closeCalendarDetail(): void {
+    this.calendarDetailOpen.set(false);
+    this.calendarDetailLoading.set(false);
+    this.calendarSelected.set(null);
+    this.calendarDetailItem.set(null);
+    this.calendarDetailCollaborators.set([]);
+    this.calendarDetailVehicles.set([]);
+  }
+
+  calendarDetailSubtitle(): string {
+    const item = this.calendarDetailItem();
+    if (!item) return '';
+    const kindLabel = item.kind === 'event' ? 'Evento' : 'Solicitação de serviço';
+    return `${kindLabel} · ${this.formatFullCalendarDate(item)}`;
+  }
+
+  chipClass(typeKey: GateCalendarTypeKey): string {
+    switch (typeKey) {
+      case 'sport':
+        return 'chip-sport';
+      case 'setup':
+      case 'teardown':
+        return 'chip-setup';
+      case 'service':
+        return 'chip-service';
+      default:
+        return 'chip-show';
+    }
+  }
+
+  railColor(typeKey: GateCalendarTypeKey): string {
+    switch (typeKey) {
+      case 'sport':
+        return 'var(--ok)';
+      case 'setup':
+      case 'teardown':
+        return '#7c3aed';
+      case 'service':
+        return '#0ea5e9';
+      default:
+        return 'var(--wtorre)';
+    }
+  }
+
+  isLiveToday(item: GateCalendarItem): boolean {
+    return item.date === this.todayDateKey();
+  }
+
+  formatCalendarPeriod(item: GateCalendarItem): string {
+    const start = this.formatBrDate(item.start_date);
+    const end = this.formatBrDate(item.end_date);
+    if (start === end) return start;
+    return `${start} — ${end}`;
+  }
+
+  formatUpcomingWhen(item: GateCalendarItem): string {
+    const d = new Date(`${item.date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return item.date;
+    const dow = CAL_DOW[d.getDay()];
+    return `${dow} · ${String(d.getDate()).padStart(2, '0')} ${CAL_MES_ABBR[d.getMonth()]}`;
+  }
+
+  upcomingDateParts(item: GateCalendarItem): { d: string; m: string } {
+    const d = new Date(`${item.date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return { d: '--', m: '---' };
+    return {
+      d: String(d.getDate()).padStart(2, '0'),
+      m: CAL_MES_ABBR[d.getMonth()],
+    };
+  }
+
+  formatFullCalendarDate(item: GateCalendarItem): string {
+    return this.formatFullDateKey(item.date);
+  }
+
+  formatFullDateKey(dateKey: string): string {
+    const d = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return dateKey;
+    return `${CAL_DOW[d.getDay()]}, ${String(d.getDate()).padStart(2, '0')} de ${CAL_MESES[d.getMonth()]} de ${d.getFullYear()}`;
+  }
+
+  formatBrDatePublic(dateKey: string): string {
+    return this.formatBrDate(dateKey);
+  }
+
+  private formatBrDate(dateKey: string): string {
+    const d = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return dateKey;
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+
+  private formatLocalDateKey(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   pictureUrl(accessId: string): string | null {

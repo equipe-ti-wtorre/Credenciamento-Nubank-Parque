@@ -517,6 +517,8 @@ export class EventDetailComponent implements OnInit {
         return 'bg-emerald-100 text-emerald-800';
       case 4:
         return 'bg-red-100 text-red-800';
+      case 5:
+        return 'bg-slate-200 text-slate-600';
       case 2:
         return 'bg-amber-100 text-amber-800';
       default:

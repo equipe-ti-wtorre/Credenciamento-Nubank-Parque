@@ -1638,6 +1638,352 @@ async function cancelPendingServiceApproval(req, idServiceAccess) {
   };
 }
 
+function mapEventDayTypeKey(description) {
+  const d = String(description || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (d === "jogo") return "sport";
+  if (d === "montagem") return "setup";
+  if (d === "desmontagem") return "teardown";
+  return "show";
+}
+
+function eachDateKeyInclusive(fromKey, toKey) {
+  const out = [];
+  const cur = new Date(`${fromKey}T00:00:00`);
+  const end = new Date(`${toKey}T00:00:00`);
+  if (Number.isNaN(cur.getTime()) || Number.isNaN(end.getTime()) || cur > end) return out;
+  while (cur <= end) {
+    out.push(toDateKey(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+function maxDateKey(a, b) {
+  return a >= b ? a : b;
+}
+
+function minDateKey(a, b) {
+  return a <= b ? a : b;
+}
+
+/**
+ * Agenda unificada (eventos + solicitações) para a aba Calendário da Portaria.
+ * Um item por dia: event_day para eventos; expansão start..end para serviços.
+ */
+async function listCalendarItems(from, to) {
+  const statusFilter = [STATUS_AGUARDANDO_APROVACAO, STATUS_APROVADO];
+
+  const [eventRows] = await db.execute(
+    `SELECT e.id_event,
+            e.name,
+            DATE_FORMAT(e.start, '%Y-%m-%d') AS start_date,
+            DATE_FORMAT(e.end, '%Y-%m-%d') AS end_date,
+            e.id_access_status,
+            ast.description AS status_label,
+            ed.id_event_day,
+            DATE_FORMAT(ed.date, '%Y-%m-%d') AS day_date,
+            edt.description AS type_label,
+            (SELECT COUNT(DISTINCT edc.id_company)
+               FROM event_day_company edc
+              WHERE edc.id_event_day = ed.id_event_day) AS companies_count,
+            (SELECT COUNT(*)
+               FROM event_day_company edc
+               INNER JOIN event_day_company_collaborator edcc
+                 ON edcc.id_event_day_company = edc.id_event_day_company
+              WHERE edc.id_event_day = ed.id_event_day) AS collaborators_count
+       FROM event_day ed
+       INNER JOIN event e ON e.id_event = ed.id_event
+       INNER JOIN event_day_type edt ON edt.id_event_day_type = ed.id_type
+       LEFT JOIN access_status ast ON ast.id_access_status = e.id_access_status
+      WHERE ed.date BETWEEN ? AND ?
+        AND e.id_access_status IN (?, ?)
+      ORDER BY ed.date ASC, e.name ASC`,
+    [from, to, ...statusFilter],
+  );
+
+  const [serviceRows] = await db.execute(
+    `SELECT sa.id_service_access,
+            sa.finalidade,
+            sa.service_type,
+            sa.requesting_department,
+            DATE_FORMAT(sa.start_date, '%Y-%m-%d') AS start_date,
+            DATE_FORMAT(sa.end_date, '%Y-%m-%d') AS end_date,
+            sa.id_access_status,
+            ast.description AS status_label,
+            c.fancy_name AS company_name,
+            (SELECT COUNT(*) FROM service_access_collaborator sac
+              WHERE sac.id_service_access = sa.id_service_access) AS collaborators_count,
+            (SELECT COUNT(*) FROM service_access_vehicle sav
+              WHERE sav.id_service_access = sa.id_service_access) AS vehicles_count
+       FROM service_access sa
+       INNER JOIN company c ON c.id_company = sa.id_company
+       LEFT JOIN access_status ast ON ast.id_access_status = sa.id_access_status
+      WHERE sa.status = 1
+        AND sa.id_access_status IN (?, ?)
+        AND sa.end_date >= ?
+        AND sa.start_date <= ?
+      ORDER BY sa.start_date ASC, sa.id_service_access ASC`,
+    [...statusFilter, from, to],
+  );
+
+  const items = [];
+
+  for (const row of eventRows) {
+    const date = toDateKey(row.day_date);
+    if (!date) continue;
+    const typeLabel = row.type_label || "Show";
+    items.push({
+      key: `event:${row.id_event}:${date}`,
+      kind: "event",
+      source_id: Number(row.id_event),
+      date,
+      name: row.name,
+      start_date: toDateKey(row.start_date),
+      end_date: toDateKey(row.end_date),
+      type_key: mapEventDayTypeKey(typeLabel),
+      type_label: typeLabel,
+      status_id: Number(row.id_access_status),
+      status_label: row.status_label || "",
+      company_name: null,
+      department: null,
+      companies_count: Number(row.companies_count) || 0,
+      collaborators_count: Number(row.collaborators_count) || 0,
+      vehicles_count: 0,
+    });
+  }
+
+  for (const row of serviceRows) {
+    const startDate = toDateKey(row.start_date);
+    const endDate = toDateKey(row.end_date);
+    if (!startDate || !endDate) continue;
+    const rangeStart = maxDateKey(startDate, from);
+    const rangeEnd = minDateKey(endDate, to);
+    const name = row.finalidade || row.service_type || "Solicitação de serviço";
+    for (const date of eachDateKeyInclusive(rangeStart, rangeEnd)) {
+      items.push({
+        key: `service:${row.id_service_access}:${date}`,
+        kind: "service",
+        source_id: Number(row.id_service_access),
+        date,
+        name,
+        start_date: startDate,
+        end_date: endDate,
+        type_key: "service",
+        type_label: "Serviço",
+        status_id: Number(row.id_access_status),
+        status_label: row.status_label || "",
+        company_name: row.company_name || null,
+        department: row.requesting_department || null,
+        companies_count: 1,
+        collaborators_count: Number(row.collaborators_count) || 0,
+        vehicles_count: Number(row.vehicles_count) || 0,
+      });
+    }
+  }
+
+  items.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return String(a.name).localeCompare(String(b.name), "pt-BR");
+  });
+
+  return items;
+}
+
+function mapCalendarCollaborator(row) {
+  return {
+    id: Number(row.id_collaborator),
+    name: row.collaborator_name,
+    document_masked: maskDocument(row.collaborator_document),
+    document_type: row.document_type_description || null,
+    role: row.role_description || null,
+    company_name: row.company_name || null,
+  };
+}
+
+async function getCalendarEventDetail(sourceId, date) {
+  const statusFilter = [STATUS_AGUARDANDO_APROVACAO, STATUS_APROVADO];
+  const [eventRows] = await db.execute(
+    `SELECT e.id_event,
+            e.name,
+            DATE_FORMAT(e.start, '%Y-%m-%d') AS start_date,
+            DATE_FORMAT(e.end, '%Y-%m-%d') AS end_date,
+            e.id_access_status,
+            ast.description AS status_label,
+            ed.id_event_day,
+            DATE_FORMAT(ed.date, '%Y-%m-%d') AS day_date,
+            edt.description AS type_label
+       FROM event_day ed
+       INNER JOIN event e ON e.id_event = ed.id_event
+       INNER JOIN event_day_type edt ON edt.id_event_day_type = ed.id_type
+       LEFT JOIN access_status ast ON ast.id_access_status = e.id_access_status
+      WHERE e.id_event = ?
+        AND ed.date = ?
+        AND e.id_access_status IN (?, ?)
+      LIMIT 1`,
+    [sourceId, date, ...statusFilter],
+  );
+  const row = eventRows[0];
+  if (!row) throw new AppError("Evento não encontrado para esta data.", 404);
+
+  const idEventDay = row.id_event_day;
+  const [collabRows] = await db.execute(
+    `SELECT c.id_collaborator,
+            c.name AS collaborator_name,
+            c.document AS collaborator_document,
+            cdt.description AS document_type_description,
+            cr.description AS role_description,
+            co.fancy_name AS company_name
+       FROM event_day_company_collaborator edcc
+       INNER JOIN event_day_company edc
+         ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN collaborator c ON c.id_collaborator = COALESCE(edcc.id_substitute, edcc.id_collaborator)
+       INNER JOIN collaborator_document_type cdt
+         ON cdt.id_collaborator_document_type = c.id_collaborator_document_type
+       LEFT JOIN collaborator_role cr ON cr.id_collaborator_role = edcc.id_collaborator_role
+       LEFT JOIN company co ON co.id_company = edc.id_company
+      WHERE edc.id_event_day = ?
+      ORDER BY co.fancy_name ASC, c.name ASC`,
+    [idEventDay],
+  );
+
+  const [companyCountRows] = await db.execute(
+    `SELECT COUNT(DISTINCT id_company) AS companies_count
+       FROM event_day_company
+      WHERE id_event_day = ?`,
+    [idEventDay],
+  );
+
+  const typeLabel = row.type_label || "Show";
+  const collaborators = collabRows.map(mapCalendarCollaborator);
+
+  return {
+    item: {
+      key: `event:${row.id_event}:${date}`,
+      kind: "event",
+      source_id: Number(row.id_event),
+      date: toDateKey(row.day_date),
+      name: row.name,
+      start_date: toDateKey(row.start_date),
+      end_date: toDateKey(row.end_date),
+      type_key: mapEventDayTypeKey(typeLabel),
+      type_label: typeLabel,
+      status_id: Number(row.id_access_status),
+      status_label: row.status_label || "",
+      company_name: null,
+      department: null,
+      companies_count: Number(companyCountRows[0]?.companies_count) || 0,
+      collaborators_count: collaborators.length,
+      vehicles_count: 0,
+    },
+    collaborators,
+    vehicles: [],
+  };
+}
+
+async function getCalendarServiceDetail(sourceId, date) {
+  const statusFilter = [STATUS_AGUARDANDO_APROVACAO, STATUS_APROVADO];
+  const [serviceRows] = await db.execute(
+    `SELECT sa.id_service_access,
+            sa.finalidade,
+            sa.service_type,
+            sa.requesting_department,
+            DATE_FORMAT(sa.start_date, '%Y-%m-%d') AS start_date,
+            DATE_FORMAT(sa.end_date, '%Y-%m-%d') AS end_date,
+            sa.id_access_status,
+            ast.description AS status_label,
+            c.fancy_name AS company_name
+       FROM service_access sa
+       INNER JOIN company c ON c.id_company = sa.id_company
+       LEFT JOIN access_status ast ON ast.id_access_status = sa.id_access_status
+      WHERE sa.id_service_access = ?
+        AND sa.status = 1
+        AND sa.id_access_status IN (?, ?)
+        AND sa.start_date <= ?
+        AND sa.end_date >= ?
+      LIMIT 1`,
+    [sourceId, ...statusFilter, date, date],
+  );
+  const row = serviceRows[0];
+  if (!row) throw new AppError("Solicitação de serviço não encontrada para esta data.", 404);
+
+  const [collabRows] = await db.execute(
+    `SELECT c.id_collaborator,
+            c.name AS collaborator_name,
+            c.document AS collaborator_document,
+            cdt.description AS document_type_description,
+            cr.description AS role_description,
+            co.fancy_name AS company_name
+       FROM service_access_collaborator sac
+       INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+       INNER JOIN collaborator c ON c.id_collaborator = COALESCE(sac.id_substitute, sac.id_collaborator)
+       INNER JOIN collaborator_document_type cdt
+         ON cdt.id_collaborator_document_type = c.id_collaborator_document_type
+       LEFT JOIN collaborator_role cr ON cr.id_collaborator_role = sac.id_collaborator_role
+       INNER JOIN company co ON co.id_company = sa.id_company
+      WHERE sac.id_service_access = ?
+      ORDER BY c.name ASC`,
+    [sourceId],
+  );
+
+  const [vehicleRows] = await db.execute(
+    `SELECT sav.id_service_access_vehicle,
+            COALESCE(sub.plate, v.plate) AS plate,
+            v.brand,
+            v.model,
+            v.color
+       FROM service_access_vehicle sav
+       INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
+       LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
+      WHERE sav.id_service_access = ?
+      ORDER BY COALESCE(sub.plate, v.plate) ASC`,
+    [sourceId],
+  );
+
+  const startDate = toDateKey(row.start_date);
+  const endDate = toDateKey(row.end_date);
+  const name = row.finalidade || row.service_type || "Solicitação de serviço";
+  const collaborators = collabRows.map(mapCalendarCollaborator);
+  const vehicles = vehicleRows.map((v) => ({
+    id: Number(v.id_service_access_vehicle),
+    plate: v.plate,
+    brand: v.brand || null,
+    model: v.model || null,
+    color: v.color || null,
+  }));
+
+  return {
+    item: {
+      key: `service:${row.id_service_access}:${date}`,
+      kind: "service",
+      source_id: Number(row.id_service_access),
+      date,
+      name,
+      start_date: startDate,
+      end_date: endDate,
+      type_key: "service",
+      type_label: "Serviço",
+      status_id: Number(row.id_access_status),
+      status_label: row.status_label || "",
+      company_name: row.company_name || null,
+      department: row.requesting_department || null,
+      companies_count: 1,
+      collaborators_count: collaborators.length,
+      vehicles_count: vehicles.length,
+    },
+    collaborators,
+    vehicles,
+  };
+}
+
+async function getCalendarItemDetail(kind, sourceId, date) {
+  if (kind === "event") return getCalendarEventDetail(sourceId, date);
+  return getCalendarServiceDetail(sourceId, date);
+}
+
 module.exports = {
   validateEventAccess,
   substituteEventCollaborator,
@@ -1645,6 +1991,8 @@ module.exports = {
   validateServiceAccess,
   substituteServiceAccess,
   listTodayExpectedServices,
+  listCalendarItems,
+  getCalendarItemDetail,
   listManualReleaseMeta,
   searchManualReleaseCollaborator,
   searchManualReleaseCollaborators,

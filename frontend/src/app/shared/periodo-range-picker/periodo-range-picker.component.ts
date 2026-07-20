@@ -129,7 +129,9 @@ const MONTHS = [
 
       <div class="prp-error-slot" aria-live="polite">
         @if (showError()) {
-          <p class="prp-error">Informe o período do acesso.</p>
+          <p class="prp-error">
+            {{ draftStart() && !draftEnd() ? 'Selecione a data final do período.' : 'Informe o período do acesso.' }}
+          </p>
         }
       </div>
 
@@ -483,6 +485,10 @@ export class PeriodoRangePickerComponent implements ControlValueAccessor, Valida
     if (!this.host.nativeElement.contains(ev.target as Node)) {
       this.open.set(false);
       this.markTouched();
+      // Seleção incompleta ao fechar: garante revalidação do form pai.
+      if (this.draftStart() && !this.draftEnd()) {
+        this.onValidatorChange();
+      }
     }
   }
 
@@ -519,9 +525,15 @@ export class PeriodoRangePickerComponent implements ControlValueAccessor, Valida
   }
 
   showError(): boolean {
-    if (this.draftStart() && !this.draftEnd()) return false;
-    if (this.parentInvalid && this.parentTouched) return true;
-    return this.touched && !this.valueSig();
+    const incomplete = !!(this.draftStart() && !this.draftEnd());
+    const empty = !this.valueSig()?.inicio || !this.valueSig()?.fim;
+    const invalid = incomplete || empty || this.parentInvalid;
+    if (!invalid) return false;
+    // Com seleção incompleta (um clique), mostra erro ao fechar o painel ou ao tentar continuar.
+    if (incomplete) {
+      return this.parentTouched || (this.touched && !this.panelOpen());
+    }
+    return this.parentTouched || this.touched;
   }
 
   onTriggerClick() {

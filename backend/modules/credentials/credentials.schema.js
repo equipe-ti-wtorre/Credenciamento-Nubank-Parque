@@ -4,6 +4,7 @@ const STATUS_AGUARDANDO_PRODUTORA = 1;
 const STATUS_AGUARDANDO_APROVACAO = 2;
 const STATUS_APROVADO = 3;
 const STATUS_NEGADO = 4;
+const STATUS_EXPIRADO = 5;
 
 const credentialCreateSchema = Joi.object({
   id_event_day_company: Joi.number().integer().positive().required(),
@@ -28,6 +29,7 @@ module.exports = {
   STATUS_AGUARDANDO_APROVACAO,
   STATUS_APROVADO,
   STATUS_NEGADO,
+  STATUS_EXPIRADO,
   credentialCreateSchema,
   credentialStatusSchema,
 };

@@ -1,6 +1,7 @@
-import { ChangeDetectorRef, Component, computed, inject, OnDestroy, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, inject, OnDestroy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 import Swal from 'sweetalert2';
 import {
   CollaboratorDocumentType,
@@ -102,7 +103,7 @@ interface CollaboratorFormState {
             </svg>
           </div>
           <div>
-            <p class="stat-card__label">Total (página)</p>
+            <p class="stat-card__label">Total</p>
             <p class="stat-card__value text-slate-800">{{ stats().total }}</p>
           </div>
         </div>
@@ -801,15 +802,7 @@ export class CollaboratorListComponent implements OnDestroy {
     templateFilename: 'template-colaboradores.xlsx',
   };
 
-  stats = computed(() => {
-    const list = this.collaborators();
-    return {
-      total: list.length,
-      ativos: list.filter((c) => c.status).length,
-      inativos: list.filter((c) => !c.status).length,
-      blacklist: list.filter((c) => c.is_blacklisted).length,
-    };
-  });
+  stats = signal({ total: 0, ativos: 0, inativos: 0, blacklist: 0 });
 
   constructor(
     private collaboratorService: CollaboratorService,
@@ -967,8 +960,28 @@ export class CollaboratorListComponent implements OnDestroy {
     });
   }
 
+  private carregarStats() {
+    forkJoin({
+      total: this.collaboratorService.list(1, 1, {}),
+      ativos: this.collaboratorService.list(1, 1, { status: true }),
+      inativos: this.collaboratorService.list(1, 1, { status: false }),
+      blacklist: this.collaboratorService.list(1, 1, { is_blacklisted: true }),
+    }).subscribe({
+      next: (res) => {
+        this.stats.set({
+          total: res.total.pagination.total,
+          ativos: res.ativos.pagination.total,
+          inativos: res.inativos.pagination.total,
+          blacklist: res.blacklist.pagination.total,
+        });
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
   carregar(page = this.pagination().page) {
     this.loading.set(true);
+    this.carregarStats();
     this.collaboratorService
       .list(page, this.pagination().limit, {
         document: this.appliedDocument || undefined,

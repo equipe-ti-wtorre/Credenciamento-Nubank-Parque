@@ -62,6 +62,7 @@ export interface CollaboratorListFilters {
   name?: string;
   document?: string;
   status?: boolean;
+  is_blacklisted?: boolean;
   id_collaborator_role?: number;
   id_collaborator_document_type?: number;
 }
@@ -225,6 +226,9 @@ export class CollaboratorService {
     if (filters.name?.trim()) params = params.set('name', filters.name.trim());
     if (filters.document?.trim()) params = params.set('document', filters.document.trim());
     if (filters.status !== undefined) params = params.set('status', String(filters.status));
+    if (filters.is_blacklisted !== undefined) {
+      params = params.set('is_blacklisted', String(filters.is_blacklisted));
+    }
     if (filters.id_collaborator_role != null && filters.id_collaborator_role > 0) {
       params = params.set('id_collaborator_role', String(filters.id_collaborator_role));
     }

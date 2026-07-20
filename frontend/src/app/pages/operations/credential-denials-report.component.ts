@@ -19,7 +19,7 @@ import { NotificationService } from '../../core/services/notification.service';
         <div>
           <h2 class="page-section-title">Negações de credenciamento</h2>
           <p class="page-section-subtitle">
-            Consulte as recusas de credenciais registradas no sistema (até 500 registros mais recentes).
+            Consulte todas as recusas de credenciais registradas no sistema.
           </p>
         </div>
         <button
@@ -126,7 +126,7 @@ import { NotificationService } from '../../core/services/notification.service';
           *ngIf="!loading()"
           class="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500"
         >
-          {{ items().length }} registro(s) — exibindo no máximo 500 mais recentes
+          {{ items().length }} registro(s)
         </div>
       </div>
     </div>

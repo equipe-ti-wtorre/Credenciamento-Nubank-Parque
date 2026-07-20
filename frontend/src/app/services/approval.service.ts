@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
 export type ApprovalEntityType = 'EVENTO' | 'ACESSO_SERVICO';
-export type ApprovalStatus = 'PENDENTE' | 'APROVADO' | 'REPROVADO' | 'CANCELADO';
+export type ApprovalStatus = 'PENDENTE' | 'APROVADO' | 'REPROVADO' | 'CANCELADO' | 'EXPIRADO';
 
 export type ApprovalHistoryType =
   | 'CRIACAO'
@@ -183,10 +183,27 @@ export function approvalStatusBadgeClass(status: ApprovalStatus | string): strin
     case 'REPROVADO':
       return 'bg-red-100 text-red-800';
     case 'CANCELADO':
+    case 'EXPIRADO':
       return 'bg-slate-100 text-slate-600';
     case 'PENDENTE':
     default:
       return 'bg-amber-100 text-amber-800';
+  }
+}
+
+export function approvalStatusLabel(status: ApprovalStatus | string): string {
+  switch (status) {
+    case 'APROVADO':
+      return 'Aprovado';
+    case 'REPROVADO':
+      return 'Reprovado';
+    case 'CANCELADO':
+      return 'Cancelado';
+    case 'EXPIRADO':
+      return 'Tempo de autorização expirada';
+    case 'PENDENTE':
+    default:
+      return 'Pendente';
   }
 }
 

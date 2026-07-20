@@ -21,6 +21,11 @@ router.get(
   serviceAccessController.downloadVehiclesBulkTemplate,
 );
 router.post("/", ...canCreate, serviceAccessController.create);
+router.post(
+  "/validate-collaborators-overlap",
+  ...canCreate,
+  serviceAccessController.validateCollaboratorsOverlap,
+);
 router.get("/:id", ...canView, serviceAccessController.getById);
 router.get(
   "/:id/bulk-import/template",

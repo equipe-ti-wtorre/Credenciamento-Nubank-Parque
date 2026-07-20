@@ -37,6 +37,18 @@
         >
           Eventos
         </button>
+        <button
+          type="button"
+          class="ctx-tab"
+          [class.active]="gateMode() === 'calendar'"
+          (click)="setGateMode('calendar')"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="3" />
+            <path d="M3 9h18M8 2v4M16 2v4" />
+          </svg>
+          Calendário
+        </button>
       </div>
       <div class="panel-head-actions">
         <button
@@ -44,12 +56,12 @@
           class="btn-ghost"
           [class.spin]="refreshSpin()"
           (click)="onRefreshClick()"
-          [disabled]="todayLoading()"
+          [disabled]="todayLoading() || calendarLoading()"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
           </svg>
-          {{ todayLoading() ? 'Atualizando…' : 'Atualizar lista' }}
+          {{ todayLoading() || calendarLoading() ? 'Atualizando…' : 'Atualizar lista' }}
         </button>
         <button
           type="button"
@@ -89,6 +101,7 @@
       </div>
     </div>
 
+    <ng-container *ngIf="gateMode() !== 'calendar'">
     <div class="status-tabs-row">
       <div class="status-tabs">
         <button
@@ -113,7 +126,7 @@
           [class.active]="statusFilter() === 'in'"
           (click)="setStatusFilter('in')"
         >
-          <span class="dot in"></span>Dentro agora <span class="cnt">{{ stats().in }}</span>
+          <span class="dot in"></span>Acessos <span class="cnt">{{ stats().in }}</span>
         </button>
         <button
           type="button"
@@ -195,6 +208,7 @@
     <p *ngIf="todayLoading()" class="empty-state">
       <span class="es-title">Carregando…</span>
     </p>
+    </ng-container>
 
     <!-- Eventos -->
     <ng-container *ngIf="!todayLoading() && gateMode() === 'events'">
@@ -277,7 +291,7 @@
             <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
             <div *ngSwitchCase="'CHECK_OUT'">
               <span class="status-pill in"
-                ><span class="d"></span>Dentro {{ relFrom(row.access_check_in) }}</span
+                ><span class="d"></span>Acessou {{ relFrom(row.access_check_in) }}</span
               >
               <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.access_check_in) }}</div>
             </div>
@@ -509,7 +523,7 @@
             <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
             <div *ngSwitchCase="'CHECK_OUT'">
               <span class="status-pill in"
-                ><span class="d"></span>Dentro {{ relFrom(row.check_in) }}</span
+                ><span class="d"></span>Acessou {{ relFrom(row.check_in) }}</span
               >
               <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.check_in) }}</div>
             </div>
@@ -591,6 +605,102 @@
         <span class="legend-item"><span class="day-dot legend today"></span>Hoje</span>
       </div>
     </ng-container>
+
+    <!-- Calendário -->
+    <ng-container *ngIf="gateMode() === 'calendar'">
+      <div class="cal-sub">
+        <div class="month-nav">
+          <button type="button" class="nav-btn" (click)="prevCalendarMonth()" aria-label="Mês anterior">
+            ‹
+          </button>
+          <h2 class="month-label">{{ monthLabel() }}</h2>
+          <button type="button" class="nav-btn" (click)="nextCalendarMonth()" aria-label="Próximo mês">
+            ›
+          </button>
+          <button type="button" class="btn-ghost today-btn" (click)="goCalendarToday()">Hoje</button>
+        </div>
+        <div class="cal-legend">
+          <span><i class="lg-show"></i>Show</span>
+          <span><i class="lg-sport"></i>Jogo</span>
+          <span><i class="lg-setup"></i>Montagem / Desmontagem</span>
+          <span><i class="lg-service"></i>Serviço</span>
+          <span><i class="lg-live"></i>Ao vivo hoje</span>
+        </div>
+      </div>
+
+      <p *ngIf="calendarLoading()" class="empty-state">
+        <span class="es-title">Carregando calendário…</span>
+      </p>
+
+      <div class="cal-body" *ngIf="!calendarLoading()">
+        <div class="cal-main">
+          <div class="cal-grid">
+            <div class="dow" *ngFor="let d of calDow">{{ d }}</div>
+            <div
+              *ngFor="let cell of calendarCells()"
+              class="day"
+              [class.out]="!cell.inMonth"
+              [class.today]="cell.isToday"
+              [class.clickable]="cell.inMonth"
+              (click)="openDayList(cell)"
+            >
+              <span class="dnum">{{ cell.dayNum }}</span>
+              <button
+                *ngFor="let item of cell.visibleItems"
+                type="button"
+                class="ev-chip"
+                [ngClass]="chipClass(item.type_key)"
+                [class.live]="isLiveToday(item)"
+                (click)="openCalendarItem(item); $event.stopPropagation()"
+                [title]="item.name"
+              >
+                <span class="cdot"></span>
+                <span class="cname">{{ item.type_label }} · {{ item.name }}</span>
+              </button>
+              <button
+                *ngIf="cell.hiddenCount > 0"
+                type="button"
+                class="day-more"
+                (click)="openDayList(cell); $event.stopPropagation()"
+              >
+                +{{ cell.hiddenCount }} mais
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="up">
+          <h3>Próximos</h3>
+          <div *ngIf="upcomingItems().length === 0" class="cal-empty">Nenhum evento ou solicitação futura.</div>
+          <button
+            *ngFor="let item of upcomingItems()"
+            type="button"
+            class="up-card"
+            (click)="openCalendarItem(item)"
+          >
+            <span class="rail" [style.background]="railColor(item.type_key)"></span>
+            <div class="up-date">
+              <div class="up-datebox">
+                <span class="d">{{ upcomingDateParts(item).d }}</span>
+                <span class="m">{{ upcomingDateParts(item).m }}</span>
+              </div>
+              <div>
+                <div class="up-when">{{ formatUpcomingWhen(item) }}</div>
+                <span class="pill" [class.live]="isLiveToday(item)" [class.soon]="!isLiveToday(item)">
+                  <span *ngIf="isLiveToday(item)" class="pdot"></span>
+                  {{ isLiveToday(item) ? 'Ao vivo hoje' : 'Em breve' }}
+                </span>
+              </div>
+            </div>
+            <div class="up-name">{{ item.name }}</div>
+            <div class="up-meta">
+              <span>{{ item.type_label }}</span>
+              <span *ngIf="item.company_name">{{ item.company_name }}</span>
+              <span *ngIf="item.status_label">{{ item.status_label }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+    </ng-container>
   </div>
 
   <div
@@ -634,6 +744,145 @@
       <p *ngIf="denyCode()" class="text-sm mt-4 opacity-80 font-mono">{{ denyCode() }}</p>
     </div>
   </div>
+
+  <app-modal
+    [open]="dayListOpen()"
+    [title]="dayListTitle()"
+    [subtitle]="dayListSubtitle()"
+    size="md"
+    (close)="closeDayList()"
+  >
+    <div *ngIf="dayListItems().length === 0" class="cal-modal-empty">Nenhum item neste dia.</div>
+    <div class="day-list" *ngIf="dayListItems().length > 0">
+      <button
+        *ngFor="let item of dayListItems()"
+        type="button"
+        class="up-card day-list-card"
+        (click)="openCalendarItem(item)"
+      >
+        <span class="rail" [style.background]="railColor(item.type_key)"></span>
+        <div class="up-date">
+          <div class="up-datebox">
+            <span class="d">{{ upcomingDateParts(item).d }}</span>
+            <span class="m">{{ upcomingDateParts(item).m }}</span>
+          </div>
+          <div>
+            <div class="up-when">{{ item.type_label }}</div>
+            <span class="pill" [class.live]="isLiveToday(item)" [class.soon]="!isLiveToday(item)">
+              <span *ngIf="isLiveToday(item)" class="pdot"></span>
+              {{ isLiveToday(item) ? 'Ao vivo hoje' : item.status_label || 'Em breve' }}
+            </span>
+          </div>
+        </div>
+        <div class="up-name">{{ item.name }}</div>
+        <div class="up-meta">
+          <span *ngIf="item.company_name">{{ item.company_name }}</span>
+          <span *ngIf="item.department">{{ item.department }}</span>
+          <span *ngIf="item.kind === 'event'">{{ item.collaborators_count || 0 }} colaborador(es)</span>
+          <span *ngIf="item.kind === 'service'">
+            {{ item.collaborators_count || 0 }} colab. · {{ item.vehicles_count || 0 }} veíc.
+          </span>
+        </div>
+      </button>
+    </div>
+
+    <div modal-footer class="modal-footer">
+      <button type="button" class="btn-action-secondary" (click)="closeDayList()">Fechar</button>
+    </div>
+  </app-modal>
+
+  <app-modal
+    [open]="calendarDetailOpen()"
+    [title]="calendarDetailItem()?.name || 'Detalhe'"
+    [subtitle]="calendarDetailSubtitle()"
+    size="lg"
+    (close)="closeCalendarDetail()"
+  >
+    <ng-container *ngIf="calendarDetailItem() as sel">
+      <p *ngIf="calendarDetailLoading()" class="cal-modal-loading">Carregando detalhes…</p>
+
+      <div class="cal-modal-meta" *ngIf="!calendarDetailLoading()">
+        <div class="cal-modal-chips">
+          <span class="cal-tag" [ngClass]="chipClass(sel.type_key)">{{ sel.type_label }}</span>
+          <span class="cal-tag status" *ngIf="sel.status_label">{{ sel.status_label }}</span>
+        </div>
+        <div class="cal-modal-grid">
+          <div>
+            <div class="cal-ml">Dia</div>
+            <div class="cal-mv">{{ formatFullCalendarDate(sel) }}</div>
+          </div>
+          <div>
+            <div class="cal-ml">Período</div>
+            <div class="cal-mv">{{ formatCalendarPeriod(sel) }}</div>
+          </div>
+          <div *ngIf="sel.company_name">
+            <div class="cal-ml">Empresa</div>
+            <div class="cal-mv">{{ sel.company_name }}</div>
+          </div>
+          <div *ngIf="sel.department">
+            <div class="cal-ml">Departamento</div>
+            <div class="cal-mv">{{ sel.department }}</div>
+          </div>
+          <div *ngIf="sel.kind === 'event'">
+            <div class="cal-ml">Empresas no dia</div>
+            <div class="cal-mv">{{ sel.companies_count ?? 0 }}</div>
+          </div>
+          <div>
+            <div class="cal-ml">Colaboradores</div>
+            <div class="cal-mv">{{ calendarDetailCollaborators().length }}</div>
+          </div>
+          <div *ngIf="sel.kind === 'service'">
+            <div class="cal-ml">Veículos</div>
+            <div class="cal-mv">{{ calendarDetailVehicles().length }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cal-modal-section" *ngIf="!calendarDetailLoading()">
+        <h4>Colaboradores</h4>
+        <div *ngIf="calendarDetailCollaborators().length === 0" class="cal-modal-empty">
+          Nenhum colaborador vinculado.
+        </div>
+        <div class="cal-collab-list" *ngIf="calendarDetailCollaborators().length > 0">
+          <div class="cal-collab-row" *ngFor="let c of calendarDetailCollaborators()">
+            <div class="cal-collab-avatar">{{ initials(c.name) }}</div>
+            <div class="cal-collab-info">
+              <div class="cal-collab-name">{{ c.name }}</div>
+              <div class="cal-collab-meta">
+                <span *ngIf="c.role">{{ c.role }}</span>
+                <span *ngIf="c.document_type">{{ c.document_type }} {{ c.document_masked }}</span>
+                <span *ngIf="!c.document_type && c.document_masked">{{ c.document_masked }}</span>
+                <span *ngIf="c.company_name">{{ c.company_name }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="cal-modal-section"
+        *ngIf="!calendarDetailLoading() && sel.kind === 'service'"
+      >
+        <h4>Veículos</h4>
+        <div *ngIf="calendarDetailVehicles().length === 0" class="cal-modal-empty">
+          Nenhum veículo vinculado.
+        </div>
+        <div class="cal-vehicle-list" *ngIf="calendarDetailVehicles().length > 0">
+          <div class="cal-vehicle-row" *ngFor="let v of calendarDetailVehicles()">
+            <div class="cal-vehicle-plate">{{ v.plate }}</div>
+            <div class="cal-vehicle-meta">
+              <span *ngIf="v.brand || v.model">{{ v.brand }} {{ v.model }}</span>
+              <span *ngIf="v.color">{{ v.color }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <div modal-footer class="modal-footer">
+      <button type="button" class="btn-action-secondary" (click)="closeCalendarDetail()">Fechar</button>
+    </div>
+  </app-modal>
 
   <app-modal
     data-gate-substitute-modal

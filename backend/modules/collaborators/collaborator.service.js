@@ -111,6 +111,11 @@ function parseListFilters(query) {
       10,
     );
   }
+  if (query.is_blacklisted !== undefined && query.is_blacklisted !== "") {
+    filters.is_blacklisted =
+      String(query.is_blacklisted).toLowerCase() === "true" ||
+      query.is_blacklisted === "1";
+  }
   return filters;
 }
 
@@ -314,6 +319,11 @@ function buildListWhere(filters) {
   if (filters.id_collaborator_document_type) {
     conditions.push("c.id_collaborator_document_type = ?");
     params.push(filters.id_collaborator_document_type);
+  }
+  if (filters.is_blacklisted !== undefined) {
+    const existsSql =
+      "EXISTS (SELECT 1 FROM collaborator_black_list bl WHERE bl.id_collaborator = c.id_collaborator)";
+    conditions.push(filters.is_blacklisted ? existsSql : `NOT ${existsSql}`);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";

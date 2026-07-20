@@ -120,6 +120,18 @@ export class PatrimonialService {
     return this.api.post<{ service: ServiceAccessItem }>('/patrimonial/services', data);
   }
 
+  validateCollaboratorsOverlap(data: {
+    start_date: string;
+    end_date: string;
+    id_collaborators: number[];
+    exclude_service_access_id?: number | null;
+  }): Observable<{ ok: boolean; checked: number }> {
+    return this.api.post<{ ok: boolean; checked: number }>(
+      '/patrimonial/services/validate-collaborators-overlap',
+      data,
+    );
+  }
+
   deleteDraft(id: number): Observable<{ deleted: boolean; id_service_access: number }> {
     return this.api.delete<{ deleted: boolean; id_service_access: number }>(
       `/patrimonial/services/${id}/draft`,

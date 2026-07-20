@@ -250,6 +250,9 @@ interface ColabGroup {
       .sav-status-head.is-warn {
         background: linear-gradient(120deg, #fff9f0, #ffffff 55%);
       }
+      .sav-status-head.is-muted {
+        background: linear-gradient(120deg, #f4f4f5, #ffffff 55%);
+      }
       .sav-status-rail {
         width: 5px;
         height: 42px;
@@ -261,6 +264,9 @@ interface ColabGroup {
       }
       .sav-status-head.is-warn .sav-status-rail {
         background: var(--sav-wait);
+      }
+      .sav-status-head.is-muted .sav-status-rail {
+        background: #94a3b8;
       }
       .sav-status-badge {
         display: inline-flex;
@@ -283,6 +289,11 @@ interface ColabGroup {
         background: var(--sav-wait-bg);
         color: var(--sav-wait);
         border-color: var(--sav-wait-line);
+      }
+      .sav-status-badge.is-muted {
+        background: #f1f5f9;
+        color: #475569;
+        border-color: #cbd5e1;
       }
       .sav-status-badge .d {
         width: 7px;
@@ -1576,12 +1587,14 @@ export class ServiceAccessViewPageComponent implements OnInit, OnDestroy {
 
   statusHeadClass(idAccessStatus: number): string {
     if (idAccessStatus === 4) return 'is-danger';
+    if (idAccessStatus === 5) return 'is-muted';
     if (idAccessStatus === 1 || idAccessStatus === 2) return 'is-warn';
     return '';
   }
 
   statusBadgeTone(idAccessStatus: number): string {
     if (idAccessStatus === 4) return 'is-danger';
+    if (idAccessStatus === 5) return 'is-muted';
     if (idAccessStatus === 1 || idAccessStatus === 2) return 'is-warn';
     return '';
   }
@@ -1589,6 +1602,7 @@ export class ServiceAccessViewPageComponent implements OnInit, OnDestroy {
   statusSubtitle(svc: ServiceAccessItem): string {
     if (svc.id_access_status === 3) return 'Solicitação aprovada e liberada para acesso';
     if (svc.id_access_status === 4) return 'Solicitação reprovada';
+    if (svc.id_access_status === 5) return 'Tempo de autorização expirada — período encerrado sem decisão';
     if (svc.id_access_status === 2) return 'Aguardando decisão dos aprovadores';
     return 'Rascunho / em preparação';
   }

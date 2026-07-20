@@ -96,6 +96,23 @@ export class GateService {
     return this.api.get('/gate/services/today');
   }
 
+  listCalendar(from: string, to: string): Observable<GateCalendarResponse> {
+    const params = new HttpParams().set('from', from).set('to', to);
+    return this.api.get<GateCalendarResponse>('/gate/calendar', params);
+  }
+
+  getCalendarDetail(
+    kind: 'event' | 'service',
+    sourceId: number,
+    date: string,
+  ): Observable<GateCalendarDetailResponse> {
+    const params = new HttpParams()
+      .set('kind', kind)
+      .set('source_id', String(sourceId))
+      .set('date', date);
+    return this.api.get<GateCalendarDetailResponse>('/gate/calendar/detail', params);
+  }
+
   validateService(access_id: string): Observable<GateServiceValidateResponse> {
     return this.api.post<GateServiceValidateResponse>('/gate/services/validate', { access_id });
   }
@@ -287,4 +304,54 @@ export interface GateServiceValidateResponse {
   action_registered?: 'CHECK_IN' | 'CHECK_OUT';
   reason?: string;
   error_code?: string;
+}
+
+export type GateCalendarTypeKey = 'show' | 'sport' | 'setup' | 'teardown' | 'service';
+
+export interface GateCalendarItem {
+  key: string;
+  kind: 'event' | 'service';
+  source_id: number;
+  date: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  type_key: GateCalendarTypeKey;
+  type_label: string;
+  status_id: number;
+  status_label: string;
+  company_name?: string | null;
+  department?: string | null;
+  companies_count?: number;
+  collaborators_count?: number;
+  vehicles_count?: number;
+}
+
+export interface GateCalendarResponse {
+  items: GateCalendarItem[];
+  from: string;
+  to: string;
+}
+
+export interface GateCalendarCollaborator {
+  id: number;
+  name: string;
+  document_masked: string;
+  document_type?: string | null;
+  role?: string | null;
+  company_name?: string | null;
+}
+
+export interface GateCalendarVehicle {
+  id: number;
+  plate: string;
+  brand?: string | null;
+  model?: string | null;
+  color?: string | null;
+}
+
+export interface GateCalendarDetailResponse {
+  item: GateCalendarItem;
+  collaborators: GateCalendarCollaborator[];
+  vehicles: GateCalendarVehicle[];
 }

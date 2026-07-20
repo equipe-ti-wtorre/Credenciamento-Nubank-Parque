@@ -90,6 +90,46 @@ const manualReleaseSearchSchema = Joi.object({
   }),
 });
 
+const ISO_DATE = Joi.string()
+  .pattern(/^\d{4}-\d{2}-\d{2}$/)
+  .messages({
+    "string.pattern.base": "Data inválida. Use o formato YYYY-MM-DD.",
+  });
+
+const calendarQuerySchema = Joi.object({
+  from: ISO_DATE.required().messages({
+    "any.required": "Informe a data inicial (from).",
+  }),
+  to: ISO_DATE.required().messages({
+    "any.required": "Informe a data final (to).",
+  }),
+})
+  .custom((value, helpers) => {
+    if (value.to < value.from) {
+      return helpers.message("A data final deve ser maior ou igual à data inicial.");
+    }
+    const fromMs = Date.parse(`${value.from}T00:00:00Z`);
+    const toMs = Date.parse(`${value.to}T00:00:00Z`);
+    const days = Math.round((toMs - fromMs) / 86400000) + 1;
+    if (days > 92) {
+      return helpers.message("O intervalo máximo do calendário é de 92 dias.");
+    }
+    return value;
+  });
+
+const calendarDetailQuerySchema = Joi.object({
+  kind: Joi.string().valid("event", "service").required().messages({
+    "any.only": "Informe kind=event ou kind=service.",
+    "any.required": "Informe o tipo (kind).",
+  }),
+  source_id: Joi.number().integer().positive().required().messages({
+    "any.required": "Informe o identificador (source_id).",
+  }),
+  date: ISO_DATE.required().messages({
+    "any.required": "Informe a data (date).",
+  }),
+});
+
 module.exports = {
   eventValidateSchema,
   eventSubstituteSchema,
@@ -97,4 +137,6 @@ module.exports = {
   serviceSubstituteSchema,
   manualReleaseSchema,
   manualReleaseSearchSchema,
+  calendarQuerySchema,
+  calendarDetailQuerySchema,
 };

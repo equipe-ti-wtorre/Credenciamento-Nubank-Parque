@@ -9,6 +9,7 @@ const {
   STATUS_AGUARDANDO_APROVACAO,
   STATUS_APROVADO,
   STATUS_NEGADO,
+  STATUS_EXPIRADO,
 } = require("../credentials/credentials.schema");
 const approvalsService = require("../approvals/approvals.service");
 const {
@@ -547,9 +548,13 @@ async function updateServiceAccessPeriod(req, id, data) {
   assertCanManageServices(req);
   const existing = await getServiceAccessById(req, id);
   const prevStatus = Number(existing.id_access_status);
-  if (prevStatus !== STATUS_APROVADO && prevStatus !== STATUS_NEGADO) {
+  if (
+    prevStatus !== STATUS_APROVADO &&
+    prevStatus !== STATUS_NEGADO &&
+    prevStatus !== STATUS_EXPIRADO
+  ) {
     throw new AppError(
-      "Somente acessos aprovados ou negados podem ajustar o período por este fluxo.",
+      "Somente acessos aprovados, negados ou com autorização expirada podem ajustar o período por este fluxo.",
       400,
     );
   }
@@ -574,7 +579,12 @@ async function updateServiceAccessPeriod(req, id, data) {
       `UPDATE service_access SET start_date = ?, end_date = ? WHERE id_service_access = ?`,
       [startDate, endDate, id],
     );
-    if (datesChanged || prevStatus === STATUS_APROVADO || prevStatus === STATUS_NEGADO) {
+    if (
+      datesChanged ||
+      prevStatus === STATUS_APROVADO ||
+      prevStatus === STATUS_NEGADO ||
+      prevStatus === STATUS_EXPIRADO
+    ) {
       await reopenServiceAccessForApproval(conn, serviceRow, {
         force: true,
         idSetor: existing.id_setor || null,
@@ -750,7 +760,10 @@ async function updateServiceAccess(req, id, data) {
 
   const serviceRow = await getServiceAccessRow(id);
   const mustReopen =
-    datesChanged || prevStatus === STATUS_APROVADO || prevStatus === STATUS_NEGADO;
+    datesChanged ||
+    prevStatus === STATUS_APROVADO ||
+    prevStatus === STATUS_NEGADO ||
+    prevStatus === STATUS_EXPIRADO;
 
   let reopenResult = { reopened: false, created: false, idAprovacao: null };
   if (mustReopen || prevStatus === STATUS_AGUARDANDO_APROVACAO) {
@@ -758,7 +771,11 @@ async function updateServiceAccess(req, id, data) {
     try {
       await conn.beginTransaction();
       reopenResult = await reopenServiceAccessForApproval(conn, serviceRow, {
-        force: datesChanged || prevStatus === STATUS_APROVADO || prevStatus === STATUS_NEGADO,
+        force:
+          datesChanged ||
+          prevStatus === STATUS_APROVADO ||
+          prevStatus === STATUS_NEGADO ||
+          prevStatus === STATUS_EXPIRADO,
         idSetor: idSetor || undefined,
         idSolicitante: req.user?.id || serviceRow.id_usuario || null,
       });
@@ -954,8 +971,15 @@ async function assertCollaboratorForService(serviceRow, collaborator) {
 }
 
 /**
- * Bloqueia o mesmo colaborador em outro acesso de serviço com datas sobrepostas
- * (status ativo e não negado). Rascunhos com vínculo também contam.
+ * Bloqueia o mesmo colaborador em outro acesso de serviço com datas sobrepostas.
+ * Conta apenas acessos em aprovação ou aprovados (rascunhos e negados não entram).
+ *
+ * Após CHECK_OUT na portaria (visita encerrada), o dia atual deixa de contar:
+ * o período efetivo passa a ser amanhã…end_date. Assim um novo acesso só hoje
+ * é permitido; dias futuros do acesso antigo ainda geram conflito (ex.: voltar
+ * no wizard e ampliar o período).
+ * Sem saída (só vinculado ou ainda dentro), ocupa start_date…end_date.
+ * Período efetivo vazio (amanhã > end_date) não gera conflito.
  */
 async function findOverlappingServiceCollaborator(
   idCollaborator,
@@ -967,8 +991,15 @@ async function findOverlappingServiceCollaborator(
   const end = formatDateField(endDate);
   if (!idCollaborator || !start || !end) return null;
 
-  // Negados não contam como conflito.
-  const params = [idCollaborator, idCollaborator, STATUS_NEGADO, end, start];
+  // Só aprovado / aguardando aprovação. Rascunho não bloqueia (evita órfãos do wizard).
+  const params = [
+    idCollaborator,
+    idCollaborator,
+    STATUS_AGUARDANDO_APROVACAO,
+    STATUS_APROVADO,
+    end,
+    start,
+  ];
   let excludeSql = "";
   if (excludeServiceAccessId != null) {
     excludeSql = " AND sa.id_service_access <> ?";
@@ -986,9 +1017,26 @@ async function findOverlappingServiceCollaborator(
        INNER JOIN company c ON c.id_company = sa.id_company
       WHERE (sac.id_collaborator = ? OR sac.id_substitute = ?)
         AND sa.status = 1
-        AND sa.id_access_status <> ?
-        AND sa.start_date <= ?
+        AND sa.id_access_status IN (?, ?)
+        AND (
+          CASE
+            WHEN sac.access_check_in IS NOT NULL
+             AND sac.access_check_out IS NOT NULL
+             AND sac.access_check_out >= sac.access_check_in
+            THEN DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+            ELSE sa.start_date
+          END
+        ) <= ?
         AND sa.end_date >= ?
+        AND (
+          CASE
+            WHEN sac.access_check_in IS NOT NULL
+             AND sac.access_check_out IS NOT NULL
+             AND sac.access_check_out >= sac.access_check_in
+            THEN DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+            ELSE sa.start_date
+          END
+        ) <= sa.end_date
         ${excludeSql}
       LIMIT 1`,
     params,
@@ -996,7 +1044,39 @@ async function findOverlappingServiceCollaborator(
   return rows[0] || null;
 }
 
-async function assertNoOverlappingServiceCollaborator(
+/**
+ * Valida overlap de uma lista de colaboradores contra um período, sem persistir.
+ * Acumula todos os conflitos (não para no primeiro).
+ */
+async function validateCollaboratorsDateOverlap(
+  idCollaborators,
+  startDate,
+  endDate,
+  excludeServiceAccessId = null,
+) {
+  const start = formatDateField(startDate);
+  const end = formatDateField(endDate);
+  if (!start || !end || end < start) {
+    throw new AppError("Intervalo de datas inválido.", 400);
+  }
+  const ids = [...new Set((idCollaborators || []).map((id) => Number(id)).filter((id) => id > 0))];
+  const conflicts = [];
+  for (const idCollaborator of ids) {
+    const item = await buildOverlapConflictIfAny(
+      idCollaborator,
+      start,
+      end,
+      excludeServiceAccessId,
+    );
+    if (item) conflicts.push(item);
+  }
+  if (conflicts.length > 0) {
+    throwOverlapConflicts(conflicts);
+  }
+  return { ok: true, checked: ids.length };
+}
+
+async function buildOverlapConflictIfAny(
   idCollaborator,
   startDate,
   endDate,
@@ -1009,7 +1089,7 @@ async function assertNoOverlappingServiceCollaborator(
     endDate,
     excludeServiceAccessId,
   );
-  if (!conflict) return;
+  if (!conflict) return null;
 
   let name = collaboratorName && String(collaboratorName).trim();
   if (!name) {
@@ -1023,34 +1103,70 @@ async function assertNoOverlappingServiceCollaborator(
   const label = [conflict.company_fancy_name, conflict.finalidade]
     .filter(Boolean)
     .join(" — ");
+  return {
+    collaborator_name: name,
+    id_collaborator: Number(idCollaborator),
+    conflict_label: label || null,
+    conflict_id_service_access: Number(conflict.id_service_access),
+    conflict_start_date: formatDateField(conflict.start_date),
+    conflict_end_date: formatDateField(conflict.end_date),
+  };
+}
+
+function throwOverlapConflicts(conflicts) {
+  const first = conflicts[0];
+  const count = conflicts.length;
+  const message =
+    count === 1
+      ? `${first.collaborator_name} já está cadastrado em outro acesso de serviço com data sobreposta${
+          first.conflict_label ? ` (${first.conflict_label})` : ""
+        }.`
+      : `${count} colaboradores já estão cadastrados em outro acesso de serviço com data sobreposta.`;
   throw new AppError(
-    `${name} já está cadastrado em outro acesso de serviço com data sobreposta${
-      label ? ` (${label})` : ""
-    }.`,
+    message,
     409,
     true,
     {
-      collaborator_name: name,
-      id_collaborator: Number(idCollaborator),
-      conflict_label: label || null,
-      conflict_id_service_access: Number(conflict.id_service_access),
-      conflict_start_date: formatDateField(conflict.start_date),
-      conflict_end_date: formatDateField(conflict.end_date),
+      ...first,
+      conflicts,
     },
     "SERVICE_COLLABORATOR_DATE_OVERLAP",
   );
 }
 
+async function assertNoOverlappingServiceCollaborator(
+  idCollaborator,
+  startDate,
+  endDate,
+  excludeServiceAccessId,
+  collaboratorName = null,
+) {
+  const item = await buildOverlapConflictIfAny(
+    idCollaborator,
+    startDate,
+    endDate,
+    excludeServiceAccessId,
+    collaboratorName,
+  );
+  if (!item) return;
+  throwOverlapConflicts([item]);
+}
+
 async function assertCollaboratorsNoDateOverlap(idServiceAccess, startDate, endDate) {
   const collaborators = await loadServiceCollaborators(idServiceAccess);
+  const conflicts = [];
   for (const c of collaborators) {
-    await assertNoOverlappingServiceCollaborator(
+    const item = await buildOverlapConflictIfAny(
       c.id_collaborator,
       startDate,
       endDate,
       idServiceAccess,
       c.collaborator_name,
     );
+    if (item) conflicts.push(item);
+  }
+  if (conflicts.length > 0) {
+    throwOverlapConflicts(conflicts);
   }
 }
 
@@ -1189,7 +1305,10 @@ async function reopenServiceAccessForApproval(
   const idServiceAccess = serviceRow.id_service_access || serviceRow.id;
   const status = Number(serviceRow.id_access_status);
   const needsReopen =
-    force || status === STATUS_APROVADO || status === STATUS_NEGADO;
+    force ||
+    status === STATUS_APROVADO ||
+    status === STATUS_NEGADO ||
+    status === STATUS_EXPIRADO;
 
   const [pending] = await conn.execute(
     `SELECT id FROM aprovacoes
@@ -1687,6 +1806,13 @@ async function markApproved(conn, idEntidade, ctx = {}) {
 async function markRejected(conn, idEntidade) {
   await conn.execute(`UPDATE service_access SET id_access_status = ? WHERE id_service_access = ?`, [
     STATUS_NEGADO,
+    idEntidade,
+  ]);
+}
+
+async function markExpired(conn, idEntidade) {
+  await conn.execute(`UPDATE service_access SET id_access_status = ? WHERE id_service_access = ?`, [
+    STATUS_EXPIRADO,
     idEntidade,
   ]);
 }
@@ -2536,13 +2662,18 @@ async function syncServiceAccessRelations(req, id, data) {
 
   // Inclusões novas sempre; no envio à aprovação, revalida a lista inteira.
   const collabsToValidate = submitForApproval ? desiredCollab : toAddCollab;
+  const overlapConflicts = [];
   for (const c of collabsToValidate) {
-    await assertNoOverlappingServiceCollaborator(
+    const item = await buildOverlapConflictIfAny(
       c.id_collaborator,
       serviceRow.start_date,
       serviceRow.end_date,
       id,
     );
+    if (item) overlapConflicts.push(item);
+  }
+  if (overlapConflicts.length > 0) {
+    throwOverlapConflicts(overlapConflicts);
   }
 
   if (!relationsChanged && !submitForApproval) {
@@ -2598,7 +2729,8 @@ async function syncServiceAccessRelations(req, id, data) {
       force:
         submitForApproval ||
         status === STATUS_APROVADO ||
-        status === STATUS_NEGADO,
+        status === STATUS_NEGADO ||
+        status === STATUS_EXPIRADO,
       idSetor: idSetor || undefined,
       idSolicitante: req.user?.id || serviceRow.id_usuario || null,
     });
@@ -2685,9 +2817,11 @@ module.exports = {
   syncServiceAccessRelations,
   markApproved,
   markRejected,
+  markExpired,
   getUnifiedBulkImportTemplate,
   previewUnifiedBulkImport,
   confirmUnifiedBulkImport,
   repairOrphanApprovals,
   assertNoOverlappingServiceCollaborator,
+  validateCollaboratorsDateOverlap,
 };

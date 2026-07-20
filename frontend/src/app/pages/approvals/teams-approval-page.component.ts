@@ -111,8 +111,18 @@ import { TeamsContextService } from '../../services/teams-context.service';
               [class.text-slate-700]="d.status !== 'APROVADO' && d.status !== 'REPROVADO'"
             >
               Esta solicitação já foi
-              {{ d.status === 'APROVADO' ? 'aprovada' : d.status === 'REPROVADO' ? 'reprovada' : 'finalizada' }}
-              <ng-container *ngIf="lastDecisionLabel() as who"> por {{ who }}</ng-container>.
+              {{
+                d.status === 'APROVADO'
+                  ? 'aprovada'
+                  : d.status === 'REPROVADO'
+                    ? 'reprovada'
+                    : d.status === 'EXPIRADO'
+                      ? 'finalizada (tempo de autorização expirada)'
+                      : 'finalizada'
+              }}
+              <ng-container *ngIf="d.status !== 'EXPIRADO' && lastDecisionLabel() as who">
+                por {{ who }}
+              </ng-container>.
               Não é possível uma nova decisão.
             </div>
 
@@ -680,8 +690,12 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
           this.notification.warning(
             d?.status === 'APROVADO'
               ? 'Solicitação já aprovada.'
-              : 'Solicitação já finalizada.',
-            'Outro membro da equipe já registrou a decisão.',
+              : d?.status === 'EXPIRADO'
+                ? 'Tempo de autorização expirada.'
+                : 'Solicitação já finalizada.',
+            d?.status === 'EXPIRADO'
+              ? 'O período solicitado já encerrou sem decisão.'
+              : 'Outro membro da equipe já registrou a decisão.',
           );
           this.cdr.markForCheck();
           return;

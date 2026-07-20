@@ -86,6 +86,13 @@ const serviceAccessRelationsSchema = Joi.object({
   id_setor: Joi.number().integer().positive().optional(),
 });
 
+const serviceAccessValidateOverlapSchema = Joi.object({
+  start_date: Joi.date().iso().required(),
+  end_date: Joi.date().iso().min(Joi.ref("start_date")).required(),
+  id_collaborators: Joi.array().items(Joi.number().integer().positive()).default([]),
+  exclude_service_access_id: Joi.number().integer().positive().allow(null).optional(),
+});
+
 module.exports = {
   serviceAccessCreateSchema,
   serviceAccessUpdateSchema,
@@ -95,4 +102,5 @@ module.exports = {
   serviceAccessCollaboratorSchema,
   serviceAccessVehicleSchema,
   serviceAccessRelationsSchema,
+  serviceAccessValidateOverlapSchema,
 };

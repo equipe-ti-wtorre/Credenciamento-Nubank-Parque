@@ -11,6 +11,8 @@ const {
   serviceValidateSchema,
   serviceSubstituteSchema,
   manualReleaseSchema,
+  calendarQuerySchema,
+  calendarDetailQuerySchema,
 } = require("./gate.schema");
 const { notifyApprovalCreated } = require("../approvals/approvals.notifications");
 const { validateSearchQuery } = require("../collaborators/collaborator.schema");
@@ -135,6 +137,34 @@ exports.listTodayServices = async (req, res, next) => {
   try {
     const services = await gateService.listTodayExpectedServices();
     res.json({ services });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listCalendar = async (req, res, next) => {
+  try {
+    const { error, value } = calendarQuerySchema.validate(req.query, { abortEarly: true });
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const items = await gateService.listCalendarItems(value.from, value.to);
+    res.json({ items, from: value.from, to: value.to });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getCalendarDetail = async (req, res, next) => {
+  try {
+    const { error, value } = calendarDetailQuerySchema.validate(req.query, { abortEarly: true });
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const detail = await gateService.getCalendarItemDetail(
+      value.kind,
+      value.source_id,
+      value.date,
+    );
+    res.json(detail);
   } catch (err) {
     next(err);
   }

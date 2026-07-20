@@ -1717,11 +1717,11 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
     return c.cellErrors.some((e) => !this.isRoleCellError(e));
   }
 
-  /** Cria rascunho sob demanda (upload/modelo) — sem aprovação/notificação. */
+  /** Cria/atualiza rascunho sob demanda (upload/modelo) — sem aprovação/notificação. */
   prepararImportacao() {
     this.dadosForm.markAllAsTouched();
     if (this.dadosForm.invalid) return;
-    if (this.createdId()) return;
+    // Sempre sincroniza datas/dados: ao voltar no wizard o período pode ter mudado.
     this.ensureDraft(() => {});
   }
 
@@ -1828,7 +1828,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
     });
   }
 
-  /** Continuar do passo 1: valida, avança e prepara o painel de importação no passo 2. */
+  /** Continuar do passo 1: valida formulário e overlap local; não persiste o acesso. */
   runCreate() {
     this.dadosFormSubmitted = true;
     this.dadosForm.markAllAsTouched();
@@ -1845,8 +1845,34 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
       this.notification.error('Setor aprovador inválido.');
       return;
     }
-    this.step.set('pessoas');
-    // Não cria rascunho aqui — só no import XLSX ou no Enviar para aprovação.
+
+    const collabIds = this.draftCollaborators()
+      .map((c) => Number(c.id_collaborator))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (collabIds.length === 0) {
+      this.step.set('pessoas');
+      return;
+    }
+
+    this.busy.set(true);
+    this.patrimonialService
+      .validateCollaboratorsOverlap({
+        start_date: this.startDate,
+        end_date: this.endDate,
+        id_collaborators: collabIds,
+        exclude_service_access_id: this.createdId(),
+      })
+      .subscribe({
+        next: () => {
+          this.busy.set(false);
+          this.step.set('pessoas');
+        },
+        error: (err) => {
+          this.busy.set(false);
+          this.notification.notifyHttpError(err, 'Conflito de datas nos colaboradores.');
+        },
+      });
   }
 
   runSubmit() {
@@ -1861,61 +1887,116 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
       this.step.set('pessoas');
       return;
     }
-    this.ensureDraft((id) => {
-      this.busy.set(true);
-      const collaborators = this.draftCollaborators()
-        .filter((c) => c.id_collaborator != null && c.id_collaborator_role != null)
-        .map((c) => ({
-          id_collaborator: c.id_collaborator as number,
-          id_collaborator_role: c.id_collaborator_role as number,
-        }));
-      const vehicles = this.draftVehicles()
-        .filter((v) => v.id_vehicle != null && v.cellErrors.length === 0)
-        .map((v) => ({ id_vehicle: v.id_vehicle as number }));
-      this.patrimonialService
-        .syncRelations(id, {
-          collaborators,
-          vehicles,
-          notify_approvers: true,
-          ...(this.idSetor ? { id_setor: this.idSetor } : {}),
-        })
-        .subscribe({
-          next: (res) => {
-            this.busy.set(false);
-            this.submitted = true;
-            this.notification.success('Acesso enviado para aprovação.');
-            this.completed.emit({ service: res.service });
-            this.reset();
-          },
-          error: (err) => {
-            this.busy.set(false);
-            this.notification.notifyHttpError(err, 'Falha ao enviar para aprovação.');
-          },
-        });
-    });
-  }
 
-  /** Cria rascunho só quando necessário (import ou envio). Sem aprovação/notificação. */
-  private ensureDraft(then: (id: number) => void) {
-    const existing = this.createdId();
-    if (existing) {
-      then(existing);
+    const collabIds = this.draftCollaborators()
+      .map((c) => Number(c.id_collaborator))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    const submitAfterValidate = () => {
+      this.ensureDraft((id) => {
+        this.busy.set(true);
+        const collaborators = this.draftCollaborators()
+          .filter((c) => c.id_collaborator != null && c.id_collaborator_role != null)
+          .map((c) => ({
+            id_collaborator: c.id_collaborator as number,
+            id_collaborator_role: c.id_collaborator_role as number,
+          }));
+        const vehicles = this.draftVehicles()
+          .filter((v) => v.id_vehicle != null && v.cellErrors.length === 0)
+          .map((v) => ({ id_vehicle: v.id_vehicle as number }));
+        this.patrimonialService
+          .syncRelations(id, {
+            collaborators,
+            vehicles,
+            notify_approvers: true,
+            ...(this.idSetor ? { id_setor: this.idSetor } : {}),
+          })
+          .subscribe({
+            next: (res) => {
+              this.busy.set(false);
+              this.submitted = true;
+              this.notification.success('Acesso enviado para aprovação.');
+              this.completed.emit({ service: res.service });
+              this.reset();
+            },
+            error: (err) => {
+              this.busy.set(false);
+              this.notification.notifyHttpError(err, 'Falha ao enviar para aprovação.');
+            },
+          });
+      });
+    };
+
+    if (collabIds.length === 0) {
+      submitAfterValidate();
       return;
     }
+
+    // Revalida overlap com as datas atuais do formulário (ex.: voltou e alterou o período).
+    this.busy.set(true);
+    this.patrimonialService
+      .validateCollaboratorsOverlap({
+        start_date: this.startDate,
+        end_date: this.endDate,
+        id_collaborators: collabIds,
+        exclude_service_access_id: this.createdId(),
+      })
+      .subscribe({
+        next: () => {
+          this.busy.set(false);
+          submitAfterValidate();
+        },
+        error: (err) => {
+          this.busy.set(false);
+          this.notification.notifyHttpError(err, 'Conflito de datas nos colaboradores.');
+          this.step.set('dados');
+        },
+      });
+  }
+
+  private buildDadosPayload() {
+    const setorNome = this.sectors().find((s) => s.id === this.idSetor)?.nome?.trim() || '';
+    return {
+      start_date: this.startDate,
+      end_date: this.endDate,
+      finalidade: this.finalidade.trim(),
+      requesting_department: setorNome,
+      observacao: this.observacao.trim(),
+      id_setor: this.idSetor!,
+      notificar_entrada_colaborador: this.notificarEntradaColaborador,
+      notificar_entrada_veiculo: this.notificarEntradaVeiculo,
+    };
+  }
+
+  /**
+   * Cria rascunho ou atualiza o existente com os dados do passo 1.
+   * Ao voltar e alterar datas, o update revalida conflito de colaboradores no servidor.
+   */
+  private ensureDraft(then: (id: number) => void) {
     if (this.dadosForm.invalid) return;
 
-    const setorNome = this.sectors().find((s) => s.id === this.idSetor)?.nome?.trim() || '';
+    const payload = this.buildDadosPayload();
+    const existing = this.createdId();
+
+    if (existing) {
+      this.busy.set(true);
+      this.patrimonialService.update(existing, payload).subscribe({
+        next: () => {
+          this.busy.set(false);
+          then(existing);
+        },
+        error: (err) => {
+          this.busy.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao atualizar o acesso.');
+        },
+      });
+      return;
+    }
+
     this.busy.set(true);
     this.patrimonialService
       .create({
-        start_date: this.startDate,
-        end_date: this.endDate,
-        finalidade: this.finalidade.trim(),
-        requesting_department: setorNome,
-        observacao: this.observacao.trim(),
-        id_setor: this.idSetor!,
-        notificar_entrada_colaborador: this.notificarEntradaColaborador,
-        notificar_entrada_veiculo: this.notificarEntradaVeiculo,
+        ...payload,
         notify_approvers: false,
         ...(this.isAdmin && this.idCompany ? { id_company: this.idCompany } : {}),
       })

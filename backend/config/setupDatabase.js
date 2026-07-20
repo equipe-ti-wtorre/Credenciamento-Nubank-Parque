@@ -919,7 +919,7 @@ async function migrateSetoresAprovacoes(connection) {
         id_solicitante  INT              NOT NULL,
         nivel_atual     TINYINT UNSIGNED NOT NULL DEFAULT 1,
         niveis_exigidos TINYINT UNSIGNED NOT NULL DEFAULT 1,
-        status          ENUM('PENDENTE','APROVADO','REPROVADO','CANCELADO')
+        status          ENUM('PENDENTE','APROVADO','REPROVADO','CANCELADO','EXPIRADO')
                         NOT NULL DEFAULT 'PENDENTE',
         pendente_flag   TINYINT AS (IF(status = 'PENDENTE', 1, NULL)) STORED,
         criado_em       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1069,6 +1069,23 @@ async function migrateSetorPapeis(connection) {
     await connection.query(`
       UPDATE aprovacoes SET niveis_exigidos = 1, nivel_atual = 1 WHERE status = 'PENDENTE'
     `);
+
+    const [statusCol] = await connection.query(
+      `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'aprovacoes' AND COLUMN_NAME = 'status'
+        LIMIT 1`,
+      [env.db.name],
+    );
+    const columnType = String(statusCol[0]?.COLUMN_TYPE || "").toUpperCase();
+    if (!columnType.includes("'EXPIRADO'")) {
+      await connection.query(`
+        ALTER TABLE aprovacoes
+          MODIFY COLUMN status ENUM(
+            'PENDENTE','APROVADO','REPROVADO','CANCELADO','EXPIRADO'
+          ) NOT NULL DEFAULT 'PENDENTE'
+      `);
+      logger.info("Migration: aprovacoes.status inclui EXPIRADO");
+    }
   }
 }
 
@@ -1352,7 +1369,8 @@ async function seedDomainLookups(connection) {
       (1, 'Aguardando Produtora'),
       (2, 'Aguardando Aprovação'),
       (3, 'Aprovado'),
-      (4, 'Negado')
+      (4, 'Negado'),
+      (5, 'Tempo de autorização expirada')
     ON DUPLICATE KEY UPDATE description = VALUES(description)
   `);
 

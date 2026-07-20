@@ -238,8 +238,7 @@ async function getDenials(filters = {}) {
      INNER JOIN company co ON co.id_company = edc.id_company
      INNER JOIN access_status ast ON ast.id_access_status = d.id_access_status
      WHERE 1=1${filterSql}
-     ORDER BY d.date DESC
-     LIMIT 500`,
+     ORDER BY d.date DESC`,
     params,
   );
 

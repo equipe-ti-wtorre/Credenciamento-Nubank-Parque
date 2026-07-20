@@ -11,6 +11,8 @@ const canEdit = [authMiddleware, authorizePermission("gate", "edit")];
 router.get("/events/today", ...canView, gateController.listTodayEvents);
 router.post("/events/validate", ...canCreate, gateController.validateEvent);
 router.post("/events/substitute", ...canEdit, gateController.substituteEvent);
+router.get("/calendar", ...canView, gateController.listCalendar);
+router.get("/calendar/detail", ...canView, gateController.getCalendarDetail);
 router.get("/services/today", ...canView, gateController.listTodayServices);
 router.post("/services/validate", ...canCreate, gateController.validateService);
 router.post("/services/substitute", ...canEdit, gateController.substituteService);

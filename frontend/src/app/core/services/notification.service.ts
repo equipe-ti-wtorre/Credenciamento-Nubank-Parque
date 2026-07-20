@@ -10,6 +10,7 @@ export type ServiceOverlapConflictDetails = {
   conflict_start_date?: string | null;
   conflict_end_date?: string | null;
   conflict_id_service_access?: number;
+  conflicts?: ServiceOverlapConflictDetails[];
 };
 
 const Toast = Swal.mixin({
@@ -122,37 +123,55 @@ export class NotificationService {
           })
         : null;
     const details = body?.details;
-    const name = details?.collaborator_name?.trim() || '';
-    const conflict = details?.conflict_label?.trim() || '';
-    const start = this.formatDateBr(details?.conflict_start_date);
-    const end = this.formatDateBr(details?.conflict_end_date);
-    const period =
-      start && end ? (start === end ? start : `${start} — ${end}`) : '';
-    const canRemove = Number(details?.id_collaborator) > 0;
+    const items =
+      Array.isArray(details?.conflicts) && details!.conflicts!.length > 0
+        ? details!.conflicts!
+        : details
+          ? [details]
+          : [];
 
-    const safeName = this.escapeHtml(name || 'Colaborador');
-    const safeConflict = this.escapeHtml(conflict);
-    const safePeriod = this.escapeHtml(period);
+    const canRemove = items.length === 1 && Number(items[0]?.id_collaborator) > 0;
+
+    const rowsHtml = items
+      .map((item) => {
+        const name = this.escapeHtml(item.collaborator_name?.trim() || 'Colaborador');
+        const conflict = this.escapeHtml(item.conflict_label?.trim() || '');
+        const start = this.formatDateBr(item.conflict_start_date);
+        const end = this.formatDateBr(item.conflict_end_date);
+        const period =
+          start && end ? (start === end ? start : `${start} — ${end}`) : '';
+        const safePeriod = this.escapeHtml(period);
+        return `
+          <li style="margin:0 0 10px;padding:0;list-style:none;text-align:left">
+            <p style="margin:0 0 4px;font-size:15px;line-height:1.45;color:#334155">
+              <strong style="color:#0f172a">${name}</strong>
+              já está cadastrado em outro acesso de serviço com data sobreposta.
+            </p>
+            ${
+              conflict
+                ? `<p style="margin:0;font-size:14px;line-height:1.4;color:#475569"><strong>Conflito:</strong> ${conflict}${
+                    period ? ` <span style="color:#64748b">(${safePeriod})</span>` : ''
+                  }</p>`
+                : ''
+            }
+          </li>`;
+      })
+      .join('');
+
     const fallbackMsg = this.escapeHtml(
       body?.message ||
         'Colaborador já está cadastrado em outro acesso de serviço com data sobreposta.',
     );
 
-    const html = name
-      ? `
-        <p style="margin:0 0 10px;font-size:15px;line-height:1.45;color:#334155;text-align:left">
-          <strong style="color:#0f172a">${safeName}</strong>
-          já está cadastrado em outro acesso de serviço com data sobreposta.
+    const html =
+      items.length > 0
+        ? `
+        <p style="margin:0 0 12px;font-size:14px;line-height:1.4;color:#64748b;text-align:left">
+          ${items.length === 1 ? '1 colaborador com conflito de período:' : `${items.length} colaboradores com conflito de período:`}
         </p>
-        ${
-          conflict
-            ? `<p style="margin:0;font-size:14px;line-height:1.4;color:#475569;text-align:left"><strong>Conflito:</strong> ${safeConflict}${
-                period ? ` <span style="color:#64748b">(${safePeriod})</span>` : ''
-              }</p>`
-            : ''
-        }
+        <ul style="margin:0;padding:0;max-height:280px;overflow:auto">${rowsHtml}</ul>
       `
-      : `<p style="margin:0;font-size:15px;line-height:1.45;color:#334155;text-align:left">${fallbackMsg}</p>`;
+        : `<p style="margin:0;font-size:15px;line-height:1.45;color:#334155;text-align:left">${fallbackMsg}</p>`;
 
     return Swal.fire({
       icon: 'warning',

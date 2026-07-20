@@ -18,6 +18,7 @@ import {
   STATUS_AGUARDANDO_PRODUTORA,
   STATUS_APROVADO,
   STATUS_NEGADO,
+  STATUS_EXPIRADO,
   statusBadgeClass,
 } from '../../../services/credential.service';
 
@@ -142,6 +143,21 @@ interface EventFormState {
                     >
                       <path d="M5 2h14v4H5zM5 18h14v4H5z" />
                       <path d="M8 6v2a4 4 0 0 0 8 0V6M8 18v-2a4 4 0 0 1 8 0v2" />
+                    </svg>
+                    <svg
+                      *ngIf="e.id_access_status === STATUS_EXPIRADO"
+                      class="w-3.5 h-3.5 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v5" />
+                      <path d="M12 16h.01" />
                     </svg>
                     {{ e.access_status_description || '—' }}
                   </span>
@@ -307,6 +323,7 @@ export class EventListComponent implements OnInit {
   readonly statusBadgeClass = statusBadgeClass;
   readonly STATUS_APROVADO = STATUS_APROVADO;
   readonly STATUS_NEGADO = STATUS_NEGADO;
+  readonly STATUS_EXPIRADO = STATUS_EXPIRADO;
   readonly STATUS_AGUARDANDO_APROVACAO = STATUS_AGUARDANDO_APROVACAO;
   readonly STATUS_AGUARDANDO_PRODUTORA = STATUS_AGUARDANDO_PRODUTORA;
 

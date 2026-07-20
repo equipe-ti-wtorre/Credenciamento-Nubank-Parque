@@ -17,6 +17,7 @@ const STATUS = Object.freeze({
   APROVADO: 'APROVADO',
   REPROVADO: 'REPROVADO',
   CANCELADO: 'CANCELADO',
+  EXPIRADO: 'EXPIRADO',
 });
 
 const PAPEIS_CAN_APPROVE = ['APROVADOR', 'GESTOR'];
@@ -45,10 +46,126 @@ async function runFinalizer(conn, aprovacao, resultado, extraCtx = {}) {
     );
     return;
   }
-  const fn = resultado === STATUS.APROVADO ? handlers.onApproved : handlers.onRejected;
+  let fn = null;
+  if (resultado === STATUS.APROVADO) fn = handlers.onApproved;
+  else if (resultado === STATUS.REPROVADO) fn = handlers.onRejected;
+  else if (resultado === STATUS.EXPIRADO) fn = handlers.onExpired;
   if (typeof fn === 'function') {
     await fn(conn, aprovacao.id_entidade, { aprovacao, ...extraCtx });
   }
+}
+
+/**
+ * Retorna a data final (YYYY-MM-DD) da entidade vinculada à aprovação, ou null.
+ */
+async function getEntityEndDate(conn, tipoEntidade, idEntidade) {
+  if (tipoEntidade === 'EVENTO') {
+    const [rows] = await conn.query(
+      `SELECT end AS end_date FROM event WHERE id_event = ? LIMIT 1`,
+      [idEntidade],
+    );
+    return formatDateOnly(rows[0]?.end_date);
+  }
+  if (tipoEntidade === 'ACESSO_SERVICO') {
+    const [rows] = await conn.query(
+      `SELECT end_date FROM service_access WHERE id_service_access = ? LIMIT 1`,
+      [idEntidade],
+    );
+    return formatDateOnly(rows[0]?.end_date);
+  }
+  return null;
+}
+
+function todayDateOnly() {
+  // Alinhado ao timezone do MySQL (DB_TIMEZONE=-03:00 / America/Sao_Paulo).
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+}
+
+function isEndDatePast(endDate) {
+  if (!endDate) return false;
+  return endDate < todayDateOnly();
+}
+
+/**
+ * Marca uma aprovação pendente como EXPIRADO e dispara o finalizador da entidade.
+ * Assume que a conexão já está em transação e a linha foi bloqueada (FOR UPDATE).
+ */
+async function markApprovalExpired(conn, aprovacao) {
+  await conn.query(
+    `UPDATE aprovacoes
+        SET status = 'EXPIRADO', finalizado_em = NOW()
+      WHERE id = ? AND status = 'PENDENTE'`,
+    [aprovacao.id],
+  );
+  await runFinalizer(conn, aprovacao, STATUS.EXPIRADO);
+}
+
+/**
+ * Finaliza aprovações PENDENTE cuja data final da entidade já passou.
+ * Idempotente — seguro para cron e chamada no startup.
+ */
+async function expireOverdueApprovals() {
+  const conn = await pool.getConnection();
+  let expiredCount = 0;
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.query(
+      `SELECT a.*
+         FROM aprovacoes a
+         LEFT JOIN event e
+           ON a.tipo_entidade = 'EVENTO' AND e.id_event = a.id_entidade
+         LEFT JOIN service_access sa
+           ON a.tipo_entidade = 'ACESSO_SERVICO' AND sa.id_service_access = a.id_entidade
+        WHERE a.status = 'PENDENTE'
+          AND (
+            (a.tipo_entidade = 'EVENTO' AND e.end IS NOT NULL AND e.end < CURDATE())
+            OR (a.tipo_entidade = 'ACESSO_SERVICO' AND sa.end_date IS NOT NULL AND sa.end_date < CURDATE())
+          )
+        FOR UPDATE`,
+    );
+
+    for (const aprovacao of rows) {
+      await markApprovalExpired(conn, aprovacao);
+      expiredCount += 1;
+    }
+
+    await conn.commit();
+    if (expiredCount > 0) {
+      log.info({ expiredCount }, 'Aprovações vencidas finalizadas como EXPIRADO');
+    }
+    return { ok: true, expiredCount };
+  } catch (err) {
+    await conn.rollback();
+    log.error({ err }, 'Falha ao expirar aprovações vencidas');
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Se a entidade já passou da data final, expira a aprovação (ainda na transação)
+ * e retorna true. O chamador deve fazer commit e então lançar o 409 —
+ * senão o rollback desfaz a expiração.
+ */
+async function expireIfOverdue(conn, aprovacao) {
+  const endDate = await getEntityEndDate(
+    conn,
+    aprovacao.tipo_entidade,
+    aprovacao.id_entidade,
+  );
+  if (!isEndDatePast(endDate)) return false;
+
+  await markApprovalExpired(conn, aprovacao);
+  return true;
+}
+
+function expirationDecisionError() {
+  return new AppError(
+    'Tempo de autorização expirada. Esta solicitação não pode mais ser decidida porque o período solicitado já encerrou.',
+    409,
+  );
 }
 
 function assertEntityType(tipoEntidade) {
@@ -293,7 +410,13 @@ const ENTITY_SUMMARY_SELECT = `
 function liberacaoStatus(accessId, approvalStatus) {
   if (accessId) return 'APROVADO';
   if (approvalStatus === 'PENDENTE') return 'PENDENTE';
-  if (approvalStatus === 'REPROVADO' || approvalStatus === 'CANCELADO') return 'REPROVADO';
+  if (
+    approvalStatus === 'REPROVADO' ||
+    approvalStatus === 'CANCELADO' ||
+    approvalStatus === 'EXPIRADO'
+  ) {
+    return 'REPROVADO';
+  }
   return 'BLOQUEADO';
 }
 
@@ -1004,13 +1127,21 @@ async function loadAndAssertCanDecide(conn, idAprovacao, user) {
         LIMIT 1`,
       [idAprovacao],
     );
+    if (aprovacao.status === STATUS.EXPIRADO) {
+      throw new AppError(
+        'Tempo de autorização expirada. Esta solicitação não pode mais ser decidida porque o período solicitado já encerrou.',
+        409,
+      );
+    }
     const who = dec[0]?.usuario_nome ? ` por ${dec[0].usuario_nome}` : '';
     const label =
       aprovacao.status === STATUS.APROVADO
         ? 'aprovada'
         : aprovacao.status === STATUS.REPROVADO
           ? 'reprovada'
-          : 'finalizada';
+          : aprovacao.status === STATUS.CANCELADO
+            ? 'cancelada'
+            : 'finalizada';
     throw new AppError(
       `Esta solicitação já foi ${label}${who}. Atualize a tela — não é possível uma nova decisão.`,
       409,
@@ -1054,10 +1185,16 @@ async function approve(idAprovacao, user, options = {}) {
     typeof options === 'object' && options ? options.approvedVehicleIds : undefined;
 
   const conn = await pool.getConnection();
+  let committed = false;
   try {
     await conn.beginTransaction();
 
     const aprovacao = await loadAndAssertCanDecide(conn, idAprovacao, user);
+    if (await expireIfOverdue(conn, aprovacao)) {
+      await conn.commit();
+      committed = true;
+      throw expirationDecisionError();
+    }
     const nivel = aprovacao.nivel_atual;
     const isFinalLevel = nivel >= aprovacao.niveis_exigidos;
 
@@ -1100,6 +1237,7 @@ async function approve(idAprovacao, user, options = {}) {
     }
 
     await conn.commit();
+    committed = true;
 
     log.info(
       {
@@ -1126,7 +1264,7 @@ async function approve(idAprovacao, user, options = {}) {
       approvedVehicleIds: Array.isArray(approvedVehicleIds) ? approvedVehicleIds : undefined,
     };
   } catch (err) {
-    await conn.rollback();
+    if (!committed) await conn.rollback();
     if (err && err.code === 'ER_DUP_ENTRY') {
       throw new AppError(
         'Este nível já foi decidido por outro membro da equipe. Atualize a tela.',
@@ -1146,10 +1284,16 @@ async function reject(idAprovacao, user, comentario) {
   }
 
   const conn = await pool.getConnection();
+  let committed = false;
   try {
     await conn.beginTransaction();
 
     const aprovacao = await loadAndAssertCanDecide(conn, idAprovacao, user);
+    if (await expireIfOverdue(conn, aprovacao)) {
+      await conn.commit();
+      committed = true;
+      throw expirationDecisionError();
+    }
     const nivel = aprovacao.nivel_atual;
 
     await conn.query(
@@ -1168,6 +1312,7 @@ async function reject(idAprovacao, user, comentario) {
     await runFinalizer(conn, aprovacao, STATUS.REPROVADO);
 
     await conn.commit();
+    committed = true;
 
     log.info({ idAprovacao, nivel, userId: user.id }, 'Solicitação reprovada');
 
@@ -1178,7 +1323,7 @@ async function reject(idAprovacao, user, comentario) {
       finalizada: true,
     };
   } catch (err) {
-    await conn.rollback();
+    if (!committed) await conn.rollback();
     if (err && err.code === 'ER_DUP_ENTRY') {
       throw new AppError('Este nível já foi decidido por outro aprovador', 409);
     }
@@ -1280,4 +1425,5 @@ module.exports = {
   reject,
   cancel,
   countPendingForUser,
+  expireOverdueApprovals,
 };

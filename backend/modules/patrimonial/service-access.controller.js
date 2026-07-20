@@ -11,6 +11,7 @@ const {
   serviceAccessCollaboratorSchema,
   serviceAccessVehicleSchema,
   serviceAccessRelationsSchema,
+  serviceAccessValidateOverlapSchema,
 } = require("./service-access.schema");
 
 function scheduleApprovalNotify(req, service) {
@@ -85,6 +86,22 @@ exports.create = async (req, res, next) => {
         aprovacao_status: "PENDENTE",
       });
     }
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.validateCollaboratorsOverlap = async (req, res, next) => {
+  try {
+    const { error, value } = serviceAccessValidateOverlapSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 422);
+    const result = await serviceAccessService.validateCollaboratorsDateOverlap(
+      value.id_collaborators,
+      value.start_date,
+      value.end_date,
+      value.exclude_service_access_id ?? null,
+    );
+    res.json(result);
   } catch (err) {
     next(err);
   }

@@ -86,6 +86,13 @@ const env = {
   auditArchiveMaxBatches: Math.max(1, Number(process.env.AUDIT_ARCHIVE_MAX_BATCHES) || 50),
   auditArchiveDryRun:
     String(process.env.AUDIT_ARCHIVE_DRY_RUN || "false").toLowerCase() === "true",
+  /** Cron: finalizar aprovações pendentes com período já encerrado. */
+  approvalsExpirationEnabled:
+    String(process.env.APPROVALS_EXPIRATION_ENABLED || "true").toLowerCase() === "true",
+  /** Expressão cron (padrão: todo dia às 00:15). */
+  approvalsExpirationCron: process.env.APPROVALS_EXPIRATION_CRON || "15 0 * * *",
+  approvalsExpirationTimezone:
+    process.env.APPROVALS_EXPIRATION_TIMEZONE || "America/Sao_Paulo",
   /** Tolerância em horas para acesso fora da meia-noite (montagem/desmontagem). */
   gateAccessToleranceHours: Math.max(0, Number(process.env.GATE_ACCESS_TOLERANCE_HOURS) || 6),
 

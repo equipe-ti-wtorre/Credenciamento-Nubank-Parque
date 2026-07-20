@@ -108,6 +108,50 @@ type ModalMode = 'search' | 'create';
         font-size: 0.75rem;
       }
 
+      .edit-access-form ::ng-deep app-periodo-range-picker,
+      .edit-access-form ::ng-deep .prp {
+        display: block;
+        width: 100%;
+      }
+      .edit-access-form ::ng-deep .prp-panel {
+        padding: 10px 10px 8px;
+        border-radius: 12px;
+      }
+      .edit-access-form ::ng-deep .prp-day {
+        aspect-ratio: auto;
+        height: 34px;
+        font-size: 0.8125rem;
+        border-radius: 8px;
+      }
+      .edit-access-form ::ng-deep .prp-nav {
+        margin-bottom: 8px;
+      }
+      .edit-access-form ::ng-deep .prp-nav__title {
+        font-size: 0.8125rem;
+      }
+      .edit-access-form ::ng-deep .prp-weekdays span {
+        font-size: 0.6875rem;
+        padding: 2px 0;
+      }
+
+      .edit-dados {
+        display: grid;
+        grid-template-columns: minmax(280px, 320px) 1fr;
+        gap: 1.25rem 1.5rem;
+        align-items: start;
+      }
+      .edit-dados__left,
+      .edit-dados__right {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      @media (max-width: 720px) {
+        .edit-dados {
+          grid-template-columns: 1fr;
+        }
+      }
+
       .cred-back {
         display: inline-flex;
         align-items: center;
@@ -490,7 +534,11 @@ type ModalMode = 'search' | 'create';
                   Editar
                 </button>
                 <button
-                  *ngIf="service()!.id_access_status === 3 || service()!.id_access_status === 4"
+                  *ngIf="
+                    service()!.id_access_status === 3 ||
+                    service()!.id_access_status === 4 ||
+                    service()!.id_access_status === 5
+                  "
                   type="button"
                   class="cred-btn cred-btn--ghost"
                   (click)="abrirModalPeriodo()"
@@ -1234,91 +1282,82 @@ type ModalMode = 'search' | 'create';
       [open]="showEditModal()"
       title="Editar acesso"
       subtitle="Atualize período, nome do evento, setor aprovador e descrição do serviço."
-      size="md"
+      size="lg"
       (close)="fecharModalEditar()"
     >
-      <form id="edit-access-form" class="space-y-3" (ngSubmit)="salvarEdicao()">
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="form-label" for="edit-start">Data início</label>
-            <input
-              id="edit-start"
-              type="date"
-              [(ngModel)]="editForm.start_date"
-              name="editStartDate"
-              required
-              class="form-field"
+      <form id="edit-access-form" class="edit-access-form" (ngSubmit)="salvarEdicao()">
+        <div class="edit-dados">
+          <div class="edit-dados__left">
+            <app-periodo-range-picker
+              [(ngModel)]="editPeriodRange"
+              name="editPeriodRange"
+              label="Período do acesso"
+              inputId="edit-access-range"
+              [inline]="true"
+              [controlInvalid]="editPeriodTouched() && !editPeriodRange?.inicio"
+              [controlTouched]="editPeriodTouched()"
             />
           </div>
-          <div>
-            <label class="form-label" for="edit-end">Data fim</label>
-            <input
-              id="edit-end"
-              type="date"
-              [(ngModel)]="editForm.end_date"
-              name="editEndDate"
-              required
-              class="form-field"
-            />
+          <div class="edit-dados__right">
+            <div>
+              <label class="form-label" for="edit-finalidade">Nome do evento</label>
+              <input
+                id="edit-finalidade"
+                [(ngModel)]="editForm.finalidade"
+                name="editFinalidade"
+                required
+                class="form-field"
+              />
+            </div>
+            <div>
+              <label class="form-label" for="edit-obs">Descrição do serviço</label>
+              <textarea
+                id="edit-obs"
+                [(ngModel)]="editForm.observacao"
+                name="editObs"
+                rows="4"
+                required
+                class="form-field"
+              ></textarea>
+            </div>
+            <div>
+              <label class="form-label" for="edit-setor">Setor aprovador</label>
+              <select
+                id="edit-setor"
+                [(ngModel)]="editForm.id_setor"
+                name="editSetor"
+                required
+                class="form-select"
+              >
+                <option [ngValue]="null" disabled>Selecione o setor</option>
+                <option *ngFor="let s of sectors()" [ngValue]="s.id">{{ s.nome }}</option>
+              </select>
+            </div>
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-slate-800">Notificações de entrada na portaria</p>
+              <p class="text-xs text-slate-500">
+                Avisa solicitante e aprovadores no check-in, conforme o tipo selecionado.
+              </p>
+              <label class="flex items-start gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  class="mt-1"
+                  [(ngModel)]="editForm.notificar_entrada_colaborador"
+                  name="editNotificarEntradaColaborador"
+                />
+                <span class="text-sm text-slate-800">Entrada de colaborador</span>
+              </label>
+              <label class="flex items-start gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  class="mt-1"
+                  [(ngModel)]="editForm.notificar_entrada_veiculo"
+                  name="editNotificarEntradaVeiculo"
+                />
+                <span class="text-sm text-slate-800">Entrada de veículo</span>
+              </label>
+            </div>
           </div>
-        </div>
-        <div>
-          <label class="form-label" for="edit-finalidade">Nome do evento</label>
-          <input
-            id="edit-finalidade"
-            [(ngModel)]="editForm.finalidade"
-            name="editFinalidade"
-            required
-            class="form-field"
-          />
-        </div>
-        <div>
-          <label class="form-label" for="edit-setor">Setor aprovador</label>
-          <select
-            id="edit-setor"
-            [(ngModel)]="editForm.id_setor"
-            name="editSetor"
-            required
-            class="form-select"
-          >
-            <option [ngValue]="null" disabled>Selecione o setor</option>
-            <option *ngFor="let s of sectors()" [ngValue]="s.id">{{ s.nome }}</option>
-          </select>
-        </div>
-        <div>
-          <label class="form-label" for="edit-obs">Descrição do serviço</label>
-          <textarea
-            id="edit-obs"
-            [(ngModel)]="editForm.observacao"
-            name="editObs"
-            rows="3"
-            required
-            class="form-field"
-          ></textarea>
-        </div>
-        <div class="space-y-2">
-          <p class="text-sm font-medium text-slate-800">Notificações de entrada na portaria</p>
-          <p class="text-xs text-slate-500">
-            Avisa solicitante e aprovadores no check-in, conforme o tipo selecionado.
-          </p>
-          <label class="flex items-start gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              class="mt-1"
-              [(ngModel)]="editForm.notificar_entrada_colaborador"
-              name="editNotificarEntradaColaborador"
-            />
-            <span class="text-sm text-slate-800">Entrada de colaborador</span>
-          </label>
-          <label class="flex items-start gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              class="mt-1"
-              [(ngModel)]="editForm.notificar_entrada_veiculo"
-              name="editNotificarEntradaVeiculo"
-            />
-            <span class="text-sm text-slate-800">Entrada de veículo</span>
-          </label>
         </div>
       </form>
       <div modal-footer class="modal-footer">
@@ -1414,6 +1453,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
 
   showEditModal = signal(false);
   editSaving = signal(false);
+  editPeriodTouched = signal(false);
+  editPeriodRange: PeriodoRangeValue | null = null;
   showPeriodModal = signal(false);
   periodSaving = signal(false);
   periodTouched = signal(false);
@@ -1945,8 +1986,13 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       mode === 'approve'
         ? this.approvalService.approve(svc.id_aprovacao, {
             comentario: this.decisionComment.trim() || undefined,
-            approvedCollaboratorIds: this.draftCollaborators().map((c) => c.id_collaborator),
-            approvedVehicleIds: this.draftVehicles().map((v) => v.id_vehicle),
+            // Backend valida contra o vínculo (service_access_*), não o cadastro master
+            approvedCollaboratorIds: this.draftCollaborators()
+              .filter((c) => c.id_service_access_collaborator > 0)
+              .map((c) => c.id_service_access_collaborator),
+            approvedVehicleIds: this.draftVehicles()
+              .filter((v) => v.id_service_access_vehicle > 0)
+              .map((v) => v.id_service_access_vehicle),
           })
         : this.approvalService.reject(svc.id_aprovacao, this.decisionComment.trim());
     req
@@ -1982,6 +2028,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   statusChipClass(idAccessStatus: number): string {
     if (idAccessStatus === 3) return 'chip--ok';
     if (idAccessStatus === 4) return 'chip--danger';
+    if (idAccessStatus === 5) return 'chip--muted';
     if (idAccessStatus === 1 || idAccessStatus === 2) return 'chip--warn';
     return 'chip--muted';
   }
@@ -2011,20 +2058,26 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   abrirModalEditar() {
     const svc = this.service();
     if (!svc) return;
-    if (svc.id_access_status === 3 || svc.id_access_status === 4) {
-      this.notification.error('Para alterar datas de acesso aprovado/negado, use Ajustar período.');
+    if (svc.id_access_status === 3 || svc.id_access_status === 4 || svc.id_access_status === 5) {
+      this.notification.error(
+        'Para alterar datas de acesso aprovado, negado ou com autorização expirada, use Ajustar período.',
+      );
       return;
     }
     this.carregarSetores();
+    const start = this.toDateInput(svc.start_date);
+    const end = this.toDateInput(svc.end_date);
     this.editForm = {
-      start_date: this.toDateInput(svc.start_date),
-      end_date: this.toDateInput(svc.end_date),
+      start_date: start,
+      end_date: end,
       finalidade: svc.finalidade || '',
       observacao: svc.observacao || '',
       id_setor: svc.id_setor ?? null,
       notificar_entrada_colaborador: svc.notificar_entrada_colaborador !== false,
       notificar_entrada_veiculo: svc.notificar_entrada_veiculo !== false,
     };
+    this.editPeriodRange = start && end ? { inicio: start, fim: end } : null;
+    this.editPeriodTouched.set(false);
     this.showEditModal.set(true);
   }
 
@@ -2159,20 +2212,25 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   }
 
   salvarEdicao() {
+    this.editPeriodTouched.set(true);
+    const inicio = this.editPeriodRange?.inicio || '';
+    const fim = this.editPeriodRange?.fim || '';
+    this.editForm.start_date = inicio;
+    this.editForm.end_date = fim;
     if (
-      !this.editForm.start_date ||
-      !this.editForm.end_date ||
+      !inicio ||
+      !fim ||
       !this.editForm.finalidade.trim() ||
       !this.editForm.observacao.trim()
     ) {
-      this.notification.error('Preencha datas, nome do evento e descrição do serviço.');
+      this.notification.error('Preencha período, nome do evento e descrição do serviço.');
       return;
     }
     if (!this.editForm.id_setor) {
       this.notification.error('Selecione o setor aprovador.');
       return;
     }
-    if (this.editForm.end_date < this.editForm.start_date) {
+    if (fim < inicio) {
       this.notification.error('Data fim deve ser igual ou posterior à data início.');
       return;
     }
@@ -2184,8 +2242,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     this.editSaving.set(true);
     this.patrimonialService
       .update(this.serviceId, {
-        start_date: this.editForm.start_date,
-        end_date: this.editForm.end_date,
+        start_date: inicio,
+        end_date: fim,
         finalidade: this.editForm.finalidade.trim(),
         requesting_department: setorNome,
         observacao: this.editForm.observacao.trim(),
@@ -2208,7 +2266,11 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
         },
         error: (err) => {
           this.editSaving.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao salvar alterações.');
+          void this.notification.notifyHttpError(err, 'Falha ao salvar alterações.').then((result) => {
+            if (result && 'isDenied' in result && result.isDenied) {
+              this.removeOverlapCollaboratorFromDraft(err);
+            }
+          });
         },
       });
   }
