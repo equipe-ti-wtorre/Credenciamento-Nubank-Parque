@@ -365,6 +365,47 @@ async function findActiveCompanyById(id) {
   return row;
 }
 
+async function inviteCompanyAccess(companyId, data, { usuarioId, requestId } = {}) {
+  const company = await findCompanyById(companyId);
+  if (!company) throw new AppError("Empresa não encontrada.", 404);
+  if (!company.status) throw new AppError("Empresa inativa.", 400);
+
+  let email = data.email ? String(data.email).trim() : null;
+  let name = data.name ? String(data.name).trim() : null;
+
+  if (data.id_company_contact) {
+    const [rows] = await db.execute(
+      `SELECT id_company_contact, name, email
+       FROM company_contact
+       WHERE id_company_contact = ? AND id_company = ?
+       LIMIT 1`,
+      [data.id_company_contact, companyId],
+    );
+    const contact = rows[0];
+    if (!contact) throw new AppError("Contato não encontrado nesta empresa.", 404);
+    if (!contact.email) {
+      throw new AppError("O contato selecionado não possui e-mail.", 400);
+    }
+    email = contact.email;
+    name = contact.name || name;
+  }
+
+  if (!email) {
+    throw new AppError("Informe um contato com e-mail ou um e-mail válido.", 400);
+  }
+
+  const inviteService = require("../auth/invite.service");
+  return inviteService.inviteCompanyUser({
+    idCompany: companyId,
+    companyName: company.company_name || company.fancy_name,
+    email,
+    nome: name,
+    profileCodigo: "EMPRESA_GESTOR",
+    usuarioId,
+    requestId,
+  });
+}
+
 module.exports = {
   TYPE_EMPRESA_PADRAO,
   parseListQuery,
@@ -380,4 +421,5 @@ module.exports = {
   findActiveCompanyById,
   findCompanyById,
   mapCompanyRow,
+  inviteCompanyAccess,
 };

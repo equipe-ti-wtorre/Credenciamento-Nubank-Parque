@@ -23,6 +23,11 @@ const STATUS = Object.freeze({
 const PAPEIS_CAN_APPROVE = ['APROVADOR', 'GESTOR'];
 const PAPEIS_CAN_OPEN = ['SOLICITANTE', 'APROVADOR', 'GESTOR'];
 
+/** Usuários de empresa (PRODUTORA/PADRAO/EMPRESA_*) abrem solicitações sem vínculo em setor_usuarios. */
+function isCompanyScopedUser(user) {
+  return typeof user === 'object' && !!user?.requires_company;
+}
+
 /** R4 — mude para true se quiser permitir que o mesmo usuário decida vários níveis. */
 const ALLOW_SAME_USER_MULTIPLE_LEVELS = false;
 
@@ -817,11 +822,12 @@ async function listEligibleSectors(tipoEntidade, user) {
   assertEntityType(tipoEntidade);
   const userId = typeof user === 'object' ? user.id : user;
   const isAdmin = typeof user === 'object' ? !!user.is_super_admin : false;
+  const companyScoped = isCompanyScopedUser(user);
 
   await ensureActiveFlowsForTipo(tipoEntidade);
 
   let rows;
-  if (isAdmin) {
+  if (isAdmin || companyScoped) {
     [rows] = await pool.query(
       `SELECT s.id, s.nome, 1 AS niveis_exigidos
          FROM setor_fluxos sf
@@ -851,6 +857,17 @@ async function assertUserCanOpenForSector(conn, idSetor, user) {
   const userId = typeof user === 'object' ? user.id : user;
   const isAdmin = typeof user === 'object' ? !!user.is_super_admin : false;
   if (isAdmin) return;
+
+  if (isCompanyScopedUser(user)) {
+    const [sectorRows] = await dbConn.query(
+      `SELECT id FROM setores WHERE id = ? AND ativo = 1 LIMIT 1`,
+      [idSetor],
+    );
+    if (!sectorRows.length) {
+      throw new AppError('Setor não encontrado ou inativo', 404);
+    }
+    return;
+  }
 
   const [rows] = await dbConn.query(
     `SELECT su.papel

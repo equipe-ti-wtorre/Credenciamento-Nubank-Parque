@@ -316,6 +316,15 @@ interface CompanyFormState {
       </form>
       <div modal-footer class="modal-footer">
         <button type="button" (click)="fecharModal()" class="btn-action-secondary">Cancelar</button>
+        <button
+          *ngIf="editingId()"
+          type="button"
+          (click)="enviarAcesso()"
+          [disabled]="saving() || inviting()"
+          class="btn-action-tonal"
+        >
+          {{ inviting() ? 'Enviando...' : 'Enviar acesso' }}
+        </button>
         <button type="submit" form="company-form" [disabled]="saving()" class="btn-action-primary">
           {{ saving() ? 'Salvando...' : (editingId() ? 'Salvar alterações' : 'Salvar empresa') }}
         </button>
@@ -331,6 +340,7 @@ export class CompanyListComponent implements OnDestroy {
   types = signal<CompanyType[]>([]);
   loading = signal(false);
   saving = signal(false);
+  inviting = signal(false);
   showModal = signal(false);
   editingId = signal<number | null>(null);
 
@@ -473,6 +483,7 @@ export class CompanyListComponent implements OnDestroy {
           company_name: company.company_name,
           fancy_name: company.fancy_name || '',
           contacts: (company.contacts || []).map((ct) => ({
+            id_company_contact: ct.id_company_contact,
             name: ct.name,
             department: ct.department || '',
             phone: ct.phone || '',
@@ -548,16 +559,88 @@ export class CompanyListComponent implements OnDestroy {
       : this.companyService.create(payload);
 
     req.subscribe({
-      next: () => {
+      next: (res) => {
         this.saving.set(false);
-        this.notification.success(id ? 'Empresa atualizada.' : 'Empresa criada.');
-        this.fecharModal();
+        const company = res.company;
+        this.editingId.set(company.id_company);
+        this.form = {
+          id_company_type: company.id_company_type,
+          cnpj: formatCnpj(company.cnpj),
+          company_name: company.company_name,
+          fancy_name: company.fancy_name || '',
+          contacts: (company.contacts || []).map((ct) => ({
+            id_company_contact: ct.id_company_contact,
+            name: ct.name,
+            department: ct.department || '',
+            phone: ct.phone || '',
+            email: ct.email || '',
+          })),
+        };
+        this.notification.success(id ? 'Empresa atualizada.' : 'Empresa criada. Você já pode enviar o acesso.');
         this.carregar(id ? this.pagination().page : 1);
+        this.cdr.markForCheck();
       },
       error: (err) => {
         this.saving.set(false);
         this.notification.error(this.extractError(err) || 'Falha ao salvar empresa.');
       },
+    });
+  }
+
+  enviarAcesso() {
+    const companyId = this.editingId();
+    if (!companyId) {
+      this.notification.error('Salve a empresa antes de enviar o acesso.');
+      return;
+    }
+
+    const withEmail = this.form.contacts.filter((c) => c.email?.trim() && c.name?.trim());
+    if (withEmail.length === 0) {
+      this.notification.error('Adicione e salve ao menos um contato com e-mail.');
+      return;
+    }
+
+    const inputOptions: Record<string, string> = {};
+    withEmail.forEach((c, idx) => {
+      const key = String(c.id_company_contact || `email:${idx}`);
+      inputOptions[key] = `${c.name} <${c.email}>`;
+    });
+
+    Swal.fire({
+      title: 'Enviar acesso',
+      text: 'Selecione o contato que receberá o e-mail de cadastro do gestor.',
+      input: 'select',
+      inputOptions,
+      inputPlaceholder: 'Selecione um contato',
+      showCancelButton: true,
+      confirmButtonText: 'Enviar e-mail',
+      cancelButtonText: 'Cancelar',
+      inputValidator: (value) => (!value ? 'Selecione um contato' : null),
+    }).then((result) => {
+      if (!result.isConfirmed || !result.value) return;
+
+      const selectedKey = String(result.value);
+      let payload: { id_company_contact?: number; email?: string; name?: string };
+
+      if (selectedKey.startsWith('email:')) {
+        const idx = Number(selectedKey.replace('email:', ''));
+        const contact = withEmail[idx];
+        payload = { email: contact.email!.trim(), name: contact.name.trim() };
+      } else {
+        payload = { id_company_contact: Number(selectedKey) };
+      }
+
+      this.inviting.set(true);
+      this.companyService.inviteAccess(companyId, payload).subscribe({
+        next: (res) => {
+          this.inviting.set(false);
+          this.notification.success(`Convite enviado para ${res.invite.email}.`);
+        },
+        error: (err) => {
+          this.inviting.set(false);
+          this.notification.error(this.extractError(err) || 'Falha ao enviar acesso.');
+        },
+      });
     });
   }
 

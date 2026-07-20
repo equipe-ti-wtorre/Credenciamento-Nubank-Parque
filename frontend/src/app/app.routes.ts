@@ -12,6 +12,7 @@ import { AboutComponent } from './pages/admin/about/about.component';
 import { SystemReportsComponent } from './pages/admin/system-reports/system-reports.component';
 import { ProfileListComponent } from './pages/admin/profiles/profile-list.component';
 import { UserListComponent } from './pages/admin/users/user-list.component';
+import { CompanyUserListComponent } from './pages/admin/company-users/company-user-list.component';
 import { CompanyListComponent } from './pages/admin/companies/company-list.component';
 import { CollaboratorListComponent } from './pages/admin/collaborators/collaborator-list.component';
 import { EventListComponent } from './pages/admin/events/event-list.component';
@@ -26,6 +27,7 @@ import { StorageLocationListComponent } from './pages/admin/merchandise/storage-
 import { MerchandiseReportsComponent } from './pages/admin/merchandise/merchandise-reports.component';
 import { MerchandiseMovementPageComponent } from './pages/merchandise/merchandise-movement-page.component';
 import { CredentialDenialsReportComponent } from './pages/operations/credential-denials-report.component';
+import { AccessReportComponent } from './pages/operations/access-report.component';
 import { SectorListComponent } from './pages/admin/sectors/sector-list.component';
 import { SectorDetailComponent } from './pages/admin/sectors/sector-detail.component';
 import { ApprovalsInboxComponent } from './pages/approvals/approvals-inbox.component';
@@ -50,6 +52,18 @@ export const routes: Routes = [
     path: 'login',
     component: AuthLayoutComponent,
     children: [{ path: '', component: LoginComponent }],
+  },
+  {
+    path: 'cadastro-acesso',
+    component: AuthLayoutComponent,
+    children: [
+      {
+        path: '',
+        loadComponent: () =>
+          import('./pages/auth/invite-register.component').then((m) => m.InviteRegisterComponent),
+        data: { title: 'Cadastro de acesso' },
+      },
+    ],
   },
   // Página focada (Teams / deep link) — SSO automático no Teams, sem tela de login
   {
@@ -125,6 +139,13 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
+        path: 'operacao/relatorio-acessos',
+        component: AccessReportComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'access_reports', action: 'view' }, title: 'Relatório de acessos' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
         path: 'admin/perfis',
         component: ProfileListComponent,
         canActivate: [PermissionGuard],
@@ -136,6 +157,13 @@ export const routes: Routes = [
         component: UserListComponent,
         canActivate: [PermissionGuard],
         data: { permission: { module: 'users', action: 'view' }, title: 'Usuários' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/usuarios-empresas',
+        component: CompanyUserListComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'company_users', action: 'view' }, title: 'Usuários Empresas' },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -189,14 +217,26 @@ export const routes: Routes = [
         path: 'admin/eventos',
         component: EventListComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'events', action: 'view' }, title: 'Eventos' },
+        data: {
+          permissionAny: [
+            { module: 'events', action: 'view' },
+            { module: 'approvals', action: 'view' },
+          ],
+          title: 'Eventos',
+        },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/eventos/:id',
         component: EventDetailComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'events', action: 'view' }, title: 'Detalhe do evento' },
+        data: {
+          permissionAny: [
+            { module: 'events', action: 'view' },
+            { module: 'approvals', action: 'view' },
+          ],
+          title: 'Detalhe do evento',
+        },
         runGuardsAndResolvers: 'always',
       },
       {

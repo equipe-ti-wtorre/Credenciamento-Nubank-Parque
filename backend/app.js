@@ -11,10 +11,12 @@ const errorHandler = require("./middleware/errorHandler");
 const authRoutes = require("./modules/auth/auth.routes");
 const tenantRoutes = require("./modules/tenants/tenant.routes");
 const smtpRoutes = require("./modules/smtp/smtp.routes");
+const acsEmailWebhookRoutes = require("./modules/smtp/acs-email-webhook.routes");
 const systemSettingsRoutes = require("./modules/system-settings/system-settings.routes");
 const teamsRoutes = require("./modules/teams/teams.routes");
 const systemReportsRoutes = require("./modules/system-reports/system-reports.routes");
 const usersRoutes = require("./modules/users/users.routes");
+const companyUsersRoutes = require("./modules/company-users/company-users.routes");
 const companyRoutes = require("./modules/companies/company.routes");
 const collaboratorRoutes = require("./modules/collaborators/collaborator.routes");
 const eventRoutes = require("./modules/events/event.routes");
@@ -38,7 +40,16 @@ app.set("trust proxy", 1);
 
 app.use(helmetConfig);
 app.use(corsConfig);
-app.use(express.json({ limit: "10mb" }));
+app.use(
+  express.json({
+    limit: "10mb",
+    verify: (req, _res, buf) => {
+      if (req.originalUrl && req.originalUrl.includes("/webhooks/")) {
+        req.rawBody = buf;
+      }
+    },
+  }),
+);
 app.use(requestIdMiddleware);
 app.use(requestLogger);
 app.use(auditRequestInterceptor);
@@ -56,11 +67,13 @@ const v1Router = express.Router();
 v1Router.use("/auth", authRoutes);
 v1Router.use("/tenants", tenantRoutes);
 v1Router.use("/smtp", smtpRoutes);
+v1Router.use("/webhooks", acsEmailWebhookRoutes);
 v1Router.use("/system-settings", systemSettingsRoutes);
 v1Router.use("/teams/bot", require("./modules/teams/bot/bot.routes"));
 v1Router.use("/teams", teamsRoutes);
 v1Router.use("/system-reports", systemReportsRoutes);
 v1Router.use("/users", usersRoutes);
+v1Router.use("/company-users", companyUsersRoutes);
 v1Router.use("/companies", companyRoutes);
 v1Router.use("/collaborators", collaboratorRoutes);
 v1Router.use("/events", eventRoutes);

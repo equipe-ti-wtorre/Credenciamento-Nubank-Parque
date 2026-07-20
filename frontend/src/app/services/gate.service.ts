@@ -42,7 +42,8 @@ export type GateNextAction =
   | 'CHECK_OUT'
   | 'COMPLETED'
   | 'PENDING_APPROVAL'
-  | 'REJECTED';
+  | 'REJECTED'
+  | 'BLOCKED_OPEN_STAY';
 
 export interface GateTodayCredential {
   id: number;
@@ -283,6 +284,7 @@ export interface GateTodayService {
   check_in: string | null;
   check_out: string | null;
   next_action: GateNextAction;
+  block_reason?: string | null;
   start_date: string | null;
   end_date: string | null;
   week_days: GateWeekDay[];

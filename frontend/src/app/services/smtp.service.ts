@@ -3,8 +3,12 @@ import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
+export type EmailProvider = 'smtp' | 'acs';
+export type EmailLogStatus = 'sent' | 'failed' | 'entregue' | 'bounce';
+
 export interface SmtpSettings {
   id?: number;
+  provider: EmailProvider;
   host: string;
   port: number;
   secure: boolean;
@@ -12,8 +16,15 @@ export interface SmtpSettings {
   password?: string;
   from_email: string;
   from_name?: string | null;
+  /** SMTP row ativo (legado) */
   ativo: boolean;
   hasPassword?: boolean;
+  acs_sender?: string | null;
+  acs_connection_string?: string;
+  has_acs_connection_string?: boolean;
+  ocultar_para?: boolean;
+  /** Envio habilitado no provedor (email_provider_config.ativo) */
+  email_ativo?: boolean;
 }
 
 export interface SmtpSendLog {
@@ -21,8 +32,10 @@ export interface SmtpSendLog {
   destinatario: string;
   assunto: string;
   corpo_resumo: string | null;
-  status: 'sent' | 'failed';
+  status: EmailLogStatus;
   erro_mensagem: string | null;
+  message_id?: string | null;
+  provider?: string | null;
   criado_em: string;
 }
 
@@ -44,12 +57,20 @@ export class SmtpService {
     return this.api.get<{ settings: SmtpSettings | null }>('/smtp/settings');
   }
 
-  updateSettings(data: SmtpSettings): Observable<{ settings: SmtpSettings }> {
+  updateSettings(data: Partial<SmtpSettings>): Observable<{ settings: SmtpSettings }> {
     return this.api.put<{ settings: SmtpSettings }>('/smtp/settings', data);
   }
 
-  testSend(destinatario: string, assunto?: string, corpo?: string): Observable<{ message: string }> {
-    return this.api.post<{ message: string }>('/smtp/test', { destinatario, assunto, corpo });
+  verifyConnection(): Observable<{ message: string }> {
+    return this.api.post<{ message: string }>('/smtp/verificar', {});
+  }
+
+  testSend(destinatario: string, assunto?: string, corpo?: string): Observable<{
+    message: string;
+    provider?: string;
+    messageId?: string | null;
+  }> {
+    return this.api.post('/smtp/test', { destinatario, assunto, corpo });
   }
 
   listLogs(page = 1, limit = 20): Observable<SmtpLogsResponse> {

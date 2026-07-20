@@ -30,8 +30,11 @@ export const PermissionGuard: CanActivateFn = async (route, state) => {
   const permission = route.data?.['permission'] as
     | { module: string; action?: PermissionAction }
     | undefined;
+  const permissionAny = route.data?.['permissionAny'] as
+    | Array<{ module: string; action?: PermissionAction }>
+    | undefined;
 
-  if (!permission?.module) {
+  if (!permission?.module && !permissionAny?.length) {
     return true;
   }
 
@@ -42,9 +45,18 @@ export const PermissionGuard: CanActivateFn = async (route, state) => {
   }
 
   const currentUser = JSON.parse(currentUserStr) as AuthUser;
-  const action = permission.action || 'view';
 
-  if (!hasPermission(currentUser, permission.module, action)) {
+  if (permissionAny?.length) {
+    if (!canAccessAny(currentUser, permissionAny)) {
+      router.navigate(['/dashboard']);
+      return false;
+    }
+    return true;
+  }
+
+  const action = permission!.action || 'view';
+
+  if (!hasPermission(currentUser, permission!.module, action)) {
     router.navigate(['/dashboard']);
     return false;
   }

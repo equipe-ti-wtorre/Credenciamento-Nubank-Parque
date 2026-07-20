@@ -286,7 +286,10 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       return {
         total: list.length,
         wait: list.filter(
-          (r) => r.next_action === 'CHECK_IN' || r.next_action === 'PENDING_APPROVAL',
+          (r) =>
+            r.next_action === 'CHECK_IN' ||
+            r.next_action === 'PENDING_APPROVAL' ||
+            r.next_action === 'BLOCKED_OPEN_STAY',
         ).length,
         in: list.filter((r) => r.next_action === 'CHECK_OUT').length,
         done: list.filter((r) => r.next_action === 'COMPLETED').length,
@@ -336,6 +339,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const type = this.typeFilter();
     const rank: Record<string, number> = {
       CHECK_IN: 0,
+      BLOCKED_OPEN_STAY: 0,
       PENDING_APPROVAL: 1,
       CHECK_OUT: 2,
       COMPLETED: 3,
@@ -358,7 +362,8 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         if (
           status === 'wait' &&
           row.next_action !== 'CHECK_IN' &&
-          row.next_action !== 'PENDING_APPROVAL'
+          row.next_action !== 'PENDING_APPROVAL' &&
+          row.next_action !== 'BLOCKED_OPEN_STAY'
         ) {
           return false;
         }
@@ -602,7 +607,15 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const m = Math.max(0, Math.round((Date.now() - ts) / 60_000));
     if (m < 1) return 'agora';
     if (m < 60) return `há ${m} min`;
-    return `há ${Math.floor(m / 60)}h ${m % 60}min`;
+    const hoursTotal = Math.floor(m / 60);
+    const mins = m % 60;
+    if (hoursTotal < 24) {
+      return `há ${hoursTotal}h ${mins}min`;
+    }
+    const days = Math.floor(hoursTotal / 24);
+    const hours = hoursTotal % 24;
+    const dayLabel = days === 1 ? '1 dia' : `${days} dias`;
+    return `há ${dayLabel} ${hours}h ${mins}min`;
   }
 
   setGateMode(mode: GateMode): void {
@@ -1002,8 +1015,15 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     if (
       this.processing() ||
       row.next_action === 'COMPLETED' ||
-      row.next_action === 'PENDING_APPROVAL'
+      row.next_action === 'PENDING_APPROVAL' ||
+      row.next_action === 'BLOCKED_OPEN_STAY'
     ) {
+      if (row.next_action === 'BLOCKED_OPEN_STAY') {
+        this.notify.warning(
+          row.block_reason ||
+            'Há entrada sem saída registrada. Registre a saída antes de uma nova entrada.',
+        );
+      }
       return;
     }
     this.skipNextFocusRestore = true;

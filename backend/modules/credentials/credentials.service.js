@@ -14,12 +14,13 @@ const {
   STATUS_APROVADO,
   STATUS_NEGADO,
 } = require("./credentials.schema");
-const { getProfileCodigo, isSuperAdmin } = require("../../utils/permissions");
+const { getProfileCodigo, isSuperAdmin, hasPermission } = require("../../utils/permissions");
 
 const logger = child({ module: "credentials" });
 
 const TYPE_PRODUTORA = "Produtora";
 const TYPE_EMPRESA_PADRAO = "Empresa Padrão";
+const PAPEIS_CAN_APPROVE = ["APROVADOR", "GESTOR"];
 
 let cachedProdutoraTypeId = null;
 let cachedEmpresaPadraoTypeId = null;
@@ -31,7 +32,8 @@ const CREDENTIAL_SELECT = `
          cr.description AS role_description,
          edc.id_event_day_company, edc.id_company, edc.id_producer,
          ed.id_event_day, ed.date AS event_day_date,
-         e.id_event, e.name AS event_name,
+         e.id_event, e.name AS event_name, e.id_access_status AS event_access_status,
+         e.id_company_responsavel,
          co.company_name, co.fancy_name AS company_fancy_name
   FROM event_day_company_collaborator edcc
   INNER JOIN access_status ast ON ast.id_access_status = edcc.id_access_status
@@ -93,6 +95,9 @@ function buildCredentialScope(req) {
     }
     return { mode: "produtora", companyId: idCompany };
   }
+  if (hasPermission(req.user, "approvals", "view") && req.user?.id) {
+    return { mode: "sector_approver", userId: Number(req.user.id) };
+  }
   throw new AppError("Perfil sem permissão para credenciamento.", 403);
 }
 
@@ -109,11 +114,45 @@ function applyScopeToWhere(scope) {
     return { conditions, params };
   }
   if (scope.mode === "produtora") {
-    conditions.push("(edc.id_company = ? OR edc.id_producer = ?)");
-    params.push(scope.companyId, scope.companyId);
+    conditions.push(
+      "(edc.id_company = ? OR edc.id_producer = ? OR e.id_company_responsavel = ?)",
+    );
+    params.push(scope.companyId, scope.companyId, scope.companyId);
+    return { conditions, params };
+  }
+  if (scope.mode === "sector_approver") {
+    conditions.push(`EXISTS (
+      SELECT 1 FROM aprovacoes a
+      INNER JOIN setor_usuarios su
+        ON su.id_setor = a.id_setor
+       AND su.id_usuario = ?
+       AND su.ativo = 1
+       AND su.papel IN (${PAPEIS_CAN_APPROVE.map(() => "?").join(",")})
+      WHERE a.tipo_entidade = 'EVENTO' AND a.id_entidade = e.id_event
+    )`);
+    params.push(scope.userId, ...PAPEIS_CAN_APPROVE);
     return { conditions, params };
   }
   return { conditions, params };
+}
+
+async function userCanFinalApproveCredential(user, idEvent) {
+  if (isSuperAdmin(user)) return true;
+  if (!user?.id || !idEvent) return false;
+  const [rows] = await db.execute(
+    `SELECT 1
+       FROM aprovacoes a
+       INNER JOIN setor_usuarios su
+         ON su.id_setor = a.id_setor
+        AND su.id_usuario = ?
+        AND su.ativo = 1
+        AND su.papel IN (${PAPEIS_CAN_APPROVE.map(() => "?").join(",")})
+      WHERE a.tipo_entidade = 'EVENTO' AND a.id_entidade = ?
+      ORDER BY a.id DESC
+      LIMIT 1`,
+    [user.id, ...PAPEIS_CAN_APPROVE, idEvent],
+  );
+  return rows.length > 0;
 }
 
 function assertCanWriteStatus(req) {
@@ -121,9 +160,14 @@ function assertCanWriteStatus(req) {
   if (role === "PADRAO") {
     throw new AppError("Perfil sem permissão para alterar status de credencial.", 403);
   }
-  if (role !== "ADMIN" && role !== "PRODUTORA") {
-    throw new AppError("Perfil sem permissão para alterar status de credencial.", 403);
+  if (
+    role === "ADMIN" ||
+    role === "PRODUTORA" ||
+    hasPermission(req.user, "approvals", "view")
+  ) {
+    return;
   }
+  throw new AppError("Perfil sem permissão para alterar status de credencial.", 403);
 }
 
 function assertCanCreate(req) {
@@ -235,6 +279,8 @@ function assertCredentialInScope(req, row) {
 
   const companyId = Number(row.id_company);
   const producerId = row.id_producer != null ? Number(row.id_producer) : null;
+  const responsavelId =
+    row.id_company_responsavel != null ? Number(row.id_company_responsavel) : null;
 
   if (scope.mode === "padrao") {
     if (companyId !== scope.companyId) {
@@ -244,11 +290,31 @@ function assertCredentialInScope(req, row) {
   }
 
   if (scope.mode === "produtora") {
-    if (companyId === scope.companyId || producerId === scope.companyId) {
+    if (
+      companyId === scope.companyId ||
+      producerId === scope.companyId ||
+      responsavelId === scope.companyId
+    ) {
       return;
     }
     throw new AppError("Credencial não encontrada.", 404);
   }
+
+  if (scope.mode === "sector_approver") {
+    // Validação fina em get/update via userCanFinalApproveCredential
+    return;
+  }
+}
+
+async function assertCredentialReadable(req, row) {
+  const scope = buildCredentialScope(req);
+  if (scope.mode === "admin") return;
+  if (scope.mode === "sector_approver") {
+    const ok = await userCanFinalApproveCredential(req.user, row.id_event);
+    if (!ok) throw new AppError("Credencial não encontrada.", 404);
+    return;
+  }
+  assertCredentialInScope(req, row);
 }
 
 async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId = null) {
@@ -313,7 +379,7 @@ async function findCredentialById(id) {
 async function getCredentialById(req, id) {
   const row = await findCredentialById(id);
   if (!row) throw new AppError("Credencial não encontrada.", 404);
-  assertCredentialInScope(req, row);
+  await assertCredentialReadable(req, row);
   return mapCredentialRow(row);
 }
 
@@ -426,14 +492,17 @@ async function createCredential(req, data) {
 function validateStatusTransition(req, row, targetStatus) {
   const role = getUserRole(req);
   const current = Number(row.id_access_status);
+  const userCompany =
+    req.user?.id_company != null ? Number(req.user.id_company) : null;
+  const producerId = row.id_producer != null ? Number(row.id_producer) : null;
+  const responsavelId =
+    row.id_company_responsavel != null ? Number(row.id_company_responsavel) : null;
 
-  if (role === "PRODUTORA") {
-    if (current !== STATUS_AGUARDANDO_PRODUTORA) {
-      throw new AppError("Credencial não está aguardando aprovação da produtora.", 400);
-    }
-    const producerId = row.id_producer != null ? Number(row.id_producer) : null;
-    const userCompany = req.user?.id_company != null ? Number(req.user.id_company) : null;
-    if (producerId !== userCompany) {
+  if (role === "PRODUTORA" && current === STATUS_AGUARDANDO_PRODUTORA) {
+    const canAct =
+      (producerId != null && producerId === userCompany) ||
+      (responsavelId != null && responsavelId === userCompany);
+    if (!canAct) {
       throw new AppError("Credencial não encontrada.", 404);
     }
     if (
@@ -442,20 +511,38 @@ function validateStatusTransition(req, row, targetStatus) {
     ) {
       throw new AppError("Transição de status inválida para produtora.", 400);
     }
-    return;
+    return { kind: "produtora" };
   }
 
-  if (role === "ADMIN") {
-    if (current !== STATUS_AGUARDANDO_APROVACAO) {
-      throw new AppError("Credencial não está aguardando aprovação administrativa.", 400);
-    }
-    if (targetStatus !== STATUS_APROVADO && targetStatus !== STATUS_NEGADO) {
-      throw new AppError("Transição de status inválida para administrador.", 400);
-    }
-    return;
+  return { kind: "final" };
+}
+
+async function assertFinalApprovalAllowed(req, row, targetStatus) {
+  if (targetStatus !== STATUS_APROVADO && targetStatus !== STATUS_NEGADO) {
+    throw new AppError("Transição de status inválida para aprovação final.", 400);
   }
 
-  throw new AppError("Perfil sem permissão para alterar status de credencial.", 403);
+  const current = Number(row.id_access_status);
+  if (current !== STATUS_AGUARDANDO_APROVACAO) {
+    throw new AppError("Credencial não está aguardando aprovação.", 400);
+  }
+
+  const canApprove =
+    isSuperAdmin(req.user) ||
+    (await userCanFinalApproveCredential(req.user, row.id_event));
+  if (!canApprove) {
+    throw new AppError("Perfil sem permissão para aprovar esta credencial.", 403);
+  }
+
+  if (targetStatus === STATUS_APROVADO) {
+    const eventStatus = Number(row.event_access_status);
+    if (eventStatus !== STATUS_APROVADO) {
+      throw new AppError(
+        "O evento precisa estar aprovado antes de aprovar acessos de colaboradores.",
+        409,
+      );
+    }
+  }
 }
 
 async function resolveCompanyContactEmail(idCompany) {
@@ -556,9 +643,12 @@ async function updateCredentialStatus(req, id, { id_access_status: targetStatus,
 
   const row = await findCredentialById(id);
   if (!row) throw new AppError("Credencial não encontrada.", 404);
-  assertCredentialInScope(req, row);
+  await assertCredentialReadable(req, row);
 
-  validateStatusTransition(req, row, targetStatus);
+  const transition = validateStatusTransition(req, row, targetStatus);
+  if (transition.kind === "final") {
+    await assertFinalApprovalAllowed(req, row, targetStatus);
+  }
 
   const previousStatus = Number(row.id_access_status);
   const conn = await db.getConnection();

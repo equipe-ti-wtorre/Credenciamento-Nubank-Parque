@@ -116,7 +116,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       size="2xl"
       [closeOnBackdrop]="false"
       [focusFirstField]="false"
-      [bodyScroll]="step() !== 'pessoas'"
+      [bodyScroll]="true"
       (close)="onClose()"
     >
       <div class="wcrt" [class.wcrt--pessoas]="step() === 'pessoas'">
@@ -740,12 +740,14 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       }
       .wcrt--pessoas {
         flex: 1;
-        height: 100%;
-        max-height: 100%;
-        overflow: hidden;
+        min-height: 0;
       }
       .wcrt--pessoas .wcrt-stepper {
         flex: none;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #fff;
       }
       .wcrt-stepper {
         display: flex;
@@ -876,19 +878,21 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       .wcrt-role-change__yes { color: var(--wtorre); }
       .wcrt-role-change__no { color: #64748b; }
       .wcrt-block--colab {
-        flex: 1 1 auto;
+        flex: none;
         min-height: 0;
-        overflow: hidden;
+        overflow: visible;
       }
       .wcrt-table-scroll {
-        flex: 1 1 0;
-        min-height: 160px;
-        overflow-x: hidden;
+        flex: none;
+        min-height: 120px;
+        max-height: min(360px, 42vh);
+        overflow-x: auto;
         overflow-y: auto;
         border: 1px solid var(--line);
         border-radius: 12px;
         background: #fff;
         overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
       }
       .form-field.is-invalid,
       .form-select.is-invalid {
@@ -904,8 +908,6 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         flex-direction: column;
         gap: 0.85rem;
         min-height: 0;
-        flex: 1;
-        overflow: hidden;
       }
       .wcrt-import {
         flex: none;
@@ -925,6 +927,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       .wcrt-alert {
         flex: none;
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 12px;
         padding: 12px 14px;
@@ -1027,8 +1030,9 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         display: flex;
         flex: 1;
         min-width: 0;
-        margin-left: auto;
         max-width: 18rem;
+        margin-left: auto;
+        position: relative;
       }
       .wcrt-search--pill .wcrt-search__input {
         padding-left: 2.35rem;
@@ -1048,7 +1052,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       }
       .wcrt-table-scroll--sm {
         flex: none;
-        max-height: 160px;
+        max-height: min(200px, 30vh);
         min-height: 88px;
       }
       .wcrt-table-scroll .wcrt-table {
@@ -1433,6 +1437,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         justify-content: space-between;
         gap: 12px;
         width: 100%;
+        flex-wrap: wrap;
       }
       .wcrt-foot__right {
         margin-left: auto;
@@ -1440,7 +1445,9 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       .wcrt-foot__pessoas {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 12px;
+        justify-content: flex-end;
       }
       .wcrt-foot__hint {
         font-size: 0.8rem;
@@ -1459,9 +1466,92 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         width: 16px;
         height: 16px;
       }
+      @media (max-width: 900px) {
+        .wcrt--pessoas {
+          overflow: visible;
+          height: auto;
+          max-height: none;
+        }
+        .wcrt-pessoas {
+          overflow: visible;
+          flex: none;
+        }
+        .wcrt-block--colab,
+        .wcrt-block--veic {
+          flex: none;
+          min-height: 0;
+          overflow: visible;
+        }
+        .wcrt-table-scroll,
+        .wcrt-table-scroll--sm {
+          flex: none;
+          min-height: 0;
+          max-height: 280px;
+        }
+      }
       @media (max-width: 720px) {
         .wcrt-dados {
           grid-template-columns: 1fr;
+        }
+        .wcrt-stepper {
+          gap: 0;
+          padding-bottom: 10px;
+        }
+        .wcrt-stepper__label {
+          font-size: 11px;
+          white-space: normal;
+          line-height: 1.2;
+          max-width: 5.5rem;
+        }
+        .wcrt-stepper__line {
+          margin: 0 6px;
+          min-width: 12px;
+        }
+        .wcrt-block__head {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .wcrt-search {
+          max-width: none;
+          width: 100%;
+          margin-left: 0;
+        }
+        .wcrt-alert {
+          align-items: flex-start;
+        }
+        .wcrt-alert__check {
+          width: 100%;
+          margin-left: 34px;
+        }
+        .wcrt-foot {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .wcrt-foot > .btn-action-secondary,
+        .wcrt-foot > button {
+          width: 100%;
+          justify-content: center;
+        }
+        .wcrt-foot__right,
+        .wcrt-foot__pessoas {
+          margin-left: 0;
+          width: 100%;
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .wcrt-foot__hint {
+          text-align: center;
+        }
+        .wcrt-foot__pessoas .btn-action-primary,
+        .wcrt-submit-btn {
+          width: 100%;
+          justify-content: center;
+        }
+        .wcrt-table {
+          min-width: 520px;
+        }
+        .wcrt-td-role {
+          min-width: 160px;
         }
       }
       @media (max-width: 640px) {
@@ -1475,6 +1565,9 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         .wcrt-search {
           max-width: none;
           width: 100%;
+          margin-left: 0;
+        }
+        .wcrt-alert__check {
           margin-left: 0;
         }
       }

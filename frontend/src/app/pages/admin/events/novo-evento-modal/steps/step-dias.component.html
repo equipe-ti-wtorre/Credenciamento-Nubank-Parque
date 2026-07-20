@@ -1,0 +1,84 @@
+@if (!hasPeriod()) {
+  <div class="lockmsg">Defina o período no passo anterior para marcar os dias do evento.</div>
+} @else {
+  <div class="two">
+    <div>
+      <div class="days__head">
+        <label class="field__label">Marcar dias</label>
+        <button type="button" class="btn btn--ghost btn--mini" (click)="fillPeriod.emit()">
+          Preencher período
+        </button>
+      </div>
+      <p class="days__hint">Escolha um tipo e clique nos dias. Clique de novo para remover ou trocar.</p>
+
+      <div class="brush" role="group" aria-label="Tipo de dia">
+        @for (t of types(); track t.id_event_day_type) {
+          <button
+            type="button"
+            class="brush__btn"
+            [class.is-active]="brushTypeId() === t.id_event_day_type"
+            [attr.data-tipo]="t.description"
+            (click)="brushTypeId.set(t.id_event_day_type)"
+          >
+            <span class="dot" [attr.data-tipo]="t.description"></span>
+            {{ t.description }}
+          </button>
+        }
+      </div>
+
+      <app-evento-calendar
+        mode="tag"
+        [minDate]="dataInicio()"
+        [maxDate]="dataFim()"
+        [tagged]="taggedNames()"
+        [initialMonth]="dataInicio()"
+        [viewKey]="calViewKey()"
+        (dayClick)="tagDay.emit($event)"
+      />
+
+      @if (rows().length) {
+        <p class="days__summary" [innerHTML]="summaryHtml()"></p>
+      }
+    </div>
+
+    <div>
+      <label class="field__label">Dias marcados</label>
+      @if (rows().length === 0) {
+        <p class="days__empty">Nenhum dia marcado — o evento será considerado em todo o período.</p>
+      } @else {
+        <div class="daylist">
+          @for (row of rows(); track row.iso) {
+            <div class="dayrow">
+              <span class="dayrow__bar" [attr.data-tipo]="row.tipoNome"></span>
+              <div class="dayrow__date">
+                {{ formatBr(row.iso) }}
+                <small>{{ weekday(row.iso) }}</small>
+              </div>
+              <div class="dayrow__sel">
+                <select
+                  class="select"
+                  [ngModel]="row.id_type"
+                  (ngModelChange)="changeType.emit({ iso: row.iso, id_type: $event })"
+                >
+                  @for (t of typeOptions(); track t.id_event_day_type) {
+                    <option [ngValue]="t.id_event_day_type">{{ t.description }}</option>
+                  }
+                </select>
+              </div>
+              <button
+                type="button"
+                class="dayrow__rm"
+                [attr.aria-label]="'Remover ' + formatBr(row.iso)"
+                (click)="removeDay.emit(row.iso)"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+}

@@ -1,0 +1,68 @@
+<div class="two step-dados">
+  <div class="step-dados__cal">
+    <label class="field__label">Período</label>
+    <app-evento-calendar
+      mode="range"
+      [rangeStart]="dataInicio()"
+      [rangeEnd]="dataFim()"
+      [picking]="picking()"
+      [initialMonth]="dataInicio() || null"
+      [viewKey]="calViewKey()"
+      (dayClick)="rangePick.emit($event)"
+    />
+    <div class="period">
+      <div class="period__box">
+        <small>Início</small>
+        <span [class.empty]="!dataInicio()">{{ startLabel() }}</span>
+      </div>
+      <div class="period__box">
+        <small>Término</small>
+        <span [class.empty]="!dataFim()">{{ endLabel() }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-dados__fields">
+    <div class="field">
+      <label class="field__label" for="nev-nome">Nome</label>
+      <input
+        id="nev-nome"
+        class="input"
+        [class.input--filled]="!!nome().trim()"
+        [ngModel]="nome()"
+        (ngModelChange)="nome.set($event)"
+        placeholder="Ex.: Show de aniversário"
+        autocomplete="off"
+      />
+    </div>
+    <div class="field">
+      <label class="field__label" for="nev-setor">Setor aprovador</label>
+      <select
+        id="nev-setor"
+        class="select"
+        [ngModel]="idSetor()"
+        (ngModelChange)="idSetor.set($event)"
+      >
+        <option [ngValue]="null" disabled>Selecione o setor</option>
+        @for (s of sectors(); track s.id) {
+          <option [ngValue]="s.id">{{ s.nome }}</option>
+        }
+      </select>
+    </div>
+    <div class="field">
+      <label class="field__label" for="nev-empresa">Empresa responsável</label>
+      <select
+        id="nev-empresa"
+        class="select"
+        [ngModel]="idEmpresa()"
+        (ngModelChange)="idEmpresa.set($event)"
+        [disabled]="lockEmpresa()"
+      >
+        <option [ngValue]="null" disabled>Selecione a produtora</option>
+        @for (p of producers(); track p.id_company) {
+          <option [ngValue]="p.id_company">{{ p.company_name }}</option>
+        }
+      </select>
+    </div>
+  </div>
+</div>

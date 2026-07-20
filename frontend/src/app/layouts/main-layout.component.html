@@ -1,4 +1,4 @@
-<div class="wt-layout" [class.collapsed]="collapsed()">
+<div class="wt-layout" [class.collapsed]="collapsed()" [class.is-gate-page]="isGatePage()">
   <!-- ============ SIDEBAR ============ -->
   <aside class="wt-sidebar">
     <div class="brand">
@@ -41,13 +41,9 @@
     </div>
 
     <div class="profile" [title]="collapsed() ? userName : ''">
-      <img
-        *ngIf="userPhotoUrl"
-        [src]="userPhotoUrl"
-        alt=""
-        (error)="onPhotoError()"
-        class="avatar avatar-img"
-      />
+      <div *ngIf="userPhotoUrl" class="avatar avatar--photo">
+        <img [src]="userPhotoUrl" alt="" (error)="onPhotoError()" />
+      </div>
       <div *ngIf="!userPhotoUrl" class="avatar" aria-hidden="true">{{ userInitials }}</div>
       <div class="meta">
         <div class="name">{{ userName }}</div>

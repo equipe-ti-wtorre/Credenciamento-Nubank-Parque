@@ -58,6 +58,7 @@ interface NavGroup {
 export class MainLayoutComponent implements OnInit, OnDestroy {
   collapsed = signal(false);
   pageTitle = signal(DEFAULT_TITLE);
+  isGatePage = signal(false);
   pendingApprovals = signal(0);
   pendingDocumentApprovals = signal(0);
 
@@ -190,10 +191,12 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     this.loadPendingBadges();
 
     this.resolveTitle();
+    this.resolveGatePage();
     this.routerSub = this.router.events
       .pipe(filter((e) => e instanceof NavigationEnd))
       .subscribe(() => {
         this.resolveTitle();
+        this.resolveGatePage();
         this.loadPendingBadges();
       });
 
@@ -257,7 +260,14 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
         iconHtml: this.iconFor('chart'),
       });
     }
-    if (hasPermission(user, 'events', 'view')) {
+    if (hasPermission(user, 'access_reports', 'view')) {
+      operacaoItems.push({
+        label: 'Relatório de acessos',
+        route: '/operacao/relatorio-acessos',
+        iconHtml: this.iconFor('chart'),
+      });
+    }
+    if (hasPermission(user, 'events', 'view') || hasPermission(user, 'approvals', 'view')) {
       operacaoItems.push({ label: 'Eventos', route: '/admin/eventos', iconHtml: this.iconFor('calendar') });
     }
     if (hasPermission(user, 'service_access', 'view')) {
@@ -333,6 +343,11 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
       }
     }
     this.pageTitle.set(title || DEFAULT_TITLE);
+  }
+
+  private resolveGatePage(): void {
+    const path = this.router.url.split('?')[0];
+    this.isGatePage.set(path === '/portaria' || path.startsWith('/portaria/'));
   }
 
   onPhotoError(): void {

@@ -69,6 +69,7 @@ function mapCollaboratorRow(row, { isBlacklisted = false, canDelete = false } = 
     id_collaborator: row.id_collaborator,
     id_collaborator_document_type: row.id_collaborator_document_type,
     id_collaborator_role: row.id_collaborator_role,
+    id_company: row.id_company != null ? Number(row.id_company) : null,
     document: row.document,
     name: row.name,
     rg: row.rg || null,
@@ -82,6 +83,23 @@ function mapCollaboratorRow(row, { isBlacklisted = false, canDelete = false } = 
     document_type: mapDocumentType(row),
     role: mapRole(row),
   };
+}
+
+function getActorCompanyId(req) {
+  if (!req.user?.requires_company) return null;
+  const id = req.user?.id_company != null ? Number(req.user.id_company) : null;
+  if (!id) {
+    throw new AppError("Usuário sem empresa vinculada.", 403);
+  }
+  return id;
+}
+
+function assertCollaboratorInCompanyScope(req, row) {
+  const companyId = getActorCompanyId(req);
+  if (companyId == null) return;
+  if (Number(row.id_company) !== companyId) {
+    throw new AppError("Colaborador não encontrado.", 404);
+  }
 }
 
 function parseListQuery(query) {
@@ -291,9 +309,14 @@ async function assertNotDuplicate(document, idDocumentType, excludeId = null) {
   }
 }
 
-function buildListWhere(filters) {
+function buildListWhere(filters, companyId = null) {
   const conditions = [];
   const params = [];
+
+  if (companyId != null) {
+    conditions.push("c.id_company = ?");
+    params.push(companyId);
+  }
 
   if (filters.q) {
     conditions.push("(c.name LIKE ? OR c.document LIKE ?)");
@@ -333,7 +356,8 @@ function buildListWhere(filters) {
 async function listCollaborators(req, { page, limit, filters }) {
   assertAdminForList(req);
   const offset = (page - 1) * limit;
-  const { where, params } = buildListWhere(filters);
+  const companyId = getActorCompanyId(req);
+  const { where, params } = buildListWhere(filters, companyId);
 
   const [rows] = await db.execute(
     `${COLLABORATOR_SELECT} ${where}
@@ -377,6 +401,7 @@ async function searchByDocument(req, { document, id_collaborator_document_type }
   if (!row) {
     throw new AppError("Colaborador não encontrado.", 404);
   }
+  assertCollaboratorInCompanyScope(req, row);
   const isBlacklisted = await checkBlacklist(row.id_collaborator);
   return {
     found: true,
@@ -402,10 +427,14 @@ async function searchCollaboratorsByTerm(req, { q, limit = 8 }) {
     params.push(`%${digits}%`);
   }
 
+  const companyId = getActorCompanyId(req);
+  const scopeSql = companyId != null ? " AND c.id_company = ?" : "";
+  if (companyId != null) params.push(companyId);
+
   const max = Math.min(20, Math.max(1, Number(limit) || 8));
   const [rows] = await db.execute(
     `${COLLABORATOR_SELECT}
-     WHERE c.status = 1 AND (${conditions.join(" OR ")})
+     WHERE c.status = 1 AND (${conditions.join(" OR ")})${scopeSql}
      ORDER BY c.name ASC
      LIMIT ${max}`,
     params,
@@ -432,6 +461,7 @@ async function searchCollaboratorsByTerm(req, { q, limit = 8 }) {
 async function getCollaboratorById(req, id) {
   const row = await findCollaboratorById(id);
   if (!row) throw new AppError("Colaborador não encontrado.", 404);
+  assertCollaboratorInCompanyScope(req, row);
 
   const isBlacklisted = await checkBlacklist(row.id_collaborator);
 
@@ -461,8 +491,8 @@ async function insertCollaboratorRecord(data) {
   const [result] = await db.execute(
     `INSERT INTO collaborator (
        id_collaborator_document_type, id_collaborator_role,
-       document, name, rg, phone, status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       document, name, rg, phone, id_company, status
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.id_collaborator_document_type,
       data.id_collaborator_role,
@@ -470,6 +500,7 @@ async function insertCollaboratorRecord(data) {
       data.name,
       data.rg || null,
       data.phone || null,
+      data.id_company != null ? data.id_company : null,
       data.status !== false ? 1 : 0,
     ],
   );
@@ -479,7 +510,12 @@ async function insertCollaboratorRecord(data) {
 
 async function createCollaborator(req, data) {
   assertCanWriteCollaborator(req);
-  return insertCollaboratorRecord(data);
+  const companyId = getActorCompanyId(req);
+  const payload = { ...data };
+  if (companyId != null) {
+    payload.id_company = companyId;
+  }
+  return insertCollaboratorRecord(payload);
 }
 
 async function getCollaboratorBulkTemplate() {
@@ -490,6 +526,7 @@ async function getCollaboratorBulkTemplate() {
 
 async function bulkCreateCollaborators(req, file) {
   assertCanWriteCollaborator(req);
+  const companyId = getActorCompanyId(req);
   const rawRows = await parseBulkFile(file.buffer, file.mimetype, file.originalname);
   const errors = [];
   let successCount = 0;
@@ -508,7 +545,9 @@ async function bulkCreateCollaborators(req, file) {
     }
 
     try {
-      await insertCollaboratorRecord(validated.value);
+      const record = { ...validated.value };
+      if (companyId != null) record.id_company = companyId;
+      await insertCollaboratorRecord(record);
       successCount += 1;
     } catch (err) {
       if (err instanceof AppError) {
@@ -689,7 +728,10 @@ async function commitBulkCollaborators(req, { previewId, decisions }) {
           errors.push({ line, reason: "Sem permissão para criar." });
           continue;
         }
-        await insertCollaboratorRecord(row.validated);
+        const companyId = getActorCompanyId(req);
+        const createPayload = { ...row.validated };
+        if (companyId != null) createPayload.id_company = companyId;
+        await insertCollaboratorRecord(createPayload);
         created += 1;
       } else if (action === "update") {
         if (!row.existingId || !row.validated) {
@@ -758,6 +800,7 @@ async function updateCollaborator(req, id, data) {
   assertAdminForUpdate(req);
   const existing = await findCollaboratorById(id);
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
+  assertCollaboratorInCompanyScope(req, existing);
 
   const idDocType = data.id_collaborator_document_type ?? existing.id_collaborator_document_type;
   const idRole = data.id_collaborator_role ?? existing.id_collaborator_role;

@@ -1,13 +1,24 @@
 const express = require("express");
 const serviceAccessController = require("./service-access.controller");
 const { authMiddleware } = require("../../middleware/authMiddleware");
-const { authorizePermission } = require("../../middleware/permissionMiddleware");
+const {
+  authorizePermission,
+  authorizeAnyPermission,
+} = require("../../middleware/permissionMiddleware");
 const { bulkUploadMiddleware } = require("../../middleware/upload.middleware");
 
 const router = express.Router();
 const canView = [authMiddleware, authorizePermission("service_access", "view")];
 const canCreate = [authMiddleware, authorizePermission("service_access", "create")];
 const canEdit = [authMiddleware, authorizePermission("service_access", "edit")];
+/** Criação de solicitação (rascunho) e manutenção: create ou edit. */
+const canMutate = [
+  authMiddleware,
+  authorizeAnyPermission([
+    { modulo: "service_access", acao: "create" },
+    { modulo: "service_access", acao: "edit" },
+  ]),
+];
 
 router.get("/", ...canView, serviceAccessController.list);
 router.get(
@@ -34,61 +45,61 @@ router.get(
 );
 router.post(
   "/:id/bulk-import/preview",
-  ...canEdit,
+  ...canMutate,
   bulkUploadMiddleware,
   serviceAccessController.unifiedBulkPreview,
 );
 router.post(
   "/:id/bulk-import/confirm",
-  ...canEdit,
+  ...canMutate,
   serviceAccessController.unifiedBulkConfirm,
 );
-router.put("/:id", ...canEdit, serviceAccessController.update);
-router.put("/:id/relations", ...canEdit, serviceAccessController.syncRelations);
-router.patch("/:id/period", ...canEdit, serviceAccessController.patchPeriod);
+router.put("/:id", ...canMutate, serviceAccessController.update);
+router.put("/:id/relations", ...canMutate, serviceAccessController.syncRelations);
+router.patch("/:id/period", ...canMutate, serviceAccessController.patchPeriod);
 router.patch("/:id/status", ...canEdit, serviceAccessController.patchStatus);
 router.patch("/:id/enabled", ...canEdit, serviceAccessController.patchEnabled);
 router.post(
   "/:id/collaborators/bulk/preview",
-  ...canEdit,
+  ...canMutate,
   bulkUploadMiddleware,
   serviceAccessController.bulkCollaboratorsPreview,
 );
 router.post(
   "/:id/collaborators/bulk/commit",
-  ...canEdit,
+  ...canMutate,
   serviceAccessController.bulkCollaboratorsCommit,
 );
 router.post(
   "/:id/collaborators/bulk",
-  ...canEdit,
+  ...canMutate,
   bulkUploadMiddleware,
   serviceAccessController.bulkCollaborators,
 );
-router.post("/:id/collaborators", ...canEdit, serviceAccessController.addCollaborator);
+router.post("/:id/collaborators", ...canMutate, serviceAccessController.addCollaborator);
 router.delete(
   "/:id/collaborators/:linkId",
-  ...canEdit,
+  ...canMutate,
   serviceAccessController.removeCollaborator,
 );
 router.post(
   "/:id/vehicles/bulk/preview",
-  ...canEdit,
+  ...canMutate,
   bulkUploadMiddleware,
   serviceAccessController.bulkVehiclesPreview,
 );
 router.post(
   "/:id/vehicles/bulk/commit",
-  ...canEdit,
+  ...canMutate,
   serviceAccessController.bulkVehiclesCommit,
 );
 router.post(
   "/:id/vehicles/bulk",
-  ...canEdit,
+  ...canMutate,
   bulkUploadMiddleware,
   serviceAccessController.bulkVehicles,
 );
-router.post("/:id/vehicles", ...canEdit, serviceAccessController.addVehicle);
-router.delete("/:id/vehicles/:linkId", ...canEdit, serviceAccessController.removeVehicle);
+router.post("/:id/vehicles", ...canMutate, serviceAccessController.addVehicle);
+router.delete("/:id/vehicles/:linkId", ...canMutate, serviceAccessController.removeVehicle);
 
 module.exports = router;

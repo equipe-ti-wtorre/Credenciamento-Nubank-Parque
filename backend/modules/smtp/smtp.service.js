@@ -1,9 +1,8 @@
-const nodemailer = require("nodemailer");
 const db = require("../../config/db");
 const { encrypt, decrypt } = require("../../config/cryptoSecrets");
-const { child } = require("../../config/logger");
-
-const logger = child({ module: "smtp" });
+const emailConfigService = require("./email-config.service");
+const emailSender = require("./emailSender");
+const AppError = require("../../utils/AppError");
 
 function mapSettingsRow(row, includePassword = false) {
   if (!row) return null;
@@ -37,23 +36,46 @@ async function getActiveSettingsRow() {
   return rows[0] || null;
 }
 
+async function getLatestSettingsRow() {
+  const active = await getActiveSettingsRow();
+  if (active) return active;
+  const [any] = await db.execute(`SELECT * FROM smtp_settings ORDER BY id DESC LIMIT 1`);
+  return any[0] || null;
+}
+
+/**
+ * Combined public settings: SMTP row + email provider config.
+ */
 async function getSettings() {
-  const row = await getActiveSettingsRow();
-  if (!row) {
-    const [any] = await db.execute(`SELECT * FROM smtp_settings ORDER BY id DESC LIMIT 1`);
-    return mapSettingsRow(any[0] || null);
-  }
-  return mapSettingsRow(row);
+  const row = await getLatestSettingsRow();
+  const smtp = mapSettingsRow(row);
+  const provider = await emailConfigService.getPublicConfig();
+
+  return {
+    ...(smtp || {
+      host: "",
+      port: 587,
+      secure: false,
+      user: "",
+      from_email: "",
+      from_name: null,
+      ativo: true,
+      hasPassword: false,
+    }),
+    provider: provider.provider,
+    acs_sender: provider.acs_sender,
+    has_acs_connection_string: provider.has_acs_connection_string,
+    ocultar_para: provider.ocultar_para,
+    email_ativo: provider.ativo,
+  };
 }
 
 async function getSettingsForSend() {
-  const row = await getActiveSettingsRow();
-  if (!row || !row.password_ciphertext) return null;
-  return mapSettingsRow(row, true);
+  return emailSender.getSmtpSettingsForSend();
 }
 
-async function upsertSettings(data) {
-  const existing = await getActiveSettingsRow();
+async function upsertSmtpSettings(data) {
+  const existing = await getLatestSettingsRow();
   const ciphertext =
     data.password !== undefined && data.password !== ""
       ? encrypt(data.password)
@@ -62,6 +84,13 @@ async function upsertSettings(data) {
   if (existing) {
     let passwordField = existing.password_ciphertext;
     if (ciphertext !== undefined) passwordField = ciphertext;
+
+    const smtpAtivo =
+      data.smtp_ativo !== undefined
+        ? data.smtp_ativo !== false
+        : data.ativo !== undefined
+          ? data.ativo !== false
+          : !!existing.ativo;
 
     await db.execute(
       `UPDATE smtp_settings SET host=?, port=?, secure=?, user=?, password_ciphertext=?, from_email=?, from_name=?, ativo=? WHERE id=?`,
@@ -73,11 +102,13 @@ async function upsertSettings(data) {
         passwordField,
         data.from_email,
         data.from_name || null,
-        data.ativo !== false ? 1 : 0,
+        smtpAtivo ? 1 : 0,
         existing.id,
       ],
     );
-    const [rows] = await db.execute("SELECT * FROM smtp_settings WHERE id = ?", [existing.id]);
+    const [rows] = await db.execute("SELECT * FROM smtp_settings WHERE id = ?", [
+      existing.id,
+    ]);
     return mapSettingsRow(rows[0]);
   }
 
@@ -99,95 +130,97 @@ async function upsertSettings(data) {
       data.ativo !== false ? 1 : 0,
     ],
   );
-  const [rows] = await db.execute("SELECT * FROM smtp_settings WHERE id = ?", [result.insertId]);
+  const [rows] = await db.execute("SELECT * FROM smtp_settings WHERE id = ?", [
+    result.insertId,
+  ]);
   return mapSettingsRow(rows[0]);
 }
 
-function createTransporter(config) {
-  return nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.secure,
-    auth: {
-      user: config.user,
-      pass: config.password,
-    },
+/**
+ * Save SMTP fields (when provided) + provider config.
+ */
+async function upsertSettings(data) {
+  const providerFields = {
+    provider: data.provider,
+    acs_connection_string: data.acs_connection_string,
+    acs_sender: data.acs_sender,
+    ocultar_para: data.ocultar_para,
+    ativo: data.email_ativo !== undefined ? data.email_ativo : data.ativo_email,
+  };
+
+  // email_ativo takes precedence; fallback to top-level ativo only when saving provider-only flags
+  if (providerFields.ativo === undefined && data.email_ativo === undefined) {
+    // Keep provider ativo unchanged unless explicitly set via email_ativo / ativo_email
+    delete providerFields.ativo;
+  }
+
+  const hasSmtpPayload =
+    data.host !== undefined &&
+    data.port !== undefined &&
+    data.user !== undefined &&
+    data.from_email !== undefined;
+
+  if (hasSmtpPayload) {
+    await upsertSmtpSettings(data);
+  }
+
+  const hasProviderPayload =
+    data.provider !== undefined ||
+    data.acs_connection_string !== undefined ||
+    data.acs_sender !== undefined ||
+    data.ocultar_para !== undefined ||
+    data.email_ativo !== undefined ||
+    data.ativo_email !== undefined;
+
+  if (hasProviderPayload) {
+    const clean = { ...providerFields };
+    Object.keys(clean).forEach((k) => {
+      if (clean[k] === undefined) delete clean[k];
+    });
+    if (Object.keys(clean).length) {
+      await emailConfigService.saveProviderConfig(clean);
+    }
+  }
+
+  // Validate ACS readiness when selecting ACS as active provider
+  const after = await getSettings();
+  if (after.provider === "acs" && after.email_ativo) {
+    if (!after.acs_sender) {
+      throw new AppError("Remetente ACS (acs_sender) é obrigatório.", 400);
+    }
+    if (!after.has_acs_connection_string) {
+      throw new AppError(
+        "Connection string ACS é obrigatória na primeira configuração.",
+        400,
+      );
+    }
+  }
+
+  return after;
+}
+
+async function sendMail({ to, subject, text, html, usuarioId, requestId, attachments, onAcsWait }) {
+  return emailSender.sendEmail({
+    to,
+    subject,
+    text,
+    html,
+    attachments,
+    usuarioId,
+    requestId,
+    onAcsWait,
   });
 }
 
-async function insertSendLog({
-  destinatario,
-  assunto,
-  corpoResumo,
-  status,
-  erroMensagem,
-  usuarioId,
-  requestId,
-}) {
-  await db.execute(
-    `INSERT INTO smtp_send_logs (destinatario, assunto, corpo_resumo, status, erro_mensagem, usuario_id, request_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      destinatario,
-      assunto,
-      corpoResumo ? String(corpoResumo).slice(0, 500) : null,
-      status,
-      erroMensagem || null,
-      usuarioId || null,
-      requestId || null,
-    ],
-  );
-}
-
-async function sendMail({ to, subject, text, html, usuarioId, requestId }) {
-  const config = await getSettingsForSend();
-  if (!config) {
-    throw new Error("Configuração SMTP ativa não encontrada ou sem senha.");
-  }
-
-  const transporter = createTransporter(config);
-  const from = config.from_name
-    ? `"${config.from_name}" <${config.from_email}>`
-    : config.from_email;
-
-  try {
-    await transporter.sendMail({
-      from,
-      to,
-      subject,
-      text: text || undefined,
-      html: html || undefined,
-    });
-
-    await insertSendLog({
-      destinatario: to,
-      assunto: subject,
-      corpoResumo: text || html,
-      status: "sent",
-      usuarioId,
-      requestId,
-    });
-
-    return { success: true };
-  } catch (err) {
-    logger.error({ err }, "Falha ao enviar e-mail SMTP");
-    await insertSendLog({
-      destinatario: to,
-      assunto: subject,
-      corpoResumo: text || html,
-      status: "failed",
-      erroMensagem: err.message,
-      usuarioId,
-      requestId,
-    });
-    throw err;
-  }
+async function verifyConnection() {
+  return emailSender.verifySmtpConnection();
 }
 
 async function listLogs({ page = 1, limit = 20 }) {
   const offset = (page - 1) * limit;
   const [rows] = await db.execute(
-    `SELECT id, destinatario, assunto, corpo_resumo, status, erro_mensagem, usuario_id, request_id, criado_em
+    `SELECT id, destinatario, assunto, corpo_resumo, status, erro_mensagem, usuario_id, request_id,
+            message_id, provider, criado_em
      FROM smtp_send_logs ORDER BY criado_em DESC LIMIT ? OFFSET ?`,
     [limit, offset],
   );
@@ -208,4 +241,7 @@ module.exports = {
   upsertSettings,
   sendMail,
   listLogs,
+  verifyConnection,
+  getSettingsForSend,
+  mapSettingsRow,
 };

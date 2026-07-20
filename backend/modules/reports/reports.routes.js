@@ -19,4 +19,18 @@ router.get(
   reportsController.denials,
 );
 
+router.get(
+  "/accesses",
+  authMiddleware,
+  authorizePermission("access_reports", "view"),
+  reportsController.accesses,
+);
+
+router.get(
+  "/accesses/export",
+  authMiddleware,
+  authorizePermission("access_reports", "view"),
+  reportsController.exportAccesses,
+);
+
 module.exports = router;

@@ -150,3 +150,47 @@ exports.userPhoto = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.getInvite = async (req, res, next) => {
+  try {
+    const inviteService = require("./invite.service");
+    const invite = await inviteService.getInviteInfo(req.params.token);
+    res.json({ invite });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.completeInvite = async (req, res, next) => {
+  try {
+    const { inviteCompleteSchema } = require("./auth.schema");
+    const inviteService = require("./invite.service");
+    const { error, value } = inviteCompleteSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await inviteService.completeInvite(
+      req.params.token,
+      value.password,
+      req,
+    );
+
+    await logAudit({
+      userId: result.user.id,
+      action: AUDIT_ACTIONS.LOGIN,
+      module: AUDIT_MODULES.AUTH,
+      req,
+      metadata: buildAuditMetadata({
+        event: "auth.invite_complete",
+        outcome: "success",
+        provider: "invite",
+        resource: { type: "user", id: result.user.id, email: result.user.email },
+        http: buildHttpContext(req, { statusCode: 200 }),
+      }),
+    });
+    markAuditLogged(req);
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};

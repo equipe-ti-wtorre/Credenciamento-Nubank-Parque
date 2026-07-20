@@ -1,0 +1,79 @@
+<div class="review__grid">
+  <div class="rv">
+    <small>Nome</small>
+    <span>{{ nome() || '—' }}</span>
+  </div>
+  <div class="rv">
+    <small>Setor aprovador</small>
+    <span>{{ setorNome() || '—' }}</span>
+  </div>
+  <div class="rv">
+    <small>Empresa responsável</small>
+    <span>{{ empresaNome() || '—' }}</span>
+  </div>
+  <div class="rv">
+    <small>Período</small>
+    <span>{{ periodoLabel() }}</span>
+  </div>
+</div>
+
+<p class="review__daystitle">Dias do evento</p>
+
+@if (cards().length === 0) {
+  <div class="review__allnote">
+    Nenhum dia específico marcado — o credenciamento valerá para
+    <b>todos os dias do período</b>.
+  </div>
+} @else {
+  <div class="phasebar">
+    @for (p of phaseCounts(); track p.nome) {
+      <span class="phasechip" [attr.data-tipo]="p.nome">
+        @switch (p.nome) {
+          @case ('Montagem') {
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2-2 2.1-2.1Z"/></svg>
+          }
+          @case ('Show') {
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none" aria-hidden="true"><path d="M12 3l2.5 6.3L21 9.6l-5 4 1.6 6.4L12 16.6 6.4 20 8 13.6l-5-4 6.5-.3z"/></svg>
+          }
+          @case ('Desmontagem') {
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+          }
+          @case ('Jogo') {
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+          }
+        }
+        <b>{{ p.n }}</b> {{ p.label }}
+      </span>
+    }
+  </div>
+
+  <div class="rvcards">
+    @for (c of cards(); track c.iso) {
+      <div class="rvcard" [attr.data-tipo]="c.tipoNome">
+        <div class="rvcard__top">
+          <div class="rvcard__num">
+            {{ c.day }}<small>/{{ c.month }}</small>
+          </div>
+          <div class="rvcard__ic">
+            @switch (c.tipoNome) {
+              @case ('Montagem') {
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2-2 2.1-2.1Z"/></svg>
+              }
+              @case ('Show') {
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none" aria-hidden="true"><path d="M12 3l2.5 6.3L21 9.6l-5 4 1.6 6.4L12 16.6 6.4 20 8 13.6l-5-4 6.5-.3z"/></svg>
+              }
+              @case ('Desmontagem') {
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+              }
+              @case ('Jogo') {
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+              }
+            }
+          </div>
+        </div>
+        <div class="rvcard__wd">{{ c.weekday }}</div>
+        <span class="rvcard__tag">{{ c.tipoNome }}</span>
+      </div>
+    }
+  </div>
+}

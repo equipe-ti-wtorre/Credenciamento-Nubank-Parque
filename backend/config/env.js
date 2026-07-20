@@ -24,6 +24,15 @@ const env = {
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean),
+  /** URL base do frontend (convites, links de e-mail). */
+  appPublicUrl: (
+    process.env.APP_PUBLIC_URL ||
+    process.env.TEAMS_ACTIVITY_WEB_URL ||
+    process.env.MSAL_REDIRECT_URI_WEB ||
+    ""
+  )
+    .trim()
+    .replace(/\/$/, ""),
   logLevel: process.env.LOG_LEVEL || "info",
   db: {
     host: process.env.DB_HOST || "localhost",
@@ -56,6 +65,8 @@ const env = {
   teamsBotAppTenantId: (process.env.TEAMS_BOT_TENANT_ID || "").trim() || null,
   /** Service URL regional do Bot Connector (ex.: https://smba.trafficmanager.net/amer/). */
   teamsBotServiceUrl: (process.env.TEAMS_BOT_SERVICE_URL || "https://smba.trafficmanager.net/amer/").trim(),
+  /** Secret da subscription Event Grid (webhook ACS email delivery). */
+  eventGridWebhookSecret: (process.env.EVENT_GRID_WEBHOOK_SECRET || "").trim() || null,
   /** Desativa rate limit (apenas dev/teste local). */
   rateLimitDisabled:
     String(process.env.RATE_LIMIT_DISABLED || "false").toLowerCase() === "true",

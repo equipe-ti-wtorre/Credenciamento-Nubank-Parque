@@ -42,9 +42,16 @@ const companyStatusSchema = Joi.object({
   status: Joi.boolean().required(),
 });
 
+const companyInviteAccessSchema = Joi.object({
+  id_company_contact: Joi.number().integer().positive().optional(),
+  email: Joi.string().email().max(200).optional(),
+  name: Joi.string().max(200).allow("", null).optional(),
+}).or("id_company_contact", "email");
+
 module.exports = {
   companyCreateSchema,
   companyUpdateSchema,
   companyStatusSchema,
+  companyInviteAccessSchema,
   contactSchema,
 };

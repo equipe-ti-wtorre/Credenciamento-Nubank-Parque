@@ -157,14 +157,29 @@
     flex-shrink: 0;
     display: grid;
     place-items: center;
+    overflow: hidden;
     background: linear-gradient(135deg, var(--wt-primary), #8b7bff);
     color: #fff;
     font-weight: 700;
     font-family: var(--wt-display);
     font-size: 15px;
 
-    &.avatar-img {
-      object-fit: cover;
+    &--photo {
+      display: block;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+
+      img {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+        object-position: center 20%;
+        border: none;
+        /* Recorta a moldura clara da foto */
+        transform: scale(1.35);
+      }
     }
   }
 
@@ -503,6 +518,21 @@
     padding: 28px 34px 40px;
   }
 
+  &.is-gate-page {
+    .wt-main {
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .wt-content {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+  }
+
   @media (max-width: 1080px) {
     .wt-topbar .search {
       width: 160px;
@@ -531,6 +561,6 @@ body.gate-kiosk {
   .wt-content {
     padding: 0;
     height: 100vh;
-    overflow: auto;
+    overflow: hidden;
   }
 }

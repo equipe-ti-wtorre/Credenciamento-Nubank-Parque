@@ -1,0 +1,144 @@
+@if (open()) {
+  <div class="nev-root" role="presentation">
+    <button type="button" class="nev-backdrop" aria-label="Fechar" (click)="requestClose()"></button>
+
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="nevModalTitle"
+      tabindex="-1"
+    >
+      <div class="modal__head">
+        <div>
+          <h2 class="modal__title" id="nevModalTitle">Novo evento</h2>
+          <p class="modal__sub">{{ subtitle() }}</p>
+        </div>
+        <button type="button" class="modal__close" aria-label="Fechar" (click)="requestClose()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="stepper" aria-label="Progresso">
+        @for (s of [1, 2, 3]; track s) {
+          @if (s > 1) {
+            <span class="sline" [class.is-done]="step() > s - 1"></span>
+          }
+          <div
+            class="stitem"
+            [class.is-active]="step() === s"
+            [class.is-done]="step() > s"
+          >
+            <span class="sdot">
+              @if (step() > s) {
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              } @else {
+                {{ s }}
+              }
+            </span>
+            <span class="slabel">
+              @switch (s) {
+                @case (1) { Dados do evento }
+                @case (2) { Dias do evento }
+                @case (3) { Revisão }
+              }
+            </span>
+          </div>
+        }
+      </div>
+
+      <div class="modal__body" #modalBody>
+        @if (loadingMeta()) {
+          <p class="nev-loading">Carregando…</p>
+        } @else {
+          @switch (step()) {
+            @case (1) {
+              <div class="step is-active">
+                <app-novo-evento-step-dados
+                  [(nome)]="nome"
+                  [(idSetor)]="idSetor"
+                  [(idEmpresa)]="idEmpresa"
+                  [(dataInicio)]="dataInicio"
+                  [(dataFim)]="dataFim"
+                  [picking]="picking()"
+                  [sectors]="sectors()"
+                  [producers]="producers()"
+                  [lockEmpresa]="lockEmpresa()"
+                  [calViewKey]="calViewKey()"
+                  (rangePick)="onRangePick($event)"
+                />
+              </div>
+            }
+            @case (2) {
+              <div class="step is-active">
+                <app-novo-evento-step-dias
+                  [dataInicio]="dataInicio()"
+                  [dataFim]="dataFim()"
+                  [types]="types()"
+                  [dias]="dias()"
+                  [(brushTypeId)]="brushTypeId"
+                  [calViewKey]="calViewKey()"
+                  (tagDay)="onTagDay($event)"
+                  (fillPeriod)="onFillPeriod()"
+                  (changeType)="onChangeDayType($event)"
+                  (removeDay)="onRemoveDay($event)"
+                />
+              </div>
+            }
+            @case (3) {
+              <div class="step is-active">
+                <app-novo-evento-step-revisao
+                  [nome]="nome()"
+                  [setorNome]="setorNome()"
+                  [empresaNome]="empresaNome()"
+                  [dataInicio]="dataInicio()"
+                  [dataFim]="dataFim()"
+                  [dias]="dias()"
+                  [types]="types()"
+                />
+              </div>
+            }
+          }
+        }
+      </div>
+
+      <div class="modal__foot">
+        @if (step() > 1) {
+          <button type="button" class="btn btn--ghost" (click)="goBack()" [disabled]="saving()">
+            ← Voltar
+          </button>
+        }
+        <div class="foot-right">
+          @if (step() === 1) {
+            <button type="button" class="btn btn--ghost" (click)="requestClose()" [disabled]="saving()">
+              Cancelar
+            </button>
+          }
+          @if (step() < 3) {
+            <button
+              type="button"
+              class="btn btn--primary"
+              [disabled]="step() === 1 && !canContinueStep1()"
+              (click)="goNext()"
+            >
+              Continuar
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="btn btn--primary"
+              [disabled]="saving()"
+              (click)="salvar()"
+            >
+              {{ saving() ? 'Salvando…' : 'Salvar evento' }}
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+}

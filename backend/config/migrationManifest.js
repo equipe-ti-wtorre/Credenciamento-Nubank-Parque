@@ -238,6 +238,23 @@ const migrations = [
       return columnType.includes("'EXPIRADO'");
     },
   },
+  {
+    filename: "033_event_company_responsavel.sql",
+    validate: (conn) => columnExists(conn, "event", "id_company_responsavel"),
+  },
+  {
+    filename: "034_company_users_invite.sql",
+    validate: (conn) =>
+      columnExists(conn, "collaborator", "id_company") &&
+      tableExists(conn, "user_invite_tokens"),
+  },
+  {
+    filename: "035_email_provider_config.sql",
+    validate: (conn) =>
+      tableExists(conn, "email_provider_config") &&
+      columnExists(conn, "smtp_send_logs", "message_id") &&
+      columnExists(conn, "smtp_send_logs", "provider"),
+  },
 ];
 
 module.exports = migrations;

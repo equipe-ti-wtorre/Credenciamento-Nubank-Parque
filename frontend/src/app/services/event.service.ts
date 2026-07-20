@@ -15,6 +15,8 @@ export interface EventItem {
   end: string;
   id_access_status?: number | null;
   access_status_description?: string | null;
+  id_company_responsavel?: number | null;
+  company_responsavel?: EventDayCompanyBrief | null;
   criado_em?: string;
   atualizado_em?: string;
 }
@@ -57,6 +59,8 @@ export interface EventDetail extends EventItem {
   aprovacao_status?: string | null;
   id_setor?: number | null;
   notificar_portaria?: boolean;
+  can_approve_credentials?: boolean;
+  can_manage_companies?: boolean;
 }
 
 export interface EventListFilters {
@@ -83,6 +87,7 @@ export interface EventCreatePayload {
   start: string;
   end: string;
   id_setor: number;
+  id_company_responsavel: number;
   days?: EventDayInput[];
 }
 
@@ -97,6 +102,19 @@ export class EventService {
 
   listTypes(): Observable<{ types: EventDayType[] }> {
     return this.api.get<{ types: EventDayType[] }>('/events/types');
+  }
+
+  listProducers(): Observable<{ producers: EventDayCompanyBrief[] }> {
+    return this.api.get<{ producers: EventDayCompanyBrief[] }>('/events/producers');
+  }
+
+  listLinkableCompanies(
+    idEvent: number,
+  ): Observable<{ id_company_responsavel: number | null; companies: EventDayCompanyBrief[] }> {
+    return this.api.get<{
+      id_company_responsavel: number | null;
+      companies: EventDayCompanyBrief[];
+    }>(`/events/${idEvent}/linkable-companies`);
   }
 
   list(

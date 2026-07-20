@@ -205,10 +205,12 @@
       </div>
     </div>
 
+    </ng-container>
+
+    <div class="list-scroll" *ngIf="gateMode() !== 'calendar'">
     <p *ngIf="todayLoading()" class="empty-state">
       <span class="es-title">Carregando…</span>
     </p>
-    </ng-container>
 
     <!-- Eventos -->
     <ng-container *ngIf="!todayLoading() && gateMode() === 'events'">
@@ -290,8 +292,12 @@
           <ng-container [ngSwitch]="row.next_action">
             <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
             <div *ngSwitchCase="'CHECK_OUT'">
-              <span class="status-pill in"
-                ><span class="d"></span>Acessou {{ relFrom(row.access_check_in) }}</span
+              <span class="status-pill in status-pill--stack"
+                ><span class="d"></span
+                ><span class="pill-stack"
+                  ><span class="pill-line">Acessou</span
+                  ><span class="pill-line">{{ relFrom(row.access_check_in) }}</span></span
+                ></span
               >
               <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.access_check_in) }}</div>
             </div>
@@ -520,10 +526,17 @@
             <span *ngSwitchCase="'REJECTED'" class="status-pill rejected"
               ><span class="d"></span>Reprovado</span
             >
+            <span *ngSwitchCase="'BLOCKED_OPEN_STAY'" class="status-pill wait"
+              ><span class="d"></span>Saída pendente</span
+            >
             <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
             <div *ngSwitchCase="'CHECK_OUT'">
-              <span class="status-pill in"
-                ><span class="d"></span>Acessou {{ relFrom(row.check_in) }}</span
+              <span class="status-pill in status-pill--stack"
+                ><span class="d"></span
+                ><span class="pill-stack"
+                  ><span class="pill-line">Acessou</span
+                  ><span class="pill-line">{{ relFrom(row.check_in) }}</span></span
+                ></span
               >
               <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.check_in) }}</div>
             </div>
@@ -563,8 +576,23 @@
               </svg>
             </button>
           </ng-container>
+          <ng-container *ngIf="row.next_action === 'BLOCKED_OPEN_STAY'">
+            <span
+              class="btn-act finished"
+              [title]="
+                row.block_reason ||
+                'Há entrada sem saída registrada. Registre a saída antes de uma nova entrada.'
+              "
+            >
+              Bloqueado
+            </span>
+          </ng-container>
           <ng-container
-            *ngIf="row.next_action !== 'PENDING_APPROVAL' && row.next_action !== 'REJECTED'"
+            *ngIf="
+              row.next_action !== 'PENDING_APPROVAL' &&
+              row.next_action !== 'REJECTED' &&
+              row.next_action !== 'BLOCKED_OPEN_STAY'
+            "
           >
             <button
               *ngIf="row.next_action === 'CHECK_IN'"
@@ -595,16 +623,20 @@
           </ng-container>
         </div>
       </div>
-
-      <div class="days-legend" *ngIf="filteredTodayServices().length > 0">
-        <span class="legend-label">Dias de acesso:</span>
-        <span class="legend-item"><span class="day-dot legend accessed"></span>Acessou</span>
-        <span class="legend-item"><span class="day-dot legend missed"></span>Não acessou</span>
-        <span class="legend-item"><span class="day-dot legend waiting"></span>Aguardando</span>
-        <span class="legend-item"><span class="day-dot legend none"></span>Sem acesso no dia</span>
-        <span class="legend-item"><span class="day-dot legend today"></span>Hoje</span>
-      </div>
     </ng-container>
+    </div>
+
+    <div
+      class="days-legend"
+      *ngIf="gateMode() === 'patrimonial' && !todayLoading() && filteredTodayServices().length > 0"
+    >
+      <span class="legend-label">Dias de acesso:</span>
+      <span class="legend-item"><span class="day-dot legend accessed"></span>Acessou</span>
+      <span class="legend-item"><span class="day-dot legend missed"></span>Não acessou</span>
+      <span class="legend-item"><span class="day-dot legend waiting"></span>Aguardando</span>
+      <span class="legend-item"><span class="day-dot legend none"></span>Sem acesso no dia</span>
+      <span class="legend-item"><span class="day-dot legend today"></span>Hoje</span>
+    </div>
 
     <!-- Calendário -->
     <ng-container *ngIf="gateMode() === 'calendar'">

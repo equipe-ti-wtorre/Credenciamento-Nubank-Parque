@@ -71,6 +71,7 @@ exports.create = async (req, res, next) => {
         start: event.start,
         end: event.end,
         id_setor: value.id_setor,
+        id_company_responsavel: value.id_company_responsavel,
         daysCount: event.days?.length ?? 0,
       },
     });
@@ -87,6 +88,24 @@ exports.create = async (req, res, next) => {
         }).catch(() => {});
       });
     }
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listProducers = async (req, res, next) => {
+  try {
+    const producers = await eventService.listProducerCompanies();
+    res.json({ producers });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listLinkableCompanies = async (req, res, next) => {
+  try {
+    const result = await eventService.listPadraoCompaniesForEvent(req, req.params.id);
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -144,6 +163,7 @@ exports.addCompanyToDay = async (req, res, next) => {
     if (error) throw new AppError(error.details[0].message, 400);
 
     const link = await eventService.addCompanyToEventDay(
+      req,
       req.params.id_event_day,
       value,
     );
@@ -175,6 +195,7 @@ exports.addCompanyToDay = async (req, res, next) => {
 exports.removeCompanyFromDay = async (req, res, next) => {
   try {
     const removed = await eventService.removeCompanyFromEventDay(
+      req,
       req.params.id_event_day_company,
     );
 

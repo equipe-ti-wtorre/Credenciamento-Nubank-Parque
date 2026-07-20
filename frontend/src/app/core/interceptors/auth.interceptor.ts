@@ -39,7 +39,8 @@ export class AuthInterceptor implements HttpInterceptor {
     const isPublic =
       req.url.includes('/tenants/msal-config') ||
       req.url.includes('/auth/login') ||
-      req.url.includes('/auth/refresh');
+      req.url.includes('/auth/refresh') ||
+      req.url.includes('/auth/invite');
 
     if (isPublic) {
       return next.handle(req);

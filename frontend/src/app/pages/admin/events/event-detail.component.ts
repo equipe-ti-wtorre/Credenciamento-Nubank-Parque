@@ -12,7 +12,7 @@ import {
   EventService,
   formatDateBr,
 } from '../../../services/event.service';
-import { CompanyItem, CompanyService } from '../../../services/company.service';
+import { CompanyItem } from '../../../services/company.service';
 import {
   CollaboratorDocumentType,
   CollaboratorItem,
@@ -30,9 +30,6 @@ import { NotificationService } from '../../../core/services/notification.service
 import { AuthService } from '../../../core/services/auth.service';
 import { DocumentChangeService } from '../../../services/document-change.service';
 import { ModalComponent } from '../../../shared/modal/modal.component';
-
-const TYPE_PRODUTORA = 'Produtora';
-const TYPE_EMPRESA_PADRAO = 'Empresa Padrão';
 
 function maskDocument(document: string): string {
   const raw = String(document || '').trim();
@@ -62,6 +59,9 @@ function maskDocument(document: string): string {
             <h2 class="page-section-title">{{ event()!.name }}</h2>
             <p class="page-section-subtitle">
               Período: {{ formatDateBr(event()!.start) }} — {{ formatDateBr(event()!.end) }}
+            </p>
+            <p class="text-sm text-slate-600 mt-1" *ngIf="event()!.company_responsavel">
+              Responsável: {{ event()!.company_responsavel!.company_name }}
             </p>
             <p class="mt-1" *ngIf="event()!.access_status_description">
               <span
@@ -135,7 +135,7 @@ function maskDocument(document: string): string {
                   Solicitar credencial
                 </button>
                 <button
-                  *ngIf="isAdmin"
+                  *ngIf="canRemoveLink(link)"
                   type="button"
                   (click)="removerVinculo(day, link)"
                   class="text-xs text-[var(--danger)] hover:underline"
@@ -193,7 +193,7 @@ function maskDocument(document: string): string {
                         Negar credencial
                       </button>
                       <button
-                        *ngIf="canAdminAct(cred)"
+                        *ngIf="canFinalApproveAct(cred)"
                         type="button"
                         (click)="aprovarAdmin(cred)"
                         class="btn-action-primary text-xs py-1 px-2.5"
@@ -201,7 +201,7 @@ function maskDocument(document: string): string {
                         Aprovar credencial
                       </button>
                       <button
-                        *ngIf="canAdminAct(cred)"
+                        *ngIf="canFinalApproveAct(cred)"
                         type="button"
                         (click)="negarCredencial(cred)"
                         class="btn-action-secondary text-xs py-1 px-2.5"
@@ -220,14 +220,14 @@ function maskDocument(document: string): string {
 
           <p *ngIf="day.companies.length === 0" class="text-sm text-slate-500 mb-4">Nenhuma empresa vinculada.</p>
 
-          <div *ngIf="isAdmin" class="border-t border-slate-100 pt-4">
-            <h4 class="text-xs font-bold text-slate-500 uppercase mb-3">Vincular empresa</h4>
+          <div *ngIf="canManageCompanies()" class="border-t border-slate-100 pt-4">
+            <h4 class="text-xs font-bold text-slate-500 uppercase mb-3">Vincular Empresa Padrão</h4>
             <form
-              class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end"
+              class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end"
               (ngSubmit)="vincularEmpresa(day)"
             >
               <div>
-                <label class="text-xs text-slate-500">Empresa</label>
+                <label class="text-xs text-slate-500">Empresa Padrão</label>
                 <select
                   [ngModel]="getLinkForm(day.id_event_day).id_company"
                   (ngModelChange)="onCompanyChange(day.id_event_day, $event)"
@@ -236,20 +236,7 @@ function maskDocument(document: string): string {
                 >
                   <option [ngValue]="null">Selecione</option>
                   <option *ngFor="let c of companies()" [ngValue]="c.id_company">
-                    {{ c.company_name }} ({{ c.company_type?.description }})
-                  </option>
-                </select>
-              </div>
-              <div *ngIf="needsProducer(day.id_event_day)">
-                <label class="text-xs text-slate-500">Produtora responsável</label>
-                <select
-                  [(ngModel)]="getLinkForm(day.id_event_day).id_producer"
-                  [name]="'producer_' + day.id_event_day"
-                  class="w-full mt-0.5 border border-[var(--app-border)] rounded-lg px-2 py-2 text-sm bg-white"
-                >
-                  <option [ngValue]="null">Selecione</option>
-                  <option *ngFor="let p of producersForDay(day)" [ngValue]="p.company.id_company">
-                    {{ p.company.company_name }}
+                    {{ c.company_name }}
                   </option>
                 </select>
               </div>
@@ -458,7 +445,6 @@ export class EventDetailComponent implements OnInit {
 
   constructor(
     private eventService: EventService,
-    private companyService: CompanyService,
     private credentialService: CredentialService,
     private collaboratorService: CollaboratorService,
     private authService: AuthService,
@@ -478,10 +464,6 @@ export class EventDetailComponent implements OnInit {
       error: () => {},
     });
 
-    if (this.isAdmin) {
-      this.carregarEmpresas();
-    }
-
     this.route.paramMap.subscribe((params) => {
       const id = Number(params.get('id'));
       if (!id || Number.isNaN(id)) {
@@ -492,6 +474,18 @@ export class EventDetailComponent implements OnInit {
     });
   }
 
+  canManageCompanies(): boolean {
+    return !!(this.event()?.can_manage_companies || this.isAdmin);
+  }
+
+  canRemoveLink(link: EventDayCompanyLink): boolean {
+    if (this.isAdmin) return true;
+    if (!this.canManageCompanies()) return false;
+    const responsavelId = this.event()?.id_company_responsavel;
+    if (responsavelId != null && link.company.id_company === responsavelId) return false;
+    return link.producer?.id_company === this.userCompanyId;
+  }
+
   canRequestCredentialForLink(link: EventDayCompanyLink): boolean {
     if (this.isAdmin) return true;
     if (this.userCompanyId == null) return false;
@@ -500,15 +494,20 @@ export class EventDetailComponent implements OnInit {
   }
 
   canProdutoraAct(cred: CredentialItem): boolean {
+    const responsavelId = this.event()?.id_company_responsavel;
     return (
       this.userRole === 'PRODUTORA' &&
       cred.id_access_status === STATUS_AGUARDANDO_PRODUTORA &&
-      cred.event_day_company.id_producer === this.userCompanyId
+      (cred.event_day_company.id_producer === this.userCompanyId ||
+        responsavelId === this.userCompanyId)
     );
   }
 
-  canAdminAct(cred: CredentialItem): boolean {
-    return this.isAdmin && cred.id_access_status === STATUS_AGUARDANDO_APROVACAO;
+  canFinalApproveAct(cred: CredentialItem): boolean {
+    return (
+      !!this.event()?.can_approve_credentials &&
+      cred.id_access_status === STATUS_AGUARDANDO_APROVACAO
+    );
   }
 
   eventStatusClass(status?: number | null): string {
@@ -781,14 +780,28 @@ export class EventDetailComponent implements OnInit {
       });
   }
 
-  carregarEmpresas() {
-    this.companyService.list(1, 100, {}).subscribe({
+  carregarEmpresas(eventId: number) {
+    this.eventService.listLinkableCompanies(eventId).subscribe({
       next: (res) => {
-        const allowed = res.companies.filter((c) => {
-          const desc = c.company_type?.description || '';
-          return desc === TYPE_PRODUTORA || desc === TYPE_EMPRESA_PADRAO;
-        });
-        this.companies.set(allowed);
+        this.companies.set(
+          (res.companies || []).map((c) => ({
+            id_company: c.id_company,
+            company_name: c.company_name,
+            fancy_name: c.fancy_name ?? null,
+            cnpj: '',
+            status: true,
+            id_company_type: c.id_company_type || 0,
+            criado_em: '',
+            atualizado_em: '',
+            company_type: c.company_type_description
+              ? {
+                  id_company_type: c.id_company_type || 0,
+                  description: c.company_type_description,
+                }
+              : null,
+            contacts: [],
+          })),
+        );
       },
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
     });
@@ -803,6 +816,9 @@ export class EventDetailComponent implements OnInit {
       next: (res) => {
         this.event.set(res.event);
         this.loading.set(false);
+        if (res.event.can_manage_companies || this.isAdmin) {
+          this.carregarEmpresas(eventId);
+        }
         this.carregarCredenciais(eventId);
         this.cdr.markForCheck();
       },
@@ -853,22 +869,7 @@ export class EventDetailComponent implements OnInit {
   onCompanyChange(dayId: number, companyId: number | null) {
     const form = this.getLinkForm(dayId);
     form.id_company = companyId;
-    if (!this.needsProducer(dayId)) {
-      form.id_producer = null;
-    }
-  }
-
-  needsProducer(dayId: number): boolean {
-    const form = this.getLinkForm(dayId);
-    if (!form.id_company) return false;
-    const company = this.companies().find((c) => c.id_company === form.id_company);
-    return company?.company_type?.description === TYPE_EMPRESA_PADRAO;
-  }
-
-  producersForDay(day: EventDay): EventDayCompanyLink[] {
-    return day.companies.filter(
-      (link) => link.company.company_type_description === TYPE_PRODUTORA,
-    );
+    form.id_producer = this.event()?.id_company_responsavel ?? null;
   }
 
   vincularEmpresa(day: EventDay) {
@@ -878,20 +879,16 @@ export class EventDetailComponent implements OnInit {
       return;
     }
 
-    const company = this.companies().find((c) => c.id_company === form.id_company);
-    const isPadrao = company?.company_type?.description === TYPE_EMPRESA_PADRAO;
-
-    const payload: { id_company: number; id_producer?: number | null } = {
-      id_company: form.id_company,
-    };
-
-    if (isPadrao) {
-      if (!form.id_producer) {
-        this.notification.error('Selecione a produtora responsável.');
-        return;
-      }
-      payload.id_producer = form.id_producer;
+    const responsavelId = this.event()?.id_company_responsavel;
+    if (!responsavelId) {
+      this.notification.error('Evento sem empresa responsável definida.');
+      return;
     }
+
+    const payload = {
+      id_company: form.id_company,
+      id_producer: responsavelId,
+    };
 
     this.linkingDayId.set(day.id_event_day);
     this.eventService.addCompanyToDay(day.id_event_day, payload).subscribe({

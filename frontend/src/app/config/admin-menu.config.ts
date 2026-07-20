@@ -14,6 +14,12 @@ export interface AdminMenuItem {
 export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
   { label: 'Perfis', icon: '🛡️', iconKey: 'badge', route: '/admin/perfis' },
   { label: 'Usuários', icon: '👥', iconKey: 'users', route: '/admin/usuarios' },
+  {
+    label: 'Usuários Empresas',
+    icon: '🏢',
+    iconKey: 'users',
+    route: '/admin/usuarios-empresas',
+  },
   { label: 'Empresas', icon: '🏢', iconKey: 'building', route: '/admin/empresas' },
   { label: 'Colaboradores', icon: '🪪', iconKey: 'badge', route: '/admin/colaboradores' },
   {
@@ -54,6 +60,7 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
 export const ADMIN_MENU_MODULE_MAP: Record<string, string> = {
   '/admin/perfis': 'profiles',
   '/admin/usuarios': 'users',
+  '/admin/usuarios-empresas': 'company_users',
   '/admin/empresas': 'companies',
   '/admin/colaboradores': 'collaborators',
   '/admin/aprovacoes-documento': 'document_approvals',
@@ -74,7 +81,7 @@ export interface SettingsNavItem {
 
 export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: 'tenants-azure', label: 'Tenants Azure', icon: '🔗', subtitle: 'Autenticação AD' },
-  { path: 'smtp', label: 'Envios SMTP', icon: '📧', subtitle: 'E-mail e histórico' },
+  { path: 'smtp', label: 'Envios de e-mail', icon: '📧', subtitle: 'SMTP / Azure ACS' },
   { path: 'sessao', label: 'Sessão', icon: '🔒', subtitle: 'Inatividade e login' },
   { path: 'teams', label: 'Integração Teams', icon: '💬', subtitle: 'Microsoft Graph' },
   {

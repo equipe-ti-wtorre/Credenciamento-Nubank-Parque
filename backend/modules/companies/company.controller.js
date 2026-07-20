@@ -5,6 +5,7 @@ const {
   companyCreateSchema,
   companyUpdateSchema,
   companyStatusSchema,
+  companyInviteAccessSchema,
 } = require("./company.schema");
 
 exports.listTypes = async (req, res, next) => {
@@ -122,6 +123,37 @@ exports.patchStatus = async (req, res, next) => {
     });
 
     res.json({ company });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.inviteAccess = async (req, res, next) => {
+  try {
+    const { error, value } = companyInviteAccessSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await companyService.inviteCompanyAccess(req.params.id, value, {
+      usuarioId: req.user?.id,
+      requestId: req.requestId,
+    });
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "companies",
+      event: "companies.invite_access",
+      resource: {
+        type: "company",
+        id: Number(req.params.id),
+      },
+      changes: {
+        email: result.email,
+        id_usuario: result.id_usuario,
+        profile_codigo: result.profile_codigo,
+      },
+    });
+
+    res.json({ invite: result });
   } catch (err) {
     next(err);
   }

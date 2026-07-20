@@ -1,0 +1,50 @@
+<div class="cal">
+  <div class="cal-head">
+    <button type="button" class="cal-nav" (click)="prevMonth()" aria-label="Mês anterior">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6" />
+      </svg>
+    </button>
+    <span class="cal-title">{{ title() }}</span>
+    <button type="button" class="cal-nav" (click)="nextMonth()" aria-label="Próximo mês">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M9 18l6-6-6-6" />
+      </svg>
+    </button>
+  </div>
+
+  <div class="cal-grid">
+    @for (d of dows; track d) {
+      <div class="cal-dow">{{ d }}</div>
+    }
+    @for (cell of cells(); track cell.iso) {
+      @let disabled = isDisabled(cell.iso);
+      @let tag = tagClass(cell.iso);
+      <button
+        type="button"
+        class="cal-day"
+        [class.is-muted]="!cell.inMonth"
+        [class.today]="cell.isToday"
+        [class.in-range]="mode() === 'range' && isInRange(cell.iso)"
+        [class.range-start]="mode() === 'range' && isRangeStart(cell.iso)"
+        [class.range-end]="mode() === 'range' && isRangeEnd(cell.iso)"
+        [class.out]="mode() === 'tag' && disabled"
+        [class.selectable]="mode() === 'tag' && !disabled"
+        [class.t-Montagem]="tag === 't-Montagem'"
+        [class.t-Show]="tag === 't-Show'"
+        [class.t-Desmontagem]="tag === 't-Desmontagem'"
+        [class.t-Jogo]="tag === 't-Jogo'"
+        [disabled]="disabled"
+        [attr.aria-label]="ariaLabel(cell.iso)"
+        [attr.title]="ariaLabel(cell.iso)"
+        (click)="onDayClick(cell.iso, disabled)"
+      >
+        {{ cell.day }}
+      </button>
+    }
+  </div>
+
+  @if (mode() === 'range') {
+    <p class="cal-hint">{{ hint() }}</p>
+  }
+</div>

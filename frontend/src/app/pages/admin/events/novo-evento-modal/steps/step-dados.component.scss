@@ -1,0 +1,119 @@
+:host {
+  display: block;
+}
+
+.two {
+  display: grid;
+  grid-template-columns: minmax(300px, 336px) 1fr;
+  gap: 30px;
+  align-items: start;
+}
+
+.field {
+  margin-bottom: 18px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.field__label {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3, #64748b);
+  margin-bottom: 7px;
+}
+
+.input,
+.select {
+  width: 100%;
+  height: var(--field-h, 42px);
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0 14px;
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  color: var(--ink, #0f172a);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+
+  &::placeholder {
+    color: var(--muted, #94a3b8);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--wtorre, #1d54e6);
+    box-shadow: 0 0 0 3px rgba(29, 84, 230, 0.14);
+  }
+}
+
+.input--filled {
+  background: var(--wtorre-tint, #eaf0ff);
+  border-color: var(--wtorre-tint-2, #dfe8ff);
+}
+
+.select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 38px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+}
+
+.period {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.period__box {
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: #fff;
+
+  small {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted, #94a3b8);
+    margin-bottom: 2px;
+  }
+
+  span {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink, #0f172a);
+
+    &.empty {
+      color: var(--muted, #94a3b8);
+      font-weight: 500;
+    }
+  }
+}
+
+@media (max-width: 720px) {
+  .two {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .step-dados__fields {
+    order: -1;
+  }
+}

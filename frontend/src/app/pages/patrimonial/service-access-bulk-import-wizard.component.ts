@@ -830,6 +830,26 @@ interface VeicDecisionState {
         .wimp-cols__desc { grid-column: 1 / -1; }
         .wimp-diff__row { grid-template-columns: 1fr 1fr 40px; }
         .wimp-diff__field { grid-column: 1 / -1; }
+        .wimp-dropzone--embed {
+          flex-wrap: wrap;
+          justify-content: flex-start;
+          gap: 12px;
+        }
+        .wimp-dropzone--embed .wimp-dropzone__title {
+          white-space: normal;
+        }
+        .wimp-embed__template {
+          width: 100%;
+          justify-content: center;
+        }
+        .wimp-filecard--embed {
+          flex-wrap: wrap;
+          width: 100%;
+        }
+        .wimp-template-row {
+          flex-direction: column;
+          align-items: stretch;
+        }
       }
     `,
   ],

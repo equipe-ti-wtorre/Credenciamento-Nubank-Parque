@@ -26,6 +26,7 @@ const eventCreateSchema = Joi.object({
     .try(Joi.date().iso(), Joi.string().isoDate())
     .required(),
   id_setor: Joi.number().integer().positive().required(),
+  id_company_responsavel: Joi.number().integer().positive().required(),
   days: Joi.array().items(eventDayItemSchema).optional(),
 })
   .custom((value, helpers) => {

@@ -996,6 +996,17 @@ async function migrateSetoresAprovacoes(connection) {
     logger.info("Migration: event.id_access_status adicionada");
   }
 
+  if (!(await columnExists(connection, "event", "id_company_responsavel"))) {
+    await connection.query(`
+      ALTER TABLE event
+        ADD COLUMN id_company_responsavel INT NULL AFTER id_access_status,
+        ADD INDEX idx_event_company_responsavel (id_company_responsavel),
+        ADD CONSTRAINT fk_event_company_responsavel
+          FOREIGN KEY (id_company_responsavel) REFERENCES company(id_company) ON DELETE RESTRICT
+    `);
+    logger.info("Migration: event.id_company_responsavel adicionada");
+  }
+
   await connection.query(`
     INSERT INTO setores (nome, descricao) VALUES
       ('T.I.',        'Tecnologia da Informação'),
@@ -1169,17 +1180,24 @@ async function migratePerfisPermissoes(connection) {
       );
     }
 
+    const permissions =
+      seed.permissions === "all"
+        ? allPerms
+        : seed.permissions.filter(
+            (p) => MODULE_KEYS.includes(p.modulo) && ACTIONS.includes(p.acao),
+          );
+
     const [permCount] = await connection.query(
       "SELECT COUNT(*) AS total FROM perfil_permissoes WHERE id_perfil = ?",
       [perfilId],
     );
-    if (permCount[0].total === 0) {
-      const permissions =
-        seed.permissions === "all"
-          ? allPerms
-          : seed.permissions.filter(
-              (p) => MODULE_KEYS.includes(p.modulo) && ACTIONS.includes(p.acao),
-            );
+    const shouldSync =
+      seed.permissions === "all" ||
+      seed.codigo === "EMPRESA_GESTOR" ||
+      seed.codigo === "EMPRESA_SOLICITANTE" ||
+      permCount[0].total === 0;
+
+    if (shouldSync) {
       for (const perm of permissions) {
         await connection.query(
           "INSERT IGNORE INTO perfil_permissoes (id_perfil, modulo, acao) VALUES (?, ?, ?)",
@@ -1188,6 +1206,13 @@ async function migratePerfisPermissoes(connection) {
       }
     }
   }
+
+  await connection.query(`
+    INSERT IGNORE INTO perfil_permissoes (id_perfil, modulo, acao)
+    SELECT p.id, 'access_reports', 'view'
+    FROM perfis p
+    WHERE p.codigo = 'CONTROLADOR'
+  `);
 
   const hasPerfilColumn = await columnExists(connection, "usuarios", "perfil");
   if (hasPerfilColumn) {

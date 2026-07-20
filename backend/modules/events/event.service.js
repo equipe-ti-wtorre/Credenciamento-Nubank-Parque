@@ -67,6 +67,17 @@ function mapEventRow(row) {
     end: formatDateField(row.end),
     id_access_status: row.id_access_status != null ? Number(row.id_access_status) : null,
     access_status_description: row.access_status_description || null,
+    id_company_responsavel:
+      row.id_company_responsavel != null ? Number(row.id_company_responsavel) : null,
+    company_responsavel: row.responsavel_company_name
+      ? {
+          id_company: Number(row.id_company_responsavel),
+          company_name: row.responsavel_company_name,
+          fancy_name: row.responsavel_fancy_name || null,
+          id_company_type: row.responsavel_company_type,
+          company_type_description: row.responsavel_type_description || null,
+        }
+      : null,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
   };
@@ -122,11 +133,24 @@ function buildListJoinAndWhere(scope, filters) {
 
   if (scope.mode === "company") {
     join = `
-      INNER JOIN event_day ed ON ed.id_event = e.id_event
-      INNER JOIN event_day_company edc ON edc.id_event_day = ed.id_event_day
+      LEFT JOIN event_day ed ON ed.id_event = e.id_event
+      LEFT JOIN event_day_company edc ON edc.id_event_day = ed.id_event_day
     `;
-    conditions.push("edc.id_company = ?");
-    params.push(scope.companyId);
+    conditions.push(
+      "(e.id_company_responsavel = ? OR edc.id_company = ? OR edc.id_producer = ?)",
+    );
+    params.push(scope.companyId, scope.companyId, scope.companyId);
+  } else if (scope.mode === "sector_approver") {
+    join = `
+      INNER JOIN aprovacoes a_ev
+        ON a_ev.tipo_entidade = 'EVENTO' AND a_ev.id_entidade = e.id_event
+      INNER JOIN setor_usuarios su_ev
+        ON su_ev.id_setor = a_ev.id_setor
+       AND su_ev.id_usuario = ?
+       AND su_ev.ativo = 1
+       AND su_ev.papel IN ('APROVADOR', 'GESTOR')
+    `;
+    params.push(scope.userId);
   }
 
   if (filters.name) {
@@ -138,17 +162,46 @@ function buildListJoinAndWhere(scope, filters) {
   return { join, where, params };
 }
 
+async function userIsSectorApproverForEvent(userId, idEvent, conn = db) {
+  const [rows] = await conn.execute(
+    `SELECT 1
+       FROM aprovacoes a
+       INNER JOIN setor_usuarios su
+         ON su.id_setor = a.id_setor
+        AND su.id_usuario = ?
+        AND su.ativo = 1
+        AND su.papel IN ('APROVADOR', 'GESTOR')
+      WHERE a.tipo_entidade = 'EVENTO' AND a.id_entidade = ?
+      ORDER BY a.id DESC
+      LIMIT 1`,
+    [userId, idEvent],
+  );
+  return rows.length > 0;
+}
+
 async function assertCanReadEvent(req, idEvent) {
   const scope = buildEventScope(req);
   if (scope.mode === "admin") return;
 
+  if (scope.mode === "sector_approver") {
+    const ok = await userIsSectorApproverForEvent(scope.userId, idEvent);
+    if (!ok) throw new AppError("Evento não encontrado.", 404);
+    return;
+  }
+
   const [rows] = await db.execute(
     `SELECT 1
-     FROM event_day ed
-     INNER JOIN event_day_company edc ON edc.id_event_day = ed.id_event_day
-     WHERE ed.id_event = ? AND edc.id_company = ?
+     FROM event e
+     LEFT JOIN event_day ed ON ed.id_event = e.id_event
+     LEFT JOIN event_day_company edc ON edc.id_event_day = ed.id_event_day
+     WHERE e.id_event = ?
+       AND (
+         e.id_company_responsavel = ?
+         OR edc.id_company = ?
+         OR edc.id_producer = ?
+       )
      LIMIT 1`,
-    [idEvent, scope.companyId],
+    [idEvent, scope.companyId, scope.companyId, scope.companyId],
   );
   if (rows.length === 0) {
     throw new AppError("Evento não encontrado.", 404);
@@ -177,9 +230,15 @@ async function assertEventDayTypeExists(idType, conn = db) {
 
 async function findEventById(id) {
   const [rows] = await db.execute(
-    `SELECT e.*, ast.description AS access_status_description
+    `SELECT e.*, ast.description AS access_status_description,
+            rc.company_name AS responsavel_company_name,
+            rc.fancy_name AS responsavel_fancy_name,
+            rc.id_company_type AS responsavel_company_type,
+            rct.description AS responsavel_type_description
        FROM event e
        LEFT JOIN access_status ast ON ast.id_access_status = e.id_access_status
+       LEFT JOIN company rc ON rc.id_company = e.id_company_responsavel
+       LEFT JOIN company_type rct ON rct.id_company_type = rc.id_company_type
       WHERE e.id_event = ? LIMIT 1`,
     [id],
   );
@@ -323,9 +382,16 @@ async function listEvents(req, { page, limit, filters }) {
 
   const [rows] = await db.execute(
     `SELECT DISTINCT e.id_event, e.name, e.start, e.end, e.id_access_status,
-            e.criado_em, e.atualizado_em, ast.description AS access_status_description
+            e.id_company_responsavel, e.criado_em, e.atualizado_em,
+            ast.description AS access_status_description,
+            rc.company_name AS responsavel_company_name,
+            rc.fancy_name AS responsavel_fancy_name,
+            rc.id_company_type AS responsavel_company_type,
+            rct.description AS responsavel_type_description
      FROM event e
      LEFT JOIN access_status ast ON ast.id_access_status = e.id_access_status
+     LEFT JOIN company rc ON rc.id_company = e.id_company_responsavel
+     LEFT JOIN company_type rct ON rct.id_company_type = rc.id_company_type
      ${join}
      ${where}
      ORDER BY e.start DESC, e.id_event DESC
@@ -368,7 +434,19 @@ async function getEventById(req, id) {
   const notificar_portaria = req.user?.id
     ? await getEventPortariaPreference(req.user.id, id)
     : false;
-  return { ...detail, notificar_portaria };
+  const can_approve_credentials =
+    !!req.user?.is_super_admin ||
+    (req.user?.id ? await userIsSectorApproverForEvent(req.user.id, id) : false);
+  const can_manage_companies =
+    !!req.user?.is_super_admin ||
+    (req.user?.id_company != null &&
+      Number(req.user.id_company) === Number(row.id_company_responsavel));
+  return {
+    ...detail,
+    notificar_portaria,
+    can_approve_credentials,
+    can_manage_companies,
+  };
 }
 
 async function updateEventPreferences(req, id, prefs = {}) {
@@ -406,10 +484,20 @@ async function createEvent(req, data) {
   }
 
   const days = data.days || [];
-    const idSetor = Number(data.id_setor);
+  const idSetor = Number(data.id_setor);
+  const idCompanyResponsavel = Number(data.id_company_responsavel);
   const idSolicitante = req.user?.id;
   if (!idSolicitante) {
     throw new AppError("Usuário não autenticado.", 401);
+  }
+
+  const responsavel = await companyService.findActiveCompanyById(idCompanyResponsavel);
+  if (!responsavel) {
+    throw new AppError("Empresa responsável não encontrada ou inativa.", 400);
+  }
+  const produtoraTypeId = await getProdutoraTypeId();
+  if (Number(responsavel.id_company_type) !== produtoraTypeId) {
+    throw new AppError("A empresa responsável deve ser do tipo Produtora.", 400);
   }
 
   const conn = await db.getConnection();
@@ -419,8 +507,9 @@ async function createEvent(req, data) {
     await approvalsService.assertUserCanOpenForSector(conn, idSetor, req.user);
 
     const [result] = await conn.execute(
-      "INSERT INTO event (name, start, end, id_access_status) VALUES (?, ?, ?, ?)",
-      [data.name, start, end, STATUS_AGUARDANDO_APROVACAO],
+      `INSERT INTO event (name, start, end, id_access_status, id_company_responsavel)
+       VALUES (?, ?, ?, ?, ?)`,
+      [data.name, start, end, STATUS_AGUARDANDO_APROVACAO, idCompanyResponsavel],
     );
     const eventId = result.insertId;
 
@@ -433,9 +522,14 @@ async function createEvent(req, data) {
         );
       }
       await assertEventDayTypeExists(day.id_type, conn);
-      await conn.execute(
+      const [dayResult] = await conn.execute(
         "INSERT INTO event_day (id_event, id_type, date) VALUES (?, ?, ?)",
         [eventId, day.id_type, dayDate],
+      );
+      await conn.execute(
+        `INSERT INTO event_day_company (id_event_day, id_company, id_producer)
+         VALUES (?, ?, NULL)`,
+        [dayResult.insertId, idCompanyResponsavel],
       );
     }
 
@@ -650,9 +744,12 @@ async function updateEventPeriod(req, id, data) {
   }
 }
 
-async function addCompanyToEventDay(idEventDay, payload) {
+async function addCompanyToEventDay(req, idEventDay, payload) {
   const eventDay = await findEventDayWithEvent(idEventDay);
   if (!eventDay) throw new AppError("Dia de evento não encontrado.", 404);
+
+  const eventRow = await findEventById(eventDay.id_event);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
 
   const company = await companyService.findActiveCompanyById(payload.id_company);
   if (!company) {
@@ -661,10 +758,28 @@ async function addCompanyToEventDay(idEventDay, payload) {
 
   const produtoraTypeId = await getProdutoraTypeId();
   const padraoTypeId = await getEmpresaPadraoTypeId();
+  const isAdmin = !!req.user?.is_super_admin;
+  const userCompanyId =
+    req.user?.id_company != null ? Number(req.user.id_company) : null;
+  const responsavelId =
+    eventRow.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
+  const isResponsavel = userCompanyId != null && userCompanyId === responsavelId;
+
+  if (!isAdmin && !isResponsavel) {
+    throw new AppError("Sem permissão para vincular empresas a este evento.", 403);
+  }
 
   let idProducer = null;
 
   if (company.id_company_type === produtoraTypeId) {
+    if (!isAdmin) {
+      throw new AppError(
+        "Apenas administradores podem vincular outra Produtora ao dia.",
+        403,
+      );
+    }
     if (payload.id_producer != null) {
       throw new AppError(
         "Empresa do tipo Produtora não deve informar produtora responsável.",
@@ -673,14 +788,26 @@ async function addCompanyToEventDay(idEventDay, payload) {
     }
     idProducer = null;
   } else if (company.id_company_type === padraoTypeId) {
-    if (payload.id_producer == null) {
+    const resolvedProducer =
+      payload.id_producer != null
+        ? Number(payload.id_producer)
+        : responsavelId;
+
+    if (resolvedProducer == null) {
       throw new AppError(
         "Empresa do tipo Empresa Padrão deve informar a produtora responsável (id_producer).",
         400,
       );
     }
 
-    const producer = await companyService.findActiveCompanyById(payload.id_producer);
+    if (!isAdmin && resolvedProducer !== responsavelId) {
+      throw new AppError(
+        "A Empresa Padrão deve ser vinculada à empresa responsável do evento.",
+        403,
+      );
+    }
+
+    const producer = await companyService.findActiveCompanyById(resolvedProducer);
     if (!producer) {
       throw new AppError("Produtora responsável não encontrada ou inativa.", 400);
     }
@@ -691,7 +818,7 @@ async function addCompanyToEventDay(idEventDay, payload) {
       );
     }
 
-    const linked = await isProducerLinkedToDay(idEventDay, payload.id_producer);
+    const linked = await isProducerLinkedToDay(idEventDay, resolvedProducer);
     if (!linked) {
       throw new AppError(
         "Produtora responsável não está vinculada a este dia.",
@@ -699,7 +826,7 @@ async function addCompanyToEventDay(idEventDay, payload) {
       );
     }
 
-    idProducer = payload.id_producer;
+    idProducer = resolvedProducer;
   } else {
     throw new AppError("Tipo de empresa não permitido na matriz de eventos.", 400);
   }
@@ -744,21 +871,95 @@ async function addCompanyToEventDay(idEventDay, payload) {
   }
 }
 
-async function findEventDayCompanyById(id) {
+async function listProducerCompanies() {
+  const produtoraTypeId = await getProdutoraTypeId();
   const [rows] = await db.execute(
-    `SELECT edc.*, ed.id_event
-     FROM event_day_company edc
-     INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
-     WHERE edc.id_event_day_company = ? LIMIT 1`,
-    [id],
+    `SELECT c.id_company, c.company_name, c.fancy_name, c.id_company_type,
+            ct.description AS company_type_description
+       FROM company c
+       INNER JOIN company_type ct ON ct.id_company_type = c.id_company_type
+      WHERE c.id_company_type = ? AND c.status = 1
+      ORDER BY c.company_name ASC`,
+    [produtoraTypeId],
   );
-  return rows[0] || null;
+  return rows.map((r) => ({
+    id_company: r.id_company,
+    company_name: r.company_name,
+    fancy_name: r.fancy_name || null,
+    id_company_type: r.id_company_type,
+    company_type_description: r.company_type_description,
+  }));
 }
 
-async function removeCompanyFromEventDay(idEventDayCompany) {
+async function listPadraoCompaniesForEvent(req, idEvent) {
+  const eventRow = await findEventById(idEvent);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, idEvent);
+
+  const isAdmin = !!req.user?.is_super_admin;
+  const userCompanyId =
+    req.user?.id_company != null ? Number(req.user.id_company) : null;
+  const responsavelId =
+    eventRow.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
+  const isResponsavel = userCompanyId != null && userCompanyId === responsavelId;
+
+  if (!isAdmin && !isResponsavel) {
+    throw new AppError("Sem permissão para listar empresas vinculáveis.", 403);
+  }
+
+  const padraoTypeId = await getEmpresaPadraoTypeId();
+  const [rows] = await db.execute(
+    `SELECT c.id_company, c.company_name, c.fancy_name, c.id_company_type,
+            ct.description AS company_type_description
+       FROM company c
+       INNER JOIN company_type ct ON ct.id_company_type = c.id_company_type
+      WHERE c.id_company_type = ? AND c.status = 1
+      ORDER BY c.company_name ASC`,
+    [padraoTypeId],
+  );
+  return {
+    id_company_responsavel: responsavelId,
+    companies: rows.map((r) => ({
+      id_company: r.id_company,
+      company_name: r.company_name,
+      fancy_name: r.fancy_name || null,
+      id_company_type: r.id_company_type,
+      company_type_description: r.company_type_description,
+    })),
+  };
+}
+
+async function removeCompanyFromEventDay(req, idEventDayCompany) {
   const link = await findEventDayCompanyById(idEventDayCompany);
   if (!link) {
     throw new AppError("Vínculo empresa-dia não encontrado.", 404);
+  }
+
+  const eventRow = await findEventById(link.id_event);
+  const isAdmin = !!req.user?.is_super_admin;
+  const userCompanyId =
+    req.user?.id_company != null ? Number(req.user.id_company) : null;
+  const responsavelId =
+    eventRow?.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
+  const isResponsavel = userCompanyId != null && userCompanyId === responsavelId;
+
+  if (!isAdmin) {
+    if (!isResponsavel) {
+      throw new AppError("Sem permissão para remover vínculo.", 403);
+    }
+    if (Number(link.id_company) === responsavelId) {
+      throw new AppError(
+        "Não é possível remover a empresa responsável do evento.",
+        400,
+      );
+    }
+    if (link.id_producer == null || Number(link.id_producer) !== responsavelId) {
+      throw new AppError("Sem permissão para remover este vínculo.", 403);
+    }
   }
 
   await assertNoCredentialedCollaborators(idEventDayCompany);
@@ -776,6 +977,17 @@ async function removeCompanyFromEventDay(idEventDayCompany) {
   };
 }
 
+async function findEventDayCompanyById(id) {
+  const [rows] = await db.execute(
+    `SELECT edc.*, ed.id_event
+     FROM event_day_company edc
+     INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+     WHERE edc.id_event_day_company = ? LIMIT 1`,
+    [id],
+  );
+  return rows[0] || null;
+}
+
 module.exports = {
   parseListQuery,
   parseListFilters,
@@ -788,6 +1000,9 @@ module.exports = {
   reopenEventForApproval,
   addCompanyToEventDay,
   removeCompanyFromEventDay,
+  listProducerCompanies,
+  listPadraoCompaniesForEvent,
+  userIsSectorApproverForEvent,
   markApproved,
   markRejected,
   markExpired,

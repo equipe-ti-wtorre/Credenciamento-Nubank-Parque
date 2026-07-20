@@ -10,6 +10,7 @@ const canEdit = [auth, authorizePermission("settings_smtp", "edit")];
 
 router.get("/settings", ...canView, smtpController.getSettings);
 router.put("/settings", ...canEdit, smtpController.updateSettings);
+router.post("/verificar", ...canEdit, smtpController.verifyConnection);
 router.post("/test", ...canEdit, smtpController.testSend);
 router.get("/logs", ...canView, smtpController.listLogs);
 

@@ -89,6 +89,13 @@ export class CompanyService {
     return this.api.patch<{ company: CompanyItem }>(`/companies/${id}/status`, { status });
   }
 
+  inviteAccess(
+    id: number,
+    data: { id_company_contact?: number; email?: string; name?: string },
+  ): Observable<{ invite: { id_usuario: number; email: string; profile_codigo: string } }> {
+    return this.api.post(`/companies/${id}/invite-access`, data);
+  }
+
   private buildParams(page: number, limit: number, filters: CompanyListFilters): HttpParams {
     let params = new HttpParams().set('page', String(page)).set('limit', String(limit));
     if (filters.cnpj?.trim()) {

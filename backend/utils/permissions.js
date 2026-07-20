@@ -48,7 +48,11 @@ function buildCompanyScope(user) {
       throw new AppError("Usuário sem empresa vinculada.", 403);
     }
     const codigo = getProfileCodigo(user);
-    if (codigo === "PADRAO") {
+    if (
+      codigo === "PADRAO" ||
+      codigo === "EMPRESA_GESTOR" ||
+      codigo === "EMPRESA_SOLICITANTE"
+    ) {
       return { mode: "padrao", onlyCompanyId: idCompany };
     }
     return { mode: "produtora", ownCompanyId: idCompany };
@@ -73,6 +77,10 @@ function buildEventScope(user) {
 
   if (hasPermission(user, "events", "view")) {
     return { mode: "admin" };
+  }
+
+  if (hasPermission(user, "approvals", "view") && user?.id) {
+    return { mode: "sector_approver", userId: Number(user.id) };
   }
 
   throw new AppError("Perfil sem permissão para consultar eventos.", 403);

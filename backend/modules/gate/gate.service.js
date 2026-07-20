@@ -407,6 +407,8 @@ const SERVICE_DENIAL_MESSAGES = {
   SERVICE_DISABLED: "Acesso de serviço desabilitado.",
   INVALID_SERVICE_DATE: "Data não autorizada para este serviço.",
   SERVICE_ACCESS_COMPLETED: "Entrada e saída já registradas.",
+  OPEN_STAY_PENDING:
+    "Há entrada sem saída registrada. Registre a saída antes de uma nova entrada.",
   VEHICLE_BLACK_LIST_BLOCKED: "Veículo consta na lista de bloqueio de segurança da arena.",
   COLLABORATOR_BLACK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
 };
@@ -504,31 +506,113 @@ function resolveEffectiveServiceCollaborator(row) {
   };
 }
 
+/** Outra SAC com entrada aberta para o mesmo colaborador efetivo. */
+async function findOpenCollaboratorStay(idCollaborator, excludeSacId) {
+  if (idCollaborator == null) return null;
+  const [rows] = await db.execute(
+    `SELECT sac.id_service_access_collaborator,
+            sac.access_id,
+            sac.access_check_in,
+            sa.id_service_access,
+            COALESCE(sa.finalidade, sa.service_type) AS finalidade
+     FROM service_access_collaborator sac
+     INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+     WHERE sa.status = 1
+       AND sac.access_check_in IS NOT NULL
+       AND sac.access_check_out IS NULL
+       AND COALESCE(sac.id_substitute, sac.id_collaborator) = ?
+       AND sac.id_service_access_collaborator <> ?
+     ORDER BY sac.access_check_in ASC
+     LIMIT 1`,
+    [idCollaborator, excludeSacId],
+  );
+  return rows[0] || null;
+}
+
+/** Outra SAV com entrada aberta para o mesmo veículo efetivo. */
+async function findOpenVehicleStay(idVehicle, excludeSavId) {
+  if (idVehicle == null) return null;
+  const [rows] = await db.execute(
+    `SELECT sav.id_service_access_vehicle,
+            sav.access_id,
+            sav.check_in,
+            sa.id_service_access,
+            COALESCE(sa.finalidade, sa.service_type) AS finalidade
+     FROM service_access_vehicle sav
+     INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
+     WHERE sa.status = 1
+       AND sav.check_in IS NOT NULL
+       AND sav.check_out IS NULL
+       AND COALESCE(sav.id_substitute_vehicle, sav.id_vehicle) = ?
+       AND sav.id_service_access_vehicle <> ?
+     ORDER BY sav.check_in ASC
+     LIMIT 1`,
+    [idVehicle, excludeSavId],
+  );
+  return rows[0] || null;
+}
+
 /**
  * Persiste o histórico diário de portaria (gate_access_day_log). As colunas em
- * service_access_* guardam apenas o estado do dia corrente; o log preserva todos os dias.
+ * service_access_* guardam o estado corrente (entrada aberta persiste entre dias);
+ * o log preserva todos os dias. CHECK_OUT fecha a entrada aberta mais recente
+ * (mesmo que seja de outro dia), não cria um log órfão em CURDATE().
  */
 async function recordServiceDayLog(kind, idRef, idServiceAccess, accessId, action) {
-  const column = action === "CHECK_IN" ? "check_in" : "check_out";
-  const extraUpdate = action === "CHECK_IN" ? ", check_out = NULL" : "";
+  if (action === "CHECK_IN") {
+    await db.execute(
+      `INSERT INTO gate_access_day_log (kind, id_ref, id_service_access, access_id, access_date, check_in)
+       VALUES (?, ?, ?, ?, CURDATE(), NOW())
+       ON DUPLICATE KEY UPDATE check_in = NOW(), check_out = NULL`,
+      [kind, idRef, idServiceAccess, accessId],
+    );
+    return;
+  }
+
+  const [openRows] = await db.execute(
+    `SELECT id FROM gate_access_day_log
+     WHERE kind = ? AND id_ref = ?
+       AND check_in IS NOT NULL AND check_out IS NULL
+     ORDER BY access_date DESC, id DESC
+     LIMIT 1`,
+    [kind, idRef],
+  );
+  if (openRows.length) {
+    await db.execute(`UPDATE gate_access_day_log SET check_out = NOW() WHERE id = ?`, [
+      openRows[0].id,
+    ]);
+    return;
+  }
+
   await db.execute(
-    `INSERT INTO gate_access_day_log (kind, id_ref, id_service_access, access_id, access_date, ${column})
+    `INSERT INTO gate_access_day_log (kind, id_ref, id_service_access, access_id, access_date, check_out)
      VALUES (?, ?, ?, ?, CURDATE(), NOW())
-     ON DUPLICATE KEY UPDATE ${column} = NOW()${extraUpdate}`,
+     ON DUPLICATE KEY UPDATE check_out = NOW()`,
     [kind, idRef, idServiceAccess, accessId],
   );
 }
 
+/** Entrada aberta (qualquer dia) exige saída; ciclo completo hoje = concluído; senão nova entrada. */
 function resolveServiceVehicleNextAction(row, todayKey) {
-  if (!isTimestampToday(row.check_in, todayKey)) return "CHECK_IN";
-  if (!isTimestampToday(row.check_out, todayKey)) return "CHECK_OUT";
-  return null;
+  if (row.check_in && !row.check_out) return "CHECK_OUT";
+  if (
+    isTimestampToday(row.check_in, todayKey) &&
+    isTimestampToday(row.check_out, todayKey)
+  ) {
+    return null;
+  }
+  return "CHECK_IN";
 }
 
 function resolveServiceCollaboratorNextAction(row, todayKey) {
-  if (!isTimestampToday(row.access_check_in, todayKey)) return "CHECK_IN";
-  if (!isTimestampToday(row.access_check_out, todayKey)) return "CHECK_OUT";
-  return null;
+  if (row.access_check_in && !row.access_check_out) return "CHECK_OUT";
+  if (
+    isTimestampToday(row.access_check_in, todayKey) &&
+    isTimestampToday(row.access_check_out, todayKey)
+  ) {
+    return null;
+  }
+  return "CHECK_IN";
 }
 
 const WEEKDAY_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -578,8 +662,10 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
     : pending
       ? "PENDING_APPROVAL"
       : resolveServiceVehicleNextAction(row, todayKey) || "COMPLETED";
-  const checkInToday = isTimestampToday(row.check_in, todayKey) ? row.check_in : null;
-  const checkOutToday = isTimestampToday(row.check_out, todayKey) ? row.check_out : null;
+  const openStay = !!(row.check_in && !row.check_out);
+  const checkInDisplay =
+    openStay || isTimestampToday(row.check_in, todayKey) ? row.check_in : null;
+  const checkOutDisplay = isTimestampToday(row.check_out, todayKey) ? row.check_out : null;
   const accessedDates = ctx.logDates.get(`vehicle:${row.id_service_access_vehicle}`) || new Set();
   return {
     kind: "vehicle",
@@ -591,8 +677,8 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
     },
     company: { name: row.company_fancy_name },
     finalidade: row.finalidade,
-    check_in: checkInToday,
-    check_out: checkOutToday,
+    check_in: checkInDisplay,
+    check_out: checkOutDisplay,
     next_action: next,
     start_date: toDateKey(row.start_date),
     end_date: toDateKey(row.end_date),
@@ -626,10 +712,12 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
     : pending
       ? "PENDING_APPROVAL"
       : resolveServiceCollaboratorNextAction(row, todayKey) || "COMPLETED";
-  const checkInToday = isTimestampToday(row.access_check_in, todayKey)
-    ? row.access_check_in
-    : null;
-  const checkOutToday = isTimestampToday(row.access_check_out, todayKey)
+  const openStay = !!(row.access_check_in && !row.access_check_out);
+  const checkInDisplay =
+    openStay || isTimestampToday(row.access_check_in, todayKey)
+      ? row.access_check_in
+      : null;
+  const checkOutDisplay = isTimestampToday(row.access_check_out, todayKey)
     ? row.access_check_out
     : null;
   const accessedDates =
@@ -650,8 +738,8 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
     },
     company: { name: row.company_fancy_name },
     finalidade: row.finalidade,
-    check_in: checkInToday,
-    check_out: checkOutToday,
+    check_in: checkInDisplay,
+    check_out: checkOutDisplay,
     next_action: next,
     start_date: toDateKey(row.start_date),
     end_date: toDateKey(row.end_date),
@@ -692,7 +780,10 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
   LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
-    AND CURDATE() BETWEEN sa.start_date AND sa.end_date
+    AND (
+      CURDATE() BETWEEN sa.start_date AND sa.end_date
+      OR (sav.check_in IS NOT NULL AND sav.check_out IS NULL)
+    )
     AND (
       (sa.id_access_status = ? AND sav.access_id IS NOT NULL)
       OR sa.id_access_status IN (?, ?)
@@ -740,7 +831,10 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
   INNER JOIN company co ON co.id_company = sa.id_company
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
-    AND CURDATE() BETWEEN sa.start_date AND sa.end_date
+    AND (
+      CURDATE() BETWEEN sa.start_date AND sa.end_date
+      OR (sac.access_check_in IS NOT NULL AND sac.access_check_out IS NULL)
+    )
     AND (
       (sa.id_access_status = ? AND sac.access_id IS NOT NULL)
       OR sa.id_access_status IN (?, ?)
@@ -934,13 +1028,49 @@ async function listTodayExpectedServices() {
   const collaborators = collaboratorRows.map((row) =>
     mapTodayServiceCollaboratorRow(row, todayKey, ctx),
   );
-  return sortTodayServicesByAccessPriority([...vehicles, ...collaborators]);
+  return sortTodayServicesByAccessPriority(
+    applyOpenStayEntryBlocks([...vehicles, ...collaborators]),
+  );
+}
+
+/** CHECK_IN bloqueado se a mesma pessoa/veículo já tem outra linha em CHECK_OUT (entrada aberta). */
+function applyOpenStayEntryBlocks(list) {
+  const openCollaboratorIds = new Set();
+  const openVehiclePlates = new Set();
+  for (const row of list) {
+    if (row.next_action !== "CHECK_OUT") continue;
+    if (row.kind === "collaborator" && row.collaborator?.id_collaborator != null) {
+      openCollaboratorIds.add(Number(row.collaborator.id_collaborator));
+    }
+    if (row.kind === "vehicle" && row.vehicle?.plate) {
+      openVehiclePlates.add(String(row.vehicle.plate).trim().toUpperCase());
+    }
+  }
+
+  const reason = SERVICE_DENIAL_MESSAGES.OPEN_STAY_PENDING;
+  for (const row of list) {
+    if (row.next_action !== "CHECK_IN") continue;
+    const blockedCollab =
+      row.kind === "collaborator" &&
+      row.collaborator?.id_collaborator != null &&
+      openCollaboratorIds.has(Number(row.collaborator.id_collaborator));
+    const blockedVehicle =
+      row.kind === "vehicle" &&
+      row.vehicle?.plate &&
+      openVehiclePlates.has(String(row.vehicle.plate).trim().toUpperCase());
+    if (blockedCollab || blockedVehicle) {
+      row.next_action = "BLOCKED_OPEN_STAY";
+      row.block_reason = reason;
+    }
+  }
+  return list;
 }
 
 /** Aguardando entrada → liberação pendente → dentro → concluídos → reprovado; data mais nova acima. */
 function sortTodayServicesByAccessPriority(list) {
   const rank = {
     CHECK_IN: 0,
+    BLOCKED_OPEN_STAY: 0,
     PENDING_APPROVAL: 1,
     CHECK_OUT: 2,
     COMPLETED: 3,
@@ -1025,7 +1155,13 @@ async function validateServiceVehicleAccess(accessId) {
   const row = await findServiceVehicleByAccessId(accessId);
   const denial = validateServiceAccessBase(row);
   if (denial) return denial;
-  if (!(await isServiceDateAllowed(row))) {
+
+  const todayKey = await getMysqlTodayKey();
+  const action = resolveServiceVehicleNextAction(row, todayKey);
+  if (!action) {
+    return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
+  }
+  if (action === "CHECK_IN" && !(await isServiceDateAllowed(row))) {
     return buildServiceDenial("INVALID_SERVICE_DATE");
   }
 
@@ -1039,13 +1175,12 @@ async function validateServiceVehicleAccess(accessId) {
     };
   }
 
-  const todayKey = await getMysqlTodayKey();
-  const action = resolveServiceVehicleNextAction(row, todayKey);
-  if (!action) {
-    return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
-  }
-
   if (action === "CHECK_IN") {
+    const idVehicle = row.id_substitute_vehicle || row.id_vehicle;
+    const openStay = await findOpenVehicleStay(idVehicle, row.id_service_access_vehicle);
+    if (openStay) {
+      return buildServiceDenial("OPEN_STAY_PENDING");
+    }
     await db.execute(
       `UPDATE service_access_vehicle
        SET check_in = NOW(), check_out = NULL
@@ -1078,9 +1213,6 @@ async function validateServiceCollaboratorAccess(accessId) {
   const row = await findServiceCollaboratorByAccessId(accessId);
   const denial = validateServiceAccessBase(row);
   if (denial) return denial;
-  if (!(await isServiceDateAllowed(row))) {
-    return buildServiceDenial("INVALID_SERVICE_DATE");
-  }
 
   const blacklisted = row.id_substitute
     ? row.sub_blacklisted_id != null
@@ -1098,8 +1230,19 @@ async function validateServiceCollaboratorAccess(accessId) {
   if (!action) {
     return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
   }
+  if (action === "CHECK_IN" && !(await isServiceDateAllowed(row))) {
+    return buildServiceDenial("INVALID_SERVICE_DATE");
+  }
 
   if (action === "CHECK_IN") {
+    const idCollaborator = row.id_substitute || row.id_collaborator;
+    const openStay = await findOpenCollaboratorStay(
+      idCollaborator,
+      row.id_service_access_collaborator,
+    );
+    if (openStay) {
+      return buildServiceDenial("OPEN_STAY_PENDING");
+    }
     await db.execute(
       `UPDATE service_access_collaborator
        SET access_check_in = NOW(), access_check_out = NULL

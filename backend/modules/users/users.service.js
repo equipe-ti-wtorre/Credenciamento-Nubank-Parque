@@ -65,7 +65,11 @@ const USER_SELECT = `u.id, u.username, u.nome_completo, u.email, u.departamento,
   p.codigo AS perfil_codigo, p.nome AS perfil_nome, p.requires_company, p.is_super_admin`;
 
 function buildListWhere(filters) {
-  const conditions = [SQL_HAS_DEPARTMENT.replace(/departamento/g, "u.departamento"), "u.ativo = 1"];
+  const conditions = [
+    SQL_HAS_DEPARTMENT.replace(/departamento/g, "u.departamento"),
+    "u.ativo = 1",
+    "(p.codigo IS NULL OR p.codigo NOT IN ('EMPRESA_GESTOR', 'EMPRESA_SOLICITANTE'))",
+  ];
   const params = [];
 
   if (filters.search) {

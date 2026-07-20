@@ -17,5 +17,6 @@ router.get("/:id", auth, companyController.getById);
 router.post("/", ...canCreate, companyController.create);
 router.put("/:id", ...canEdit, companyController.update);
 router.patch("/:id/status", ...canEdit, companyController.patchStatus);
+router.post("/:id/invite-access", ...canEdit, companyController.inviteAccess);
 
 module.exports = router;
