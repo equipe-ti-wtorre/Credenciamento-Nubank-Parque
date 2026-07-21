@@ -7,6 +7,7 @@ const router = express.Router();
 router.get("/pending", authMiddleware, approvalsController.listPending);
 router.get("/pending/count", authMiddleware, approvalsController.countPending);
 router.get("/mine", authMiddleware, approvalsController.listMine);
+router.get("/team", authMiddleware, approvalsController.listTeam);
 router.get("/sectors/:tipoEntidade", authMiddleware, approvalsController.listEligibleSectors);
 router.get("/:id", authMiddleware, approvalsController.getById);
 router.post("/:id/approve", authMiddleware, approvalsController.approve);

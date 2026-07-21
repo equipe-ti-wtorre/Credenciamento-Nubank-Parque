@@ -2,6 +2,7 @@ import { ChangeDetectorRef, Component, inject, OnInit, signal } from '@angular/c
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import Swal from 'sweetalert2';
 import {
   EventDetail,
   EventItem,
@@ -19,11 +20,23 @@ import {
   statusBadgeClass,
 } from '../../../services/credential.service';
 import { NovoEventoModalComponent } from './novo-evento-modal/novo-evento-modal.component';
+import { ActionBtnComponent } from '../../../shared/actions/action-btn.component';
+import { ActionMenuComponent } from '../../../shared/actions/action-menu.component';
+import { ActionDropdownComponent } from '../../../shared/actions/action-dropdown.component';
+import { ActionDropdownItemDirective } from '../../../shared/actions/action-dropdown-item.directive';
 
 @Component({
   selector: 'app-event-list',
   standalone: true,
-  imports: [CommonModule, FormsModule, NovoEventoModalComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    NovoEventoModalComponent,
+    ActionBtnComponent,
+    ActionMenuComponent,
+    ActionDropdownComponent,
+    ActionDropdownItemDirective,
+  ],
   template: `
     <div class="w-full">
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5 shrink-0">
@@ -47,15 +60,17 @@ import { NovoEventoModalComponent } from './novo-evento-modal/novo-evento-modal.
             <label class="text-xs font-bold text-slate-500 uppercase">Nome</label>
             <input
               [(ngModel)]="filterName"
+              (ngModelChange)="onTextFilterChange()"
               name="filterName"
               placeholder="Nome do evento"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
             />
           </div>
-        </div>
-        <div class="flex gap-2 mt-3">
-          <button type="button" (click)="aplicarFiltros()" class="btn-action-primary text-sm py-1.5 px-4">Filtrar</button>
-          <button type="button" (click)="limparFiltros()" class="btn-action-secondary text-sm py-1.5 px-4">Limpar</button>
+          <div class="flex items-end">
+            <button type="button" (click)="limparFiltros()" class="btn-action-secondary text-sm py-2 px-4">
+              Limpar
+            </button>
+          </div>
         </div>
       </div>
 
@@ -86,17 +101,84 @@ import { NovoEventoModalComponent } from './novo-evento-modal/novo-evento-modal.
                   <td class="px-4 py-3 text-slate-600">{{ formatDateBr(e.start) }}</td>
                   <td class="px-4 py-3 text-slate-600">{{ formatDateBr(e.end) }}</td>
                   <td class="px-4 py-3">
-                    <span
-                      class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
-                      [ngClass]="statusBadgeClass(e.id_access_status ?? 0)"
-                    >
-                      {{ e.access_status_description || '—' }}
-                    </span>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      @if (e.ativo === false) {
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700">
+                          Inativo
+                        </span>
+                      }
+                      <span
+                        class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                        [ngClass]="statusBadgeClass(e.id_access_status ?? 0)"
+                      >
+                        {{ e.access_status_description || '—' }}
+                      </span>
+                    </div>
                   </td>
                   <td class="px-4 py-3 text-right">
-                    <button type="button" class="text-[var(--color-primary)] text-xs font-medium hover:underline" (click)="configurar(e)">
-                      Abrir
-                    </button>
+                    <div class="flex justify-end">
+                      <app-action-menu>
+                        <app-action-btn
+                          icon="edit"
+                          title="Abrir"
+                          variant="neutral"
+                          (action)="configurar(e)"
+                        />
+                        @if (e.can_toggle_active || e.can_delete) {
+                          <app-action-dropdown>
+                            @if (e.can_toggle_active) {
+                              <button
+                                appActionDropdownItem
+                                type="button"
+                                (click)="alterarStatus(e)"
+                              >
+                                <svg
+                                  class="action-dropdown__item-icon"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="1.75"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                                  <path d="M12 2v10" />
+                                </svg>
+                                {{ e.ativo === false ? 'Ativar' : 'Desativar' }}
+                              </button>
+                            }
+                            @if (e.can_delete) {
+                              <hr class="action-dropdown__divider" />
+                              <button
+                                appActionDropdownItem
+                                type="button"
+                                [danger]="true"
+                                (click)="excluirEvento(e)"
+                              >
+                                <svg
+                                  class="action-dropdown__item-icon"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="1.75"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M3 6h18" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                  <path d="M10 11v6" />
+                                  <path d="M14 11v6" />
+                                </svg>
+                                Excluir
+                              </button>
+                            }
+                          </app-action-dropdown>
+                        }
+                      </app-action-menu>
+                    </div>
                   </td>
                 </tr>
               }
@@ -166,6 +248,8 @@ export class EventListComponent implements OnInit {
 
   filterName = '';
   appliedName = '';
+  private readonly filterDebounceMs = 350;
+  private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private eventService: EventService,
@@ -203,12 +287,21 @@ export class EventListComponent implements OnInit {
       });
   }
 
+  onTextFilterChange() {
+    if (this.filterDebounceTimer !== null) clearTimeout(this.filterDebounceTimer);
+    this.filterDebounceTimer = setTimeout(() => this.aplicarFiltros(), this.filterDebounceMs);
+  }
+
   aplicarFiltros() {
     this.appliedName = this.filterName.trim();
     this.carregar(1);
   }
 
   limparFiltros() {
+    if (this.filterDebounceTimer !== null) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
+    }
     this.filterName = '';
     this.appliedName = '';
     this.carregar(1);
@@ -234,6 +327,60 @@ export class EventListComponent implements OnInit {
 
   configurar(e: EventItem) {
     void this.router.navigate(['/admin/eventos', e.id_event]);
+  }
+
+  alterarStatus(e: EventItem) {
+    if (!e.can_toggle_active) return;
+    const ativar = e.ativo === false;
+    Swal.fire({
+      title: ativar ? 'Ativar evento?' : 'Desativar evento?',
+      text: ativar
+        ? `Reativar "${e.name}"?`
+        : `Desativar "${e.name}"? Novas solicitações e acessos na portaria ficarão bloqueados.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: ativar ? 'Ativar' : 'Desativar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: ativar ? '#059669' : '#dc2626',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.eventService.patchStatus(e.id_event, ativar).subscribe({
+        next: () => {
+          this.notification.success(ativar ? 'Evento ativado.' : 'Evento desativado.');
+          this.carregar();
+        },
+        error: (err) => {
+          this.notification.notifyHttpError(err, 'Falha ao alterar status do evento.');
+          this.cdr.markForCheck();
+        },
+      });
+    });
+  }
+
+  excluirEvento(e: EventItem) {
+    if (!e.can_delete) return;
+
+    Swal.fire({
+      title: 'Excluir evento?',
+      text: `Excluir "${e.name}"? Só é permitido quando não há empresas ou colaboradores cadastrados.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Excluir',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#dc2626',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.eventService.remove(e.id_event).subscribe({
+        next: () => {
+          this.notification.success('Evento excluído.');
+          this.carregar();
+        },
+        error: (err) => {
+          this.notification.notifyHttpError(err, 'Falha ao excluir evento.');
+          this.cdr.markForCheck();
+        },
+      });
+    });
   }
 
   private extractError(err: unknown): string | null {

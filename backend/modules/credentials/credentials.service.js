@@ -8,6 +8,12 @@ const companyService = require("../companies/company.service");
 const teamsService = require("../teams/teams.service");
 const smtpService = require("../smtp/smtp.service");
 const alertsService = require("../alerts/alerts.service");
+const { parseBulkFile } = require("../collaborators/collaborator.bulk");
+const {
+  savePreviewSession,
+  getPreviewSession,
+  deletePreviewSession,
+} = require("../bulk/previewSession");
 const {
   STATUS_AGUARDANDO_PRODUTORA,
   STATUS_AGUARDANDO_APROVACAO,
@@ -33,7 +39,7 @@ const CREDENTIAL_SELECT = `
          edc.id_event_day_company, edc.id_company, edc.id_producer,
          ed.id_event_day, ed.date AS event_day_date,
          e.id_event, e.name AS event_name, e.id_access_status AS event_access_status,
-         e.id_company_responsavel,
+         e.id_company_responsavel, e.ativo AS event_ativo,
          co.company_name, co.fancy_name AS company_fancy_name
   FROM event_day_company_collaborator edcc
   INNER JOIN access_status ast ON ast.id_access_status = edcc.id_access_status
@@ -75,7 +81,28 @@ function getUserRole(req) {
   return getProfileCodigo(req.user);
 }
 
-function buildCredentialScope(req) {
+function isCompanyScopedRole(role) {
+  return (
+    role === "PADRAO" ||
+    role === "EMPRESA_GESTOR" ||
+    role === "EMPRESA_SOLICITANTE"
+  );
+}
+
+async function isUserCompanyProdutora(idCompany) {
+  if (idCompany == null) return false;
+  const company = await companyService.findActiveCompanyById(idCompany);
+  if (!company) return false;
+  const produtoraTypeId = await getProdutoraTypeId();
+  return Number(company.id_company_type) === Number(produtoraTypeId);
+}
+
+/**
+ * Escopo de listagem/operação de credenciais.
+ * Empresa tipo Produtora (responsável) → mode "produtora" mesmo com perfil EMPRESA_*,
+ * para ver colaboradores das parceiras (id_producer / id_company_responsavel).
+ */
+async function buildCredentialScope(req) {
   const role = getUserRole(req);
   const idCompany =
     req.user?.id_company != null ? Number(req.user.id_company) : null;
@@ -83,18 +110,24 @@ function buildCredentialScope(req) {
   if (isSuperAdmin(req.user)) {
     return { mode: "admin" };
   }
-  if (role === "PADRAO") {
-    if (!idCompany) {
-      throw new AppError("Usuário sem empresa vinculada.", 403);
-    }
-    return { mode: "padrao", companyId: idCompany };
-  }
+
   if (role === "PRODUTORA") {
     if (!idCompany) {
       throw new AppError("Usuário produtora sem empresa vinculada.", 403);
     }
     return { mode: "produtora", companyId: idCompany };
   }
+
+  if (isCompanyScopedRole(role) || !!req.user?.requires_company) {
+    if (!idCompany) {
+      throw new AppError("Usuário sem empresa vinculada.", 403);
+    }
+    if (await isUserCompanyProdutora(idCompany)) {
+      return { mode: "produtora", companyId: idCompany };
+    }
+    return { mode: "padrao", companyId: idCompany };
+  }
+
   if (hasPermission(req.user, "approvals", "view") && req.user?.id) {
     return { mode: "sector_approver", userId: Number(req.user.id) };
   }
@@ -155,7 +188,7 @@ async function userCanFinalApproveCredential(user, idEvent) {
   return rows.length > 0;
 }
 
-function assertCanWriteStatus(req) {
+async function assertCanWriteStatus(req) {
   const role = getUserRole(req);
   if (role === "PADRAO") {
     throw new AppError("Perfil sem permissão para alterar status de credencial.", 403);
@@ -167,12 +200,26 @@ function assertCanWriteStatus(req) {
   ) {
     return;
   }
+  const idCompany =
+    req.user?.id_company != null ? Number(req.user.id_company) : null;
+  // Gestor/solicitante da empresa Produtora (responsável) pode avançar status.
+  if (
+    (role === "EMPRESA_GESTOR" || role === "EMPRESA_SOLICITANTE") &&
+    (await isUserCompanyProdutora(idCompany))
+  ) {
+    return;
+  }
   throw new AppError("Perfil sem permissão para alterar status de credencial.", 403);
 }
 
 function assertCanCreate(req) {
   const role = getUserRole(req);
-  if (role === "ADMIN" || role === "PRODUTORA" || role === "PADRAO") {
+  if (
+    role === "ADMIN" ||
+    role === "PRODUTORA" ||
+    isCompanyScopedRole(role) ||
+    (!!req.user?.requires_company && hasPermission(req.user, "events", "edit"))
+  ) {
     return;
   }
   throw new AppError("Perfil sem permissão para solicitar credencial.", 403);
@@ -215,7 +262,7 @@ function mapCredentialRow(row) {
 
 function parseListQuery(query) {
   const page = Math.max(1, parseInt(query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+  const limit = Math.min(500, Math.max(1, parseInt(query.limit, 10) || 20));
   return { page, limit };
 }
 
@@ -239,9 +286,11 @@ function parseListFilters(query) {
 async function findEventDayCompanyById(id) {
   const [rows] = await db.execute(
     `SELECT edc.*, ed.id_event_day, ed.id_event, ed.date,
+            e.id_company_responsavel, e.ativo AS event_ativo,
             c.company_name, c.id_company_type, ct.description AS company_type_description
      FROM event_day_company edc
      INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+     INNER JOIN event e ON e.id_event = ed.id_event
      INNER JOIN company c ON c.id_company = edc.id_company
      INNER JOIN company_type ct ON ct.id_company_type = c.id_company_type
      WHERE edc.id_event_day_company = ? LIMIT 1`,
@@ -250,13 +299,23 @@ async function findEventDayCompanyById(id) {
   return rows[0] || null;
 }
 
-function assertCanOperateOnLink(req, linkRow) {
-  const scope = buildCredentialScope(req);
+function assertLinkedEventActive(linkRow) {
+  if (linkRow && linkRow.event_ativo != null && !Number(linkRow.event_ativo)) {
+    throw new AppError("Evento desativado. Reative-o para continuar.", 403);
+  }
+}
+
+async function assertCanOperateOnLink(req, linkRow) {
+  const scope = await buildCredentialScope(req);
   if (scope.mode === "admin") return;
 
   const companyId = Number(linkRow.id_company);
   const producerId =
     linkRow.id_producer != null ? Number(linkRow.id_producer) : null;
+  const responsavelId =
+    linkRow.id_company_responsavel != null
+      ? Number(linkRow.id_company_responsavel)
+      : null;
 
   if (scope.mode === "padrao") {
     if (companyId !== scope.companyId) {
@@ -266,15 +325,19 @@ function assertCanOperateOnLink(req, linkRow) {
   }
 
   if (scope.mode === "produtora") {
-    if (companyId === scope.companyId || producerId === scope.companyId) {
+    if (
+      companyId === scope.companyId ||
+      producerId === scope.companyId ||
+      responsavelId === scope.companyId
+    ) {
       return;
     }
     throw new AppError("Vínculo dia-empresa não encontrado.", 404);
   }
 }
 
-function assertCredentialInScope(req, row) {
-  const scope = buildCredentialScope(req);
+async function assertCredentialInScope(req, row) {
+  const scope = await buildCredentialScope(req);
   if (scope.mode === "admin") return;
 
   const companyId = Number(row.id_company);
@@ -307,14 +370,14 @@ function assertCredentialInScope(req, row) {
 }
 
 async function assertCredentialReadable(req, row) {
-  const scope = buildCredentialScope(req);
+  const scope = await buildCredentialScope(req);
   if (scope.mode === "admin") return;
   if (scope.mode === "sector_approver") {
     const ok = await userCanFinalApproveCredential(req.user, row.id_event);
     if (!ok) throw new AppError("Credencial não encontrada.", 404);
     return;
   }
-  assertCredentialInScope(req, row);
+  await assertCredentialInScope(req, row);
 }
 
 async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId = null) {
@@ -384,7 +447,7 @@ async function getCredentialById(req, id) {
 }
 
 async function listCredentials(req, { page, limit, filters }) {
-  const scope = buildCredentialScope(req);
+  const scope = await buildCredentialScope(req);
   const { conditions, params } = applyScopeToWhere(scope);
 
   if (filters.id_event) {
@@ -458,7 +521,8 @@ async function createCredential(req, data) {
   if (!link) {
     throw new AppError("Vínculo dia-empresa não encontrado.", 404);
   }
-  assertCanOperateOnLink(req, link);
+  assertLinkedEventActive(link);
+  await assertCanOperateOnLink(req, link);
 
   await assertNoDuplicateOnEventDay(data.id_collaborator, link.id_event_day);
 
@@ -480,6 +544,13 @@ async function createCredential(req, data) {
     [data.id_event_day_company, data.id_collaborator, initialStatus, idRole],
   );
 
+  if (link.id_company != null) {
+    await collaboratorService.linkCollaboratorToCompany(
+      data.id_collaborator,
+      link.id_company,
+    );
+  }
+
   const credential = await getCredentialById(req, result.insertId);
 
   if (initialStatus === STATUS_AGUARDANDO_APROVACAO) {
@@ -498,12 +569,18 @@ function validateStatusTransition(req, row, targetStatus) {
   const responsavelId =
     row.id_company_responsavel != null ? Number(row.id_company_responsavel) : null;
 
-  if (role === "PRODUTORA" && current === STATUS_AGUARDANDO_PRODUTORA) {
-    const canAct =
-      (producerId != null && producerId === userCompany) ||
-      (responsavelId != null && responsavelId === userCompany);
-    if (!canAct) {
-      throw new AppError("Credencial não encontrada.", 404);
+  const canActAsProdutora =
+    (producerId != null && producerId === userCompany) ||
+    (responsavelId != null && responsavelId === userCompany);
+
+  if (current === STATUS_AGUARDANDO_PRODUTORA && canActAsProdutora) {
+    if (
+      role !== "PRODUTORA" &&
+      role !== "EMPRESA_GESTOR" &&
+      role !== "EMPRESA_SOLICITANTE" &&
+      role !== "ADMIN"
+    ) {
+      throw new AppError("Perfil sem permissão para alterar status de credencial.", 403);
     }
     if (
       targetStatus !== STATUS_AGUARDANDO_APROVACAO &&
@@ -535,6 +612,25 @@ async function assertFinalApprovalAllowed(req, row, targetStatus) {
   }
 
   if (targetStatus === STATUS_APROVADO) {
+    const isBlacklisted = await collaboratorService.checkBlacklist(row.id_collaborator);
+    if (isBlacklisted) {
+      throw new AppError(
+        "Colaborador está na lista de restrição e não pode ser aprovado.",
+        403,
+      );
+    }
+    if (row.id_substitute) {
+      const substituteBlacklisted = await collaboratorService.checkBlacklist(
+        row.id_substitute,
+      );
+      if (substituteBlacklisted) {
+        throw new AppError(
+          "Substituto está na lista de restrição e a credencial não pode ser aprovada.",
+          403,
+        );
+      }
+    }
+
     const eventStatus = Number(row.event_access_status);
     if (eventStatus !== STATUS_APROVADO) {
       throw new AppError(
@@ -639,10 +735,11 @@ function scheduleApprovalEmail(credential, { usuarioId, requestId }) {
 }
 
 async function updateCredentialStatus(req, id, { id_access_status: targetStatus, reason }) {
-  assertCanWriteStatus(req);
+  await assertCanWriteStatus(req);
 
   const row = await findCredentialById(id);
   if (!row) throw new AppError("Credencial não encontrada.", 404);
+  assertLinkedEventActive(row);
   await assertCredentialReadable(req, row);
 
   const transition = validateStatusTransition(req, row, targetStatus);
@@ -714,6 +811,275 @@ async function updateCredentialStatus(req, id, { id_access_status: targetStatus,
   };
 }
 
+function onlyDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function normalizeEventCredBulkRow(raw) {
+  const mapped = {};
+  for (const [key, value] of Object.entries(raw || {})) {
+    mapped[String(key || "").trim().toLowerCase().replace(/\s+/g, "_")] = value;
+  }
+  const nome = mapped.nome ?? mapped.name ?? "";
+  const cpf = mapped.cpf ?? mapped.documento ?? mapped.document ?? "";
+  const funcao = mapped.funcao ?? mapped.função ?? mapped.role ?? mapped.cargo ?? "";
+  return {
+    name: String(nome || "").trim(),
+    document: onlyDigits(cpf),
+    roleDescription: String(funcao || "").trim(),
+  };
+}
+
+async function getCpfDocumentTypeId() {
+  const [rows] = await db.execute(
+    `SELECT id_collaborator_document_type
+       FROM collaborator_document_type
+      WHERE UPPER(description) = 'CPF'
+         OR UPPER(description) LIKE 'CPF%'
+      ORDER BY id_collaborator_document_type ASC
+      LIMIT 1`,
+  );
+  if (!rows.length) {
+    throw new AppError("Tipo de documento CPF não configurado.", 500);
+  }
+  return Number(rows[0].id_collaborator_document_type);
+}
+
+async function resolveOrCreateRoleId(description) {
+  const normalized = String(description || "").trim() || "Colaborador";
+  const [existing] = await db.execute(
+    `SELECT id_collaborator_role FROM collaborator_role
+      WHERE LOWER(description) = LOWER(?) LIMIT 1`,
+    [normalized],
+  );
+  if (existing.length) return Number(existing[0].id_collaborator_role);
+  const [result] = await db.execute(
+    `INSERT INTO collaborator_role (description) VALUES (?)`,
+    [normalized],
+  );
+  return Number(result.insertId);
+}
+
+async function listCompanyLinksOnEvent(idEvent, idCompany) {
+  const [rows] = await db.execute(
+    `SELECT edc.*, ed.id_event_day, ed.id_event, ed.date,
+            e.id_company_responsavel, e.ativo AS event_ativo,
+            c.company_name, c.id_company_type
+       FROM event_day_company edc
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+       INNER JOIN event e ON e.id_event = ed.id_event
+       INNER JOIN company c ON c.id_company = edc.id_company
+      WHERE ed.id_event = ? AND edc.id_company = ?
+      ORDER BY ed.date ASC`,
+    [idEvent, idCompany],
+  );
+  return rows;
+}
+
+async function assertCanBulkCredentialsForCompany(req, idEvent, idCompany) {
+  assertCanCreate(req);
+  const links = await listCompanyLinksOnEvent(idEvent, idCompany);
+  if (!links.length) {
+    throw new AppError("Empresa não vinculada a este evento.", 404);
+  }
+  if (links[0]) assertLinkedEventActive(links[0]);
+  for (const link of links) {
+    await assertCanOperateOnLink(req, link);
+  }
+  return links;
+}
+
+async function previewEventCompanyCredentialsBulk(req, idEvent, idCompany, file) {
+  const eventId = Number(idEvent);
+  const companyId = Number(idCompany);
+  const links = await assertCanBulkCredentialsForCompany(req, eventId, companyId);
+  const cpfTypeId = await getCpfDocumentTypeId();
+
+  const rawRows = await parseBulkFile(file.buffer, file.mimetype, file.originalname);
+  const rows = [];
+  const sessionRows = [];
+
+  for (let i = 0; i < rawRows.length; i++) {
+    const line = i + 2;
+    const parsed = normalizeEventCredBulkRow(rawRows[i]);
+    if (!parsed.name && !parsed.document && !parsed.roleDescription) continue;
+
+    if (!parsed.name) {
+      const item = {
+        line,
+        status: "error",
+        key: { document: parsed.document },
+        incoming: parsed,
+        message: "Nome obrigatório.",
+      };
+      rows.push(item);
+      sessionRows.push({ ...item, id_collaborator: null, id_collaborator_role: null });
+      continue;
+    }
+    if (!parsed.document || parsed.document.length !== 11) {
+      const item = {
+        line,
+        status: "error",
+        key: { document: parsed.document },
+        incoming: parsed,
+        message: "CPF deve ter 11 dígitos.",
+      };
+      rows.push(item);
+      sessionRows.push({ ...item, id_collaborator: null, id_collaborator_role: null });
+      continue;
+    }
+
+    const [existingRows] = await db.execute(
+      `SELECT id_collaborator, name, document, status
+         FROM collaborator
+        WHERE document = ? AND id_collaborator_document_type = ?
+        LIMIT 1`,
+      [parsed.document, cpfTypeId],
+    );
+    const existing = existingRows[0] || null;
+    const roleId = await resolveOrCreateRoleId(parsed.roleDescription);
+    const status = existing ? "link" : "create";
+    const item = {
+      line,
+      status,
+      key: { document: parsed.document, id_collaborator_document_type: cpfTypeId },
+      incoming: {
+        name: parsed.name,
+        document: parsed.document,
+        role: parsed.roleDescription || "Colaborador",
+        id_collaborator_role: roleId,
+      },
+      existing: existing
+        ? {
+            id_collaborator: existing.id_collaborator,
+            name: existing.name,
+            document: existing.document,
+          }
+        : undefined,
+      message: existing
+        ? "Cadastro existente — será credenciado nos dias da empresa."
+        : "Novo colaborador — será cadastrado e credenciado.",
+    };
+    rows.push(item);
+    sessionRows.push({
+      ...item,
+      id_collaborator: existing ? Number(existing.id_collaborator) : null,
+      id_collaborator_role: roleId,
+      id_collaborator_document_type: cpfTypeId,
+      validated: {
+        name: parsed.name,
+        document: parsed.document,
+        id_collaborator_role: roleId,
+        id_collaborator_document_type: cpfTypeId,
+      },
+    });
+  }
+
+  if (!rows.length) {
+    throw new AppError(
+      "Nenhuma linha de dados encontrada. Cabeçalho: nome, cpf, funcao.",
+      400,
+    );
+  }
+
+  const previewId = savePreviewSession({
+    kind: "event_company_credentials",
+    userId: req.user?.id || null,
+    idEvent: eventId,
+    idCompany: companyId,
+    linkIds: links.map((l) => Number(l.id_event_day_company)),
+    rows: sessionRows,
+  });
+
+  const summary = {
+    total: rows.length,
+    create: rows.filter((r) => r.status === "create").length,
+    link: rows.filter((r) => r.status === "link").length,
+    update: 0,
+    error: rows.filter((r) => r.status === "error").length,
+  };
+
+  return { previewId, summary, rows, updateFields: [] };
+}
+
+async function commitEventCompanyCredentialsBulk(req, idEvent, idCompany, { previewId, decisions }) {
+  const eventId = Number(idEvent);
+  const companyId = Number(idCompany);
+  const links = await assertCanBulkCredentialsForCompany(req, eventId, companyId);
+
+  const session = getPreviewSession(previewId, "event_company_credentials");
+  if (session.userId && req.user?.id && Number(session.userId) !== Number(req.user.id)) {
+    throw new AppError("Pré-visualização pertence a outro usuário.", 403);
+  }
+  if (Number(session.idEvent) !== eventId || Number(session.idCompany) !== companyId) {
+    throw new AppError("Pré-visualização incompatível com este evento/empresa.", 400);
+  }
+
+  const decisionMap = new Map((decisions || []).map((d) => [Number(d.line), d]));
+  let created = 0;
+  let linked = 0;
+  let skipped = 0;
+  const errors = [];
+  let credentialsCreated = 0;
+
+  for (const row of session.rows) {
+    const decision = decisionMap.get(row.line);
+    const action = decision?.action || (row.status === "error" ? "skip" : row.status);
+    if (action === "skip" || row.status === "error") {
+      skipped += 1;
+      continue;
+    }
+
+    try {
+      let collaboratorId = row.id_collaborator;
+      if (!collaboratorId) {
+        const createdCol = await collaboratorService.insertCollaboratorRecord({
+          name: row.validated.name,
+          document: row.validated.document,
+          id_collaborator_document_type: row.validated.id_collaborator_document_type,
+          id_collaborator_role: row.validated.id_collaborator_role,
+          status: true,
+        });
+        collaboratorId = Number(createdCol.id_collaborator);
+        created += 1;
+      } else {
+        linked += 1;
+      }
+
+      await collaboratorService.linkCollaboratorToCompany(collaboratorId, companyId);
+
+      for (const link of links) {
+        try {
+          await createCredential(req, {
+            id_event_day_company: Number(link.id_event_day_company),
+            id_collaborator: collaboratorId,
+            id_collaborator_role: row.id_collaborator_role,
+          });
+          credentialsCreated += 1;
+        } catch (err) {
+          if (err.statusCode === 409 || /já credenciado|já existe|duplicad/i.test(err.message || "")) {
+            continue;
+          }
+          throw err;
+        }
+      }
+    } catch (err) {
+      errors.push({ line: row.line, reason: err.message || "Falha ao importar." });
+    }
+  }
+
+  deletePreviewSession(previewId);
+
+  return {
+    created,
+    linked,
+    skipped,
+    credentialsCreated,
+    errors,
+    totalDecisions: session.rows.length,
+  };
+}
+
 module.exports = {
   parseListQuery,
   parseListFilters,
@@ -722,4 +1088,10 @@ module.exports = {
   getCredentialById,
   createCredential,
   updateCredentialStatus,
+  previewEventCompanyCredentialsBulk,
+  commitEventCompanyCredentialsBulk,
+  assertCanOperateOnLink,
+  listCompanyLinksOnEvent,
+  resolveInitialStatus,
+  assertCanBulkCredentialsForCompany,
 };

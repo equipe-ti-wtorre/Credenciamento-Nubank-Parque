@@ -87,6 +87,7 @@ import { NotificationService } from '../../../core/services/notification.service
           <div class="flex flex-wrap gap-2">
             <select
               [(ngModel)]="filterType"
+              (ngModelChange)="loadHistory()"
               name="filterType"
               class="border border-[var(--app-border)] rounded-xl px-3 py-1.5 text-sm bg-white"
             >
@@ -94,7 +95,6 @@ import { NotificationService } from '../../../core/services/notification.service
               <option value="ENTRADA">Entrada</option>
               <option value="SAIDA">Saída</option>
             </select>
-            <button type="button" class="btn-primary text-sm py-1.5 px-4" (click)="loadHistory()">Filtrar</button>
           </div>
         </div>
 

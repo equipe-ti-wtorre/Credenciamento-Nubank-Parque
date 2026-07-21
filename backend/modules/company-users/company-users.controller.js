@@ -112,3 +112,28 @@ exports.resendInvite = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.remove = async (req, res, next) => {
+  try {
+    const removed = await companyUsersService.deleteCompanyUser(
+      req.user,
+      req.params.id,
+    );
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "company_users",
+      event: "company_users.delete",
+      resource: {
+        type: "user",
+        id: removed.id,
+        email: removed.email,
+        name: removed.nome_completo,
+      },
+    });
+
+    res.json({ removed });
+  } catch (err) {
+    next(err);
+  }
+};

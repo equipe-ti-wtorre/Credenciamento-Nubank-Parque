@@ -85,6 +85,9 @@ function mapCollaboratorRow(row, { isBlacklisted = false, canDelete = false } = 
   };
 }
 
+const COMPANY_COLLABORATOR_SCOPE_SQL =
+  "EXISTS (SELECT 1 FROM company_collaborator cc WHERE cc.id_collaborator = c.id_collaborator AND cc.id_company = ?)";
+
 function getActorCompanyId(req) {
   if (!req.user?.requires_company) return null;
   const id = req.user?.id_company != null ? Number(req.user.id_company) : null;
@@ -94,10 +97,35 @@ function getActorCompanyId(req) {
   return id;
 }
 
-function assertCollaboratorInCompanyScope(req, row) {
+async function linkCollaboratorToCompany(idCollaborator, idCompany) {
+  await db.execute(
+    `INSERT IGNORE INTO company_collaborator (id_company, id_collaborator) VALUES (?, ?)`,
+    [idCompany, idCollaborator],
+  );
+}
+
+async function unlinkCollaboratorFromCompany(idCollaborator, idCompany) {
+  const [result] = await db.execute(
+    `DELETE FROM company_collaborator WHERE id_company = ? AND id_collaborator = ?`,
+    [idCompany, idCollaborator],
+  );
+  return result.affectedRows > 0;
+}
+
+async function isCollaboratorLinkedToCompany(idCollaborator, idCompany) {
+  const [rows] = await db.execute(
+    `SELECT 1 FROM company_collaborator
+      WHERE id_company = ? AND id_collaborator = ? LIMIT 1`,
+    [idCompany, idCollaborator],
+  );
+  return rows.length > 0;
+}
+
+async function assertCollaboratorInCompanyScope(req, row) {
   const companyId = getActorCompanyId(req);
   if (companyId == null) return;
-  if (Number(row.id_company) !== companyId) {
+  const linked = await isCollaboratorLinkedToCompany(row.id_collaborator, companyId);
+  if (!linked) {
     throw new AppError("Colaborador não encontrado.", 404);
   }
 }
@@ -314,7 +342,7 @@ function buildListWhere(filters, companyId = null) {
   const params = [];
 
   if (companyId != null) {
-    conditions.push("c.id_company = ?");
+    conditions.push(COMPANY_COLLABORATOR_SCOPE_SQL);
     params.push(companyId);
   }
 
@@ -373,13 +401,15 @@ async function listCollaborators(req, { page, limit, filters }) {
 
   const collaborators = await Promise.all(
     rows.map(async (row) => {
-      const [isBlacklisted, usageCount] = await Promise.all([
-        checkBlacklist(row.id_collaborator),
-        countCollaboratorUsage(row.id_collaborator),
-      ]);
+      const isBlacklisted = await checkBlacklist(row.id_collaborator);
+      let canDelete = true;
+      if (companyId == null) {
+        const usageCount = await countCollaboratorUsage(row.id_collaborator);
+        canDelete = usageCount === 0;
+      }
       return mapCollaboratorRow(row, {
         isBlacklisted,
-        canDelete: usageCount === 0,
+        canDelete,
       });
     }),
   );
@@ -401,7 +431,7 @@ async function searchByDocument(req, { document, id_collaborator_document_type }
   if (!row) {
     throw new AppError("Colaborador não encontrado.", 404);
   }
-  assertCollaboratorInCompanyScope(req, row);
+  await assertCollaboratorInCompanyScope(req, row);
   const isBlacklisted = await checkBlacklist(row.id_collaborator);
   return {
     found: true,
@@ -428,7 +458,7 @@ async function searchCollaboratorsByTerm(req, { q, limit = 8 }) {
   }
 
   const companyId = getActorCompanyId(req);
-  const scopeSql = companyId != null ? " AND c.id_company = ?" : "";
+  const scopeSql = companyId != null ? ` AND ${COMPANY_COLLABORATOR_SCOPE_SQL}` : "";
   if (companyId != null) params.push(companyId);
 
   const max = Math.min(20, Math.max(1, Number(limit) || 8));
@@ -461,7 +491,7 @@ async function searchCollaboratorsByTerm(req, { q, limit = 8 }) {
 async function getCollaboratorById(req, id) {
   const row = await findCollaboratorById(id);
   if (!row) throw new AppError("Colaborador não encontrado.", 404);
-  assertCollaboratorInCompanyScope(req, row);
+  await assertCollaboratorInCompanyScope(req, row);
 
   const isBlacklisted = await checkBlacklist(row.id_collaborator);
 
@@ -491,8 +521,8 @@ async function insertCollaboratorRecord(data) {
   const [result] = await db.execute(
     `INSERT INTO collaborator (
        id_collaborator_document_type, id_collaborator_role,
-       document, name, rg, phone, id_company, status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       document, name, rg, phone, status
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       data.id_collaborator_document_type,
       data.id_collaborator_role,
@@ -500,7 +530,6 @@ async function insertCollaboratorRecord(data) {
       data.name,
       data.rg || null,
       data.phone || null,
-      data.id_company != null ? data.id_company : null,
       data.status !== false ? 1 : 0,
     ],
   );
@@ -511,11 +540,25 @@ async function insertCollaboratorRecord(data) {
 async function createCollaborator(req, data) {
   assertCanWriteCollaborator(req);
   const companyId = getActorCompanyId(req);
-  const payload = { ...data };
-  if (companyId != null) {
-    payload.id_company = companyId;
+
+  const existing = await findCollaboratorByDocument(
+    data.document,
+    data.id_collaborator_document_type,
+  );
+  if (existing) {
+    if (companyId == null) {
+      throw new AppError("Colaborador já cadastrado com este documento.", 409);
+    }
+    await linkCollaboratorToCompany(existing.id_collaborator, companyId);
+    const collaborator = await getCollaboratorDetailById(existing.id_collaborator);
+    return { collaborator, linked: true };
   }
-  return insertCollaboratorRecord(payload);
+
+  const collaborator = await insertCollaboratorRecord(data);
+  if (companyId != null) {
+    await linkCollaboratorToCompany(collaborator.id_collaborator, companyId);
+  }
+  return { collaborator, linked: false };
 }
 
 async function getCollaboratorBulkTemplate() {
@@ -546,13 +589,43 @@ async function bulkCreateCollaborators(req, file) {
 
     try {
       const record = { ...validated.value };
-      if (companyId != null) record.id_company = companyId;
-      await insertCollaboratorRecord(record);
+      const existing = await findCollaboratorByDocument(
+        record.document,
+        record.id_collaborator_document_type,
+      );
+      if (existing) {
+        if (companyId != null) {
+          await linkCollaboratorToCompany(existing.id_collaborator, companyId);
+          successCount += 1;
+        } else {
+          errors.push({ line, reason: "Colaborador já cadastrado com este documento." });
+        }
+        continue;
+      }
+      const created = await insertCollaboratorRecord(record);
+      if (companyId != null) {
+        await linkCollaboratorToCompany(created.id_collaborator, companyId);
+      }
       successCount += 1;
     } catch (err) {
       if (err instanceof AppError) {
         errors.push({ line, reason: err.message });
       } else if (err.code === "ER_DUP_ENTRY") {
+        if (companyId != null) {
+          try {
+            const dup = await findCollaboratorByDocument(
+              validated.value.document,
+              validated.value.id_collaborator_document_type,
+            );
+            if (dup) {
+              await linkCollaboratorToCompany(dup.id_collaborator, companyId);
+              successCount += 1;
+              continue;
+            }
+          } catch (_) {
+            /* fall through */
+          }
+        }
         errors.push({ line, reason: "Colaborador já cadastrado com este documento." });
       } else {
         errors.push({ line, reason: "Erro ao inserir registro." });
@@ -637,6 +710,7 @@ async function previewBulkCollaborators(req, file) {
 
     const existingPublic = publicCollaboratorExisting(existing);
     const diffs = buildFieldDiffs(existingPublic, value, COLLABORATOR_BULK_UPDATE_FIELDS);
+    const companyId = getActorCompanyId(req);
     const item = {
       line,
       status: diffs.length ? "update" : "link",
@@ -647,9 +721,13 @@ async function previewBulkCollaborators(req, file) {
       incoming: value,
       existing: existingPublic,
       diffs,
-      message: diffs.length ? undefined : "Cadastro idêntico ao existente — nada a atualizar.",
+      message: diffs.length
+        ? undefined
+        : companyId != null
+          ? "Cadastro existente — será vinculado à sua empresa."
+          : "Cadastro idêntico ao existente — nada a atualizar.",
     };
-    // Sem divergência: tratar como skip sugerido (status link = sem mudança cadastral)
+    // Sem divergência: tratar como link (vínculo à empresa do ator, se houver)
     if (!diffs.length) {
       item.status = "link";
     }
@@ -730,8 +808,10 @@ async function commitBulkCollaborators(req, { previewId, decisions }) {
         }
         const companyId = getActorCompanyId(req);
         const createPayload = { ...row.validated };
-        if (companyId != null) createPayload.id_company = companyId;
-        await insertCollaboratorRecord(createPayload);
+        const createdRow = await insertCollaboratorRecord(createPayload);
+        if (companyId != null) {
+          await linkCollaboratorToCompany(createdRow.id_collaborator, companyId);
+        }
         created += 1;
       } else if (action === "update") {
         if (!row.existingId || !row.validated) {
@@ -741,6 +821,10 @@ async function commitBulkCollaborators(req, { previewId, decisions }) {
         if (!hasPermission(req.user, "collaborators", "edit")) {
           errors.push({ line, reason: "Sem permissão para editar." });
           continue;
+        }
+        const companyId = getActorCompanyId(req);
+        if (companyId != null) {
+          await linkCollaboratorToCompany(row.existingId, companyId);
         }
         const patch = pickUpdatePatch(
           row.validated,
@@ -754,7 +838,14 @@ async function commitBulkCollaborators(req, { previewId, decisions }) {
         await updateCollaborator(req, row.existingId, patch);
         updated += 1;
       } else if (action === "link") {
-        // Cadastro já existe sem diffs: nada a gravar.
+        if (!row.existingId) {
+          errors.push({ line, reason: "Linha não possui cadastro existente para vincular." });
+          continue;
+        }
+        const companyId = getActorCompanyId(req);
+        if (companyId != null) {
+          await linkCollaboratorToCompany(row.existingId, companyId);
+        }
         linked += 1;
       } else {
         errors.push({ line, reason: `Ação inválida: ${action}` });
@@ -800,7 +891,7 @@ async function updateCollaborator(req, id, data) {
   assertAdminForUpdate(req);
   const existing = await findCollaboratorById(id);
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
-  assertCollaboratorInCompanyScope(req, existing);
+  await assertCollaboratorInCompanyScope(req, existing);
 
   const idDocType = data.id_collaborator_document_type ?? existing.id_collaborator_document_type;
   const idRole = data.id_collaborator_role ?? existing.id_collaborator_role;
@@ -884,6 +975,7 @@ async function updateCollaboratorStatus(id, status) {
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
 
   const nextStatus = status ? 1 : 0;
+
   await db.execute("UPDATE collaborator SET status = ? WHERE id_collaborator = ?", [
     nextStatus,
     id,
@@ -900,6 +992,71 @@ async function updateCollaboratorStatus(id, status) {
   };
 }
 
+async function revokeAccessesOnBlacklist(conn, collaboratorId, reason) {
+  const {
+    STATUS_AGUARDANDO_PRODUTORA,
+    STATUS_AGUARDANDO_APROVACAO,
+    STATUS_APROVADO,
+    STATUS_NEGADO,
+  } = require("../credentials/credentials.schema");
+
+  const denialReason = `Lista de restrição: ${reason}`.slice(0, 500);
+
+  await conn.execute(
+    `UPDATE event_day_company_collaborator
+     SET id_substitute = NULL
+     WHERE id_substitute = ?`,
+    [collaboratorId],
+  );
+
+  const [credRows] = await conn.execute(
+    `SELECT id_event_day_company_collaborator, id_access_status
+     FROM event_day_company_collaborator
+     WHERE id_collaborator = ?
+       AND id_access_status IN (?, ?, ?)`,
+    [
+      collaboratorId,
+      STATUS_AGUARDANDO_PRODUTORA,
+      STATUS_AGUARDANDO_APROVACAO,
+      STATUS_APROVADO,
+    ],
+  );
+
+  for (const row of credRows) {
+    await conn.execute(
+      `UPDATE event_day_company_collaborator
+       SET id_access_status = ?
+       WHERE id_event_day_company_collaborator = ?`,
+      [STATUS_NEGADO, row.id_event_day_company_collaborator],
+    );
+    await conn.execute(
+      `INSERT INTO event_day_company_collaborator_denied (
+         id_event_day_company_collaborator, id_access_status, reason
+       ) VALUES (?, ?, ?)`,
+      [row.id_event_day_company_collaborator, row.id_access_status, denialReason],
+    );
+  }
+
+  await conn.execute(
+    `UPDATE service_access_collaborator
+     SET id_substitute = NULL
+     WHERE id_substitute = ?`,
+    [collaboratorId],
+  );
+
+  // Mantém o vínculo na lista da portaria, mas invalida o QR (access_id).
+  await conn.execute(
+    `UPDATE service_access_collaborator
+     SET access_id = NULL
+     WHERE id_collaborator = ?
+       AND (
+         access_check_in IS NULL
+         OR (access_check_out IS NOT NULL AND access_check_out >= access_check_in)
+       )`,
+    [collaboratorId],
+  );
+}
+
 async function addToBlacklist(id, reason, userId) {
   const existing = await findCollaboratorById(id);
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
@@ -909,11 +1066,27 @@ async function addToBlacklist(id, reason, userId) {
     throw new AppError("Colaborador já está na lista de restrição.", 409);
   }
 
-  await db.execute(
-    `INSERT INTO collaborator_black_list (id_collaborator, reason, id_usuario)
-     VALUES (?, ?, ?)`,
-    [id, reason, userId || null],
-  );
+  const collaboratorId = Number(id);
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    await conn.execute(
+      `INSERT INTO collaborator_black_list (id_collaborator, reason, id_usuario)
+       VALUES (?, ?, ?)`,
+      [collaboratorId, reason, userId || null],
+    );
+
+    // Blacklist não altera status (Ativo/Inativo); apenas restringe credenciamento/portaria.
+    await revokeAccessesOnBlacklist(conn, collaboratorId, reason);
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 
   return getCollaboratorDetailById(id);
 }
@@ -962,9 +1135,18 @@ async function countCollaboratorUsage(id) {
   );
 }
 
-async function deleteCollaborator(id) {
+async function deleteCollaborator(req, id) {
   const existing = await findCollaboratorById(id);
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
+
+  const companyId = getActorCompanyId(req);
+  if (companyId != null) {
+    const unlinked = await unlinkCollaboratorFromCompany(id, companyId);
+    if (!unlinked) {
+      throw new AppError("Colaborador não encontrado.", 404);
+    }
+    return { success: true, unlinked: true };
+  }
 
   const usageCount = await countCollaboratorUsage(id);
   if (usageCount > 0) {
@@ -975,7 +1157,7 @@ async function deleteCollaborator(id) {
   }
 
   await db.execute("DELETE FROM collaborator WHERE id_collaborator = ?", [id]);
-  return { success: true };
+  return { success: true, unlinked: false };
 }
 
 function maskDocumentForAudit(collaborator) {
@@ -1007,6 +1189,9 @@ module.exports = {
   previewBulkCollaborators,
   commitBulkCollaborators,
   insertCollaboratorRecord,
+  linkCollaboratorToCompany,
+  unlinkCollaboratorFromCompany,
+  isCollaboratorLinkedToCompany,
   updateCollaboratorPicture,
   clearCollaboratorPicture,
   updateCollaborator,

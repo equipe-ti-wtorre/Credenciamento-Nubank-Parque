@@ -2,14 +2,13 @@ const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const { normalizeCpf } = require("../../utils/cpf");
 const { isValidPlate } = require("../../utils/plate");
-const helpers = require("./service-access-bulk-import");
+const helpers = require("../patrimonial/service-access-bulk-import");
+const credentialsService = require("../credentials/credentials.service");
+const vehicleService = require("./event-company-vehicle.service");
 
-function assertNoOverlappingServiceCollaborator(...args) {
-  return require("./service-access.service").assertNoOverlappingServiceCollaborator(...args);
-}
+const EVENT_KIND = "event_company_unified";
 
 const {
-  KIND,
   PREVIEW_TOKEN_CONSUMIDO,
   MASTER_UPDATE_FIELDS,
   parseUnifiedWorkbook,
@@ -25,11 +24,7 @@ const {
   summarizeAxis,
   findCollaboratorByDocType,
   findCollaboratorByDocumentAnyNormalized,
-  isCollaboratorLinked,
-  isVehicleLinked,
   findVehicleByPlateCompany,
-  listLinkedCollaborators,
-  maybeGenerateAccessIdForLink,
   savePreviewSession,
   getPreviewSession,
   deletePreviewSession,
@@ -38,10 +33,63 @@ const {
   buildFieldDiffs,
   pickUpdatePatch,
   MAX_ROWS,
+  buildUnifiedTemplate,
 } = helpers;
 
+async function isCollaboratorLinked(eventId, companyId, collaboratorId) {
+  const [rows] = await db.execute(
+    `SELECT edcc.id_event_day_company_collaborator, edcc.id_collaborator_role
+       FROM event_day_company_collaborator edcc
+       INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ? AND edc.id_company = ? AND edcc.id_collaborator = ?
+      LIMIT 1`,
+    [eventId, companyId, collaboratorId],
+  );
+  return rows[0] || null;
+}
+
+async function isVehicleLinked(eventId, companyId, vehicleId) {
+  const [rows] = await db.execute(
+    `SELECT edcv.id_event_day_company_vehicle
+       FROM event_day_company_vehicle edcv
+       INNER JOIN event_day_company edc ON edc.id_event_day_company = edcv.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ? AND edc.id_company = ? AND edcv.id_vehicle = ?
+      LIMIT 1`,
+    [eventId, companyId, vehicleId],
+  );
+  return rows[0] || null;
+}
+
+async function listLinkedCollaborators(eventId, companyId) {
+  const [rows] = await db.execute(
+    `SELECT DISTINCT edcc.id_collaborator, edcc.id_collaborator_role, c.document, c.name,
+            cdt.description AS document_type_description,
+            cr.description AS role_description
+       FROM event_day_company_collaborator edcc
+       INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+       INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
+       INNER JOIN collaborator_document_type cdt
+         ON cdt.id_collaborator_document_type = c.id_collaborator_document_type
+       LEFT JOIN collaborator_role cr ON cr.id_collaborator_role = edcc.id_collaborator_role
+      WHERE ed.id_event = ? AND edc.id_company = ?`,
+    [eventId, companyId],
+  );
+  return rows;
+}
+
 async function previewUnifiedBulkImport(ctx) {
-  const { serviceId, serviceRow, file, userId } = ctx;
+  const { eventId, companyId, eventName, companyName, file, userId } = ctx;
+  const serviceId = Number(eventId);
+  const serviceRow = {
+    id_company: Number(companyId),
+    start_date: null,
+    end_date: null,
+    finalidade: eventName || `Evento #${eventId}`,
+    company_fancy_name: companyName || null,
+  };
 
   const { collaborators: rawCols, vehicles: rawVehs } = parseUnifiedWorkbook(
     file.buffer,
@@ -57,7 +105,7 @@ async function previewUnifiedBulkImport(ctx) {
   }
 
   const { types, roles } = await loadLookups();
-  const linkedCols = await listLinkedCollaborators(serviceId);
+  const linkedCols = await listLinkedCollaborators(serviceId, serviceRow.id_company);
 
   const colaboradores = [];
   const sessionCollaborators = [];
@@ -144,7 +192,7 @@ async function previewUnifiedBulkImport(ctx) {
             roleOnlyHandled = true; // recuperado — não emitir erro nem continue
           } else if (!roleResolved) {
             const linkRecord = existing
-              ? await isCollaboratorLinked(serviceId, existing.id_collaborator)
+              ? await isCollaboratorLinked(serviceId, serviceRow.id_company, existing.id_collaborator)
               : null;
             const vinculo = linkRecord ? "ja_vinculado" : "a_vincular";
             const resolvido = {
@@ -248,7 +296,7 @@ async function previewUnifiedBulkImport(ctx) {
 
     const existing = await findCollaboratorByDocType(normalizedDocument, typeResolved.id);
     const linkRecord = existing
-      ? await isCollaboratorLinked(serviceId, existing.id_collaborator)
+      ? await isCollaboratorLinked(serviceId, serviceRow.id_company, existing.id_collaborator)
       : null;
     const vinculo = linkRecord ? "ja_vinculado" : "a_vincular";
 
@@ -400,47 +448,7 @@ async function previewUnifiedBulkImport(ctx) {
       continue;
     }
 
-    if (vinculo === "a_vincular") {
-      try {
-        await assertNoOverlappingServiceCollaborator(
-          existing.id_collaborator,
-          serviceRow.start_date,
-          serviceRow.end_date,
-          serviceId,
-        );
-      } catch (err) {
-        const row = {
-          linha: line,
-          cadastro: "erro",
-          vinculo,
-          chave: { documento: existing.document, tipo: typeResolved.description },
-          resolvido: {
-            id_collaborator: existing.id_collaborator,
-            id_collaborator_document_type: typeResolved.id,
-            id_collaborator_role: roleResolved.id,
-            ...(masterRoleId != null
-              ? { id_collaborator_role_atual: Number(masterRoleId) }
-              : {}),
-          },
-          divergencias: [],
-          divergencias_vinculo: buildRoleDivergences(),
-          erros: [err.message || "Conflito de data com outro acesso."],
-          nome: existing.name,
-        };
-        colaboradores.push(row);
-        sessionCollaborators.push({
-          ...row,
-          existingId: existing.id_collaborator,
-          roleId: roleResolved.id,
-          validated: null,
-          linkRecord,
-        });
-        indexSheetDocument(existing.document, line);
-        continue;
-      }
-    }
-
-    const masterIncoming = {
+        const masterIncoming = {
       name: incoming.nome_completo,
       rg: incoming.rg !== undefined ? incoming.rg || null : existing.rg,
       phone: incoming.telefone !== undefined ? incoming.telefone || null : existing.phone,
@@ -668,7 +676,7 @@ async function previewUnifiedBulkImport(ctx) {
       continue;
     }
 
-    const linkRecord = await isVehicleLinked(serviceId, existing.id_vehicle);
+    const linkRecord = await isVehicleLinked(serviceId, serviceRow.id_company, existing.id_vehicle);
     const vinculo = linkRecord ? "ja_vinculado" : "a_vincular";
     const existingPublic = {
       brand: existing.brand,
@@ -728,9 +736,10 @@ async function previewUnifiedBulkImport(ctx) {
   }
 
   const previewToken = savePreviewSession({
-    kind: KIND,
-    serviceId: Number(serviceId),
+    kind: EVENT_KIND,
+    eventId: Number(serviceId),
     companyId: serviceRow.id_company,
+    serviceId: Number(serviceId),
     userId: userId || null,
     collaborators: sessionCollaborators,
     vehicles: sessionVehicles,
@@ -741,7 +750,7 @@ async function previewUnifiedBulkImport(ctx) {
     previewToken,
     acesso: {
       id: Number(serviceId),
-      nome: serviceRow.finalidade || serviceRow.service_type || `Acesso #${serviceId}`,
+      nome: serviceRow.finalidade || `Evento #${serviceId}`,
       empresa: serviceRow.company_fancy_name || null,
     },
     resumo: {
@@ -759,12 +768,15 @@ async function previewUnifiedBulkImport(ctx) {
 }
 
 async function confirmUnifiedBulkImport(ctx) {
-  const { serviceId, serviceRow, previewToken, decisoes, userId } = ctx;
-  const session = getPreviewSession(previewToken, KIND, {
+  const { eventId, companyId, links, previewToken, decisoes, userId, req } = ctx;
+  const session = getPreviewSession(previewToken, EVENT_KIND, {
     consumedCode: PREVIEW_TOKEN_CONSUMIDO,
   });
-  if (Number(session.serviceId) !== Number(serviceId)) {
-    throw new AppError("Pré-visualização de outro acesso de serviço.", 400);
+  if (
+    Number(session.eventId || session.serviceId) !== Number(eventId) ||
+    Number(session.companyId) !== Number(companyId)
+  ) {
+    throw new AppError("Pré-visualização de outro evento/empresa.", 400);
   }
 
   const colDecisions = Array.isArray(decisoes?.colaboradores) ? decisoes.colaboradores : [];
@@ -778,289 +790,231 @@ async function confirmUnifiedBulkImport(ctx) {
     motoristas: 0,
   };
 
-  const conn = await db.getConnection();
+  const initialStatus = await credentialsService.resolveInitialStatus(req);
   const createdDocToId = new Map();
 
-  try {
-    await conn.beginTransaction();
+  for (const decision of colDecisions) {
+    const line = Number(decision.linha ?? decision.line);
+    const row = colByLine.get(line);
+    if (!row) {
+      result.colaboradores.erros.push({ linha: line, motivo: "Linha não encontrada." });
+      continue;
+    }
+    if (decision.aplicar === false || decision.action === "skip") {
+      result.colaboradores.ignorados += 1;
+      continue;
+    }
+    if (row.cadastro === "erro") {
+      result.colaboradores.erros.push({
+        linha: line,
+        motivo: (row.erros && row.erros[0]) || "Linha com erro.",
+      });
+      continue;
+    }
 
-    for (const decision of colDecisions) {
-      const line = Number(decision.linha ?? decision.line);
-      const row = colByLine.get(line);
-      if (!row) {
-        result.colaboradores.erros.push({ linha: line, motivo: "Linha não encontrada." });
-        continue;
-      }
-      if (decision.aplicar === false || decision.action === "skip") {
-        result.colaboradores.ignorados += 1;
-        continue;
-      }
-      if (row.cadastro === "erro") {
-        result.colaboradores.erros.push({
-          linha: line,
-          motivo: (row.erros && row.erros[0]) || "Linha com erro.",
-        });
-        continue;
-      }
-
-      try {
-        let collaboratorId = row.existingId;
-        if (row.cadastro === "novo") {
-          if (!row.validated) throw new AppError("Cadastro novo sem dados validados.", 400);
-          const [ins] = await conn.execute(
-            `INSERT INTO collaborator (
-               id_collaborator_document_type, id_collaborator_role,
-               document, name, rg, phone, status
-             ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
-            [
-              row.validated.id_collaborator_document_type,
-              row.validated.id_collaborator_role,
-              row.validated.document,
-              row.validated.name,
-              row.validated.rg || null,
-              row.validated.phone || null,
-            ],
-          );
-          collaboratorId = ins.insertId;
-          createdDocToId.set(row.validated.document, collaboratorId);
-          result.colaboradores.inseridos += 1;
-        } else if (row.existingId) {
-          const masterFields = Array.isArray(decision.camposMaster)
-            ? decision.camposMaster
-            : [];
-          if (masterFields.length && row.validated) {
-            const patch = pickUpdatePatch(row.validated, masterFields, MASTER_UPDATE_FIELDS);
-            if (Object.keys(patch).length) {
-              const [curRows] = await conn.execute(
-                `SELECT * FROM collaborator WHERE id_collaborator = ? LIMIT 1`,
-                [row.existingId],
-              );
-              const cur = curRows[0];
-              if (cur) {
-                await conn.execute(
-                  `UPDATE collaborator SET name = ?, rg = ?, phone = ? WHERE id_collaborator = ?`,
-                  [
-                    patch.name !== undefined ? patch.name : cur.name,
-                    patch.rg !== undefined ? patch.rg : cur.rg,
-                    patch.phone !== undefined ? patch.phone : cur.phone,
-                    row.existingId,
-                  ],
-                );
-                result.colaboradores.atualizados += 1;
-              }
-            }
-          }
-        }
-
-        if (!collaboratorId) {
-          result.colaboradores.erros.push({ linha: line, motivo: "Sem ID de colaborador." });
-          continue;
-        }
-
-        const applyRole = decision.aplicarFuncao === true;
-        const roleId = applyRole
-          ? row.roleId
-          : row.linkRecord?.id_collaborator_role ||
-            row.masterRoleId ||
-            null;
-        if (!roleId) {
-          result.colaboradores.erros.push({
-            linha: line,
-            motivo: "Função / Cargo obrigatória para vincular.",
-          });
-          continue;
-        }
-
-        if (row.vinculo === "a_vincular" || !row.linkRecord) {
-          await assertNoOverlappingServiceCollaborator(
-            collaboratorId,
-            serviceRow.start_date,
-            serviceRow.end_date,
-            serviceId,
-          );
-        }
-
-        const [linkIns] = await conn.execute(
-          `INSERT INTO service_access_collaborator
-             (id_service_access, id_collaborator, id_collaborator_role)
-           VALUES (?, ?, ?)
-           ON DUPLICATE KEY UPDATE id_collaborator_role = VALUES(id_collaborator_role)`,
-          [serviceId, collaboratorId, roleId],
+    try {
+      let collaboratorId = row.existingId;
+      if (row.cadastro === "novo") {
+        if (!row.validated) throw new AppError("Cadastro novo sem dados validados.", 400);
+        const [ins] = await db.execute(
+          `INSERT INTO collaborator (
+             id_collaborator_document_type, id_collaborator_role,
+             document, name, rg, phone, status
+           ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [
+            row.validated.id_collaborator_document_type,
+            row.validated.id_collaborator_role,
+            row.validated.document,
+            row.validated.name,
+            row.validated.rg || null,
+            row.validated.phone || null,
+          ],
         );
-        if (linkIns.insertId) {
-          await maybeGenerateAccessIdForLink(
-            conn,
-            serviceId,
-            "service_access_collaborator",
-            "id_service_access_collaborator",
-            linkIns.insertId,
-          );
-        }
-        if (serviceRow.id_company != null) {
-          await require("../collaborators/collaborator.service").linkCollaboratorToCompany(
-            collaboratorId,
-            serviceRow.id_company,
-          );
-        }
-        if (row.vinculo === "a_vincular") {
-          result.colaboradores.vinculados += 1;
-        }
-        if (row.chave?.documento) {
-          createdDocToId.set(row.chave.documento, collaboratorId);
-        }
-      } catch (err) {
-        result.colaboradores.erros.push({
-          linha: line,
-          motivo: err instanceof AppError ? err.message : "Erro ao aplicar colaborador.",
-        });
-      }
-    }
-
-    for (const row of session.collaborators) {
-      if (row.existingId && row.chave?.documento) {
-        createdDocToId.set(row.chave.documento, row.existingId);
-      }
-    }
-
-    for (const decision of vehDecisions) {
-      const line = Number(decision.linha ?? decision.line);
-      const row = vehByLine.get(line);
-      if (!row) {
-        result.veiculos.erros.push({ linha: line, motivo: "Linha não encontrada." });
-        continue;
-      }
-      if (decision.aplicar === false || decision.action === "skip") {
-        result.veiculos.ignorados += 1;
-        continue;
-      }
-      if (row.cadastro === "erro") {
-        result.veiculos.erros.push({
-          linha: line,
-          motivo: (row.erros && row.erros[0]) || "Linha com erro.",
-        });
-        continue;
-      }
-
-      try {
-        let vehicleId = row.existingId;
-        if (row.cadastro === "novo") {
-          const v = row.validated;
-          const [ins] = await conn.execute(
-            `INSERT INTO vehicle (id_company, plate, brand, model, color, type, description, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-            [
-              serviceRow.id_company,
-              v.plate,
-              v.brand,
-              v.model,
-              v.color || null,
-              v.type || null,
-              v.description || null,
-            ],
-          );
-          vehicleId = ins.insertId;
-          result.veiculos.inseridos += 1;
-        } else if (row.existingId && row.validated) {
-          const fields = Array.isArray(decision.campos)
-            ? decision.campos
-            : ["brand", "model", "color", "type", "description"];
-          const patch = pickUpdatePatch(row.validated, fields, [
-            "brand",
-            "model",
-            "color",
-            "type",
-            "description",
-          ]);
+        collaboratorId = ins.insertId;
+        createdDocToId.set(row.validated.document, collaboratorId);
+        result.colaboradores.inseridos += 1;
+      } else if (row.existingId) {
+        const masterFields = Array.isArray(decision.camposMaster)
+          ? decision.camposMaster
+          : [];
+        if (masterFields.length && row.validated) {
+          const patch = pickUpdatePatch(row.validated, masterFields, MASTER_UPDATE_FIELDS);
           if (Object.keys(patch).length) {
-            const [curRows] = await conn.execute(
-              `SELECT * FROM vehicle WHERE id_vehicle = ? LIMIT 1`,
+            const [curRows] = await db.execute(
+              `SELECT * FROM collaborator WHERE id_collaborator = ? LIMIT 1`,
               [row.existingId],
             );
             const cur = curRows[0];
             if (cur) {
-              await conn.execute(
-                `UPDATE vehicle SET brand = ?, model = ?, color = ?, type = ?, description = ?
-                 WHERE id_vehicle = ?`,
+              await db.execute(
+                `UPDATE collaborator SET name = ?, rg = ?, phone = ? WHERE id_collaborator = ?`,
                 [
-                  patch.brand !== undefined ? patch.brand : cur.brand,
-                  patch.model !== undefined ? patch.model : cur.model,
-                  patch.color !== undefined ? patch.color : cur.color,
-                  patch.type !== undefined ? patch.type : cur.type,
-                  patch.description !== undefined ? patch.description : cur.description,
+                  patch.name !== undefined ? patch.name : cur.name,
+                  patch.rg !== undefined ? patch.rg : cur.rg,
+                  patch.phone !== undefined ? patch.phone : cur.phone,
                   row.existingId,
                 ],
               );
-              result.veiculos.atualizados += 1;
+              result.colaboradores.atualizados += 1;
             }
           }
         }
-
-        if (!vehicleId) {
-          result.veiculos.erros.push({ linha: line, motivo: "Sem ID de veículo." });
-          continue;
-        }
-
-        let driverId = row.driverId || null;
-        if (!driverId && row.driverDocument) {
-          driverId =
-            createdDocToId.get(row.driverDocument) ||
-            createdDocToId.get(normalizeCpf(row.driverDocument)) ||
-            null;
-          if (!driverId) {
-            const master = await findCollaboratorByDocumentAnyNormalized(row.driverDocument);
-            if (master) {
-              const [linked] = await conn.execute(
-                `SELECT 1 FROM service_access_collaborator
-                 WHERE id_service_access = ? AND id_collaborator = ? LIMIT 1`,
-                [serviceId, master.id_collaborator],
-              );
-              if (linked.length) driverId = master.id_collaborator;
-            }
-          }
-        }
-
-        const [existingLink] = await conn.execute(
-          `SELECT id_service_access_vehicle FROM service_access_vehicle
-           WHERE id_service_access = ? AND id_vehicle = ? LIMIT 1`,
-          [serviceId, vehicleId],
-        );
-
-        if (existingLink.length) {
-          await conn.execute(
-            `UPDATE service_access_vehicle SET id_driver = ? WHERE id_service_access_vehicle = ?`,
-            [driverId, existingLink[0].id_service_access_vehicle],
-          );
-        } else {
-          const [linkIns] = await conn.execute(
-            `INSERT INTO service_access_vehicle (id_service_access, id_vehicle, id_driver)
-             VALUES (?, ?, ?)`,
-            [serviceId, vehicleId, driverId],
-          );
-          await maybeGenerateAccessIdForLink(
-            conn,
-            serviceId,
-            "service_access_vehicle",
-            "id_service_access_vehicle",
-            linkIns.insertId,
-          );
-          result.veiculos.vinculados += 1;
-        }
-
-        if (driverId) result.motoristas += 1;
-      } catch (err) {
-        result.veiculos.erros.push({
-          linha: line,
-          motivo: err instanceof AppError ? err.message : "Erro ao aplicar veículo.",
-        });
       }
+
+      if (!collaboratorId) {
+        result.colaboradores.erros.push({ linha: line, motivo: "Sem ID de colaborador." });
+        continue;
+      }
+
+      const applyRole = decision.aplicarFuncao === true;
+      const roleId = applyRole
+        ? row.roleId
+        : row.linkRecord?.id_collaborator_role || row.masterRoleId || row.roleId || null;
+      if (!roleId) {
+        result.colaboradores.erros.push({
+          linha: line,
+          motivo: "Função / Cargo obrigatória para vincular.",
+        });
+        continue;
+      }
+
+      await require("../collaborators/collaborator.service").linkCollaboratorToCompany(
+        collaboratorId,
+        companyId,
+      );
+
+      let linkedAny = false;
+      for (const link of links) {
+        try {
+          await credentialsService.createCredential(req, {
+            id_event_day_company: Number(link.id_event_day_company),
+            id_collaborator: collaboratorId,
+            id_collaborator_role: roleId,
+          });
+          linkedAny = true;
+        } catch (err) {
+          if (
+            err.statusCode === 409 ||
+            /já credenciado|já existe|duplicad/i.test(err.message || "")
+          ) {
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (linkedAny && row.vinculo === "a_vincular") {
+        result.colaboradores.vinculados += 1;
+      }
+      if (row.chave?.documento) {
+        createdDocToId.set(row.chave.documento, collaboratorId);
+      }
+    } catch (err) {
+      result.colaboradores.erros.push({
+        linha: line,
+        motivo: err instanceof AppError ? err.message : "Erro ao aplicar colaborador.",
+      });
+    }
+  }
+
+  for (const row of session.collaborators) {
+    if (row.existingId && row.chave?.documento) {
+      createdDocToId.set(row.chave.documento, row.existingId);
+    }
+  }
+
+  for (const decision of vehDecisions) {
+    const line = Number(decision.linha ?? decision.line);
+    const row = vehByLine.get(line);
+    if (!row) {
+      result.veiculos.erros.push({ linha: line, motivo: "Linha não encontrada." });
+      continue;
+    }
+    if (decision.aplicar === false || decision.action === "skip") {
+      result.veiculos.ignorados += 1;
+      continue;
+    }
+    if (row.cadastro === "erro") {
+      result.veiculos.erros.push({
+        linha: line,
+        motivo: (row.erros && row.erros[0]) || "Linha com erro.",
+      });
+      continue;
     }
 
-    await conn.commit();
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
+    try {
+      let vehicleId = row.existingId;
+      if (row.cadastro === "novo") {
+        const v = row.validated;
+        const [ins] = await db.execute(
+          `INSERT INTO vehicle (id_company, plate, brand, model, color, type, description, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+          [
+            companyId,
+            v.plate,
+            v.brand,
+            v.model,
+            v.color || null,
+            v.type || null,
+            v.description || null,
+          ],
+        );
+        vehicleId = ins.insertId;
+        result.veiculos.inseridos += 1;
+      } else if (row.existingId && row.validated) {
+        const fields = Array.isArray(decision.campos)
+          ? decision.campos
+          : ["brand", "model", "color", "type", "description"];
+        const patch = pickUpdatePatch(row.validated, fields, [
+          "brand",
+          "model",
+          "color",
+          "type",
+          "description",
+        ]);
+        if (Object.keys(patch).length) {
+          const [curRows] = await db.execute(
+            `SELECT * FROM vehicle WHERE id_vehicle = ? LIMIT 1`,
+            [row.existingId],
+          );
+          const cur = curRows[0];
+          if (cur) {
+            await db.execute(
+              `UPDATE vehicle SET brand = ?, model = ?, color = ?, type = ?, description = ?
+               WHERE id_vehicle = ?`,
+              [
+                patch.brand !== undefined ? patch.brand : cur.brand,
+                patch.model !== undefined ? patch.model : cur.model,
+                patch.color !== undefined ? patch.color : cur.color,
+                patch.type !== undefined ? patch.type : cur.type,
+                patch.description !== undefined ? patch.description : cur.description,
+                row.existingId,
+              ],
+            );
+            result.veiculos.atualizados += 1;
+          }
+        }
+      }
+
+      if (!vehicleId) {
+        result.veiculos.erros.push({ linha: line, motivo: "Sem ID de veículo." });
+        continue;
+      }
+
+      const createdLinks = await vehicleService.linkVehicleToAllCompanyDays(
+        db,
+        links,
+        vehicleId,
+        initialStatus,
+      );
+      if (createdLinks > 0 || row.vinculo === "a_vincular") {
+        result.veiculos.vinculados += 1;
+      }
+    } catch (err) {
+      result.veiculos.erros.push({
+        linha: line,
+        motivo: err instanceof AppError ? err.message : "Erro ao aplicar veículo.",
+      });
+    }
   }
 
   deletePreviewSession(previewToken);

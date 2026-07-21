@@ -144,6 +144,12 @@ export class ApprovalService {
     return this.api.get<ApprovalListResponse>('/approvals/mine', params);
   }
 
+  listTeam(page = 1, pageSize = 20, status?: ApprovalStatus): Observable<ApprovalListResponse> {
+    let params = new HttpParams().set('page', String(page)).set('pageSize', String(pageSize));
+    if (status) params = params.set('status', status);
+    return this.api.get<ApprovalListResponse>('/approvals/team', params);
+  }
+
   get(id: number): Observable<{ approval: ApprovalItem }> {
     return this.api.get<{ approval: ApprovalItem }>(`/approvals/${id}`);
   }

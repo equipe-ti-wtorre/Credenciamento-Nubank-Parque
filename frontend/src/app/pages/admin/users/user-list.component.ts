@@ -68,7 +68,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
             <label class="text-xs font-bold text-slate-500 uppercase">Buscar</label>
             <input
               [(ngModel)]="searchInput"
-              (ngModelChange)="aplicarFiltros()"
+              (ngModelChange)="onTextFilterChange()"
               name="search"
               placeholder="Nome ou e-mail"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
@@ -360,6 +360,8 @@ export class UserListComponent implements SettingsReloadable {
   appliedPerfilId: number | null = null;
   availableProfiles: AccessProfile[] = [];
   companies: CompanyItem[] = [];
+  private readonly filterDebounceMs = 350;
+  private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   currentUserId: number | null = null;
 
@@ -458,6 +460,11 @@ export class UserListComponent implements SettingsReloadable {
     return user.profile?.nome || user.role || 'Usuário';
   }
 
+  onTextFilterChange() {
+    if (this.filterDebounceTimer !== null) clearTimeout(this.filterDebounceTimer);
+    this.filterDebounceTimer = setTimeout(() => this.aplicarFiltros(), this.filterDebounceMs);
+  }
+
   aplicarFiltros() {
     this.appliedSearch = this.searchInput.trim();
     this.appliedPerfilId = this.filterPerfilId;
@@ -465,6 +472,10 @@ export class UserListComponent implements SettingsReloadable {
   }
 
   limparFiltros() {
+    if (this.filterDebounceTimer !== null) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
+    }
     this.searchInput = '';
     this.filterPerfilId = null;
     this.appliedSearch = '';

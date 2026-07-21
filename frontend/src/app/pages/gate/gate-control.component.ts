@@ -312,24 +312,41 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.relTick();
     const q = this.manualSearch().trim().toLowerCase();
     const status = this.statusFilter();
-    return this.todayCredentials().filter((row) => {
-      if (status === 'wait' && row.next_action !== 'CHECK_IN') return false;
-      if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
-      if (status === 'done' && row.next_action !== 'COMPLETED') return false;
-      if (q) {
-        const haystack = [
-          row.collaborator.name,
-          row.collaborator.document_masked,
-          row.collaborator.role,
-          row.company.name,
-          row.event_name,
-        ]
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
-    });
+    const rank: Record<string, number> = {
+      BLOCKED_BLACKLIST: 0,
+      CHECK_IN: 1,
+      CHECK_OUT: 2,
+      COMPLETED: 3,
+    };
+    return this.todayCredentials()
+      .filter((row) => {
+        if (status === 'wait' && row.next_action !== 'CHECK_IN') return false;
+        if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
+        if (status === 'done' && row.next_action !== 'COMPLETED') return false;
+        if (q) {
+          const haystack = [
+            row.collaborator.name,
+            row.collaborator.document_masked,
+            row.collaborator.role,
+            row.company.name,
+            row.event_name,
+            row.block_reason,
+          ]
+            .join(' ')
+            .toLowerCase();
+          if (!haystack.includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const ra = rank[a.next_action] ?? 9;
+        const rb = rank[b.next_action] ?? 9;
+        if (ra !== rb) return ra - rb;
+        return String(a.collaborator.name || '').localeCompare(
+          String(b.collaborator.name || ''),
+          'pt-BR',
+        );
+      });
   });
 
   filteredTodayServices = computed(() => {
@@ -343,7 +360,8 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       PENDING_APPROVAL: 1,
       CHECK_OUT: 2,
       COMPLETED: 3,
-      REJECTED: 4,
+      BLOCKED_BLACKLIST: 4,
+      REJECTED: 5,
     };
     const entryTs = (row: GateTodayService): number => {
       const raw =
@@ -998,7 +1016,18 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   }
 
   onManualValidate(row: GateTodayCredential): void {
-    if (this.processing() || row.next_action === 'COMPLETED') return;
+    if (
+      this.processing() ||
+      row.next_action === 'COMPLETED' ||
+      row.next_action === 'BLOCKED_BLACKLIST'
+    ) {
+      if (row.next_action === 'BLOCKED_BLACKLIST') {
+        this.notify.warning(
+          row.block_reason || 'Colaborador consta na lista de bloqueio.',
+        );
+      }
+      return;
+    }
     this.skipNextFocusRestore = true;
     if (row.next_action === 'CHECK_IN') {
       this.openReleaseModal({
@@ -1016,12 +1045,18 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       this.processing() ||
       row.next_action === 'COMPLETED' ||
       row.next_action === 'PENDING_APPROVAL' ||
-      row.next_action === 'BLOCKED_OPEN_STAY'
+      row.next_action === 'BLOCKED_OPEN_STAY' ||
+      row.next_action === 'BLOCKED_BLACKLIST'
     ) {
       if (row.next_action === 'BLOCKED_OPEN_STAY') {
         this.notify.warning(
           row.block_reason ||
             'Há entrada sem saída registrada. Registre a saída antes de uma nova entrada.',
+        );
+      }
+      if (row.next_action === 'BLOCKED_BLACKLIST') {
+        this.notify.warning(
+          row.block_reason || 'Consta na lista de bloqueio.',
         );
       }
       return;
@@ -1101,21 +1136,15 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   }
 
   notifyingIds = signal<Record<number, boolean>>({});
-  cancellingIds = signal<Record<number, boolean>>({});
 
   isNotifying(row: GateTodayService): boolean {
     const id = row.id_service_access;
     return id != null && !!this.notifyingIds()[id];
   }
 
-  isCancelling(row: GateTodayService): boolean {
-    const id = row.id_service_access;
-    return id != null && !!this.cancellingIds()[id];
-  }
-
   onNotifySector(row: GateTodayService): void {
     const id = row.id_service_access;
-    if (!id || this.processing() || this.isNotifying(row) || this.isCancelling(row)) return;
+    if (!id || this.processing() || this.isNotifying(row)) return;
     this.notifyingIds.update((m) => ({ ...m, [id]: true }));
     this.gateService.notifyServiceApproval(id).subscribe({
       next: (res) => {
@@ -1134,50 +1163,6 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
           return next;
         });
         this.notify.error(err.error?.message || 'Não foi possível notificar o setor.');
-        this.cdr.markForCheck();
-      },
-    });
-  }
-
-  onCancelPending(row: GateTodayService): void {
-    const id = row.id_service_access;
-    if (!id || this.processing() || this.isNotifying(row) || this.isCancelling(row)) return;
-    const label =
-      row.collaborator?.name || row.vehicle?.plate || row.finalidade || 'esta solicitação';
-    if (!window.confirm(`Reprovar a liberação de ${label}?`)) return;
-
-    this.cancellingIds.update((m) => ({ ...m, [id]: true }));
-    this.gateService.cancelServiceApproval(id).subscribe({
-      next: (res) => {
-        this.cancellingIds.update((m) => {
-          const next = { ...m };
-          delete next[id];
-          return next;
-        });
-        this.notify.success(res.message || 'Solicitação reprovada.');
-        this.todayServices.update((list) =>
-          list.map((r) =>
-            r.id_service_access === id
-              ? {
-                  ...r,
-                  next_action: 'REJECTED' as const,
-                  id_aprovacao: null,
-                  id_setor: null,
-                  setor_nome: null,
-                  approved_by: null,
-                }
-              : r,
-          ),
-        );
-        this.cdr.markForCheck();
-      },
-      error: (err: HttpErrorResponse) => {
-        this.cancellingIds.update((m) => {
-          const next = { ...m };
-          delete next[id];
-          return next;
-        });
-        this.notify.error(err.error?.message || 'Não foi possível cancelar a solicitação.');
         this.cdr.markForCheck();
       },
     });

@@ -1015,6 +1015,7 @@ async function listMine(userId, query = {}) {
   const baseWhere = `
       FROM aprovacoes a
       JOIN setores s ON s.id = a.id_setor
+      LEFT JOIN usuarios sol ON sol.id = a.id_solicitante
       ${ENTITY_SUMMARY_JOINS}
      WHERE a.id_solicitante = ? ${statusFilter}
        AND a.id = (
@@ -1026,7 +1027,86 @@ async function listMine(userId, query = {}) {
 
   const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${baseWhere}`, params);
   const [rows] = await pool.query(
-    `SELECT a.*, s.nome AS setor_nome, NULL AS solicitante_nome
+    `SELECT a.*, s.nome AS setor_nome, sol.nome_completo AS solicitante_nome
+            ${ENTITY_SUMMARY_SELECT}
+      ${baseWhere}
+      ORDER BY a.criado_em DESC
+      LIMIT ? OFFSET ?`,
+    [...params, pageSize, offset],
+  );
+
+  const data = await attachLiberacaoResumo(rows.map(mapApprovalRow));
+  return {
+    data,
+    pagination: { page, pageSize, total: countRows[0].total },
+  };
+}
+
+/**
+ * Total de solicitações da equipe (incluindo as do próprio usuário).
+ * - Admin: todas
+ * - Empresa (requires_company): mesmo id_company
+ * - Interno: próprias + de quem compartilha setor ativo
+ */
+async function listTeam(user, query = {}) {
+  const userId = typeof user === 'object' ? user.id : user;
+  const isAdmin = typeof user === 'object' ? !!user.is_super_admin : false;
+  const companyScoped = isCompanyScopedUser(user);
+  const idCompany =
+    typeof user === 'object' && user.id_company != null ? Number(user.id_company) : null;
+  const { page, pageSize, offset } = parseListQuery(query);
+
+  if (companyScoped && !isAdmin && !(Number.isFinite(idCompany) && idCompany > 0)) {
+    return { data: [], pagination: { page, pageSize, total: 0 } };
+  }
+
+  const params = [];
+  let teamFilter;
+
+  if (isAdmin) {
+    teamFilter = '1 = 1';
+  } else if (companyScoped) {
+    teamFilter = 'sol.id_company = ?';
+    params.push(idCompany);
+  } else {
+    teamFilter = `(
+        a.id_solicitante = ?
+        OR EXISTS (
+          SELECT 1
+            FROM setor_usuarios su_me
+            JOIN setor_usuarios su_peer
+              ON su_peer.id_setor = su_me.id_setor
+             AND su_peer.ativo = 1
+             AND su_peer.id_usuario = a.id_solicitante
+           WHERE su_me.id_usuario = ?
+             AND su_me.ativo = 1
+        )
+      )`;
+    params.push(userId, userId);
+  }
+
+  let statusFilter = '';
+  if (query.status && Object.values(STATUS).includes(query.status)) {
+    statusFilter = 'AND a.status = ?';
+    params.push(query.status);
+  }
+
+  const baseWhere = `
+      FROM aprovacoes a
+      JOIN setores s ON s.id = a.id_setor
+      LEFT JOIN usuarios sol ON sol.id = a.id_solicitante
+      ${ENTITY_SUMMARY_JOINS}
+     WHERE ${teamFilter} ${statusFilter}
+       AND a.id = (
+         SELECT MAX(a2.id)
+           FROM aprovacoes a2
+          WHERE a2.tipo_entidade = a.tipo_entidade
+            AND a2.id_entidade = a.id_entidade
+       )`;
+
+  const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${baseWhere}`, params);
+  const [rows] = await pool.query(
+    `SELECT a.*, s.nome AS setor_nome, sol.nome_completo AS solicitante_nome
             ${ENTITY_SUMMARY_SELECT}
       ${baseWhere}
       ORDER BY a.criado_em DESC
@@ -1065,7 +1145,30 @@ async function getApprovalById(id, user) {
     isMember = memberRows.length > 0;
   }
   if (!isAdmin && !isSolicitante && !isMember) {
-    throw new AppError('Sem permissão para visualizar esta aprovação', 403);
+    let isTeamPeer = false;
+    if (isCompanyScopedUser(user) && Number(user.id_company) > 0) {
+      const [peerRows] = await pool.query(
+        `SELECT 1 FROM usuarios WHERE id = ? AND id_company = ? LIMIT 1`,
+        [aprovacao.id_solicitante, Number(user.id_company)],
+      );
+      isTeamPeer = peerRows.length > 0;
+    } else if (!isCompanyScopedUser(user)) {
+      const [peerRows] = await pool.query(
+        `SELECT 1
+           FROM setor_usuarios su_me
+           JOIN setor_usuarios su_peer
+             ON su_peer.id_setor = su_me.id_setor
+            AND su_peer.ativo = 1
+            AND su_peer.id_usuario = ?
+          WHERE su_me.id_usuario = ? AND su_me.ativo = 1
+          LIMIT 1`,
+        [aprovacao.id_solicitante, user.id],
+      );
+      isTeamPeer = peerRows.length > 0;
+    }
+    if (!isTeamPeer) {
+      throw new AppError('Sem permissão para visualizar esta aprovação', 403);
+    }
   }
 
   const [cycleRows] = await pool.query(
@@ -1437,6 +1540,7 @@ module.exports = {
   createApprovalFor,
   listPendingForUser,
   listMine,
+  listTeam,
   getApprovalById,
   approve,
   reject,

@@ -10,11 +10,13 @@ import {
 } from '@angular/core';
 import { CommonModule, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Observable } from 'rxjs';
 import { ModalComponent } from '../../shared/modal/modal.component';
 import { NotificationService } from '../../core/services/notification.service';
 import { PatrimonialService } from '../../services/patrimonial.service';
 import {
   CadastroStatus,
+  UnifiedBulkConfirmBody,
   UnifiedBulkConfirmResult,
   UnifiedBulkPreviewResult,
   UnifiedCollaboratorRow,
@@ -22,6 +24,17 @@ import {
   UnifiedVehicleRow,
   UnifiedVeiculoDecision,
 } from './service-access-bulk-import.types';
+
+export interface BulkImportApiAdapter {
+  downloadTemplate: () => Observable<Blob>;
+  preview: (file: File) => Observable<UnifiedBulkPreviewResult>;
+  confirm: (
+    previewToken: string,
+    decisoes: UnifiedBulkConfirmBody['decisoes'],
+  ) => Observable<UnifiedBulkConfirmResult>;
+  templateFilename?: string;
+  confirmLabel?: string;
+}
 
 type WizardStep = 'upload' | 'review' | 'result';
 
@@ -43,7 +56,7 @@ interface VeicDecisionState {
   template: `
     <ng-template #wimpBody>
       <div class="wimp">
-        <div class="wimp-stepper" *ngIf="!embedded">
+        <div class="wimp-stepper" *ngIf="!embedded || !!apiAdapter">
           <div class="wimp-stepper__item" [class.is-active]="step() === 'upload'" [class.is-done]="step() !== 'upload'">
             <span class="wimp-stepper__dot">
               @if (step() !== 'upload') {
@@ -227,7 +240,7 @@ interface VeicDecisionState {
           </div>
         }
 
-        @if (!embedded && step() === 'review' && preview(); as prev) {
+        @if ((!embedded || !!apiAdapter) && step() === 'review' && preview(); as prev) {
           <div class="wimp-panel">
             <div class="wimp-summary">
               <span class="wimp-stat wimp-stat--total">{{ prev.resumo.colaboradores.total + prev.resumo.veiculos.total }} registros</span>
@@ -405,7 +418,11 @@ interface VeicDecisionState {
           }
           @if (step() === 'review') {
             <button type="button" class="wimp-btn wimp-btn--primary" [disabled]="busy() || !hasCommitable()" (click)="runConfirm()">
-              {{ busy() ? 'Importando...' : (embedded ? 'Confirmar e adicionar' : 'Adicionar ao acesso') }}
+              {{
+                busy()
+                  ? 'Importando...'
+                  : apiAdapter?.confirmLabel || (embedded ? 'Confirmar e adicionar' : 'Adicionar ao acesso')
+              }}
             </button>
           }
           @if (step() === 'result' && !importing()) {
@@ -419,6 +436,11 @@ interface VeicDecisionState {
       @if (open) {
         <div class="wimp-host--embedded">
           <ng-container *ngTemplateOutlet="wimpBody" />
+          @if (apiAdapter) {
+            <div class="wimp-foot wimp-foot--embed">
+              <ng-container *ngTemplateOutlet="wimpFooter" />
+            </div>
+          }
         </div>
       }
     } @else {
@@ -808,6 +830,11 @@ interface VeicDecisionState {
       .wimp-foot {
         display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%;
       }
+      .wimp-foot--embed {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line, #e2e8f0);
+      }
       .wimp-foot__right { display: flex; gap: 10px; margin-left: auto; }
       .wimp-btn {
         display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -869,6 +896,8 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   @Input() notifyApprovers = true;
   /** Renderiza o conteúdo sem app-modal (dentro de outro wizard). */
   @Input() embedded = false;
+  /** APIs externas (ex.: evento) — dispensa rascunho de acesso de serviço. */
+  @Input() apiAdapter: BulkImportApiAdapter | null = null;
   @Output() closed = new EventEmitter<void>();
   @Output() completed = new EventEmitter<{
     roleProposals: {
@@ -1030,6 +1059,14 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     return Number(this.serviceAccessId) > 0;
   }
 
+  private hasApiReady(): boolean {
+    return !!this.apiAdapter || this.hasServiceId();
+  }
+
+  private shouldAutoConfirm(): boolean {
+    return this.embedded && !this.apiAdapter;
+  }
+
   /** Sempre pede ao pai sincronizar datas do formulário no rascunho antes das APIs. */
   private requestDraftSync(): void {
     this.draftRequired.emit();
@@ -1059,6 +1096,10 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
       this.uploadError.set('Arquivo excede 5 MB.');
       return;
     }
+    if (this.apiAdapter) {
+      this.file.set(f);
+      return;
+    }
     // No wizard de criação (embedded): sempre sincroniza o período do formulário no rascunho.
     if (this.embedded || !this.hasServiceId()) {
       this.pendingUpload = f;
@@ -1069,6 +1110,10 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   downloadTemplate() {
+    if (this.apiAdapter) {
+      this.downloadTemplateNow();
+      return;
+    }
     if (this.embedded || !this.hasServiceId()) {
       this.pendingTemplate = true;
       this.requestDraftSync();
@@ -1078,6 +1123,25 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   private downloadTemplateNow() {
+    if (this.apiAdapter) {
+      this.templateDownloading.set(true);
+      this.apiAdapter.downloadTemplate().subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = this.apiAdapter?.templateFilename || 'template-importacao.xlsx';
+          a.click();
+          URL.revokeObjectURL(url);
+          this.templateDownloading.set(false);
+        },
+        error: (err) => {
+          this.templateDownloading.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao baixar modelo.');
+        },
+      });
+      return;
+    }
     if (!this.hasServiceId()) {
       this.pendingTemplate = true;
       this.requestDraftSync();
@@ -1103,14 +1167,17 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
 
   runPreview() {
     const f = this.file();
-    if (!f || !this.hasServiceId()) return;
+    if (!f || !this.hasApiReady()) return;
     this.busy.set(true);
     this.uploadError.set(null);
-    this.patrimonialService.bulkImportPreview(this.serviceAccessId!, f).subscribe({
+    const preview$ = this.apiAdapter
+      ? this.apiAdapter.preview(f)
+      : this.patrimonialService.bulkImportPreview(this.serviceAccessId!, f);
+    preview$.subscribe({
       next: (prev) => {
         this.preview.set(prev);
         this.initDecisions(prev);
-        if (this.embedded) {
+        if (this.shouldAutoConfirm()) {
           const colErrors = prev.colaboradores.filter((r) => r.cadastro === 'erro');
           const veicErrors = prev.veiculos.filter((r) => r.cadastro === 'erro');
           this.issues.emit({ colaboradores: colErrors, veiculos: veicErrors });
@@ -1280,60 +1347,62 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     this.busy.set(true);
     this.importing.set(true);
     this.tokenConsumed.set(false);
-    if (!this.embedded) {
+    if (!this.shouldAutoConfirm()) {
       this.step.set('result');
     }
 
-    this.patrimonialService
-      .bulkImportConfirm(
-        this.serviceAccessId!,
-        prev.previewToken,
-        { colaboradores, veiculos },
-        { notify_approvers: this.notifyApprovers },
-      )
-      .subscribe({
-        next: (res) => {
-          this.result.set(res);
-          this.busy.set(false);
-          this.importing.set(false);
+    const confirm$ = this.apiAdapter
+      ? this.apiAdapter.confirm(prev.previewToken, { colaboradores, veiculos })
+      : this.patrimonialService.bulkImportConfirm(
+          this.serviceAccessId!,
+          prev.previewToken,
+          { colaboradores, veiculos },
+          { notify_approvers: this.notifyApprovers },
+        );
+
+    confirm$.subscribe({
+      next: (res) => {
+        this.result.set(res);
+        this.busy.set(false);
+        this.importing.set(false);
+        this.completed.emit({ roleProposals: this.lastRoleProposals });
+        this.notification.success('Importação concluída.');
+        if (this.shouldAutoConfirm()) {
+          const previewSnap = this.preview();
+          const hasErrors =
+            !!previewSnap &&
+            (previewSnap.colaboradores.some((r) => r.cadastro === 'erro') ||
+              previewSnap.veiculos.some((r) => r.cadastro === 'erro'));
+          if (!hasErrors) {
+            this.issues.emit({ colaboradores: [], veiculos: [] });
+          }
+          this.reset();
+        }
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.importing.set(false);
+        const code = err?.error?.code;
+        if (code === 'PREVIEW_TOKEN_CONSUMIDO' || err?.status === 409) {
+          this.tokenConsumed.set(true);
+          this.notification.info('Essa importação já foi concluída.');
           this.completed.emit({ roleProposals: this.lastRoleProposals });
-          this.notification.success('Importação concluída.');
-          if (this.embedded) {
-            const prev = this.preview();
-            const hasErrors =
-              !!prev &&
-              (prev.colaboradores.some((r) => r.cadastro === 'erro') ||
-                prev.veiculos.some((r) => r.cadastro === 'erro'));
-            if (!hasErrors) {
-              this.issues.emit({ colaboradores: [], veiculos: [] });
-            }
+          if (this.shouldAutoConfirm()) {
             this.reset();
           }
-        },
-        error: (err) => {
-          this.busy.set(false);
-          this.importing.set(false);
-          const code = err?.error?.code;
-          if (code === 'PREVIEW_TOKEN_CONSUMIDO' || err?.status === 409) {
-            this.tokenConsumed.set(true);
-            this.notification.info('Essa importação já foi concluída.');
-            this.completed.emit({ roleProposals: this.lastRoleProposals });
-            if (this.embedded) {
-              this.reset();
-            }
-            return;
-          }
-          if (this.embedded) {
-            this.step.set('upload');
-            this.uploadError.set(
-              (typeof err?.error === 'object' && err?.error?.message) ||
-                'Falha ao importar a planilha.',
-            );
-          } else {
-            this.step.set('review');
-          }
-          this.notification.notifyHttpError(err, 'Falha ao confirmar importação.');
-        },
-      });
+          return;
+        }
+        if (this.shouldAutoConfirm()) {
+          this.step.set('upload');
+          this.uploadError.set(
+            (typeof err?.error === 'object' && err?.error?.message) ||
+              'Falha ao importar a planilha.',
+          );
+        } else {
+          this.step.set('review');
+        }
+        this.notification.notifyHttpError(err, 'Falha ao confirmar importação.');
+      },
+    });
   }
 }

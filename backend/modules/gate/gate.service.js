@@ -35,6 +35,7 @@ const GATE_CREDENTIAL_SELECT = `
          ed.date AS event_day_date,
          e.id_event,
          e.name AS event_name,
+         e.ativo AS event_ativo,
          bl.id_collaborator AS blacklisted_id
   FROM event_day_company_collaborator edcc
   INNER JOIN access_status ast ON ast.id_access_status = edcc.id_access_status
@@ -58,6 +59,7 @@ const GATE_CREDENTIAL_SELECT = `
 const DENIAL_MESSAGES = {
   CREDENTIAL_NOT_FOUND: "Credencial não encontrada.",
   CREDENTIAL_NOT_APPROVED: "Credencial não aprovada.",
+  EVENT_INACTIVE: "Evento desativado.",
   INVALID_DATE_WINDOW: "Data incorreta para este credenciamento.",
   BLACK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
   ACCESS_ALREADY_COMPLETED: "Entrada e saída já registradas para esta credencial.",
@@ -151,6 +153,9 @@ function validateCredentialRow(row) {
   if (!row) {
     return buildDenial("CREDENTIAL_NOT_FOUND", 404);
   }
+  if (row.event_ativo != null && !Number(row.event_ativo)) {
+    return buildDenial("EVENT_INACTIVE");
+  }
   if (Number(row.id_access_status) !== STATUS_APROVADO) {
     return buildDenial("CREDENTIAL_NOT_APPROVED");
   }
@@ -181,7 +186,8 @@ function resolveNextActionLabel(row) {
 
 function mapTodayCredentialRow(row) {
   const effective = resolveEffectiveCollaborator(row);
-  const nextAction = resolveNextActionLabel(row);
+  const blacklisted = row.blacklisted_id != null;
+  const nextAction = blacklisted ? "BLOCKED_BLACKLIST" : resolveNextActionLabel(row);
   return {
     id: row.id_event_day_company_collaborator,
     access_id: row.access_id,
@@ -201,6 +207,10 @@ function mapTodayCredentialRow(row) {
     access_check_in: row.access_check_in || null,
     access_check_out: row.access_check_out || null,
     next_action: nextAction,
+    is_blacklisted: blacklisted,
+    block_reason: blacklisted
+      ? row.blacklist_reason || DENIAL_MESSAGES.BLACK_LIST_BLOCKED
+      : null,
   };
 }
 
@@ -221,7 +231,9 @@ const GATE_TODAY_LIST_SELECT = `
          sub.picture AS substitute_picture,
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
-         e.name AS event_name
+         e.name AS event_name,
+         bl.id_collaborator AS blacklisted_id,
+         bl.reason AS blacklist_reason
   FROM event_day_company_collaborator edcc
   INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
   INNER JOIN collaborator_document_type cdt
@@ -234,15 +246,27 @@ const GATE_TODAY_LIST_SELECT = `
   INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
   INNER JOIN event e ON e.id_event = ed.id_event
   INNER JOIN company co ON co.id_company = edc.id_company
-  WHERE edcc.id_access_status = ?
-    AND e.id_access_status = ?
-    AND edcc.access_id IS NOT NULL
+  LEFT JOIN collaborator_black_list bl
+    ON bl.id_collaborator = COALESCE(edcc.id_substitute, edcc.id_collaborator)
+  WHERE e.id_access_status = ?
     AND ${EVENT_DAY_WINDOW_SQL.trim()}
-  ORDER BY COALESCE(sub.name, c.name) ASC, e.name ASC
+    AND (
+      (edcc.id_access_status = ? AND edcc.access_id IS NOT NULL)
+      OR (edcc.id_access_status = ? AND bl.id_collaborator IS NOT NULL)
+    )
+  ORDER BY
+    CASE WHEN bl.id_collaborator IS NOT NULL THEN 0 ELSE 1 END,
+    COALESCE(sub.name, c.name) ASC,
+    e.name ASC
 `;
 
 async function listTodayExpectedCredentials() {
-  const params = [STATUS_APROVADO, STATUS_APROVADO, ...eventDayWindowParams()];
+  const params = [
+    STATUS_APROVADO,
+    ...eventDayWindowParams(),
+    STATUS_APROVADO,
+    STATUS_NEGADO,
+  ];
   const [rows] = await db.execute(GATE_TODAY_LIST_SELECT, params);
   return rows.map(mapTodayCredentialRow);
 }
@@ -656,12 +680,20 @@ function buildWeekDays(row, weekDates, todayKey, accessedDates, lastCheckIn) {
 function mapTodayServiceVehicleRow(row, todayKey, ctx) {
   const rejected = Number(row.id_access_status) === STATUS_NEGADO;
   const pending = Number(row.id_access_status) === STATUS_AGUARDANDO_APROVACAO;
+  const blacklisted = row.id_substitute_vehicle
+    ? row.sub_blacklisted_id != null
+    : row.main_blacklisted_id != null;
+  const blacklistReason = row.id_substitute_vehicle
+    ? row.sub_blacklist_reason
+    : row.main_blacklist_reason;
   const effective = resolveEffectiveVehicle(row);
-  const next = rejected
-    ? "REJECTED"
-    : pending
-      ? "PENDING_APPROVAL"
-      : resolveServiceVehicleNextAction(row, todayKey) || "COMPLETED";
+  const next = blacklisted
+    ? "BLOCKED_BLACKLIST"
+    : rejected
+      ? "REJECTED"
+      : pending
+        ? "PENDING_APPROVAL"
+        : resolveServiceVehicleNextAction(row, todayKey) || "COMPLETED";
   const openStay = !!(row.check_in && !row.check_out);
   const checkInDisplay =
     openStay || isTimestampToday(row.check_in, todayKey) ? row.check_in : null;
@@ -680,11 +712,15 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
     check_in: checkInDisplay,
     check_out: checkOutDisplay,
     next_action: next,
+    is_blacklisted: blacklisted,
+    block_reason: blacklisted
+      ? blacklistReason || SERVICE_DENIAL_MESSAGES.VEHICLE_BLACK_LIST_BLOCKED
+      : null,
     start_date: toDateKey(row.start_date),
     end_date: toDateKey(row.end_date),
     week_days: buildWeekDays(row, ctx.weekDates, todayKey, accessedDates, row.check_in),
     approved_by:
-      pending || rejected
+      pending || rejected || blacklisted
         ? null
         : ctx.approvers.get(Number(row.id_service_access)) || null,
     rejected_by: rejected
@@ -706,12 +742,20 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
 function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
   const rejected = Number(row.id_access_status) === STATUS_NEGADO;
   const pending = Number(row.id_access_status) === STATUS_AGUARDANDO_APROVACAO;
+  const blacklisted = row.id_substitute
+    ? row.sub_blacklisted_id != null
+    : row.main_blacklisted_id != null;
+  const blacklistReason = row.id_substitute
+    ? row.sub_blacklist_reason
+    : row.main_blacklist_reason;
   const effective = resolveEffectiveServiceCollaborator(row);
-  const next = rejected
-    ? "REJECTED"
-    : pending
-      ? "PENDING_APPROVAL"
-      : resolveServiceCollaboratorNextAction(row, todayKey) || "COMPLETED";
+  const next = blacklisted
+    ? "BLOCKED_BLACKLIST"
+    : rejected
+      ? "REJECTED"
+      : pending
+        ? "PENDING_APPROVAL"
+        : resolveServiceCollaboratorNextAction(row, todayKey) || "COMPLETED";
   const openStay = !!(row.access_check_in && !row.access_check_out);
   const checkInDisplay =
     openStay || isTimestampToday(row.access_check_in, todayKey)
@@ -741,11 +785,15 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
     check_in: checkInDisplay,
     check_out: checkOutDisplay,
     next_action: next,
+    is_blacklisted: blacklisted,
+    block_reason: blacklisted
+      ? blacklistReason || SERVICE_DENIAL_MESSAGES.COLLABORATOR_BLACK_LIST_BLOCKED
+      : null,
     start_date: toDateKey(row.start_date),
     end_date: toDateKey(row.end_date),
     week_days: buildWeekDays(row, ctx.weekDates, todayKey, accessedDates, row.access_check_in),
     approved_by:
-      pending || rejected
+      pending || rejected || blacklisted
         ? null
         : ctx.approvers.get(Number(row.id_service_access)) || null,
     rejected_by: rejected
@@ -772,12 +820,18 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
          v.plate AS vehicle_plate,
          v.description AS vehicle_description,
          sub.plate AS substitute_plate,
-         co.fancy_name AS company_fancy_name
+         co.fancy_name AS company_fancy_name,
+         bl_main.id_vehicle AS main_blacklisted_id,
+         bl_main.reason AS main_blacklist_reason,
+         bl_sub.id_vehicle AS sub_blacklisted_id,
+         bl_sub.reason AS sub_blacklist_reason
   FROM service_access_vehicle sav
   INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
   INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
+  LEFT JOIN vehicle_black_list bl_main ON bl_main.id_vehicle = v.id_vehicle
+  LEFT JOIN vehicle_black_list bl_sub ON bl_sub.id_vehicle = sav.id_substitute_vehicle
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND (
@@ -787,12 +841,23 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
     AND (
       (sa.id_access_status = ? AND sav.access_id IS NOT NULL)
       OR sa.id_access_status IN (?, ?)
+      OR (
+        sa.id_access_status = ?
+        AND (
+          (sav.id_substitute_vehicle IS NOT NULL AND bl_sub.id_vehicle IS NOT NULL)
+          OR (sav.id_substitute_vehicle IS NULL AND bl_main.id_vehicle IS NOT NULL)
+        )
+      )
     )
   ORDER BY
     CASE
-      WHEN sa.id_access_status = ? THEN 0
+      WHEN (
+        (sav.id_substitute_vehicle IS NOT NULL AND bl_sub.id_vehicle IS NOT NULL)
+        OR (sav.id_substitute_vehicle IS NULL AND bl_main.id_vehicle IS NOT NULL)
+      ) THEN 0
       WHEN sa.id_access_status = ? THEN 1
-      ELSE 2
+      WHEN sa.id_access_status = ? THEN 2
+      ELSE 3
     END,
     COALESCE(sub.plate, v.plate) ASC
 `;
@@ -818,7 +883,11 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
          sub.document AS substitute_document,
          sub.picture AS substitute_picture,
          sub_cdt.description AS substitute_document_type_description,
-         co.fancy_name AS company_fancy_name
+         co.fancy_name AS company_fancy_name,
+         bl_main.id_collaborator AS main_blacklisted_id,
+         bl_main.reason AS main_blacklist_reason,
+         bl_sub.id_collaborator AS sub_blacklisted_id,
+         bl_sub.reason AS sub_blacklist_reason
   FROM service_access_collaborator sac
   INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
   INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
@@ -829,6 +898,8 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
   LEFT JOIN collaborator_document_type sub_cdt
     ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
   INNER JOIN company co ON co.id_company = sa.id_company
+  LEFT JOIN collaborator_black_list bl_main ON bl_main.id_collaborator = c.id_collaborator
+  LEFT JOIN collaborator_black_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND (
@@ -838,12 +909,23 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
     AND (
       (sa.id_access_status = ? AND sac.access_id IS NOT NULL)
       OR sa.id_access_status IN (?, ?)
+      OR (
+        sa.id_access_status = ?
+        AND (
+          (sac.id_substitute IS NOT NULL AND bl_sub.id_collaborator IS NOT NULL)
+          OR (sac.id_substitute IS NULL AND bl_main.id_collaborator IS NOT NULL)
+        )
+      )
     )
   ORDER BY
     CASE
-      WHEN sa.id_access_status = ? THEN 0
+      WHEN (
+        (sac.id_substitute IS NOT NULL AND bl_sub.id_collaborator IS NOT NULL)
+        OR (sac.id_substitute IS NULL AND bl_main.id_collaborator IS NOT NULL)
+      ) THEN 0
       WHEN sa.id_access_status = ? THEN 1
-      ELSE 2
+      WHEN sa.id_access_status = ? THEN 2
+      ELSE 3
     END,
     COALESCE(sub.name, c.name) ASC
 `;
@@ -995,6 +1077,7 @@ async function listTodayExpectedServices() {
     STATUS_APROVADO,
     STATUS_AGUARDANDO_APROVACAO,
     STATUS_NEGADO,
+    STATUS_APROVADO,
     STATUS_AGUARDANDO_APROVACAO,
     STATUS_NEGADO,
   ];
@@ -1066,7 +1149,7 @@ function applyOpenStayEntryBlocks(list) {
   return list;
 }
 
-/** Aguardando entrada → liberação pendente → dentro → concluídos → reprovado; data mais nova acima. */
+/** Aguardando entrada → liberação pendente → dentro → concluídos → bloqueados → reprovado; data mais nova acima. */
 function sortTodayServicesByAccessPriority(list) {
   const rank = {
     CHECK_IN: 0,
@@ -1074,7 +1157,8 @@ function sortTodayServicesByAccessPriority(list) {
     PENDING_APPROVAL: 1,
     CHECK_OUT: 2,
     COMPLETED: 3,
-    REJECTED: 4,
+    BLOCKED_BLACKLIST: 4,
+    REJECTED: 5,
   };
   return list.sort((a, b) => {
     const ra = rank[a.next_action] ?? 9;
@@ -1599,6 +1683,13 @@ async function createManualRelease(req, data) {
     });
 
     await conn.commit();
+
+    for (const person of people) {
+      await collaboratorService.linkCollaboratorToCompany(
+        person.id_collaborator,
+        idCompany,
+      );
+    }
 
     const first = people[0];
     return {

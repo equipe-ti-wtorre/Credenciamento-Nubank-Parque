@@ -39,6 +39,7 @@ import { NotificationService } from '../../core/services/notification.service';
             <label class="text-xs font-bold text-slate-500 uppercase">Módulo</label>
             <select
               [(ngModel)]="filterModule"
+              (ngModelChange)="applyFilters()"
               name="filterModule"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
             >
@@ -50,6 +51,7 @@ import { NotificationService } from '../../core/services/notification.service';
             <label class="text-xs font-bold text-slate-500 uppercase">Evento</label>
             <select
               [(ngModel)]="filterIdEvent"
+              (ngModelChange)="applyFilters()"
               name="filterIdEvent"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
             >
@@ -64,6 +66,7 @@ import { NotificationService } from '../../core/services/notification.service';
             <input
               type="date"
               [(ngModel)]="filterDateFrom"
+              (ngModelChange)="applyFilters()"
               name="filterDateFrom"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
             />
@@ -73,15 +76,13 @@ import { NotificationService } from '../../core/services/notification.service';
             <input
               type="date"
               [(ngModel)]="filterDateTo"
+              (ngModelChange)="applyFilters()"
               name="filterDateTo"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
             />
           </div>
         </div>
         <div class="flex gap-2 mt-3">
-          <button type="button" (click)="applyFilters()" class="btn-primary text-sm py-1.5 px-4">
-            Filtrar
-          </button>
           <button type="button" (click)="clearFilters()" class="btn-secondary text-sm py-1.5 px-4">
             Limpar
           </button>

@@ -80,6 +80,67 @@ function assertCanWrite(actor) {
   throw new AppError("Permissão insuficiente.", 403);
 }
 
+function assertCanEdit(actor) {
+  if (isSuperAdmin(actor) || hasPermission(actor, "company_users", "edit")) {
+    return;
+  }
+  throw new AppError("Permissão insuficiente.", 403);
+}
+
+async function countUserLinkedData(userId) {
+  const id = Number(userId);
+  const [[aprovacoes]] = await db.execute(
+    `SELECT COUNT(*) AS total FROM aprovacoes WHERE id_solicitante = ?`,
+    [id],
+  );
+  const [[decisoes]] = await db.execute(
+    `SELECT COUNT(*) AS total FROM aprovacao_decisoes WHERE id_usuario = ?`,
+    [id],
+  );
+  const [[serviceAccess]] = await db.execute(
+    `SELECT COUNT(*) AS total FROM service_access WHERE id_usuario = ?`,
+    [id],
+  );
+  const [[setorUsuarios]] = await db.execute(
+    `SELECT COUNT(*) AS total FROM setor_usuarios WHERE id_usuario = ?`,
+    [id],
+  );
+  return {
+    aprovacoes: Number(aprovacoes?.total) || 0,
+    decisoes: Number(decisoes?.total) || 0,
+    service_access: Number(serviceAccess?.total) || 0,
+    setor_usuarios: Number(setorUsuarios?.total) || 0,
+  };
+}
+
+function hasLinkedData(counts) {
+  return (
+    counts.aprovacoes > 0 ||
+    counts.decisoes > 0 ||
+    counts.service_access > 0 ||
+    counts.setor_usuarios > 0
+  );
+}
+
+function canActorDeleteCompanyUser(actor, userId) {
+  if (!isSuperAdmin(actor) && !hasPermission(actor, "company_users", "edit")) {
+    return false;
+  }
+  if (Number(actor.id) === Number(userId)) {
+    return false;
+  }
+  return true;
+}
+
+async function enrichWithCanDelete(actor, user) {
+  if (!user) return user;
+  if (!canActorDeleteCompanyUser(actor, user.id)) {
+    return { ...user, can_delete: false };
+  }
+  const counts = await countUserLinkedData(user.id);
+  return { ...user, can_delete: !hasLinkedData(counts) };
+}
+
 function isEmpresaProfileCodigo(codigo) {
   return inviteService.EMPRESA_PROFILE_CODES.includes(String(codigo || "").toUpperCase());
 }
@@ -149,8 +210,12 @@ async function listCompanyUsers(actor, { page = 1, limit = 20, filters = {} }) {
     params,
   );
 
+  const users = await Promise.all(
+    rows.map((row) => enrichWithCanDelete(actor, mapUserRow(row))),
+  );
+
   return {
-    users: rows.map(mapUserRow),
+    users,
     pagination: {
       page,
       limit,
@@ -167,7 +232,39 @@ async function getCompanyUserById(actor, id) {
     throw new AppError("Usuário não encontrado.", 404);
   }
   resolveScopedCompanyId(actor, row.id_company);
-  return mapUserRow(row);
+  return enrichWithCanDelete(actor, mapUserRow(row));
+}
+
+async function deleteCompanyUser(actor, id) {
+  assertCanEdit(actor);
+
+  const existing = await findById(id);
+  if (!existing || !isEmpresaProfileCodigo(existing.perfil_codigo)) {
+    throw new AppError("Usuário não encontrado.", 404);
+  }
+  resolveScopedCompanyId(actor, existing.id_company);
+
+  if (Number(actor.id) === Number(id)) {
+    throw new AppError("Você não pode excluir sua própria conta.", 400);
+  }
+
+  const counts = await countUserLinkedData(id);
+  if (hasLinkedData(counts)) {
+    throw new AppError(
+      "Não é possível excluir: há aprovações, acessos de serviço ou vínculos de setor associados a este usuário.",
+      409,
+    );
+  }
+
+  await revokeAllUserTokens(id);
+  await db.execute("DELETE FROM usuarios WHERE id = ?", [id]);
+
+  return {
+    deleted: true,
+    id: Number(id),
+    email: existing.email,
+    nome_completo: existing.nome_completo,
+  };
 }
 
 async function createCompanyUser(actor, data, { usuarioId, requestId } = {}) {
@@ -385,6 +482,7 @@ module.exports = {
   getCompanyUserById,
   createCompanyUser,
   updateCompanyUser,
+  deleteCompanyUser,
   resendInvite,
   parseListQuery,
   parseListFilters,

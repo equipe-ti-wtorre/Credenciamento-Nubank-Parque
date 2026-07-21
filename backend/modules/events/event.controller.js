@@ -1,11 +1,18 @@
 const AppError = require("../../utils/AppError");
 const { attachAudit } = require("../../utils/auditLogger");
 const eventService = require("./event.service");
+const credentialsService = require("../credentials/credentials.service");
 const {
   eventCreateSchema,
   eventPeriodSchema,
   eventDayCompanySchema,
   eventPreferencesSchema,
+  eventStatusSchema,
+  eventResponsavelSchema,
+  eventCompanyPhasesSchema,
+  eventCredentialBulkCommitSchema,
+  eventCompanyVehicleSchema,
+  eventCompanyBulkConfirmSchema,
 } = require("./event.schema");
 const { notifyApprovalCreated } = require("../approvals/approvals.notifications");
 
@@ -44,6 +51,39 @@ exports.updatePreferences = async (req, res, next) => {
     if (error) throw new AppError(error.details[0].message, 400);
 
     const event = await eventService.updateEventPreferences(req, req.params.id, value);
+    res.json({ event });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.patchStatus = async (req, res, next) => {
+  try {
+    const { error, value } = eventStatusSchema.validate(req.body || {});
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const { event, changes } = await eventService.updateEventActiveStatus(
+      req,
+      req.params.id,
+      value.ativo,
+    );
+
+    let action = "UPDATE";
+    if (changes.wasDeactivated) action = "DEACTIVATE";
+    else if (changes.wasActivated) action = "ACTIVATE";
+
+    attachAudit(req, {
+      action,
+      module: "events",
+      event: `events.${action.toLowerCase()}`,
+      resource: {
+        type: "event",
+        id: event.id_event,
+        name: event.name,
+      },
+      changes: { ativo: event.ativo },
+    });
+
     res.json({ event });
   } catch (err) {
     next(err);
@@ -157,6 +197,37 @@ exports.updatePeriod = async (req, res, next) => {
   }
 };
 
+exports.updateResponsavel = async (req, res, next) => {
+  try {
+    const { error, value } = eventResponsavelSchema.validate(req.body || {});
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const event = await eventService.updateEventResponsavel(
+      req,
+      req.params.id,
+      value.id_company_responsavel,
+    );
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "events",
+      event: "events.responsavel_change",
+      resource: {
+        type: "event",
+        id: event.id_event,
+        name: event.name,
+      },
+      changes: {
+        id_company_responsavel: value.id_company_responsavel,
+      },
+    });
+
+    res.json({ event });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.addCompanyToDay = async (req, res, next) => {
   try {
     const { error, value } = eventDayCompanySchema.validate(req.body);
@@ -215,6 +286,288 @@ exports.removeCompanyFromDay = async (req, res, next) => {
     });
 
     res.json({ removed });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.remove = async (req, res, next) => {
+  try {
+    const removed = await eventService.deleteEvent(req, req.params.id);
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "events",
+      event: "events.delete",
+      resource: {
+        type: "event",
+        id: removed.id_event,
+        name: removed.name,
+      },
+    });
+
+    res.json({ removed });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.syncCompanyPhases = async (req, res, next) => {
+  try {
+    const { error, value } = eventCompanyPhasesSchema.validate(req.body || {});
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const event = await eventService.syncCompanyPhases(
+      req,
+      req.params.id,
+      req.params.idCompany,
+      value.phases,
+    );
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "events",
+      event: "events.company_phases_sync",
+      resource: {
+        type: "event",
+        id: event.id_event,
+        name: event.name,
+      },
+      changes: {
+        id_company: Number(req.params.idCompany),
+        phases: value.phases,
+      },
+    });
+
+    res.json({ event });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.bulkPreviewCompanyCredentials = async (req, res, next) => {
+  try {
+    if (!req.file) throw new AppError("Nenhum arquivo enviado.", 400);
+    const result = await credentialsService.previewEventCompanyCredentialsBulk(
+      req,
+      req.params.id,
+      req.params.idCompany,
+      req.file,
+    );
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "credentials",
+      event: "credentials.event_company_bulk_preview",
+      resource: {
+        type: "event_company_credential_bulk",
+        id: result.previewId,
+      },
+      metadata: {
+        id_event: Number(req.params.id),
+        id_company: Number(req.params.idCompany),
+        summary: result.summary,
+      },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.bulkCommitCompanyCredentials = async (req, res, next) => {
+  try {
+    const { error, value } = eventCredentialBulkCommitSchema.validate(req.body || {});
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await credentialsService.commitEventCompanyCredentialsBulk(
+      req,
+      req.params.id,
+      req.params.idCompany,
+      value,
+    );
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "credentials",
+      event: "credentials.event_company_bulk_commit",
+      resource: {
+        type: "event_company_credential_bulk",
+        id: value.previewId,
+      },
+      metadata: {
+        id_event: Number(req.params.id),
+        id_company: Number(req.params.idCompany),
+        ...result,
+      },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listVehicleCounts = async (req, res, next) => {
+  try {
+    const counts = await eventService.listEventVehicleCounts(req, req.params.id);
+    res.json({ counts });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listCompanyVehicles = async (req, res, next) => {
+  try {
+    const result = await eventService.listCompanyVehicles(
+      req,
+      req.params.id,
+      req.params.idCompany,
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.addCompanyVehicle = async (req, res, next) => {
+  try {
+    const { error, value } = eventCompanyVehicleSchema.validate(req.body || {});
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await eventService.addCompanyVehicle(
+      req,
+      req.params.id,
+      req.params.idCompany,
+      value.id_vehicle,
+    );
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "events",
+      event: "events.company_vehicle_add",
+      resource: {
+        type: "event_company_vehicle",
+        id: value.id_vehicle,
+      },
+      metadata: {
+        id_event: Number(req.params.id),
+        id_company: Number(req.params.idCompany),
+        created: result.created,
+      },
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.removeCompanyVehicle = async (req, res, next) => {
+  try {
+    const result = await eventService.removeCompanyVehicle(
+      req,
+      req.params.id,
+      req.params.idCompany,
+      req.params.idVehicle,
+    );
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "events",
+      event: "events.company_vehicle_remove",
+      resource: {
+        type: "event_company_vehicle",
+        id: Number(req.params.idVehicle),
+      },
+      metadata: {
+        id_event: Number(req.params.id),
+        id_company: Number(req.params.idCompany),
+      },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.downloadCompanyBulkTemplate = async (req, res, next) => {
+  try {
+    const { sendXlsx } = require("../../utils/bulkTemplateXlsx");
+    await require("./event-company-vehicle.service").assertCanManageCompanyVehicles(
+      req,
+      req.params.id,
+      req.params.idCompany,
+    );
+    const file = await eventService.getCompanyBulkImportTemplate();
+    sendXlsx(res, file);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.previewCompanyBulkImport = async (req, res, next) => {
+  try {
+    if (!req.file) throw new AppError("Nenhum arquivo enviado.", 400);
+    const result = await eventService.previewCompanyBulkImport(
+      req,
+      req.params.id,
+      req.params.idCompany,
+      req.file,
+    );
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "events",
+      event: "events.company_bulk_import_preview",
+      resource: {
+        type: "event_company_bulk",
+        id: result.previewToken,
+      },
+      metadata: {
+        id_event: Number(req.params.id),
+        id_company: Number(req.params.idCompany),
+        resumo: result.resumo,
+      },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.confirmCompanyBulkImport = async (req, res, next) => {
+  try {
+    const { error, value } = eventCompanyBulkConfirmSchema.validate(req.body || {});
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await eventService.confirmCompanyBulkImport(
+      req,
+      req.params.id,
+      req.params.idCompany,
+      value,
+    );
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "events",
+      event: "events.company_bulk_import_confirm",
+      resource: {
+        type: "event_company_bulk",
+        id: value.previewToken,
+      },
+      metadata: {
+        id_event: Number(req.params.id),
+        id_company: Number(req.params.idCompany),
+        colaboradores: result.colaboradores,
+        veiculos: result.veiculos,
+      },
+    });
+
+    res.json(result);
   } catch (err) {
     next(err);
   }

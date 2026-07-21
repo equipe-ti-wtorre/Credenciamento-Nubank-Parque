@@ -465,6 +465,42 @@ async function migrateCredentials(connection) {
   }
 }
 
+async function migrateEventDayCompanyVehicle(connection) {
+  const [tables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'event_day_company_vehicle' LIMIT 1`,
+    [env.db.name],
+  );
+  if (tables.length > 0) return;
+
+  const [credTables] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'event_day_company' LIMIT 1`,
+    [env.db.name],
+  );
+  if (credTables.length === 0) return;
+
+  await connection.query(`
+    CREATE TABLE event_day_company_vehicle (
+      id_event_day_company_vehicle INT AUTO_INCREMENT PRIMARY KEY,
+      id_event_day_company INT NOT NULL,
+      id_vehicle INT NOT NULL,
+      id_access_status INT NOT NULL,
+      access_id CHAR(36) NULL,
+      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uk_edcv_link_vehicle (id_event_day_company, id_vehicle),
+      INDEX idx_edcv_event_day_company (id_event_day_company),
+      INDEX idx_edcv_vehicle (id_vehicle),
+      INDEX idx_edcv_access_status (id_access_status),
+      FOREIGN KEY (id_event_day_company) REFERENCES event_day_company(id_event_day_company) ON DELETE RESTRICT,
+      FOREIGN KEY (id_vehicle) REFERENCES vehicle(id_vehicle) ON DELETE RESTRICT,
+      FOREIGN KEY (id_access_status) REFERENCES access_status(id_access_status) ON DELETE RESTRICT
+    )
+  `);
+  logger.info("Migration: tabela event_day_company_vehicle criada");
+}
+
 async function indexExists(connection, table, indexName) {
   const [rows] = await connection.query(
     `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
@@ -1623,6 +1659,7 @@ async function initializeDatabase() {
     await migrateCollaborators(connection);
     await migrateEvents(connection);
     await migrateCredentials(connection);
+    await migrateEventDayCompanyVehicle(connection);
     await migrateGate(connection);
     await migratePhase2(connection);
     await migrateServiceAccessEvolution(connection);

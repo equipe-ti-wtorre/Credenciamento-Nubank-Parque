@@ -134,6 +134,7 @@ interface VehicleFormState {
             <label class="text-xs font-bold text-slate-500 uppercase">Placa</label>
             <input
               [(ngModel)]="filterPlate"
+              (ngModelChange)="onTextFilterChange()"
               name="filterPlate"
               placeholder="ABC1D23"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm font-mono uppercase"
@@ -143,6 +144,7 @@ interface VehicleFormState {
             <label class="text-xs font-bold text-slate-500 uppercase">Marca</label>
             <input
               [(ngModel)]="filterBrand"
+              (ngModelChange)="onTextFilterChange()"
               name="filterBrand"
               placeholder="Marca ou modelo"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
@@ -152,6 +154,7 @@ interface VehicleFormState {
             <label class="text-xs font-bold text-slate-500 uppercase">Empresa</label>
             <select
               [(ngModel)]="filterCompanyId"
+              (ngModelChange)="aplicarFiltros()"
               name="filterCompanyId"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
             >
@@ -165,6 +168,7 @@ interface VehicleFormState {
             <label class="text-xs font-bold text-slate-500 uppercase">Tipo</label>
             <select
               [(ngModel)]="filterType"
+              (ngModelChange)="aplicarFiltros()"
               name="filterType"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
             >
@@ -176,6 +180,7 @@ interface VehicleFormState {
             <label class="text-xs font-bold text-slate-500 uppercase">Status</label>
             <select
               [(ngModel)]="filterStatus"
+              (ngModelChange)="aplicarFiltros()"
               name="filterStatus"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
             >
@@ -186,12 +191,6 @@ interface VehicleFormState {
           </div>
         </div>
         <div class="flex items-center gap-2 mt-3">
-          <button type="button" (click)="aplicarFiltros()" class="btn-outline-primary">
-            <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-            </svg>
-            Filtrar
-          </button>
           <button type="button" (click)="limparFiltros()" class="btn-link-muted">Limpar</button>
         </div>
       </div>
@@ -589,6 +588,9 @@ export class VehicleListComponent implements OnInit {
   appliedType = '';
   appliedStatus: boolean | undefined = undefined;
 
+  private readonly filterDebounceMs = 350;
+  private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
   stats = computed(() => {
     const list = this.vehicles();
     return {
@@ -676,6 +678,11 @@ export class VehicleListComponent implements OnInit {
       });
   }
 
+  onTextFilterChange() {
+    if (this.filterDebounceTimer !== null) clearTimeout(this.filterDebounceTimer);
+    this.filterDebounceTimer = setTimeout(() => this.aplicarFiltros(), this.filterDebounceMs);
+  }
+
   aplicarFiltros() {
     this.appliedPlate = this.filterPlate.trim().toUpperCase();
     this.appliedBrand = this.filterBrand.trim();
@@ -688,6 +695,10 @@ export class VehicleListComponent implements OnInit {
   }
 
   limparFiltros() {
+    if (this.filterDebounceTimer !== null) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
+    }
     this.filterPlate = '';
     this.filterBrand = '';
     this.filterCompanyId = null;

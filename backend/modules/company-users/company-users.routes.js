@@ -12,6 +12,7 @@ router.get("/", ...canView, companyUsersController.list);
 router.get("/:id", ...canView, companyUsersController.getById);
 router.post("/", ...canCreate, companyUsersController.create);
 router.patch("/:id", ...canEdit, companyUsersController.update);
+router.delete("/:id", ...canEdit, companyUsersController.remove);
 router.post("/:id/resend-invite", ...canCreate, companyUsersController.resendInvite);
 
 module.exports = router;

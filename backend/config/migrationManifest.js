@@ -255,6 +255,28 @@ const migrations = [
       columnExists(conn, "smtp_send_logs", "message_id") &&
       columnExists(conn, "smtp_send_logs", "provider"),
   },
+  {
+    filename: "036_company_collaborator.sql",
+    validate: (conn) => tableExists(conn, "company_collaborator"),
+  },
+  {
+    filename: "037_backfill_company_collaborator.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        "SELECT 1 FROM schema_migrations WHERE filename = ? LIMIT 1",
+        ["037_backfill_company_collaborator.sql"],
+      );
+      return rows.length > 0;
+    },
+  },
+  {
+    filename: "038_event_day_company_vehicle.sql",
+    validate: (conn) => tableExists(conn, "event_day_company_vehicle"),
+  },
+  {
+    filename: "039_event_ativo.sql",
+    validate: (conn) => columnExists(conn, "event", "ativo"),
+  },
 ];
 
 module.exports = migrations;

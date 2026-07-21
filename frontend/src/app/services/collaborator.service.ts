@@ -141,8 +141,14 @@ export class CollaboratorService {
     );
   }
 
-  create(data: CollaboratorCreatePayload): Observable<{ collaborator: CollaboratorItem }> {
-    return this.api.post<{ collaborator: CollaboratorItem }>('/collaborators', data);
+  create(data: CollaboratorCreatePayload): Observable<{
+    collaborator: CollaboratorItem;
+    linked?: boolean;
+  }> {
+    return this.api.post<{ collaborator: CollaboratorItem; linked?: boolean }>(
+      '/collaborators',
+      data,
+    );
   }
 
   update(id: number, data: CollaboratorUpdatePayload): Observable<{ collaborator: CollaboratorItem }> {
@@ -167,8 +173,8 @@ export class CollaboratorService {
     return this.api.delete<{ collaborator: CollaboratorItem }>(`/collaborators/${id}/blacklist`);
   }
 
-  delete(id: number): Observable<{ success: boolean }> {
-    return this.api.delete<{ success: boolean }>(`/collaborators/${id}`);
+  delete(id: number): Observable<{ success: boolean; unlinked?: boolean }> {
+    return this.api.delete<{ success: boolean; unlinked?: boolean }>(`/collaborators/${id}`);
   }
 
   bulkUpload(file: File): Observable<CollaboratorBulkUploadResult> {

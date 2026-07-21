@@ -71,6 +71,7 @@ type ReportTab = 'audit' | 'errors';
             <label class="text-xs font-bold text-slate-500 uppercase">Módulo</label>
             <input
               [(ngModel)]="auditFilters.module"
+              (ngModelChange)="onTextFilterChange()"
               name="auditModule"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
               placeholder="ex.: auth"
@@ -80,6 +81,7 @@ type ReportTab = 'audit' | 'errors';
             <label class="text-xs font-bold text-slate-500 uppercase">Ação</label>
             <input
               [(ngModel)]="auditFilters.action"
+              (ngModelChange)="onTextFilterChange()"
               name="auditAction"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
               placeholder="ex.: LOGIN"
@@ -90,6 +92,7 @@ type ReportTab = 'audit' | 'errors';
             <input
               type="number"
               [(ngModel)]="auditFilters.user_id"
+              (ngModelChange)="onTextFilterChange()"
               name="auditUserId"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
             />
@@ -99,6 +102,7 @@ type ReportTab = 'audit' | 'errors';
             <label class="text-xs font-bold text-slate-500 uppercase">Módulo</label>
             <input
               [(ngModel)]="errorFilters.module"
+              (ngModelChange)="onTextFilterChange()"
               name="errorModule"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
               placeholder="ex.: smtp"
@@ -108,6 +112,7 @@ type ReportTab = 'audit' | 'errors';
             <label class="text-xs font-bold text-slate-500 uppercase">Nível</label>
             <select
               [(ngModel)]="errorFilters.level"
+              (ngModelChange)="aplicarFiltros()"
               name="errorLevel"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm bg-white"
             >
@@ -121,6 +126,7 @@ type ReportTab = 'audit' | 'errors';
             <input
               type="number"
               [(ngModel)]="errorFilters.status_code"
+              (ngModelChange)="onTextFilterChange()"
               name="errorStatus"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
             />
@@ -131,6 +137,7 @@ type ReportTab = 'audit' | 'errors';
             <input
               type="date"
               [(ngModel)]="dateFrom"
+              (ngModelChange)="aplicarFiltros()"
               name="dateFrom"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
             />
@@ -140,15 +147,13 @@ type ReportTab = 'audit' | 'errors';
             <input
               type="date"
               [(ngModel)]="dateTo"
+              (ngModelChange)="aplicarFiltros()"
               name="dateTo"
               class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 text-sm"
             />
           </div>
         </div>
         <div class="flex gap-2 mt-3">
-          <button type="button" (click)="aplicarFiltros()" class="btn-primary text-sm py-1.5 px-4">
-            Filtrar
-          </button>
           <button type="button" (click)="limparFiltros()" class="btn-secondary text-sm py-1.5 px-4">
             Limpar
           </button>
@@ -326,6 +331,8 @@ export class SystemReportsComponent implements SettingsReloadable {
   errorFilters: ErrorFilters = {};
   dateFrom = '';
   dateTo = '';
+  private readonly filterDebounceMs = 350;
+  private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private systemReports: SystemReportsService,
@@ -345,12 +352,21 @@ export class SystemReportsComponent implements SettingsReloadable {
     this.carregar();
   }
 
+  onTextFilterChange() {
+    if (this.filterDebounceTimer !== null) clearTimeout(this.filterDebounceTimer);
+    this.filterDebounceTimer = setTimeout(() => this.aplicarFiltros(), this.filterDebounceMs);
+  }
+
   aplicarFiltros() {
     this.pagination.page = 1;
     this.carregar();
   }
 
   limparFiltros() {
+    if (this.filterDebounceTimer !== null) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
+    }
     this.auditFilters = {};
     this.errorFilters = {};
     this.dateFrom = '';

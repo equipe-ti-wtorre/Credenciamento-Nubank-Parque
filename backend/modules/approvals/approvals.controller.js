@@ -31,6 +31,15 @@ exports.listMine = async (req, res, next) => {
   }
 };
 
+exports.listTeam = async (req, res, next) => {
+  try {
+    const result = await approvalsService.listTeam(req.user, req.query);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.listEligibleSectors = async (req, res, next) => {
   try {
     const sectors = await approvalsService.listEligibleSectors(req.params.tipoEntidade, req.user);

@@ -469,6 +469,10 @@
   background: linear-gradient(90deg, rgba(217, 48, 37, 0.05), transparent 40%);
 }
 
+.row.state-blocked {
+  background: linear-gradient(90deg, rgba(127, 29, 29, 0.08), transparent 45%);
+}
+
 .type {
   display: inline-flex;
   align-items: center;
@@ -743,6 +747,11 @@
   color: #d93025;
 }
 
+.status-pill.blocked {
+  background: #fce8e6;
+  color: #7f1d1d;
+}
+
 .status-pill.in {
   background: var(--ok-tint);
   color: var(--ok);
@@ -872,6 +881,11 @@
   background: transparent;
   color: var(--done);
   cursor: default;
+}
+
+.btn-act.finished.blocked-label {
+  color: #7f1d1d;
+  font-weight: 700;
 }
 
 .btn-act.substitute {

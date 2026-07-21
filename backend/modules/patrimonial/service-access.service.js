@@ -846,10 +846,31 @@ async function generateAccessIds(conn, idServiceAccess, {
   if (filterCollaborators) {
     if (approvedCollaboratorIds.length) {
       const placeholders = approvedCollaboratorIds.map(() => '?').join(',');
+      const [blacklisted] = await conn.execute(
+        `SELECT c.name
+           FROM service_access_collaborator sac
+           INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
+           INNER JOIN collaborator_black_list bl ON bl.id_collaborator = sac.id_collaborator
+          WHERE sac.id_service_access = ?
+            AND sac.id_service_access_collaborator IN (${placeholders})`,
+        [idServiceAccess, ...approvedCollaboratorIds],
+      );
+      if (blacklisted.length) {
+        const names = blacklisted.map((r) => r.name).join(", ");
+        throw new AppError(
+          `Colaborador(es) na lista de restrição não podem ser aprovados: ${names}`,
+          403,
+        );
+      }
+
       const [collaborators] = await conn.execute(
         `SELECT id_service_access_collaborator FROM service_access_collaborator
           WHERE id_service_access = ? AND access_id IS NULL
-            AND id_service_access_collaborator IN (${placeholders})`,
+            AND id_service_access_collaborator IN (${placeholders})
+            AND NOT EXISTS (
+              SELECT 1 FROM collaborator_black_list bl
+               WHERE bl.id_collaborator = service_access_collaborator.id_collaborator
+            )`,
         [idServiceAccess, ...approvedCollaboratorIds],
       );
       for (const row of collaborators) {
@@ -862,7 +883,11 @@ async function generateAccessIds(conn, idServiceAccess, {
   } else {
     const [collaborators] = await conn.execute(
       `SELECT id_service_access_collaborator FROM service_access_collaborator
-       WHERE id_service_access = ? AND access_id IS NULL`,
+       WHERE id_service_access = ? AND access_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM collaborator_black_list bl
+            WHERE bl.id_collaborator = service_access_collaborator.id_collaborator
+         )`,
       [idServiceAccess],
     );
     for (const row of collaborators) {
@@ -1420,6 +1445,12 @@ async function addCollaborator(req, id, data) {
     );
     await reopenServiceAccessForApproval(conn, serviceRow);
     await conn.commit();
+    if (serviceRow.id_company != null) {
+      await collaboratorService.linkCollaboratorToCompany(
+        data.id_collaborator,
+        serviceRow.id_company,
+      );
+    }
     return getServiceAccessById(req, id);
   } catch (err) {
     await conn.rollback();
@@ -1578,6 +1609,12 @@ async function bulkAddCollaborators(req, id, file) {
         );
 
         await conn.commit();
+        if (serviceRow.id_company != null) {
+          await collaboratorService.linkCollaboratorToCompany(
+            collaborator.id_collaborator,
+            serviceRow.id_company,
+          );
+        }
         successCount += 1;
       } catch (err) {
         await conn.rollback();
@@ -1860,7 +1897,7 @@ async function linkCollaboratorToService(serviceId, collaboratorId, roleId) {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    const [result] = await conn.execute(
+    await conn.execute(
       `INSERT INTO service_access_collaborator (id_service_access, id_collaborator, id_collaborator_role)
        VALUES (?, ?, ?)`,
       [serviceId, collaboratorId, roleId],
@@ -1872,6 +1909,13 @@ async function linkCollaboratorToService(serviceId, collaboratorId, roleId) {
     throw err;
   } finally {
     conn.release();
+  }
+
+  if (serviceRow.id_company != null) {
+    await collaboratorService.linkCollaboratorToCompany(
+      collaboratorId,
+      serviceRow.id_company,
+    );
   }
 }
 
@@ -2740,6 +2784,15 @@ async function syncServiceAccessRelations(req, id, data) {
     throw err;
   } finally {
     conn.release();
+  }
+
+  if (serviceRow.id_company != null && toAddCollab.length) {
+    for (const c of toAddCollab) {
+      await collaboratorService.linkCollaboratorToCompany(
+        c.id_collaborator,
+        serviceRow.id_company,
+      );
+    }
   }
 
   const detail = await getServiceAccessById(req, id);

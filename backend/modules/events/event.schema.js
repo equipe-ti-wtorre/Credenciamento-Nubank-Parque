@@ -80,11 +80,53 @@ const eventPreferencesSchema = Joi.object({
   notificar_portaria: Joi.boolean().required(),
 });
 
+const eventStatusSchema = Joi.object({
+  ativo: Joi.boolean().required(),
+});
+
+const eventResponsavelSchema = Joi.object({
+  id_company_responsavel: Joi.number().integer().positive().required(),
+});
+
+const eventCompanyPhasesSchema = Joi.object({
+  phases: Joi.array().items(Joi.string().trim().min(1)).min(1).required(),
+});
+
+const eventCredentialBulkCommitSchema = Joi.object({
+  previewId: Joi.string().uuid().required(),
+  decisions: Joi.array()
+    .items(
+      Joi.object({
+        line: Joi.number().integer().positive().required(),
+        action: Joi.string().valid("create", "link", "skip").required(),
+      }),
+    )
+    .default([]),
+});
+
+const eventCompanyVehicleSchema = Joi.object({
+  id_vehicle: Joi.number().integer().positive().required(),
+});
+
+const eventCompanyBulkConfirmSchema = Joi.object({
+  previewToken: Joi.string().required(),
+  decisoes: Joi.object({
+    colaboradores: Joi.array().items(Joi.object().unknown(true)).default([]),
+    veiculos: Joi.array().items(Joi.object().unknown(true)).default([]),
+  }).default({}),
+});
+
 module.exports = {
   eventCreateSchema,
   eventPeriodSchema,
   eventDayCompanySchema,
   eventDayItemSchema,
   eventPreferencesSchema,
+  eventStatusSchema,
+  eventResponsavelSchema,
+  eventCompanyPhasesSchema,
+  eventCredentialBulkCommitSchema,
+  eventCompanyVehicleSchema,
+  eventCompanyBulkConfirmSchema,
   toDateOnly,
 };

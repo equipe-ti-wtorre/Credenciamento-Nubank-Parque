@@ -34,7 +34,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
   imports: [CommonModule, FormsModule, ModalComponent],
   template: `
     <div class="w-full">
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <div class="stat-card">
           <div class="stat-card__icon">
             <svg
@@ -105,12 +105,38 @@ import { ModalComponent } from '../../shared/modal/modal.component';
             </p>
           </div>
         </div>
+
+        <div class="stat-card">
+          <div class="stat-card__icon">
+            <svg
+              class="w-5 h-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <p class="text-sm text-slate-500 font-medium">Total de solicitações</p>
+            <p class="text-2xl font-bold text-slate-900 leading-tight mt-0.5">
+              {{ summaryTeamCount() }}
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div class="flex gap-2 mb-4 border-b border-slate-200">
+      <div class="flex gap-2 mb-4 border-b border-slate-200 overflow-x-auto">
         <button
           type="button"
-          class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2"
+          class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2 whitespace-nowrap"
           [class.border-[var(--color-primary)]]="tab() === 'pending'"
           [class.text-[var(--color-primary-dark)]]="tab() === 'pending'"
           [class.border-transparent]="tab() !== 'pending'"
@@ -119,7 +145,6 @@ import { ModalComponent } from '../../shared/modal/modal.component';
         >
           Pendentes para mim
           <span
-            *ngIf="summaryPendingCount() > 0"
             class="inline-flex min-w-[1.25rem] h-5 px-1.5 items-center justify-center rounded-full text-[11px] font-bold bg-sky-100 text-sky-800"
           >
             {{ summaryPendingCount() }}
@@ -127,7 +152,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
         </button>
         <button
           type="button"
-          class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2"
+          class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2 whitespace-nowrap"
           [class.border-[var(--color-primary)]]="tab() === 'mine'"
           [class.text-[var(--color-primary-dark)]]="tab() === 'mine'"
           [class.border-transparent]="tab() !== 'mine'"
@@ -136,10 +161,25 @@ import { ModalComponent } from '../../shared/modal/modal.component';
         >
           Minhas solicitações
           <span
-            *ngIf="tab() === 'mine' && items().length > 0"
             class="inline-flex min-w-[1.25rem] h-5 px-1.5 items-center justify-center rounded-full text-[11px] font-bold bg-slate-100 text-slate-700"
           >
-            {{ items().length }}
+            {{ summaryMineCount() }}
+          </span>
+        </button>
+        <button
+          type="button"
+          class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2 whitespace-nowrap"
+          [class.border-[var(--color-primary)]]="tab() === 'team'"
+          [class.text-[var(--color-primary-dark)]]="tab() === 'team'"
+          [class.border-transparent]="tab() !== 'team'"
+          [class.text-slate-500]="tab() !== 'team'"
+          (click)="setTab('team')"
+        >
+          Solicitações da equipe
+          <span
+            class="inline-flex min-w-[1.25rem] h-5 px-1.5 items-center justify-center rounded-full text-[11px] font-bold bg-slate-100 text-slate-700"
+          >
+            {{ summaryTeamCount() }}
           </span>
         </button>
       </div>
@@ -317,7 +357,10 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   </div>
                 </div>
 
-                <div class="flex items-start gap-2.5" *ngIf="tab() === 'pending'">
+                <div
+                  class="flex items-start gap-2.5"
+                  *ngIf="tab() !== 'mine' || item.solicitante?.nome"
+                >
                   <svg
                     class="w-4 h-4 mt-0.5 shrink-0 text-slate-400"
                     viewBox="0 0 24 24"
@@ -334,7 +377,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   <div class="min-w-0">
                     <dt class="inline text-slate-500">Solicitante</dt>
                     <dd class="inline text-slate-800 font-semibold ml-1.5">
-                      {{ item.solicitante.nome || '—' }}
+                      {{ item.solicitante?.nome || '—' }}
                     </dd>
                   </div>
                 </div>
@@ -1059,9 +1102,13 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly collaboratorService = inject(CollaboratorService);
 
-  tab = signal<'pending' | 'mine'>('pending');
+  tab = signal<'pending' | 'mine' | 'team'>('pending');
   items = signal<ApprovalItem[]>([]);
   pendingSummary = signal<ApprovalItem[]>([]);
+  teamSummary = signal<ApprovalItem[]>([]);
+  pendingTotal = signal(0);
+  mineTotal = signal(0);
+  teamTotal = signal(0);
   loading = signal(false);
   detailOpen = signal(false);
   detailLoading = signal(false);
@@ -1129,15 +1176,23 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   }
 
   summaryPendingCount(): number {
-    return this.pendingSummary().length;
+    return this.pendingTotal();
+  }
+
+  summaryMineCount(): number {
+    return this.mineTotal();
+  }
+
+  summaryTeamCount(): number {
+    return this.teamTotal();
   }
 
   summaryServiceAccessCount(): number {
-    return this.pendingSummary().filter((item) => item.tipoEntidade === 'ACESSO_SERVICO').length;
+    return this.teamSummary().filter((item) => item.tipoEntidade === 'ACESSO_SERVICO').length;
   }
 
   summaryEventCount(): number {
-    return this.pendingSummary().filter((item) => item.tipoEntidade === 'EVENTO').length;
+    return this.teamSummary().filter((item) => item.tipoEntidade === 'EVENTO').length;
   }
 
   isServiceAccessAction(): boolean {
@@ -1162,14 +1217,19 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     return 'Comentário opcional para o solicitante.';
   }
 
+  private static readonly SUMMARY_PAGE_SIZE = 100;
+
   carregar() {
     this.loading.set(true);
+    this.refreshSummaries();
+
     if (this.tab() === 'pending') {
       this.approvalService.listPending().subscribe({
         next: (res) => {
           const data = res.data ?? [];
           this.items.set(data);
           this.pendingSummary.set(data);
+          this.pendingTotal.set(Number(res.pagination?.total) || data.length);
           this.loading.set(false);
           this.openDeepLinkIfNeeded();
           this.cdr.markForCheck();
@@ -1177,6 +1237,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
         error: (err) => {
           this.items.set([]);
           this.pendingSummary.set([]);
+          this.pendingTotal.set(0);
           this.loading.set(false);
           this.notification.notifyHttpError(err, 'Falha ao carregar aprovações.');
           this.openDeepLinkIfNeeded();
@@ -1186,31 +1247,89 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.tab() === 'team') {
+      this.approvalService.listTeam(1, ApprovalsInboxComponent.SUMMARY_PAGE_SIZE).subscribe({
+        next: (res) => {
+          const data = res.data ?? [];
+          this.items.set(data);
+          this.teamSummary.set(data);
+          this.teamTotal.set(Number(res.pagination?.total) || data.length);
+          this.loading.set(false);
+          this.openDeepLinkIfNeeded();
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.items.set([]);
+          this.teamSummary.set([]);
+          this.teamTotal.set(0);
+          this.loading.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao carregar total de solicitações.');
+          this.openDeepLinkIfNeeded();
+          this.cdr.markForCheck();
+        },
+      });
+      return;
+    }
+
     this.approvalService.listMine().subscribe({
       next: (res) => {
-        this.items.set(res.data ?? []);
+        const data = res.data ?? [];
+        this.items.set(data);
+        this.mineTotal.set(Number(res.pagination?.total) || data.length);
         this.loading.set(false);
         this.openDeepLinkIfNeeded();
         this.cdr.markForCheck();
       },
       error: (err) => {
         this.items.set([]);
+        this.mineTotal.set(0);
         this.loading.set(false);
         this.notification.notifyHttpError(err, 'Falha ao carregar aprovações.');
         this.openDeepLinkIfNeeded();
         this.cdr.markForCheck();
       },
     });
+  }
 
-    this.approvalService.listPending().subscribe({
-      next: (res) => {
-        this.pendingSummary.set(res.data ?? []);
-        this.cdr.markForCheck();
-      },
-      error: () => {
-        /* resumo é opcional nesta aba */
-      },
-    });
+  /** Mantém cards/badges de totais atualizados em qualquer aba. */
+  private refreshSummaries() {
+    if (this.tab() !== 'pending') {
+      this.approvalService.listPending().subscribe({
+        next: (res) => {
+          const data = res.data ?? [];
+          this.pendingSummary.set(data);
+          this.pendingTotal.set(Number(res.pagination?.total) || data.length);
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          /* resumo opcional */
+        },
+      });
+    }
+    if (this.tab() !== 'mine') {
+      this.approvalService.listMine().subscribe({
+        next: (res) => {
+          this.mineTotal.set(Number(res.pagination?.total) || (res.data ?? []).length);
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          /* resumo opcional */
+        },
+      });
+    }
+    if (this.tab() !== 'team') {
+      this.approvalService.listTeam(1, ApprovalsInboxComponent.SUMMARY_PAGE_SIZE).subscribe({
+        next: (res) => {
+          const data = res.data ?? [];
+          this.teamSummary.set(data);
+          this.teamTotal.set(Number(res.pagination?.total) || data.length);
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          /* resumo opcional */
+        },
+      });
+    }
   }
 
   abrirDetalhe(item: ApprovalItem) {
@@ -1281,7 +1400,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  setTab(t: 'pending' | 'mine') {
+  setTab(t: 'pending' | 'mine' | 'team') {
     this.tab.set(t);
     this.fecharDetalhe();
     this.carregar();
@@ -1348,6 +1467,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
         .map((it) => (it.id === fresh.id ? { ...it, status: fresh.status } : it))
         .filter((it) => it.status === 'PENDENTE'),
     );
+    this.pendingTotal.set(this.pendingSummary().length);
     // Se estava em "Aguardando" e já não está pendente, some da aba pendentes
     if (this.tab() === 'pending' && fresh.status !== 'PENDENTE') {
       this.items.update((list) => list.filter((it) => it.id !== fresh.id));

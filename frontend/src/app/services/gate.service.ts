@@ -43,7 +43,8 @@ export type GateNextAction =
   | 'COMPLETED'
   | 'PENDING_APPROVAL'
   | 'REJECTED'
-  | 'BLOCKED_OPEN_STAY';
+  | 'BLOCKED_OPEN_STAY'
+  | 'BLOCKED_BLACKLIST';
 
 export interface GateTodayCredential {
   id: number;
@@ -54,6 +55,8 @@ export interface GateTodayCredential {
   access_check_in: string | null;
   access_check_out: string | null;
   next_action: GateNextAction;
+  is_blacklisted?: boolean;
+  block_reason?: string | null;
 }
 
 export interface GateTodayListResponse {
@@ -176,17 +179,6 @@ export class GateService {
     return this.api.post(`/gate/services/${idServiceAccess}/notify-approval`, {});
   }
 
-  cancelServiceApproval(
-    idServiceAccess: number,
-  ): Observable<{
-    message: string;
-    id_service_access: number;
-    id_aprovacao: number;
-    id_setor: number;
-    setor_nome: string | null;
-  }> {
-    return this.api.post(`/gate/services/${idServiceAccess}/cancel-approval`, {});
-  }
 }
 
 export interface GateManualReleaseSector {
@@ -284,6 +276,7 @@ export interface GateTodayService {
   check_in: string | null;
   check_out: string | null;
   next_action: GateNextAction;
+  is_blacklisted?: boolean;
   block_reason?: string | null;
   start_date: string | null;
   end_date: string | null;

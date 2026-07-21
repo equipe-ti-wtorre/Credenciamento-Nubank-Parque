@@ -266,15 +266,15 @@ exports.create = async (req, res, next) => {
     const validated = await validateAndNormalizeCollaboratorPayload(req.body);
     if (validated.error) throw new AppError(validated.error, 400);
 
-    const collaborator = await collaboratorService.createCollaborator(
+    const { collaborator, linked } = await collaboratorService.createCollaborator(
       req,
       validated.value,
     );
 
     attachAudit(req, {
-      action: "CREATE",
+      action: linked ? "UPDATE" : "CREATE",
       module: "collaborators",
-      event: "collaborator.create",
+      event: linked ? "collaborator.link_company" : "collaborator.create",
       resource: {
         type: "collaborator",
         id: collaborator.id_collaborator,
@@ -284,10 +284,11 @@ exports.create = async (req, res, next) => {
         name: collaborator.name,
         id_collaborator_document_type: collaborator.id_collaborator_document_type,
         id_collaborator_role: collaborator.id_collaborator_role,
+        linked: !!linked,
       },
     });
 
-    res.status(201).json({ collaborator });
+    res.status(linked ? 200 : 201).json({ collaborator, linked: !!linked });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
       return next(new AppError("Colaborador já cadastrado com este documento.", 409));
@@ -426,21 +427,21 @@ exports.deleteCollaborator = async (req, res, next) => {
       return res.status(404).json({ error: "Colaborador não encontrado." });
     }
 
-    await collaboratorService.deleteCollaborator(req.params.id);
+    const result = await collaboratorService.deleteCollaborator(req, req.params.id);
 
     attachAudit(req, {
       action: "DELETE",
       module: "collaborators",
-      event: "collaborator.delete",
+      event: result.unlinked ? "collaborator.unlink_company" : "collaborator.delete",
       resource: {
         type: "collaborator",
         id: Number(req.params.id),
         document: collaboratorService.maskDocumentForAudit(existing),
       },
-      metadata: { alertLevel: "critical" },
+      metadata: { alertLevel: "critical", unlinked: !!result.unlinked },
     });
 
-    res.json({ success: true });
+    res.json({ success: true, unlinked: !!result.unlinked });
   } catch (err) {
     next(err);
   }

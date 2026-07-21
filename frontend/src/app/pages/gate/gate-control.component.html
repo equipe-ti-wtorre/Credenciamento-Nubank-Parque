@@ -253,6 +253,7 @@
         class="row events-row"
         [class.state-in]="row.next_action === 'CHECK_OUT'"
         [class.state-done]="row.next_action === 'COMPLETED'"
+        [class.state-blocked]="row.next_action === 'BLOCKED_BLACKLIST'"
       >
         <div class="c-type">
           <span class="type colaborador" title="Colaborador" aria-label="Colaborador">
@@ -290,6 +291,9 @@
         <div class="c-finalidade finalidade">{{ row.event_name }}</div>
         <div class="c-entrada">
           <ng-container [ngSwitch]="row.next_action">
+            <span *ngSwitchCase="'BLOCKED_BLACKLIST'" class="status-pill blocked" [title]="row.block_reason || ''"
+              ><span class="d"></span>Bloqueado</span
+            >
             <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
             <div *ngSwitchCase="'CHECK_OUT'">
               <span class="status-pill in status-pill--stack"
@@ -307,40 +311,50 @@
           </ng-container>
         </div>
         <div class="actions">
-          <button
-            *ngIf="row.next_action === 'CHECK_IN'"
-            type="button"
-            class="btn-act entrada"
-            [disabled]="processing()"
-            (click)="onManualValidate(row)"
-            title="Registrar entrada"
-          >
-            Entrada
-          </button>
-          <button
-            *ngIf="row.next_action === 'CHECK_OUT'"
-            type="button"
-            class="btn-act saida"
-            [disabled]="processing()"
-            (click)="onManualValidate(row)"
-            title="Registrar saída"
-          >
-            Saída
-          </button>
-          <span *ngIf="row.next_action === 'COMPLETED'" class="btn-act finished">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-            Concluído
-          </span>
-          <button
-            type="button"
-            class="btn-act substitute"
-            [disabled]="processing()"
-            (click)="openSubstituteModal(row)"
-          >
-            Substituir
-          </button>
+          <ng-container *ngIf="row.next_action === 'BLOCKED_BLACKLIST'; else eventActions">
+            <span
+              class="btn-act finished blocked-label"
+              [title]="row.block_reason || 'Colaborador na lista de bloqueio'"
+            >
+              Bloqueado
+            </span>
+          </ng-container>
+          <ng-template #eventActions>
+            <button
+              *ngIf="row.next_action === 'CHECK_IN'"
+              type="button"
+              class="btn-act entrada"
+              [disabled]="processing()"
+              (click)="onManualValidate(row)"
+              title="Registrar entrada"
+            >
+              Entrada
+            </button>
+            <button
+              *ngIf="row.next_action === 'CHECK_OUT'"
+              type="button"
+              class="btn-act saida"
+              [disabled]="processing()"
+              (click)="onManualValidate(row)"
+              title="Registrar saída"
+            >
+              Saída
+            </button>
+            <span *ngIf="row.next_action === 'COMPLETED'" class="btn-act finished">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              Concluído
+            </span>
+            <button
+              type="button"
+              class="btn-act substitute"
+              [disabled]="processing()"
+              (click)="openSubstituteModal(row)"
+            >
+              Substituir
+            </button>
+          </ng-template>
         </div>
       </div>
     </ng-container>
@@ -389,6 +403,7 @@
         [class.state-done]="row.next_action === 'COMPLETED'"
         [class.state-pending]="row.next_action === 'PENDING_APPROVAL'"
         [class.state-rejected]="row.next_action === 'REJECTED'"
+        [class.state-blocked]="row.next_action === 'BLOCKED_BLACKLIST'"
       >
         <div class="c-type">
           <span
@@ -526,6 +541,9 @@
             <span *ngSwitchCase="'REJECTED'" class="status-pill rejected"
               ><span class="d"></span>Reprovado</span
             >
+            <span *ngSwitchCase="'BLOCKED_BLACKLIST'" class="status-pill blocked" [title]="row.block_reason || ''"
+              ><span class="d"></span>Bloqueado</span
+            >
             <span *ngSwitchCase="'BLOCKED_OPEN_STAY'" class="status-pill wait"
               ><span class="d"></span>Saída pendente</span
             >
@@ -550,7 +568,7 @@
             <button
               type="button"
               class="btn-act-icon notify"
-              [disabled]="processing() || isNotifying(row) || isCancelling(row)"
+              [disabled]="processing() || isNotifying(row)"
               (click)="onNotifySector(row)"
               title="Notificar o setor"
               aria-label="Notificar o setor"
@@ -558,21 +576,6 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m22 2-7 20-4-9-9-4z" />
                 <path d="M22 2 11 13" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              class="btn-act-icon cancel"
-              [disabled]="processing() || isNotifying(row) || isCancelling(row)"
-              (click)="onCancelPending(row)"
-              title="Reprovar solicitação"
-              aria-label="Reprovar solicitação"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M3 6h18" />
-                <path d="M8 6V4h8v2" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-                <path d="M10 11v6M14 11v6" />
               </svg>
             </button>
           </ng-container>
@@ -587,11 +590,20 @@
               Bloqueado
             </span>
           </ng-container>
+          <ng-container *ngIf="row.next_action === 'BLOCKED_BLACKLIST'">
+            <span
+              class="btn-act finished blocked-label"
+              [title]="row.block_reason || 'Consta na lista de bloqueio'"
+            >
+              Bloqueado
+            </span>
+          </ng-container>
           <ng-container
             *ngIf="
               row.next_action !== 'PENDING_APPROVAL' &&
               row.next_action !== 'REJECTED' &&
-              row.next_action !== 'BLOCKED_OPEN_STAY'
+              row.next_action !== 'BLOCKED_OPEN_STAY' &&
+              row.next_action !== 'BLOCKED_BLACKLIST'
             "
           >
             <button

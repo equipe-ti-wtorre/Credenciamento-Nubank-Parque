@@ -140,7 +140,7 @@ const SEED_PROFILES = [
       ["dashboard", ["view"]],
       ["approvals", ["view", "create", "edit"]],
       ["company_users", ["view", "create", "edit"]],
-      ["collaborators", ["view", "create", "edit"]],
+      ["collaborators", ["view", "create", "edit", "delete"]],
       ["events", ["view", "create", "edit"]],
       ["service_access", ["view", "create", "edit"]],
       ["fleet", ["view", "create", "edit"]],
@@ -156,7 +156,7 @@ const SEED_PROFILES = [
     permissions: perms(
       ["dashboard", ["view"]],
       ["approvals", ["view", "create"]],
-      ["collaborators", ["view", "create", "edit"]],
+      ["collaborators", ["view", "create", "edit", "delete"]],
       ["events", ["view", "create", "edit"]],
       ["service_access", ["view", "create", "edit"]],
     ),

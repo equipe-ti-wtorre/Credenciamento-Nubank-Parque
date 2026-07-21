@@ -135,16 +135,68 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
                           type="button"
                           (click)="reenviarConvite(u)"
                         >
+                          <svg
+                            class="action-dropdown__item-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                            <path d="m22 6-10 7L2 6" />
+                          </svg>
                           Reenviar convite
                         </button>
                         <button
                           appActionDropdownItem
                           type="button"
-                          [danger]="u.ativo"
                           (click)="alternarAtivo(u)"
                         >
+                          <svg
+                            class="action-dropdown__item-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                            <path d="M12 2v10" />
+                          </svg>
                           {{ u.ativo ? 'Desativar' : 'Ativar' }}
                         </button>
+                        @if (u.can_delete) {
+                          <hr class="action-dropdown__divider" />
+                          <button
+                            appActionDropdownItem
+                            type="button"
+                            [danger]="true"
+                            (click)="excluir(u)"
+                          >
+                            <svg
+                              class="action-dropdown__item-icon"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.75"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <path d="M10 11v6" />
+                              <path d="M14 11v6" />
+                            </svg>
+                            Excluir
+                          </button>
+                        }
                       </app-action-dropdown>
                     </app-action-menu>
                   </div>
@@ -512,6 +564,28 @@ export class CompanyUserListComponent implements OnDestroy {
         this.carregar();
       },
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao alterar status.'),
+    });
+  }
+
+  excluir(u: CompanyUserItem) {
+    if (!u.can_delete) return;
+    Swal.fire({
+      title: 'Excluir usuário?',
+      text: `Excluir "${u.nome_completo}"? Só é permitido quando não há dados vinculados.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Excluir',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#dc2626',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.companyUsers.remove(u.id).subscribe({
+        next: () => {
+          this.notification.success('Usuário excluído.');
+          this.carregar();
+        },
+        error: (err) => this.notification.notifyHttpError(err, 'Falha ao excluir usuário.'),
+      });
     });
   }
 }

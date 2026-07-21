@@ -10,10 +10,38 @@ const {
   STATUS_NEGADO,
   STATUS_EXPIRADO,
 } = require("../credentials/credentials.schema");
-const { buildEventScope: buildScopeFromUser } = require("../../utils/permissions");
+const {
+  buildEventScope: buildScopeFromUser,
+  getProfileCodigo,
+} = require("../../utils/permissions");
 
 const TYPE_PRODUTORA = "Produtora";
 const TYPE_EMPRESA_PADRAO = "Empresa Padrão";
+
+function isPartnerScopedRole(role) {
+  const codigo = String(role || "").toUpperCase();
+  return (
+    codigo === "PADRAO" ||
+    codigo === "EMPRESA_GESTOR" ||
+    codigo === "EMPRESA_SOLICITANTE"
+  );
+}
+
+function isPartnerScopedUser(req) {
+  return isPartnerScopedRole(getProfileCodigo(req?.user));
+}
+
+/** Empresa única visível para usuário parceiro (null = sem restrição). */
+function resolvePartnerOnlyCompanyId(req, eventRow) {
+  if (!isPartnerScopedUser(req)) return null;
+  if (userCanManageEventCompanies(req, eventRow)) return null;
+  const idCompany =
+    req.user?.id_company != null ? Number(req.user.id_company) : null;
+  if (!idCompany) {
+    throw new AppError("Usuário sem empresa vinculada.", 403);
+  }
+  return idCompany;
+}
 
 /** Tabela prevista no Passo 5 (credenciamento por vínculo dia-empresa). */
 const CREDENTIAL_LINK_TABLE = "event_day_company_collaborator";
@@ -78,9 +106,24 @@ function mapEventRow(row) {
           company_type_description: row.responsavel_type_description || null,
         }
       : null,
+    ativo: row.ativo == null ? true : !!Number(row.ativo),
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
   };
+}
+
+function assertEventActive(eventRow) {
+  if (eventRow && eventRow.ativo != null && !Number(eventRow.ativo)) {
+    throw new AppError("Evento desativado. Reative-o para continuar.", 403);
+  }
+}
+
+async function userCanToggleEventActive(req, idEvent) {
+  if (!!req.user?.is_super_admin) return true;
+  if (req.user?.id && (await userIsEventSolicitante(req.user.id, idEvent))) {
+    return true;
+  }
+  return false;
 }
 
 async function loadEventApprovalSummary(idEvent) {
@@ -126,7 +169,7 @@ function parseListFilters(query) {
   return filters;
 }
 
-function buildListJoinAndWhere(scope, filters) {
+function buildListJoinAndWhere(scope, filters, userId = null) {
   const conditions = [];
   const params = [];
   let join = "";
@@ -136,10 +179,25 @@ function buildListJoinAndWhere(scope, filters) {
       LEFT JOIN event_day ed ON ed.id_event = e.id_event
       LEFT JOIN event_day_company edc ON edc.id_event_day = ed.id_event_day
     `;
-    conditions.push(
-      "(e.id_company_responsavel = ? OR edc.id_company = ? OR edc.id_producer = ?)",
-    );
-    params.push(scope.companyId, scope.companyId, scope.companyId);
+    if (userId != null) {
+      conditions.push(
+        `(e.id_company_responsavel = ?
+          OR edc.id_company = ?
+          OR edc.id_producer = ?
+          OR EXISTS (
+            SELECT 1 FROM aprovacoes a_sol
+             WHERE a_sol.tipo_entidade = 'EVENTO'
+               AND a_sol.id_entidade = e.id_event
+               AND a_sol.id_solicitante = ?
+          ))`,
+      );
+      params.push(scope.companyId, scope.companyId, scope.companyId, userId);
+    } else {
+      conditions.push(
+        "(e.id_company_responsavel = ? OR edc.id_company = ? OR edc.id_producer = ?)",
+      );
+      params.push(scope.companyId, scope.companyId, scope.companyId);
+    }
   } else if (scope.mode === "sector_approver") {
     join = `
       INNER JOIN aprovacoes a_ev
@@ -160,6 +218,23 @@ function buildListJoinAndWhere(scope, filters) {
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   return { join, where, params };
+}
+
+async function getEventSolicitanteId(idEvent, conn = db) {
+  const [rows] = await conn.execute(
+    `SELECT id_solicitante FROM aprovacoes
+      WHERE tipo_entidade = 'EVENTO' AND id_entidade = ?
+      ORDER BY id ASC
+      LIMIT 1`,
+    [idEvent],
+  );
+  return rows[0]?.id_solicitante != null ? Number(rows[0].id_solicitante) : null;
+}
+
+async function userIsEventSolicitante(userId, idEvent, conn = db) {
+  if (userId == null) return false;
+  const solicitanteId = await getEventSolicitanteId(idEvent, conn);
+  return solicitanteId != null && Number(solicitanteId) === Number(userId);
 }
 
 async function userIsSectorApproverForEvent(userId, idEvent, conn = db) {
@@ -186,6 +261,10 @@ async function assertCanReadEvent(req, idEvent) {
   if (scope.mode === "sector_approver") {
     const ok = await userIsSectorApproverForEvent(scope.userId, idEvent);
     if (!ok) throw new AppError("Evento não encontrado.", 404);
+    return;
+  }
+
+  if (req.user?.id && (await userIsEventSolicitante(req.user.id, idEvent))) {
     return;
   }
 
@@ -296,7 +375,7 @@ async function assertNoCredentialedCollaborators(idEventDayCompany) {
   }
 }
 
-async function loadEventDaysWithCompanies(idEvent) {
+async function loadEventDaysWithCompanies(idEvent, { onlyCompanyId } = {}) {
   const [dayRows] = await db.execute(
     `SELECT ed.id_event_day, ed.id_event, ed.id_type, ed.date,
             edt.id_event_day_type, edt.description AS type_description
@@ -311,6 +390,12 @@ async function loadEventDaysWithCompanies(idEvent) {
 
   const dayIds = dayRows.map((d) => d.id_event_day);
   const placeholders = dayIds.map(() => "?").join(", ");
+  const companyParams = [...dayIds];
+  let companyFilter = "";
+  if (onlyCompanyId != null) {
+    companyFilter = " AND edc.id_company = ?";
+    companyParams.push(Number(onlyCompanyId));
+  }
 
   const [companyRows] = await db.execute(
     `SELECT edc.id_event_day_company, edc.id_event_day, edc.id_company, edc.id_producer,
@@ -325,9 +410,9 @@ async function loadEventDaysWithCompanies(idEvent) {
      INNER JOIN company_type ct ON ct.id_company_type = c.id_company_type
      LEFT JOIN company pc ON pc.id_company = edc.id_producer
      LEFT JOIN company_type pct ON pct.id_company_type = pc.id_company_type
-     WHERE edc.id_event_day IN (${placeholders})
+     WHERE edc.id_event_day IN (${placeholders})${companyFilter}
      ORDER BY c.company_name ASC`,
-    dayIds,
+    companyParams,
   );
 
   const companiesByDay = new Map();
@@ -367,10 +452,10 @@ async function loadEventDaysWithCompanies(idEvent) {
   }));
 }
 
-async function getEventDetailById(id) {
+async function getEventDetailById(id, { onlyCompanyId } = {}) {
   const row = await findEventById(id);
   if (!row) throw new AppError("Evento não encontrado.", 404);
-  const days = await loadEventDaysWithCompanies(id);
+  const days = await loadEventDaysWithCompanies(id, { onlyCompanyId });
   const approval = await loadEventApprovalSummary(id);
   return { ...mapEventRow(row), days, approval };
 }
@@ -378,11 +463,12 @@ async function getEventDetailById(id) {
 async function listEvents(req, { page, limit, filters }) {
   const scope = buildEventScope(req);
   const offset = (page - 1) * limit;
-  const { join, where, params } = buildListJoinAndWhere(scope, filters);
+  const userId = req.user?.id != null ? Number(req.user.id) : null;
+  const { join, where, params } = buildListJoinAndWhere(scope, filters, userId);
 
   const [rows] = await db.execute(
     `SELECT DISTINCT e.id_event, e.name, e.start, e.end, e.id_access_status,
-            e.id_company_responsavel, e.criado_em, e.atualizado_em,
+            e.id_company_responsavel, e.ativo, e.criado_em, e.atualizado_em,
             ast.description AS access_status_description,
             rc.company_name AS responsavel_company_name,
             rc.fancy_name AS responsavel_fancy_name,
@@ -404,8 +490,24 @@ async function listEvents(req, { page, limit, filters }) {
     params,
   );
 
+  const events = await Promise.all(
+    rows.map(async (row) => {
+      const mapped = mapEventRow(row);
+      const hasData = await eventHasRegisteredData(mapped.id_event);
+      const can_delete =
+        !hasData && (await userCanDeleteEvent(req, row, mapped.id_event));
+      const can_toggle_active = await userCanToggleEventActive(req, mapped.id_event);
+      return {
+        ...mapped,
+        can_delete,
+        can_toggle_active,
+        has_registered_data: hasData,
+      };
+    }),
+  );
+
   return {
-    events: rows.map(mapEventRow),
+    events,
     pagination: {
       page,
       limit,
@@ -426,26 +528,136 @@ async function getEventPortariaPreference(idUsuario, idEvent) {
   return !!rows[0]?.notificar_portaria;
 }
 
+function userCanManageEventCompanies(req, eventRow) {
+  return (
+    !!req.user?.is_super_admin ||
+    (req.user?.id_company != null &&
+      Number(req.user.id_company) === Number(eventRow.id_company_responsavel))
+  );
+}
+
+async function eventHasRegisteredData(idEvent, conn = db) {
+  const eventRow = await findEventById(idEvent);
+  if (!eventRow) return false;
+  const responsavelId =
+    eventRow.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
+
+  if (await tableExists(CREDENTIAL_LINK_TABLE)) {
+    const [credRows] = await conn.execute(
+      `SELECT 1
+         FROM event_day_company_collaborator edcc
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcc.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event = ?
+        LIMIT 1`,
+      [idEvent],
+    );
+    if (credRows.length > 0) return true;
+  }
+
+  if (responsavelId != null) {
+    const [extraLinks] = await conn.execute(
+      `SELECT 1
+         FROM event_day_company edc
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event = ?
+          AND NOT (edc.id_company = ? AND edc.id_producer IS NULL)
+        LIMIT 1`,
+      [idEvent, responsavelId],
+    );
+    if (extraLinks.length > 0) return true;
+  } else {
+    const [anyLinks] = await conn.execute(
+      `SELECT 1
+         FROM event_day_company edc
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event = ?
+        LIMIT 1`,
+      [idEvent],
+    );
+    if (anyLinks.length > 0) return true;
+  }
+
+  return false;
+}
+
+async function userCanDeleteEvent(req, eventRow, idEvent) {
+  if (!!req.user?.is_super_admin) return true;
+  if (userCanManageEventCompanies(req, eventRow)) return true;
+  if (req.user?.id && (await userIsEventSolicitante(req.user.id, idEvent))) {
+    return true;
+  }
+  return false;
+}
+
 async function getEventById(req, id) {
   const row = await findEventById(id);
   if (!row) throw new AppError("Evento não encontrado.", 404);
   await assertCanReadEvent(req, id);
-  const detail = await getEventDetailById(id);
+  const onlyCompanyId = resolvePartnerOnlyCompanyId(req, row);
+  const detail = await getEventDetailById(id, { onlyCompanyId });
   const notificar_portaria = req.user?.id
     ? await getEventPortariaPreference(req.user.id, id)
     : false;
   const can_approve_credentials =
     !!req.user?.is_super_admin ||
     (req.user?.id ? await userIsSectorApproverForEvent(req.user.id, id) : false);
-  const can_manage_companies =
-    !!req.user?.is_super_admin ||
-    (req.user?.id_company != null &&
-      Number(req.user.id_company) === Number(row.id_company_responsavel));
+  const can_manage_companies = userCanManageEventCompanies(req, row);
+  const is_solicitante = req.user?.id
+    ? await userIsEventSolicitante(req.user.id, id)
+    : false;
+  const can_change_responsavel = !!req.user?.is_super_admin || is_solicitante;
+  const can_toggle_active =
+    !!req.user?.is_super_admin || is_solicitante;
+  const hasData = await eventHasRegisteredData(id);
+  const can_delete =
+    !hasData && (await userCanDeleteEvent(req, row, id));
   return {
     ...detail,
     notificar_portaria,
     can_approve_credentials,
     can_manage_companies,
+    is_solicitante,
+    can_change_responsavel,
+    can_toggle_active,
+    can_delete,
+    has_registered_data: hasData,
+  };
+}
+
+async function updateEventActiveStatus(req, id, ativo) {
+  const eventId = Number(id);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+  const row = await findEventById(eventId);
+  if (!row) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+
+  if (!(await userCanToggleEventActive(req, eventId))) {
+    throw new AppError("Somente quem criou o evento pode ativar ou desativar.", 403);
+  }
+
+  const nextAtivo = ativo ? 1 : 0;
+  const wasAtivo = row.ativo == null ? 1 : Number(row.ativo) ? 1 : 0;
+  if (wasAtivo !== nextAtivo) {
+    await db.execute("UPDATE event SET ativo = ? WHERE id_event = ?", [
+      nextAtivo,
+      eventId,
+    ]);
+  }
+
+  const event = await getEventById(req, eventId);
+  return {
+    event,
+    changes: {
+      statusChanged: wasAtivo !== nextAtivo,
+      wasActivated: wasAtivo === 0 && nextAtivo === 1,
+      wasDeactivated: wasAtivo === 1 && nextAtivo === 0,
+    },
   };
 }
 
@@ -673,6 +885,11 @@ async function updateEventPeriod(req, id, data) {
   const eventRow = await findEventById(id);
   if (!eventRow) throw new AppError("Evento não encontrado.", 404);
   await assertCanReadEvent(req, id);
+  assertEventActive(eventRow);
+
+  if (!userCanManageEventCompanies(req, eventRow)) {
+    throw new AppError("Sem permissão para ajustar o período deste evento.", 403);
+  }
 
   const start = toDateOnly(data.start);
   const end = toDateOnly(data.end);
@@ -742,6 +959,171 @@ async function updateEventPeriod(req, id, data) {
   } finally {
     conn.release();
   }
+}
+
+async function migrateCredentialsBetweenLinks(conn, fromLinkId, toLinkId) {
+  if (!(await tableExists(CREDENTIAL_LINK_TABLE))) return;
+  if (Number(fromLinkId) === Number(toLinkId)) return;
+
+  await conn.execute(
+    `UPDATE ${CREDENTIAL_LINK_TABLE}
+        SET id_event_day_company = ?
+      WHERE id_event_day_company = ?`,
+    [toLinkId, fromLinkId],
+  );
+}
+
+async function migrateResponsavelLinksForDay(conn, idEventDay, oldId, newId) {
+  await conn.execute(
+    `UPDATE event_day_company
+        SET id_producer = ?
+      WHERE id_event_day = ? AND id_producer = ?`,
+    [newId, idEventDay, oldId],
+  );
+
+  const [oldLinks] = await conn.execute(
+    `SELECT id_event_day_company
+       FROM event_day_company
+      WHERE id_event_day = ? AND id_company = ? AND id_producer IS NULL
+      LIMIT 1`,
+    [idEventDay, oldId],
+  );
+  const [newLinks] = await conn.execute(
+    `SELECT id_event_day_company
+       FROM event_day_company
+      WHERE id_event_day = ? AND id_company = ?
+      LIMIT 1`,
+    [idEventDay, newId],
+  );
+
+  const oldLinkId = oldLinks[0]?.id_event_day_company || null;
+  const newLinkId = newLinks[0]?.id_event_day_company || null;
+
+  if (oldLinkId && !newLinkId) {
+    await conn.execute(
+      `UPDATE event_day_company SET id_company = ? WHERE id_event_day_company = ?`,
+      [newId, oldLinkId],
+    );
+    return;
+  }
+
+  if (oldLinkId && newLinkId && Number(oldLinkId) !== Number(newLinkId)) {
+    await migrateCredentialsBetweenLinks(conn, oldLinkId, newLinkId);
+    await conn.execute(
+      `UPDATE event_day_company SET id_producer = NULL WHERE id_event_day_company = ?`,
+      [newLinkId],
+    );
+    await conn.execute(
+      `DELETE FROM event_day_company WHERE id_event_day_company = ?`,
+      [oldLinkId],
+    );
+    return;
+  }
+
+  if (!oldLinkId && !newLinkId) {
+    await conn.execute(
+      `INSERT INTO event_day_company (id_event_day, id_company, id_producer)
+       VALUES (?, ?, NULL)`,
+      [idEventDay, newId],
+    );
+  }
+}
+
+async function updateEventResponsavel(req, id, idCompanyResponsavel) {
+  const eventId = Number(id);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+
+  const eventRow = await findEventById(eventId);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+  assertEventActive(eventRow);
+
+  const isSolicitante = req.user?.id
+    ? await userIsEventSolicitante(req.user.id, eventId)
+    : false;
+  const canChange = !!req.user?.is_super_admin || isSolicitante;
+  if (!canChange) {
+    throw new AppError("Sem permissão para trocar a empresa responsável.", 403);
+  }
+
+  const newId = Number(idCompanyResponsavel);
+  if (!Number.isInteger(newId) || newId <= 0) {
+    throw new AppError("Empresa responsável inválida.", 400);
+  }
+
+  const oldId =
+    eventRow.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
+
+  if (oldId === newId) {
+    return getEventById(req, eventId);
+  }
+
+  const responsavel = await companyService.findActiveCompanyById(newId);
+  if (!responsavel) {
+    throw new AppError("Empresa responsável não encontrada ou inativa.", 400);
+  }
+  const produtoraTypeId = await getProdutoraTypeId();
+  if (Number(responsavel.id_company_type) !== produtoraTypeId) {
+    throw new AppError("A empresa responsável deve ser do tipo Produtora.", 400);
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    await conn.execute(
+      `UPDATE event SET id_company_responsavel = ? WHERE id_event = ?`,
+      [newId, eventId],
+    );
+
+    if (oldId != null) {
+      const [dayRows] = await conn.execute(
+        `SELECT id_event_day FROM event_day WHERE id_event = ?`,
+        [eventId],
+      );
+      for (const day of dayRows) {
+        await migrateResponsavelLinksForDay(conn, day.id_event_day, oldId, newId);
+      }
+    } else {
+      const [dayRows] = await conn.execute(
+        `SELECT id_event_day FROM event_day WHERE id_event = ?`,
+        [eventId],
+      );
+      for (const day of dayRows) {
+        const [existing] = await conn.execute(
+          `SELECT 1 FROM event_day_company
+            WHERE id_event_day = ? AND id_company = ? LIMIT 1`,
+          [day.id_event_day, newId],
+        );
+        if (!existing.length) {
+          await conn.execute(
+            `INSERT INTO event_day_company (id_event_day, id_company, id_producer)
+             VALUES (?, ?, NULL)`,
+            [day.id_event_day, newId],
+          );
+        }
+      }
+    }
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    if (err.code === "ER_DUP_ENTRY") {
+      throw new AppError(
+        "Não foi possível trocar a responsável: conflito de vínculo no dia.",
+        409,
+      );
+    }
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  return getEventById(req, eventId);
 }
 
 async function addCompanyToEventDay(req, idEventDay, payload) {
@@ -988,6 +1370,272 @@ async function findEventDayCompanyById(id) {
   return rows[0] || null;
 }
 
+async function deleteEvent(req, id) {
+  const eventId = Number(id);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+
+  const eventRow = await findEventById(eventId);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+
+  if (!(await userCanDeleteEvent(req, eventRow, eventId))) {
+    throw new AppError("Sem permissão para excluir este evento.", 403);
+  }
+
+  if (await eventHasRegisteredData(eventId)) {
+    throw new AppError(
+      "Não é possível excluir: o evento possui empresas ou colaboradores cadastrados.",
+      409,
+    );
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [aprovacoes] = await conn.execute(
+      `SELECT id FROM aprovacoes
+        WHERE tipo_entidade = 'EVENTO' AND id_entidade = ?`,
+      [eventId],
+    );
+    if (aprovacoes.length > 0) {
+      const ids = aprovacoes.map((a) => a.id);
+      const placeholders = ids.map(() => "?").join(", ");
+      await conn.execute(
+        `DELETE FROM aprovacao_decisoes WHERE id_aprovacao IN (${placeholders})`,
+        ids,
+      );
+      await conn.execute(
+        `DELETE FROM aprovacoes WHERE id IN (${placeholders})`,
+        ids,
+      );
+    }
+
+    await conn.execute(`DELETE FROM event WHERE id_event = ?`, [eventId]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  return {
+    deleted: true,
+    id_event: eventId,
+    name: eventRow.name,
+  };
+}
+
+async function syncCompanyPhases(req, idEvent, idCompany, phases) {
+  const eventId = Number(idEvent);
+  const companyId = Number(idCompany);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+  if (!Number.isInteger(companyId) || companyId <= 0) {
+    throw new AppError("Empresa inválida.", 400);
+  }
+
+  const phaseNames = [...new Set((phases || []).map((p) => String(p || "").trim()).filter(Boolean))];
+  if (!phaseNames.length) {
+    throw new AppError("Selecione ao menos uma fase.", 400);
+  }
+
+  const eventRow = await findEventById(eventId);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+  assertEventActive(eventRow);
+
+  if (!userCanManageEventCompanies(req, eventRow)) {
+    throw new AppError("Sem permissão para vincular empresas a este evento.", 403);
+  }
+
+  const responsavelId =
+    eventRow.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
+  if (responsavelId != null && companyId === responsavelId) {
+    throw new AppError(
+      "A empresa responsável não pode ter as fases alteradas por este fluxo.",
+      400,
+    );
+  }
+
+  const company = await companyService.findActiveCompanyById(companyId);
+  if (!company) {
+    throw new AppError("Empresa não encontrada ou inativa.", 400);
+  }
+  const padraoTypeId = await getEmpresaPadraoTypeId();
+  if (Number(company.id_company_type) !== padraoTypeId) {
+    throw new AppError("Apenas Empresa Padrão pode ser vinculada como parceira.", 400);
+  }
+  if (responsavelId == null) {
+    throw new AppError("Evento sem empresa responsável definida.", 400);
+  }
+
+  const [dayRows] = await db.execute(
+    `SELECT ed.id_event_day, ed.id_type, edt.description AS type_description
+       FROM event_day ed
+       INNER JOIN event_day_type edt ON edt.id_event_day_type = ed.id_type
+      WHERE ed.id_event = ?
+      ORDER BY ed.date ASC`,
+    [eventId],
+  );
+
+  const availablePhases = [...new Set(dayRows.map((d) => d.type_description))];
+  for (const phase of phaseNames) {
+    if (!availablePhases.includes(phase)) {
+      throw new AppError(`Fase "${phase}" não existe neste evento.`, 400);
+    }
+  }
+
+  const targetDayIds = new Set(
+    dayRows
+      .filter((d) => phaseNames.includes(d.type_description))
+      .map((d) => Number(d.id_event_day)),
+  );
+
+  const [existingLinks] = await db.execute(
+    `SELECT edc.id_event_day_company, edc.id_event_day
+       FROM event_day_company edc
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ? AND edc.id_company = ?`,
+    [eventId, companyId],
+  );
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    for (const link of existingLinks) {
+      const dayId = Number(link.id_event_day);
+      if (targetDayIds.has(dayId)) continue;
+
+      if (await tableExists(CREDENTIAL_LINK_TABLE)) {
+        const [credRows] = await conn.execute(
+          `SELECT COUNT(*) AS total FROM ${CREDENTIAL_LINK_TABLE}
+            WHERE id_event_day_company = ?`,
+          [link.id_event_day_company],
+        );
+        if (Number(credRows[0]?.total || 0) > 0) {
+          throw new AppError(
+            "Não é possível remover a fase: existem credenciais vinculadas.",
+            400,
+          );
+        }
+      }
+      await conn.execute(
+        `DELETE FROM event_day_company WHERE id_event_day_company = ?`,
+        [link.id_event_day_company],
+      );
+    }
+
+    const existingDayIds = new Set(existingLinks.map((l) => Number(l.id_event_day)));
+    for (const dayId of targetDayIds) {
+      if (existingDayIds.has(dayId)) continue;
+      await conn.execute(
+        `INSERT INTO event_day_company (id_event_day, id_company, id_producer)
+         VALUES (?, ?, ?)`,
+        [dayId, companyId, responsavelId],
+      );
+    }
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    if (err.code === "ER_DUP_ENTRY") {
+      throw new AppError("Empresa já vinculada a um dos dias selecionados.", 409);
+    }
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  return getEventById(req, eventId);
+}
+
+async function listCompanyVehicles(req, idEvent, idCompany) {
+  return require("./event-company-vehicle.service").listCompanyVehicles(
+    req,
+    idEvent,
+    idCompany,
+  );
+}
+
+async function addCompanyVehicle(req, idEvent, idCompany, idVehicle) {
+  return require("./event-company-vehicle.service").addCompanyVehicle(
+    req,
+    idEvent,
+    idCompany,
+    idVehicle,
+  );
+}
+
+async function removeCompanyVehicle(req, idEvent, idCompany, idVehicle) {
+  return require("./event-company-vehicle.service").removeCompanyVehicle(
+    req,
+    idEvent,
+    idCompany,
+    idVehicle,
+  );
+}
+
+async function listEventVehicleCounts(req, idEvent) {
+  const row = await findEventById(idEvent);
+  if (!row) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, idEvent);
+  const onlyCompanyId = resolvePartnerOnlyCompanyId(req, row);
+  return require("./event-company-vehicle.service").listEventVehicleCounts(
+    idEvent,
+    { onlyCompanyId },
+  );
+}
+
+async function getCompanyBulkImportTemplate() {
+  return require("../patrimonial/service-access-bulk-import").buildUnifiedTemplate();
+}
+
+async function previewCompanyBulkImport(req, idEvent, idCompany, file) {
+  const vehicleSvc = require("./event-company-vehicle.service");
+  const links = await vehicleSvc.assertCanManageCompanyVehicles(req, idEvent, idCompany);
+  const event = await getEventById(req, idEvent);
+  const companyName =
+    links[0]?.company_name ||
+    links[0]?.fancy_name ||
+    null;
+  const flow = require("./event-company-bulk-import.flow");
+  return flow.previewUnifiedBulkImport({
+    eventId: Number(idEvent),
+    companyId: Number(idCompany),
+    eventName: event?.name || `Evento #${idEvent}`,
+    companyName,
+    file,
+    userId: req.user?.id || null,
+  });
+}
+
+async function confirmCompanyBulkImport(req, idEvent, idCompany, body) {
+  const vehicleSvc = require("./event-company-vehicle.service");
+  const links = await vehicleSvc.assertCanManageCompanyVehicles(req, idEvent, idCompany);
+  const previewToken = body.previewToken || body.previewId;
+  if (!previewToken) {
+    throw new AppError("previewToken é obrigatório.", 400);
+  }
+  const flow = require("./event-company-bulk-import.flow");
+  return flow.confirmUnifiedBulkImport({
+    eventId: Number(idEvent),
+    companyId: Number(idCompany),
+    links,
+    previewToken,
+    decisoes: body.decisoes || {},
+    userId: req.user?.id || null,
+    req,
+  });
+}
+
 module.exports = {
   parseListQuery,
   parseListFilters,
@@ -995,15 +1643,28 @@ module.exports = {
   listEvents,
   getEventById,
   updateEventPreferences,
+  updateEventActiveStatus,
   createEvent,
   updateEventPeriod,
+  updateEventResponsavel,
+  deleteEvent,
+  assertEventActive,
+  syncCompanyPhases,
   reopenEventForApproval,
   addCompanyToEventDay,
   removeCompanyFromEventDay,
   listProducerCompanies,
   listPadraoCompaniesForEvent,
   userIsSectorApproverForEvent,
+  getEventSolicitanteId,
   markApproved,
   markRejected,
   markExpired,
+  listCompanyVehicles,
+  addCompanyVehicle,
+  removeCompanyVehicle,
+  listEventVehicleCounts,
+  getCompanyBulkImportTemplate,
+  previewCompanyBulkImport,
+  confirmCompanyBulkImport,
 };

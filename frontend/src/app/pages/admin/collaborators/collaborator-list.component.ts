@@ -13,6 +13,7 @@ import {
   normalizeCpfInput,
 } from '../../../services/collaborator.service';
 import { NotificationService } from '../../../core/services/notification.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { ActionBtnComponent } from '../../../shared/actions/action-btn.component';
 import { ActionMenuComponent } from '../../../shared/actions/action-menu.component';
 import { ActionDropdownComponent } from '../../../shared/actions/action-dropdown.component';
@@ -348,7 +349,7 @@ interface CollaboratorFormState {
                               <path d="M10 11v6" />
                               <path d="M14 11v6" />
                             </svg>
-                            Excluir
+                            {{ isCompanyScoped() ? 'Desvincular' : 'Excluir' }}
                           </button>
                         }
                       </app-action-dropdown>
@@ -541,7 +542,7 @@ interface CollaboratorFormState {
 
         <p class="collab-section-label">Situação</p>
         <div class="collab-status">
-          <div class="collab-status__row" [class.is-locked]="form.isBlacklisted">
+          <div class="collab-status__row">
             <span class="collab-status__icon collab-status__icon--ok" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -550,7 +551,7 @@ interface CollaboratorFormState {
             </span>
             <span class="collab-status__text">
               <span class="collab-status__title">Colaborador ativo</span>
-              <span class="collab-status__desc">Disponível para credenciamento e acessos.</span>
+              <span class="collab-status__desc">Cadastro ativo no sistema (independente da blacklist).</span>
             </span>
             <button
               type="button"
@@ -803,13 +804,22 @@ export class CollaboratorListComponent implements OnDestroy {
   };
 
   stats = signal({ total: 0, ativos: 0, inativos: 0, blacklist: 0 });
+  isCompanyScoped = signal(false);
+
+  private readonly authService = inject(AuthService);
 
   constructor(
     private collaboratorService: CollaboratorService,
     private notification: NotificationService,
   ) {
+    void this.resolveCompanyScope();
     this.carregarDominios();
     this.carregar();
+  }
+
+  private async resolveCompanyScope() {
+    const user = await this.authService.getCurrentUser();
+    this.isCompanyScoped.set(!!user?.profile?.requires_company);
   }
 
   ngOnDestroy() {
@@ -1025,7 +1035,6 @@ export class CollaboratorListComponent implements OnDestroy {
   }
 
   toggleAtivo() {
-    if (this.form.isBlacklisted) return;
     this.form.status = !this.form.status;
   }
 
@@ -1152,7 +1161,7 @@ export class CollaboratorListComponent implements OnDestroy {
           name: col.name,
           rg: col.rg || '',
           phone: col.phone || '',
-          status: col.is_blacklisted ? false : col.status,
+          status: col.status,
           isBlacklisted: col.is_blacklisted,
         };
         this.blacklistReason.set(null);
@@ -1434,7 +1443,7 @@ export class CollaboratorListComponent implements OnDestroy {
       name: this.form.name.trim(),
       rg: this.form.rg.trim() || null,
       phone: this.form.phone.trim() || null,
-      status: this.form.isBlacklisted ? false : this.form.status,
+      status: this.form.status,
     };
 
     this.saving.set(true);
@@ -1447,7 +1456,13 @@ export class CollaboratorListComponent implements OnDestroy {
         const savedId = id ?? res.collaborator.id_collaborator;
         const finish = () => {
           this.saving.set(false);
-          this.notification.success(id ? 'Colaborador atualizado.' : 'Colaborador criado.');
+          const linked = !id && !!(res as { linked?: boolean }).linked;
+          const msg = id
+            ? 'Colaborador atualizado.'
+            : linked
+              ? 'Colaborador vinculado à empresa.'
+              : 'Colaborador criado.';
+          this.notification.success(msg);
           this.fecharModal();
           this.carregar(id ? this.pagination().page : 1);
         };
@@ -1543,7 +1558,6 @@ export class CollaboratorListComponent implements OnDestroy {
         // No cadastro, a blacklist só é persistida após salvar.
         if (!id) {
           this.form.isBlacklisted = true;
-          this.form.status = false;
           this.blacklistReason.set(reason);
           return;
         }
@@ -1551,7 +1565,6 @@ export class CollaboratorListComponent implements OnDestroy {
         this.collaboratorService.addBlacklist(id, reason).subscribe({
           next: () => {
             this.form.isBlacklisted = true;
-            this.form.status = false;
             this.blacklistReason.set(reason);
             this.notification.success('Colaborador adicionado à blacklist.');
             this.carregar();
@@ -1656,23 +1669,35 @@ export class CollaboratorListComponent implements OnDestroy {
   }
 
   excluirColaborador(c: CollaboratorItem) {
+    const companyScoped = this.isCompanyScoped();
     Swal.fire({
-      title: 'Excluir colaborador?',
-      text: `"${c.name}" será removido permanentemente do cadastro.`,
+      title: companyScoped ? 'Desvincular colaborador?' : 'Excluir colaborador?',
+      text: companyScoped
+        ? `"${c.name}" deixará de aparecer para a sua empresa. O cadastro permanece disponível para outras empresas.`
+        : `"${c.name}" será removido permanentemente do cadastro.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: 'Excluir',
+      confirmButtonText: companyScoped ? 'Desvincular' : 'Excluir',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#dc2626',
     }).then((result) => {
       if (!result.isConfirmed) return;
       this.collaboratorService.delete(c.id_collaborator).subscribe({
-        next: () => {
-          this.notification.success('Colaborador excluído.');
+        next: (res) => {
+          this.notification.success(
+            res.unlinked || companyScoped
+              ? 'Colaborador desvinculado da empresa.'
+              : 'Colaborador excluído.',
+          );
           this.carregar();
         },
         error: (err) => {
-          this.notification.error(this.extractError(err) || 'Falha ao excluir colaborador.');
+          this.notification.error(
+            this.extractError(err) ||
+              (companyScoped
+                ? 'Falha ao desvincular colaborador.'
+                : 'Falha ao excluir colaborador.'),
+          );
         },
       });
     });

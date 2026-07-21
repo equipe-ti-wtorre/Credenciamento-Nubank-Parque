@@ -17,8 +17,12 @@ export interface EventItem {
   access_status_description?: string | null;
   id_company_responsavel?: number | null;
   company_responsavel?: EventDayCompanyBrief | null;
+  ativo?: boolean;
   criado_em?: string;
   atualizado_em?: string;
+  can_delete?: boolean;
+  can_toggle_active?: boolean;
+  has_registered_data?: boolean;
 }
 
 export interface EventDayCompanyBrief {
@@ -61,6 +65,11 @@ export interface EventDetail extends EventItem {
   notificar_portaria?: boolean;
   can_approve_credentials?: boolean;
   can_manage_companies?: boolean;
+  is_solicitante?: boolean;
+  can_change_responsavel?: boolean;
+  can_toggle_active?: boolean;
+  can_delete?: boolean;
+  has_registered_data?: boolean;
 }
 
 export interface EventListFilters {
@@ -94,6 +103,20 @@ export interface EventCreatePayload {
 export interface EventDayCompanyPayload {
   id_company: number;
   id_producer?: number | null;
+}
+
+export interface EventCompanyVehicleItem {
+  id_vehicle: number;
+  plate: string;
+  brand: string | null;
+  model: string | null;
+  color: string | null;
+  type: string | null;
+  description: string | null;
+  status: boolean;
+  id_access_status: number;
+  access_status_description: string;
+  linkIds: number[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -140,6 +163,25 @@ export class EventService {
     return this.api.patch<{ event: EventDetail }>(`/events/${id}/period`, data);
   }
 
+  updateResponsavel(
+    id: number,
+    id_company_responsavel: number,
+  ): Observable<{ event: EventDetail }> {
+    return this.api.patch<{ event: EventDetail }>(`/events/${id}/responsavel`, {
+      id_company_responsavel,
+    });
+  }
+
+  patchStatus(id: number, ativo: boolean): Observable<{ event: EventDetail }> {
+    return this.api.patch<{ event: EventDetail }>(`/events/${id}/status`, { ativo });
+  }
+
+  remove(id: number): Observable<{ removed: { deleted: boolean; id_event: number; name: string } }> {
+    return this.api.delete<{ removed: { deleted: boolean; id_event: number; name: string } }>(
+      `/events/${id}`,
+    );
+  }
+
   updatePreferences(
     id: number,
     data: { notificar_portaria: boolean },
@@ -158,6 +200,109 @@ export class EventService {
     return this.api.delete<{ removed: unknown }>(
       `/events/days/companies/${idEventDayCompany}`,
     );
+  }
+
+  syncCompanyPhases(
+    idEvent: number,
+    idCompany: number,
+    phases: string[],
+  ): Observable<{ event: EventDetail }> {
+    return this.api.put<{ event: EventDetail }>(
+      `/events/${idEvent}/companies/${idCompany}/phases`,
+      { phases },
+    );
+  }
+
+  previewCompanyCredentialsBulk(
+    idEvent: number,
+    idCompany: number,
+    file: File,
+  ): Observable<{
+    previewId: string;
+    summary: { total: number; create: number; link: number; update: number; error: number };
+    rows: Array<{
+      line: number;
+      status: string;
+      incoming: { name?: string; document?: string; role?: string };
+      message?: string;
+    }>;
+  }> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.api.postFormData(`/events/${idEvent}/companies/${idCompany}/credentials/bulk/preview`, form);
+  }
+
+  commitCompanyCredentialsBulk(
+    idEvent: number,
+    idCompany: number,
+    previewId: string,
+    decisions: Array<{ line: number; action: 'create' | 'link' | 'skip' }>,
+  ): Observable<{
+    created: number;
+    linked: number;
+    skipped: number;
+    credentialsCreated: number;
+    errors: Array<{ line: number; reason: string }>;
+  }> {
+    return this.api.post(`/events/${idEvent}/companies/${idCompany}/credentials/bulk/commit`, {
+      previewId,
+      decisions,
+    });
+  }
+
+  listVehicleCounts(idEvent: number): Observable<{ counts: Record<number, number> }> {
+    return this.api.get<{ counts: Record<number, number> }>(`/events/${idEvent}/vehicle-counts`);
+  }
+
+  listCompanyVehicles(
+    idEvent: number,
+    idCompany: number,
+  ): Observable<{ vehicles: EventCompanyVehicleItem[] }> {
+    return this.api.get<{ vehicles: EventCompanyVehicleItem[] }>(
+      `/events/${idEvent}/companies/${idCompany}/vehicles`,
+    );
+  }
+
+  addCompanyVehicle(
+    idEvent: number,
+    idCompany: number,
+    id_vehicle: number,
+  ): Observable<{ vehicle: EventCompanyVehicleItem; created: number; skipped: number }> {
+    return this.api.post(`/events/${idEvent}/companies/${idCompany}/vehicles`, { id_vehicle });
+  }
+
+  removeCompanyVehicle(
+    idEvent: number,
+    idCompany: number,
+    idVehicle: number,
+  ): Observable<{ removed: boolean; id_vehicle: number; count: number }> {
+    return this.api.delete(`/events/${idEvent}/companies/${idCompany}/vehicles/${idVehicle}`);
+  }
+
+  downloadCompanyBulkTemplate(idEvent: number, idCompany: number): Observable<Blob> {
+    return this.api.getBlob(`/events/${idEvent}/companies/${idCompany}/bulk-import/template`);
+  }
+
+  previewCompanyBulkImport(idEvent: number, idCompany: number, file: File) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.api.postFormData<
+      import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkPreviewResult
+    >(`/events/${idEvent}/companies/${idCompany}/bulk-import/preview`, form);
+  }
+
+  confirmCompanyBulkImport(
+    idEvent: number,
+    idCompany: number,
+    previewToken: string,
+    decisoes: import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmBody['decisoes'],
+  ) {
+    return this.api.post<
+      import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmResult
+    >(`/events/${idEvent}/companies/${idCompany}/bulk-import/confirm`, {
+      previewToken,
+      decisoes,
+    });
   }
 
   private buildParams(page: number, limit: number, filters: EventListFilters): HttpParams {

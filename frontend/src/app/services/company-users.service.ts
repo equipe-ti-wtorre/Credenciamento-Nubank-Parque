@@ -19,6 +19,7 @@ export interface CompanyUserItem {
     requires_company?: boolean;
   } | null;
   ativo: boolean;
+  can_delete?: boolean;
   criado_em?: string;
   atualizado_em?: string;
 }
@@ -82,5 +83,11 @@ export class CompanyUsersService {
 
   resendInvite(id: number): Observable<{ user: CompanyUserItem; invite: unknown }> {
     return this.api.post(`/company-users/${id}/resend-invite`, {});
+  }
+
+  remove(id: number): Observable<{
+    removed: { deleted: boolean; id: number; email: string; nome_completo: string };
+  }> {
+    return this.api.delete(`/company-users/${id}`);
   }
 }
