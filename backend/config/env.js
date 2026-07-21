@@ -71,7 +71,8 @@ const env = {
   rateLimitDisabled:
     String(process.env.RATE_LIMIT_DISABLED || "false").toLowerCase() === "true",
   rateLimitGlobalWindowMs: Number(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS) || 15 * 60 * 1000,
-  rateLimitGlobalMax: Number(process.env.RATE_LIMIT_GLOBAL_MAX) || 300,
+  /** SPA com filtros live gera muitas GETs; 300/15min estoura fácil por IP. */
+  rateLimitGlobalMax: Number(process.env.RATE_LIMIT_GLOBAL_MAX) || 2000,
   rateLimitAuthWindowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS) || 15 * 60 * 1000,
   rateLimitAuthMax: Number(process.env.RATE_LIMIT_AUTH_MAX) || 30,
   rateLimitMicrosoftAuthMax: Number(process.env.RATE_LIMIT_MICROSOFT_AUTH_MAX) || 40,

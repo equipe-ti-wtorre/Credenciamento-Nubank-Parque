@@ -413,7 +413,7 @@ export class CompanyUserListComponent implements OnDestroy {
 
   onFilterChange() {
     if (this.filterTimer) clearTimeout(this.filterTimer);
-    this.filterTimer = setTimeout(() => this.aplicarFiltros(), 350);
+    this.filterTimer = setTimeout(() => this.aplicarFiltros(), 500);
   }
 
   aplicarFiltros() {

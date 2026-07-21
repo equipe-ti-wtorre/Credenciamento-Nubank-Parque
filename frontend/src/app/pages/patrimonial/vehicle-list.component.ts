@@ -588,7 +588,7 @@ export class VehicleListComponent implements OnInit {
   appliedType = '';
   appliedStatus: boolean | undefined = undefined;
 
-  private readonly filterDebounceMs = 350;
+  private readonly filterDebounceMs = 500;
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   stats = computed(() => {

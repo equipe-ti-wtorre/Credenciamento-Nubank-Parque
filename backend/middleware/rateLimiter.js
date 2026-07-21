@@ -12,6 +12,11 @@ function isAuthRoute(req) {
   return /^\/api\/(?:v1\/)?auth\/(login|login-microsoft|refresh)(?:\/|$)/.test(path);
 }
 
+function isHealthRoute(req) {
+  const path = (req.originalUrl || req.path || "").split("?")[0];
+  return /^\/api\/(?:v1\/)?health(?:\/|$)/.test(path) || path === "/";
+}
+
 const noopLimiter = (_req, _res, next) => next();
 
 const limiterOptions = {
@@ -29,7 +34,7 @@ function buildGlobalLimiter() {
     windowMs: env.rateLimitGlobalWindowMs,
     max: env.rateLimitGlobalMax,
     message: { message: "Muitas requisições. Tente novamente mais tarde." },
-    skip: (req) => isAuthRoute(req),
+    skip: (req) => isAuthRoute(req) || isHealthRoute(req),
   });
 }
 

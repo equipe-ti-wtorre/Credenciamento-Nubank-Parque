@@ -180,13 +180,13 @@ Upload: `upload-dropzone` e variantes `--dragover`, `--selected`.
 
 Em barras de filtro de tabelas/listas:
 
-1. **Texto** (`input` search/nome/placa/etc.): filtrar ao digitar com **debounce 350ms** — `(ngModelChange)="onTextFilterChange()"` que agenda `aplicarFiltros()`.
+1. **Texto** (`input` search/nome/placa/etc.): filtrar ao digitar com **debounce 500ms** — `(ngModelChange)="onTextFilterChange()"` que agenda `aplicarFiltros()`.
 2. **Select / date / checkbox**: filtrar **imediatamente** no `(ngModelChange)="aplicarFiltros()"`.
 3. **Não** usar botão **Filtrar**. Manter só **Limpar** (quando fizer sentido).
 4. Referência: [`company-list.component.ts`](../frontend/src/app/pages/admin/companies/company-list.component.ts) / [`collaborator-list.component.ts`](../frontend/src/app/pages/admin/collaborators/collaborator-list.component.ts).
 
 ```ts
-private readonly filterDebounceMs = 350;
+private readonly filterDebounceMs = 500;
 private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 onTextFilterChange() {

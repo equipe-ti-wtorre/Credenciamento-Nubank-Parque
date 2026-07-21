@@ -359,7 +359,7 @@ export class CompanyListComponent implements OnDestroy {
   appliedName = '';
   appliedTypeId: number | null = null;
 
-  private readonly filterDebounceMs = 350;
+  private readonly filterDebounceMs = 500;
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   form: CompanyFormState = this.emptyForm();

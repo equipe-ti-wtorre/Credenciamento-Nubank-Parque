@@ -792,7 +792,7 @@ export class CollaboratorListComponent implements OnDestroy {
   private readonly pictureMaxBytes = 2 * 1024 * 1024;
   /** Foto original pode ser maior: o limite de 2 MB vale para o recorte enviado. */
   private readonly pictureSourceMaxBytes = 12 * 1024 * 1024;
-  private readonly filterDebounceMs = 350;
+  private readonly filterDebounceMs = 500;
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private thumbnailLoadId = 0;
 
