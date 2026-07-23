@@ -284,6 +284,10 @@ const MONTHS = [
         position: static;
         z-index: auto;
         box-shadow: none;
+        margin-top: 6px;
+        padding: 8px 8px 6px;
+        border-radius: 12px;
+        max-width: 280px;
       }
       .prp-nav {
         display: flex;
@@ -291,11 +295,17 @@ const MONTHS = [
         justify-content: space-between;
         margin-bottom: 12px;
       }
+      .prp-panel--inline .prp-nav {
+        margin-bottom: 6px;
+      }
       .prp-nav__title {
         font-family: var(--font-display, Sora, system-ui, sans-serif);
         font-size: 0.9375rem;
         font-weight: 700;
         color: #0f172a;
+      }
+      .prp-panel--inline .prp-nav__title {
+        font-size: 0.8125rem;
       }
       .prp-nav__btn {
         display: grid;
@@ -308,9 +318,17 @@ const MONTHS = [
         cursor: pointer;
         color: #64748b;
       }
+      .prp-panel--inline .prp-nav__btn {
+        width: 26px;
+        height: 26px;
+      }
       .prp-nav__btn svg {
         width: 16px;
         height: 16px;
+      }
+      .prp-panel--inline .prp-nav__btn svg {
+        width: 14px;
+        height: 14px;
       }
       .prp-nav__btn:hover:not(:disabled) {
         background: #f1f5f9;
@@ -326,6 +344,10 @@ const MONTHS = [
         gap: 2px;
         margin-bottom: 6px;
       }
+      .prp-panel--inline .prp-weekdays {
+        gap: 1px;
+        margin-bottom: 2px;
+      }
       .prp-weekdays span {
         text-align: center;
         font-size: 0.75rem;
@@ -333,10 +355,17 @@ const MONTHS = [
         color: #94a3b8;
         padding: 4px 0;
       }
+      .prp-panel--inline .prp-weekdays span {
+        font-size: 0.6875rem;
+        padding: 2px 0;
+      }
       .prp-grid {
         display: grid;
         grid-template-columns: repeat(7, 1fr);
         gap: 2px;
+      }
+      .prp-panel--inline .prp-grid {
+        gap: 1px;
       }
       .prp-day {
         aspect-ratio: 1;
@@ -347,6 +376,12 @@ const MONTHS = [
         font-weight: 600;
         color: #334155;
         cursor: pointer;
+      }
+      .prp-panel--inline .prp-day {
+        aspect-ratio: auto;
+        height: 28px;
+        border-radius: 7px;
+        font-size: 0.75rem;
       }
       .prp-day:hover:not(:disabled):not(.is-start):not(.is-end) {
         background: #eef3fe;
@@ -392,10 +427,29 @@ const MONTHS = [
         padding-top: 12px;
         border-top: 1px solid #eef1f6;
       }
+      .prp-panel--inline .prp-foot {
+        margin-top: 6px;
+        padding-top: 6px;
+      }
       .prp-foot__label {
         font-size: 0.8125rem;
         font-weight: 500;
         color: #94a3b8;
+      }
+      .prp-panel--inline .prp-foot__label,
+      .prp-panel--inline .prp-clear {
+        font-size: 0.75rem;
+      }
+      .prp-panel--inline .prp-day.is-start,
+      .prp-panel--inline .prp-day.is-end,
+      .prp-panel--inline .prp-day.is-start.is-end {
+        border-radius: 7px;
+      }
+      .prp-panel--inline .prp-day.is-start.is-range {
+        border-radius: 7px 0 0 7px;
+      }
+      .prp-panel--inline .prp-day.is-end.is-range {
+        border-radius: 0 7px 7px 0;
       }
       .prp-clear {
         border: 0;

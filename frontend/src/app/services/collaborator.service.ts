@@ -186,17 +186,18 @@ export class CollaboratorService {
   bulkPreview(file: File) {
     const form = new FormData();
     form.append('file', file, file.name);
-    return this.api.postFormData<import('../shared/bulk-import/bulk-import.types').BulkPreviewResult>(
-      '/collaborators/bulk/preview',
-      form,
-    );
+    return this.api.postFormData<
+      import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkPreviewResult
+    >('/collaborators/bulk/preview', form);
   }
 
-  bulkCommit(previewId: string, decisions: import('../shared/bulk-import/bulk-import.types').BulkDecision[]) {
-    return this.api.post<import('../shared/bulk-import/bulk-import.types').BulkCommitResult>(
-      '/collaborators/bulk/commit',
-      { previewId, decisions },
-    );
+  bulkCommit(
+    previewToken: string,
+    decisoes: import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmBody['decisoes'],
+  ) {
+    return this.api.post<
+      import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmResult
+    >('/collaborators/bulk/commit', { previewToken, decisoes });
   }
 
   downloadBulkTemplate(): Observable<Blob> {

@@ -17,6 +17,17 @@
   }
 }
 
+.fields-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 18px;
+
+  .field {
+    margin-bottom: 0;
+  }
+}
+
 .field__label {
   display: block;
   font-family: var(--font-display);
@@ -130,5 +141,9 @@
 
   .step-dados__fields {
     order: -1;
+  }
+
+  .fields-row {
+    grid-template-columns: 1fr;
   }
 }

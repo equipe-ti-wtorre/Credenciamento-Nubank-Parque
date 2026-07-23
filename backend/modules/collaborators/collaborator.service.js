@@ -562,9 +562,7 @@ async function createCollaborator(req, data) {
 }
 
 async function getCollaboratorBulkTemplate() {
-  const { buildCollaboratorBulkTemplate } = require("../../utils/bulkTemplateXlsx");
-  const [types, roles] = await Promise.all([listDocumentTypes(), listRoles()]);
-  return buildCollaboratorBulkTemplate({ types, roles });
+  return require("./collaborator-bulk-import.flow").buildUnifiedTemplate();
 }
 
 async function bulkCreateCollaborators(req, file) {
@@ -635,7 +633,7 @@ async function bulkCreateCollaborators(req, file) {
 
   if (totalProcessed === 0) {
     throw new AppError(
-      "Nenhuma linha de dados encontrada. Cabeçalho: document, id_collaborator_document_type, name, id_collaborator_role.",
+      'Nenhuma linha de dados encontrada. Use o modelo unificado (aba "Colaboradores": Documento, Tipo de documento, Nome completo, Função / Cargo).',
       400,
     );
   }
@@ -661,213 +659,34 @@ async function previewBulkCollaborators(req, file) {
   if (!hasPermission(req.user, "collaborators", "edit") && !hasPermission(req.user, "collaborators", "create")) {
     throw new AppError("Perfil sem permissão para importar colaboradores.", 403);
   }
+  if (!file) throw new AppError("Arquivo obrigatório.", 400);
 
-  const rawRows = await parseBulkFile(file.buffer, file.mimetype, file.originalname);
-  const rows = [];
-  const sessionRows = [];
-
-  for (let i = 0; i < rawRows.length; i++) {
-    if (isEmptyBulkRow(rawRows[i])) continue;
-    const line = i + 2;
-    const payload = normalizeBulkRow(rawRows[i]);
-    const validated = await validateAndNormalizeCollaboratorPayload(payload);
-    if (validated.error) {
-      const item = {
-        line,
-        status: "error",
-        key: {
-          document: payload.document,
-          id_collaborator_document_type: payload.id_collaborator_document_type,
-        },
-        incoming: payload,
-        message: validated.error,
-      };
-      rows.push(item);
-      sessionRows.push({ ...item, validated: null, existingId: null });
-      continue;
-    }
-
-    const value = validated.value;
-    const existing = await findCollaboratorByDocument(
-      value.document,
-      value.id_collaborator_document_type,
-    );
-
-    if (!existing) {
-      const item = {
-        line,
-        status: "create",
-        key: {
-          document: value.document,
-          id_collaborator_document_type: value.id_collaborator_document_type,
-        },
-        incoming: value,
-      };
-      rows.push(item);
-      sessionRows.push({ ...item, validated: value, existingId: null });
-      continue;
-    }
-
-    const existingPublic = publicCollaboratorExisting(existing);
-    const diffs = buildFieldDiffs(existingPublic, value, COLLABORATOR_BULK_UPDATE_FIELDS);
-    const companyId = getActorCompanyId(req);
-    const item = {
-      line,
-      status: diffs.length ? "update" : "link",
-      key: {
-        document: value.document,
-        id_collaborator_document_type: value.id_collaborator_document_type,
-      },
-      incoming: value,
-      existing: existingPublic,
-      diffs,
-      message: diffs.length
-        ? undefined
-        : companyId != null
-          ? "Cadastro existente — será vinculado à sua empresa."
-          : "Cadastro idêntico ao existente — nada a atualizar.",
-    };
-    // Sem divergência: tratar como link (vínculo à empresa do ator, se houver)
-    if (!diffs.length) {
-      item.status = "link";
-    }
-    rows.push(item);
-    sessionRows.push({
-      ...item,
-      validated: value,
-      existingId: existing.id_collaborator,
-    });
-  }
-
-  if (!rows.length) {
-    throw new AppError(
-      "Nenhuma linha de dados encontrada. Cabeçalho: document, id_collaborator_document_type, name, id_collaborator_role.",
-      400,
-    );
-  }
-
-  const previewId = savePreviewSession({
-    kind: "collaborators",
+  return require("./collaborator-bulk-import.flow").previewUnifiedCollaboratorsBulk({
+    file,
     userId: req.user?.id || null,
-    rows: sessionRows,
+    getActorCompanyId: () => getActorCompanyId(req),
   });
-
-  return {
-    previewId,
-    summary: summarizePreviewRows(rows),
-    rows,
-    updateFields: COLLABORATOR_BULK_UPDATE_FIELDS,
-  };
 }
 
-async function commitBulkCollaborators(req, { previewId, decisions }) {
+async function commitBulkCollaborators(req, body = {}) {
   assertCanWriteCollaborator(req);
   if (!hasPermission(req.user, "collaborators", "edit") && !hasPermission(req.user, "collaborators", "create")) {
     throw new AppError("Perfil sem permissão para importar colaboradores.", 403);
   }
 
-  const session = getPreviewSession(previewId, "collaborators");
-  if (session.userId && req.user?.id && Number(session.userId) !== Number(req.user.id)) {
-    throw new AppError("Pré-visualização pertence a outro usuário.", 403);
-  }
+  const previewToken = body.previewToken || body.previewId;
+  if (!previewToken) throw new AppError("previewToken é obrigatório.", 400);
 
-  const byLine = new Map(session.rows.map((r) => [r.line, r]));
-  const decisionList = Array.isArray(decisions) ? decisions : [];
-  const errors = [];
-  let created = 0;
-  let updated = 0;
-  let skipped = 0;
-  let linked = 0;
-
-  for (const decision of decisionList) {
-    const line = Number(decision.line);
-    const action = decision.action;
-    const row = byLine.get(line);
-    if (!row) {
-      errors.push({ line, reason: "Linha não encontrada na pré-visualização." });
-      continue;
-    }
-    if (action === "skip") {
-      skipped += 1;
-      continue;
-    }
-    if (row.status === "error") {
-      errors.push({ line, reason: row.message || "Linha com erro." });
-      continue;
-    }
-
-    try {
-      if (action === "create") {
-        if (row.status !== "create" || !row.validated) {
-          errors.push({ line, reason: "Linha não é um novo cadastro." });
-          continue;
-        }
-        if (!hasPermission(req.user, "collaborators", "create")) {
-          errors.push({ line, reason: "Sem permissão para criar." });
-          continue;
-        }
-        const companyId = getActorCompanyId(req);
-        const createPayload = { ...row.validated };
-        const createdRow = await insertCollaboratorRecord(createPayload);
-        if (companyId != null) {
-          await linkCollaboratorToCompany(createdRow.id_collaborator, companyId);
-        }
-        created += 1;
-      } else if (action === "update") {
-        if (!row.existingId || !row.validated) {
-          errors.push({ line, reason: "Linha não possui cadastro existente para atualizar." });
-          continue;
-        }
-        if (!hasPermission(req.user, "collaborators", "edit")) {
-          errors.push({ line, reason: "Sem permissão para editar." });
-          continue;
-        }
-        const companyId = getActorCompanyId(req);
-        if (companyId != null) {
-          await linkCollaboratorToCompany(row.existingId, companyId);
-        }
-        const patch = pickUpdatePatch(
-          row.validated,
-          decision.fields,
-          COLLABORATOR_BULK_UPDATE_FIELDS,
-        );
-        if (!Object.keys(patch).length) {
-          skipped += 1;
-          continue;
-        }
-        await updateCollaborator(req, row.existingId, patch);
-        updated += 1;
-      } else if (action === "link") {
-        if (!row.existingId) {
-          errors.push({ line, reason: "Linha não possui cadastro existente para vincular." });
-          continue;
-        }
-        const companyId = getActorCompanyId(req);
-        if (companyId != null) {
-          await linkCollaboratorToCompany(row.existingId, companyId);
-        }
-        linked += 1;
-      } else {
-        errors.push({ line, reason: `Ação inválida: ${action}` });
-      }
-    } catch (err) {
-      errors.push({
-        line,
-        reason: err instanceof AppError ? err.message : "Erro ao aplicar linha.",
-      });
-    }
-  }
-
-  deletePreviewSession(previewId);
-
-  return {
-    created,
-    updated,
-    linked,
-    skipped,
-    errors,
-    totalDecisions: decisionList.length,
-  };
+  return require("./collaborator-bulk-import.flow").confirmUnifiedCollaboratorsBulk({
+    req,
+    previewToken,
+    decisoes: body.decisoes || { colaboradores: body.decisions || [], veiculos: [] },
+    insertCollaboratorRecord,
+    linkCollaboratorToCompany,
+    updateCollaborator,
+    getActorCompanyId,
+    hasPermission,
+  });
 }
 
 async function updateCollaboratorPicture(id, filename) {

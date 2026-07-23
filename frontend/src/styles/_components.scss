@@ -446,7 +446,16 @@
   // —— Menu de ações em tabela ——
 
   .action-menu {
-    @apply inline-flex items-center gap-1.5 flex-wrap justify-end;
+    @apply inline-flex flex-nowrap items-center gap-1.5 justify-end;
+  }
+
+  // Hosts Angular como itens inline do flex (evita empilhar ícones na coluna Ações)
+  app-action-menu,
+  app-action-btn,
+  app-action-dropdown {
+    display: inline-flex;
+    vertical-align: middle;
+    max-width: 100%;
   }
 
   .action-btn {

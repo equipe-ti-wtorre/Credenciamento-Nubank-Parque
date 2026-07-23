@@ -172,7 +172,7 @@ exports.bulkPreview = async (req, res, next) => {
       module: "collaborators",
       event: "collaborators.bulk_preview",
       resource: { type: "collaborator_bulk", id: null },
-      metadata: { previewId: result.previewId, summary: result.summary },
+      metadata: { previewToken: result.previewToken, resumo: result.resumo },
     });
     res.json(result);
   } catch (err) {
@@ -182,22 +182,15 @@ exports.bulkPreview = async (req, res, next) => {
 
 exports.bulkCommit = async (req, res, next) => {
   try {
-    const { previewId, decisions } = req.body || {};
-    if (!previewId) throw new AppError("previewId é obrigatório.", 400);
-    const result = await collaboratorService.commitBulkCollaborators(req, {
-      previewId,
-      decisions,
-    });
+    const result = await collaboratorService.commitBulkCollaborators(req, req.body || {});
     attachAudit(req, {
       action: "CREATE",
       module: "collaborators",
       event: "collaborators.bulk_commit",
       resource: { type: "collaborator_bulk", id: null },
       metadata: {
-        created: result.created,
-        updated: result.updated,
-        skipped: result.skipped,
-        errorCount: result.errors.length,
+        colaboradores: result.colaboradores,
+        veiculos: result.veiculos,
       },
     });
     res.json(result);

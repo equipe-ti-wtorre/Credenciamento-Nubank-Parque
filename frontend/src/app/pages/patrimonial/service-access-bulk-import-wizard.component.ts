@@ -13,6 +13,7 @@ import { FormsModule } from '@angular/forms';
 import { Observable } from 'rxjs';
 import { ModalComponent } from '../../shared/modal/modal.component';
 import { NotificationService } from '../../core/services/notification.service';
+import { CollaboratorRole, CollaboratorService } from '../../services/collaborator.service';
 import { PatrimonialService } from '../../services/patrimonial.service';
 import {
   CadastroStatus,
@@ -21,6 +22,7 @@ import {
   UnifiedBulkPreviewResult,
   UnifiedCollaboratorRow,
   UnifiedColaboradorDecision,
+  UnifiedDivergence,
   UnifiedVehicleRow,
   UnifiedVeiculoDecision,
 } from './service-access-bulk-import.types';
@@ -42,6 +44,9 @@ interface ColDecisionState {
   include: boolean;
   camposMaster: Record<string, boolean>;
   aplicarFuncao: boolean;
+  roleId?: number | null;
+  /** Decisão explícita Aplicar/Manter (como no cadastro). */
+  roleDecision?: 'aplicar' | 'manter' | null;
 }
 
 interface VeicDecisionState {
@@ -56,29 +61,38 @@ interface VeicDecisionState {
   template: `
     <ng-template #wimpBody>
       <div class="wimp">
-        <div class="wimp-stepper" *ngIf="!embedded || !!apiAdapter">
-          <div class="wimp-stepper__item" [class.is-active]="step() === 'upload'" [class.is-done]="step() !== 'upload'">
-            <span class="wimp-stepper__dot">
-              @if (step() !== 'upload') {
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-              } @else { 1 }
-            </span>
-            <span class="wimp-stepper__label">Enviar arquivo</span>
+        <div
+          class="wimp-stepper"
+          *ngIf="!embedded || !!apiAdapter"
+          [attr.aria-label]="'Passo ' + stepNumber() + ' de 3: ' + stepLabel()"
+        >
+          <div class="wimp-stepper__track">
+            <div class="wimp-stepper__item" [class.is-active]="step() === 'upload'" [class.is-done]="step() !== 'upload'">
+              <span class="wimp-stepper__dot">
+                @if (step() !== 'upload') {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                } @else { 1 }
+              </span>
+              <span class="wimp-stepper__label">Enviar arquivo</span>
+            </div>
+            <span class="wimp-stepper__line" [class.is-done]="step() !== 'upload'"></span>
+            <div class="wimp-stepper__item" [class.is-active]="step() === 'review'" [class.is-done]="step() === 'result'">
+              <span class="wimp-stepper__dot">
+                @if (!embedded && step() === 'result') {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                } @else { 2 }
+              </span>
+              <span class="wimp-stepper__label">Revisar dados</span>
+            </div>
+            <span class="wimp-stepper__line" [class.is-done]="step() === 'result'"></span>
+            <div class="wimp-stepper__item" [class.is-active]="step() === 'result'">
+              <span class="wimp-stepper__dot">3</span>
+              <span class="wimp-stepper__label">Importar</span>
+            </div>
           </div>
-          <span class="wimp-stepper__line" [class.is-done]="step() !== 'upload'"></span>
-          <div class="wimp-stepper__item" [class.is-active]="step() === 'review'" [class.is-done]="step() === 'result'">
-            <span class="wimp-stepper__dot">
-              @if (!embedded && step() === 'result') {
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-              } @else { 2 }
-            </span>
-            <span class="wimp-stepper__label">Revisar dados</span>
-          </div>
-          <span class="wimp-stepper__line" [class.is-done]="step() === 'result'"></span>
-          <div class="wimp-stepper__item" [class.is-active]="step() === 'result'">
-            <span class="wimp-stepper__dot">3</span>
-            <span class="wimp-stepper__label">Importar</span>
-          </div>
+          <p class="wimp-stepper__current" aria-hidden="true">
+            {{ stepNumber() }} · {{ stepLabel() }}
+          </p>
         </div>
 
         @if (step() === 'upload') {
@@ -158,31 +172,48 @@ interface VeicDecisionState {
                 </div>
               </div>
             } @else {
-              <p class="wimp-template-note">Modelo com duas abas: Colaboradores e Veículos. Não altere os cabeçalhos.</p>
+              <p class="wimp-template-note">
+                {{
+                  hideVehicles
+                    ? 'Modelo com aba Colaboradores (e Veículos no arquivo, ignorada aqui). Não altere os cabeçalhos.'
+                    : hideCollaborators
+                      ? 'Modelo com aba Veículos (e Colaboradores no arquivo, ignorada aqui). Não altere os cabeçalhos.'
+                      : 'Modelo com duas abas: Colaboradores e Veículos. Não altere os cabeçalhos.'
+                }}
+              </p>
 
               <div class="wimp-cols">
-                <div class="wimp-cols__group">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
-                  Aba "Colaboradores"
-                </div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Documento</span><span class="wimp-cols__desc">Número do documento</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Tipo de documento</span><span class="wimp-cols__desc">Lista: CPF, RG, Passaporte</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Nome completo</span><span class="wimp-cols__desc">Nome do colaborador</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Função / Cargo</span><span class="wimp-cols__desc">Lista de funções do sistema</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">RG</span><span class="wimp-cols__desc">RG</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Telefone</span><span class="wimp-cols__desc">Telefone com DDD</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
+                @if (!hideCollaborators) {
+                  <div class="wimp-cols__group">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+                    Aba "Colaboradores"
+                  </div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Documento</span><span class="wimp-cols__desc">Número do documento</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Tipo de documento</span><span class="wimp-cols__desc">Lista: CPF, RG, Passaporte</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Nome completo</span><span class="wimp-cols__desc">Nome do colaborador</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Função / Cargo</span><span class="wimp-cols__desc">Lista de funções do sistema</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">RG</span><span class="wimp-cols__desc">RG</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Telefone</span><span class="wimp-cols__desc">Telefone com DDD</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
+                }
 
-                <div class="wimp-cols__group">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6 17l1-5h10l1 5M7 12l1-4h8l1 4"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>
-                  Aba "Veículos"
-                </div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Placa</span><span class="wimp-cols__desc">Placa do veículo</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Marca</span><span class="wimp-cols__desc">Fabricante</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Modelo</span><span class="wimp-cols__desc">Modelo</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Motorista (documento)</span><span class="wimp-cols__desc">Documento de um colaborador da aba ao lado</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Cor</span><span class="wimp-cols__desc">Lista de sugestão</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Tipo</span><span class="wimp-cols__desc">Lista de sugestão</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
-                <div class="wimp-cols__row"><span class="wimp-cols__key">Observações</span><span class="wimp-cols__desc">Texto livre</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
+                @if (!hideVehicles) {
+                  <div class="wimp-cols__group">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6 17l1-5h10l1 5M7 12l1-4h8l1 4"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>
+                    Aba "Veículos"
+                  </div>
+                  @if (hideCollaborators) {
+                    <div class="wimp-cols__row"><span class="wimp-cols__key">Empresa</span><span class="wimp-cols__desc">Nome fantasia (obrigatório para admin)</span><span class="wimp-tag wimp-tag--opt">Conforme perfil</span></div>
+                  }
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Placa</span><span class="wimp-cols__desc">Placa do veículo</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Marca</span><span class="wimp-cols__desc">Fabricante</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Modelo</span><span class="wimp-cols__desc">Modelo</span><span class="wimp-tag wimp-tag--req">Obrigatório</span></div>
+                  @if (!hideCollaborators) {
+                    <div class="wimp-cols__row"><span class="wimp-cols__key">Motorista (documento)</span><span class="wimp-cols__desc">Documento de um colaborador da aba ao lado</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
+                  }
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Cor</span><span class="wimp-cols__desc">Lista de sugestão</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Tipo</span><span class="wimp-cols__desc">Lista de sugestão</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
+                  <div class="wimp-cols__row"><span class="wimp-cols__key">Observações</span><span class="wimp-cols__desc">Texto livre</span><span class="wimp-tag wimp-tag--opt">Opcional</span></div>
+                }
               </div>
 
               <input #fileInputFull type="file" accept=".xlsx,.xls" class="hidden" (change)="onFileSelected($event)" />
@@ -245,116 +276,231 @@ interface VeicDecisionState {
         @if ((!embedded || !!apiAdapter) && step() === 'review' && preview(); as prev) {
           <div class="wimp-panel">
             <div class="wimp-summary">
-              <span class="wimp-stat wimp-stat--total">{{ prev.resumo.colaboradores.total + prev.resumo.veiculos.total }} registros</span>
-              <span class="wimp-stat wimp-stat--new">Colab.: {{ prev.resumo.colaboradores.novos }} novos · {{ prev.resumo.colaboradores.atualizacoes }} atual.</span>
-              <span class="wimp-stat wimp-stat--update">Veíc.: {{ prev.resumo.veiculos.novos }} novos · {{ prev.resumo.veiculos.atualizacoes }} atual.</span>
-              @if (prev.resumo.colaboradores.erros + prev.resumo.veiculos.erros > 0) {
-                <span class="wimp-stat wimp-stat--error">{{ prev.resumo.colaboradores.erros + prev.resumo.veiculos.erros }} com erro</span>
+              <span class="wimp-stat wimp-stat--total">
+                {{
+                  hideVehicles
+                    ? prev.resumo.colaboradores.total
+                    : hideCollaborators
+                      ? prev.resumo.veiculos.total
+                      : prev.resumo.colaboradores.total + prev.resumo.veiculos.total
+                }}
+                registros
+              </span>
+              @if (!hideCollaborators) {
+                <span class="wimp-stat wimp-stat--new">
+                  {{ hideVehicles ? '' : 'Colab.: ' }}{{ prev.resumo.colaboradores.novos }} novos ·
+                  {{ prev.resumo.colaboradores.atualizacoes }} atual.
+                </span>
+              }
+              @if (!hideVehicles) {
+                <span class="wimp-stat wimp-stat--update">
+                  {{ hideCollaborators ? '' : 'Veíc.: ' }}{{ prev.resumo.veiculos.novos }} novos ·
+                  {{ prev.resumo.veiculos.atualizacoes }} atual.
+                </span>
+              }
+              @if (
+                (hideCollaborators ? 0 : prev.resumo.colaboradores.erros) +
+                  (hideVehicles ? 0 : prev.resumo.veiculos.erros) >
+                0
+              ) {
+                <span class="wimp-stat wimp-stat--error">
+                  {{
+                    (hideCollaborators ? 0 : prev.resumo.colaboradores.erros) +
+                      (hideVehicles ? 0 : prev.resumo.veiculos.erros)
+                  }}
+                  com erro
+                </span>
               }
             </div>
 
+            @if (!hideCollaborators) {
             <div class="wimp-section-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
               Colaboradores <span class="wimp-count">· {{ prev.colaboradores.length }}</span>
             </div>
             <div class="wimp-cards">
               @for (row of prev.colaboradores; track row.linha) {
-                <article class="wimp-rowcard" [class.wimp-rowcard--error]="row.cadastro === 'erro'">
-                  <div class="wimp-entity__head">
-                    @if (row.cadastro !== 'erro') {
-                      <input type="checkbox" [checked]="colDecisions()[row.linha]?.include" (change)="toggleColInclude(row.linha, $event)" />
-                    }
-                    <span class="wimp-badge" [attr.data-status]="row.cadastro">{{ cadastroLabel(row.cadastro) }}</span>
-                    <div>
-                      <div class="wimp-entity__title">{{ row.nome || 'Linha ' + row.linha }}</div>
-                      <div class="wimp-entity__sub">
-                        {{ row.chave.tipo }} · {{ row.chave.documento }}
-                        @if (vinculoLabel(row)) { · {{ vinculoLabel(row) }} }
-                      </div>
-                    </div>
-                  </div>
-                  @if (row.cadastro === 'erro') {
-                    <div class="wimp-rowcard__err">{{ row.erros.join(' · ') }} — será ignorado.</div>
-                  }
-                  @if (row.cadastro === 'atualizacao' && row.divergencias.length) {
-                    <div class="wimp-diff">
-                      <div class="wimp-diff__row wimp-diff__row--head"><span>Campo</span><span>Atual</span><span>Novo (planilha)</span><span>Aplicar</span></div>
-                      @for (d of row.divergencias; track d.campo) {
-                        <div class="wimp-diff__row">
-                          <span class="wimp-diff__field">{{ d.rotulo }}</span>
-                          <span class="wimp-diff__old">{{ d.atual ?? '—' }}</span>
-                          <span class="wimp-diff__new">{{ d.novo ?? '—' }}</span>
-                          <span class="wimp-diff__apply">
-                            <input type="checkbox" [checked]="!!colDecisions()[row.linha]?.camposMaster?.[d.campo]" (change)="toggleColMasterField(row.linha, d.campo, $event)" />
-                          </span>
+                @if (!dismissedColLines().has(row.linha)) {
+                  <article
+                    class="wimp-rowcard"
+                    [class.wimp-rowcard--error]="row.cadastro === 'erro' && !row.pendente_funcao"
+                    [class.wimp-rowcard--pending]="row.pendente_funcao || hasPendingRoleDecision(row)"
+                  >
+                    <div class="wimp-entity__head">
+                      @if (row.cadastro !== 'erro' || row.pendente_funcao) {
+                        <input
+                          type="checkbox"
+                          [checked]="colDecisions()[row.linha]?.include"
+                          [disabled]="row.pendente_funcao && !colDecisions()[row.linha]?.roleId"
+                          (change)="toggleColInclude(row.linha, $event)"
+                        />
+                      }
+                      <span
+                        class="wimp-badge"
+                        [attr.data-status]="row.pendente_funcao ? 'pendente' : row.cadastro"
+                      >{{ row.pendente_funcao ? 'Pendente' : cadastroLabel(row.cadastro) }}</span>
+                      <div class="wimp-entity__grow">
+                        <div class="wimp-entity__title">{{ row.nome || 'Linha ' + row.linha }}</div>
+                        <div class="wimp-entity__sub">
+                          {{ row.chave.tipo }} · {{ row.chave.documento }}
+                          @if (vinculoLabel(row)) { · {{ vinculoLabel(row) }} }
                         </div>
+                      </div>
+                      @if (row.cadastro === 'erro') {
+                        <button type="button" class="wimp-link-danger" (click)="dismissColError(row.linha)">
+                          Remover
+                        </button>
                       }
                     </div>
-                  }
-                  @if (row.divergencias_vinculo?.length) {
-                    @for (d of row.divergencias_vinculo!; track d.campo) {
-                      <label class="wimp-role">
-                        <input type="checkbox" [checked]="colDecisions()[row.linha]?.aplicarFuncao !== false" (change)="toggleColFuncao(row.linha, $event)" />
-                        Função neste acesso: {{ d.atual ?? '—' }} → {{ d.novo ?? '—' }}
+                    @if (row.cadastro === 'erro' && row.pendente_funcao) {
+                      <div class="wimp-rowcard__err">{{ row.erros.join(' · ') }}</div>
+                      <label class="wimp-fix-field">
+                        <span class="wimp-fix-field__label">Função / Cargo</span>
+                        <select
+                          class="wimp-select"
+                          [ngModel]="colDecisions()[row.linha]?.roleId ?? null"
+                          (ngModelChange)="setColRole(row.linha, $event)"
+                          [name]="'role-fix-' + row.linha"
+                        >
+                          <option [ngValue]="null">Selecionar função…</option>
+                          @for (r of roles(); track r.id_collaborator_role) {
+                            <option [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
+                          }
+                        </select>
                       </label>
+                    } @else if (row.cadastro === 'erro') {
+                      <div class="wimp-rowcard__err">{{ row.erros.join(' · ') }}</div>
                     }
-                  }
-                </article>
+                    @if (row.cadastro === 'atualizacao' && row.divergencias.length) {
+                      <div class="wimp-diff">
+                        <div class="wimp-diff__row wimp-diff__row--head"><span>Campo</span><span>Atual</span><span>Novo (planilha)</span><span>Aplicar</span></div>
+                        @for (d of row.divergencias; track d.campo) {
+                          <div class="wimp-diff__row">
+                            <span class="wimp-diff__field">{{ d.rotulo }}</span>
+                            <span class="wimp-diff__old">{{ d.atual ?? '—' }}</span>
+                            <span class="wimp-diff__new">{{ d.novo ?? '—' }}</span>
+                            <span class="wimp-diff__apply">
+                              <input type="checkbox" [checked]="!!colDecisions()[row.linha]?.camposMaster?.[d.campo]" (change)="toggleColMasterField(row.linha, d.campo, $event)" />
+                            </span>
+                          </div>
+                        }
+                      </div>
+                    }
+                    @if (roleChangeDiff(row); as d) {
+                      <div class="wimp-role-field">
+                        @if (!row.pendente_funcao) {
+                          <select
+                            class="wimp-select"
+                            [ngModel]="selectedRoleForRow(row, d)"
+                            (ngModelChange)="setColRoleChoice(row.linha, $event, d)"
+                            [name]="'role-choice-' + row.linha"
+                          >
+                            <option [ngValue]="null">Selecionar função…</option>
+                            @for (r of roles(); track r.id_collaborator_role) {
+                              <option [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
+                            }
+                          </select>
+                        }
+                        <div class="wimp-role-change">
+                          <span class="wimp-role-change__arrow">{{ d.atual ?? '—' }} → {{ d.novo ?? '—' }}</span>
+                          <button
+                            type="button"
+                            class="wimp-role-change__yes"
+                            [class.is-on]="colDecisions()[row.linha]?.roleDecision === 'aplicar'"
+                            (click)="confirmRoleChange(row.linha)"
+                          >
+                            Aplicar
+                          </button>
+                          <button
+                            type="button"
+                            class="wimp-role-change__no"
+                            [class.is-on]="colDecisions()[row.linha]?.roleDecision === 'manter'"
+                            (click)="dismissRoleChange(row.linha)"
+                          >
+                            Manter
+                          </button>
+                        </div>
+                      </div>
+                    }
+                  </article>
+                }
               } @empty {
                 <p class="wimp-empty">Nenhum colaborador na planilha.</p>
               }
             </div>
+            }
 
-            <div class="wimp-section-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6 17l1-5h10l1 5M7 12l1-4h8l1 4"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>
-              Veículos <span class="wimp-count">· {{ prev.veiculos.length }}</span>
-            </div>
-            <div class="wimp-cards">
-              @for (row of prev.veiculos; track row.linha) {
-                <article class="wimp-rowcard" [class.wimp-rowcard--error]="row.cadastro === 'erro'">
-                  <div class="wimp-entity__head">
-                    @if (row.cadastro !== 'erro') {
-                      <input type="checkbox" [checked]="veicDecisions()[row.linha]?.include" (change)="toggleVeicInclude(row.linha, $event)" />
-                    }
-                    <span class="wimp-badge" [attr.data-status]="row.cadastro">{{ cadastroLabel(row.cadastro) }}</span>
-                    <div>
-                      <div class="wimp-entity__title">{{ row.chave.placa || 'Linha ' + row.linha }}</div>
-                      <div class="wimp-entity__sub">
-                        {{ row.vinculo === 'ja_vinculado' ? 'Já no acesso' : 'Será vinculado' }}
-                      </div>
-                    </div>
-                  </div>
-                  @if (row.motorista; as m) {
-                    <div class="wimp-driver">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
-                      Motorista: <strong>{{ m.nome || '—' }}</strong> · {{ m.documento }}
-                    </div>
-                  } @else {
-                    <div class="wimp-driver wimp-driver--none">Sem motorista informado</div>
-                  }
-                  @if (row.cadastro === 'erro') {
-                    <div class="wimp-rowcard__err">{{ row.erros.join(' · ') }} — será ignorado.</div>
-                  }
-                  @if (row.cadastro === 'atualizacao' && row.divergencias.length) {
-                    <div class="wimp-diff">
-                      <div class="wimp-diff__row wimp-diff__row--head"><span>Campo</span><span>Atual</span><span>Novo (planilha)</span><span>Aplicar</span></div>
-                      @for (d of row.divergencias; track d.campo) {
-                        <div class="wimp-diff__row">
-                          <span class="wimp-diff__field">{{ d.rotulo }}</span>
-                          <span class="wimp-diff__old">{{ d.atual ?? '—' }}</span>
-                          <span class="wimp-diff__new">{{ d.novo ?? '—' }}</span>
-                          <span class="wimp-diff__apply">
-                            <input type="checkbox" [checked]="!!veicDecisions()[row.linha]?.campos?.[d.campo]" (change)="toggleVeicField(row.linha, d.campo, $event)" />
-                          </span>
+            @if (!hideVehicles) {
+              <div class="wimp-section-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6 17l1-5h10l1 5M7 12l1-4h8l1 4"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>
+                Veículos <span class="wimp-count">· {{ prev.veiculos.length }}</span>
+              </div>
+              <div class="wimp-cards">
+                @for (row of prev.veiculos; track row.linha) {
+                  @if (!dismissedVeicLines().has(row.linha)) {
+                  <article class="wimp-rowcard" [class.wimp-rowcard--error]="row.cadastro === 'erro'">
+                    <div class="wimp-entity__head">
+                      @if (row.cadastro !== 'erro') {
+                        <input type="checkbox" [checked]="veicDecisions()[row.linha]?.include" (change)="toggleVeicInclude(row.linha, $event)" />
+                      }
+                      <span class="wimp-badge" [attr.data-status]="row.cadastro">{{ cadastroLabel(row.cadastro) }}</span>
+                      <div class="wimp-entity__grow">
+                        <div class="wimp-entity__title">{{ row.chave.placa || 'Linha ' + row.linha }}</div>
+                        <div class="wimp-entity__sub">
+                          {{
+                            hideCollaborators
+                              ? row.cadastro === 'novo'
+                                ? 'Novo cadastro'
+                                : row.cadastro === 'inalterado'
+                                  ? 'Já cadastrado'
+                                  : 'Atualizar cadastro'
+                              : row.vinculo === 'ja_vinculado'
+                                ? 'Já no acesso'
+                                : 'Será vinculado'
+                          }}
                         </div>
+                      </div>
+                      @if (row.cadastro === 'erro') {
+                        <button type="button" class="wimp-link-danger" (click)="dismissVeicError(row.linha)">
+                          Remover
+                        </button>
                       }
                     </div>
+                    @if (!hideCollaborators) {
+                      @if (row.motorista; as m) {
+                        <div class="wimp-driver">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+                          Motorista: <strong>{{ m.nome || '—' }}</strong> · {{ m.documento }}
+                        </div>
+                      } @else {
+                        <div class="wimp-driver wimp-driver--none">Sem motorista informado</div>
+                      }
+                    }
+                    @if (row.cadastro === 'erro') {
+                      <div class="wimp-rowcard__err">{{ row.erros.join(' · ') }}</div>
+                    }
+                    @if (row.cadastro === 'atualizacao' && row.divergencias.length) {
+                      <div class="wimp-diff">
+                        <div class="wimp-diff__row wimp-diff__row--head"><span>Campo</span><span>Atual</span><span>Novo (planilha)</span><span>Aplicar</span></div>
+                        @for (d of row.divergencias; track d.campo) {
+                          <div class="wimp-diff__row">
+                            <span class="wimp-diff__field">{{ d.rotulo }}</span>
+                            <span class="wimp-diff__old">{{ d.atual ?? '—' }}</span>
+                            <span class="wimp-diff__new">{{ d.novo ?? '—' }}</span>
+                            <span class="wimp-diff__apply">
+                              <input type="checkbox" [checked]="!!veicDecisions()[row.linha]?.campos?.[d.campo]" (change)="toggleVeicField(row.linha, d.campo, $event)" />
+                            </span>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </article>
                   }
-                </article>
-              } @empty {
-                <p class="wimp-empty">Nenhum veículo na planilha.</p>
-              }
-            </div>
+                } @empty {
+                  <p class="wimp-empty">Nenhum veículo na planilha.</p>
+                }
+              </div>
+            }
           </div>
         }
 
@@ -363,7 +509,9 @@ interface VeicDecisionState {
             @if (importing()) {
               <div class="wimp-progress">
                 <div class="wimp-spinner"></div>
-                <div class="wimp-progress__text">Adicionando ao acesso…</div>
+                <div class="wimp-progress__text">
+                  {{ hideVehicles || hideCollaborators ? 'Importando…' : 'Adicionando ao acesso…' }}
+                </div>
               </div>
             } @else if (tokenConsumed()) {
               <div class="wimp-result">
@@ -374,28 +522,39 @@ interface VeicDecisionState {
                 <div class="wimp-result__icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                 </div>
-                <h3 class="wimp-result__title">Adicionados ao acesso</h3>
-                <div class="wimp-result__group">
-                  <div class="wimp-result__glabel">Colaboradores</div>
-                  <div class="wimp-result__stats">
-                    <span class="wimp-stat wimp-stat--new">{{ r.colaboradores.inseridos }} inseridos</span>
-                    <span class="wimp-stat wimp-stat--update">{{ r.colaboradores.atualizados }} atualizados</span>
-                    <span class="wimp-stat wimp-stat--error">{{ r.colaboradores.ignorados }} ignorados</span>
+                <h3 class="wimp-result__title">
+                  {{ hideVehicles || hideCollaborators ? 'Importação concluída' : 'Adicionados ao acesso' }}
+                </h3>
+                @if (!hideCollaborators) {
+                  <div class="wimp-result__group">
+                    <div class="wimp-result__glabel">Colaboradores</div>
+                    <div class="wimp-result__stats">
+                      <span class="wimp-stat wimp-stat--new">{{ r.colaboradores.inseridos }} inseridos</span>
+                      <span class="wimp-stat wimp-stat--update">{{ r.colaboradores.atualizados }} atualizados</span>
+                      <span class="wimp-stat wimp-stat--error">{{ r.colaboradores.ignorados }} ignorados</span>
+                    </div>
                   </div>
-                </div>
-                <div class="wimp-result__group">
-                  <div class="wimp-result__glabel">Veículos</div>
-                  <div class="wimp-result__stats">
-                    <span class="wimp-stat wimp-stat--new">{{ r.veiculos.inseridos }} inseridos</span>
-                    <span class="wimp-stat wimp-stat--update">{{ r.veiculos.atualizados }} atualizados</span>
+                }
+                @if (!hideVehicles) {
+                  <div class="wimp-result__group">
+                    <div class="wimp-result__glabel">Veículos</div>
+                    <div class="wimp-result__stats">
+                      <span class="wimp-stat wimp-stat--new">{{ r.veiculos.inseridos }} inseridos</span>
+                      <span class="wimp-stat wimp-stat--update">{{ r.veiculos.atualizados }} atualizados</span>
+                      @if (hideCollaborators) {
+                        <span class="wimp-stat wimp-stat--error">{{ r.veiculos.ignorados }} ignorados</span>
+                      }
+                    </div>
                   </div>
-                </div>
-                <div class="wimp-result__group">
-                  <div class="wimp-result__glabel">Vínculos de motorista</div>
-                  <div class="wimp-result__stats">
-                    <span class="wimp-stat wimp-stat--update">{{ r.motoristas }} definidos</span>
-                  </div>
-                </div>
+                  @if (!hideCollaborators) {
+                    <div class="wimp-result__group">
+                      <div class="wimp-result__glabel">Vínculos de motorista</div>
+                      <div class="wimp-result__stats">
+                        <span class="wimp-stat wimp-stat--update">{{ r.motoristas }} definidos</span>
+                      </div>
+                    </div>
+                  }
+                }
               </div>
             }
           </div>
@@ -419,7 +578,7 @@ interface VeicDecisionState {
             </button>
           }
           @if (step() === 'review') {
-            <button type="button" class="wimp-btn wimp-btn--primary" [disabled]="busy() || !hasCommitable()" (click)="runConfirm()">
+            <button type="button" class="wimp-btn wimp-btn--primary" [disabled]="busy() || !canConfirm()" (click)="runConfirm()">
               {{
                 busy()
                   ? 'Importando...'
@@ -480,17 +639,26 @@ interface VeicDecisionState {
         --field-h: 42px;
         font-family: var(--font-body, 'Plus Jakarta Sans', system-ui, sans-serif);
       }
-      .wimp { display: flex; flex-direction: column; gap: 0; }
-      .wimp-host--embedded { display: flex; flex-direction: column; gap: 0; }
+      .wimp {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        min-width: 0;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+      .wimp-host--embedded { display: flex; flex-direction: column; gap: 0; min-width: 0; }
       .wimp-panel--compact {
         padding: 0;
         border: 0;
         background: transparent;
+        min-width: 0;
       }
       .wimp-embed {
         display: flex;
         flex-direction: column;
         width: 100%;
+        min-width: 0;
       }
       .wimp-embed__err {
         min-height: 1.125rem;
@@ -535,9 +703,28 @@ interface VeicDecisionState {
         color: var(--danger);
       }
       .wimp-stepper {
-        display: flex; align-items: center; padding: 4px 0 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        padding: 4px 0 14px;
+        min-width: 0;
       }
-      .wimp-stepper__item { display: flex; align-items: center; gap: 9px; }
+      .wimp-stepper__track {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-width: 0;
+      }
+      .wimp-stepper__current {
+        display: none;
+        margin: 8px 0 0;
+        font-size: 12.5px;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--ink);
+        word-break: break-word;
+      }
+      .wimp-stepper__item { display: flex; align-items: center; gap: 9px; min-width: 0; }
       .wimp-stepper__dot {
         width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
         flex: none; font-family: var(--font-display, Sora, system-ui, sans-serif); font-weight: 700;
@@ -620,7 +807,36 @@ interface VeicDecisionState {
       .wimp-cards { display: flex; flex-direction: column; gap: 10px; max-height: min(42vh, 380px); overflow: auto; }
       .wimp-rowcard { border: 1px solid var(--line); border-radius: var(--radius-field); padding: 14px 16px; }
       .wimp-rowcard--error { background: #fffafa; border-color: #f6d5d5; }
+      .wimp-rowcard--pending { background: #fffbeb; border-color: #fde68a; }
       .wimp-entity__head { display: flex; align-items: center; gap: 10px; }
+      .wimp-entity__grow { flex: 1; min-width: 0; }
+      .wimp-link-danger {
+        flex: none; border: 0; background: transparent; color: var(--danger);
+        font-size: 12.5px; font-weight: 700; cursor: pointer; padding: 0;
+      }
+      .wimp-link-danger:hover { text-decoration: underline; }
+      .wimp-form-field {
+        display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-width: 22rem;
+      }
+      .wimp-form-field__label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+      .wimp-select {
+        height: var(--field-h); border: 1px solid var(--line); border-radius: var(--radius-field);
+        padding: 0 12px; font-size: 13.5px; background: #fff; color: var(--ink); max-width: 22rem;
+      }
+      .wimp-select:focus { outline: 2px solid color-mix(in srgb, var(--wtorre) 35%, transparent); border-color: var(--wtorre); }
+      .wimp-role-field { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+      .wimp-role-change {
+        display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+        padding: 6px 8px; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe;
+        font-size: 12px; line-height: 1.3; max-width: 22rem;
+      }
+      .wimp-role-change__arrow { font-weight: 700; color: #1e3a8a; }
+      .wimp-role-change__yes, .wimp-role-change__no {
+        border: 0; background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; padding: 0;
+      }
+      .wimp-role-change__yes { color: var(--wtorre); }
+      .wimp-role-change__no { color: #64748b; }
+      .wimp-role-change__yes.is-on, .wimp-role-change__no.is-on { text-decoration: underline; }
       .wimp-badge {
         font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: var(--radius-pill); flex: none;
         background: #f0f1f5; color: var(--ink-2);
@@ -629,11 +845,11 @@ interface VeicDecisionState {
       .wimp-badge[data-status='atualizacao'] { background: var(--wtorre-soft); color: var(--wtorre); }
       .wimp-badge[data-status='inalterado'] { background: #f0f1f5; color: var(--ink-2); }
       .wimp-badge[data-status='erro'] { background: var(--danger-soft); color: var(--danger); }
+      .wimp-badge[data-status='pendente'] { background: #fff7ed; color: #c2410c; }
       .wimp-entity__title { font-size: 14px; font-weight: 600; }
       .wimp-entity__sub { font-size: 12.5px; color: var(--ink-2); margin-top: 1px; }
       .wimp-rowcard__err { margin-top: 8px; font-size: 12.5px; color: var(--danger); }
       .wimp-empty { font-size: 13px; color: var(--ink-3); margin: 0; }
-      .wimp-role { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--ink-2); }
 
       .wimp-driver {
         margin-top: 10px; display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px;
@@ -707,8 +923,12 @@ interface VeicDecisionState {
       .wimp-btn--primary:hover { background: var(--wtorre-hover); }
       .wimp-btn:disabled { opacity: .5; cursor: not-allowed; }
 
-      @media (max-width: 560px) {
+      @media (max-width: 720px) {
         .wimp-stepper__label { display: none; }
+        .wimp-stepper__current { display: block; }
+        .wimp-stepper__line { margin: 0 8px; min-width: 16px; }
+      }
+      @media (max-width: 560px) {
         .wimp-cols__row { grid-template-columns: 1fr auto; }
         .wimp-cols__desc { grid-column: 1 / -1; }
         .wimp-diff__row { grid-template-columns: 1fr 1fr 40px; }
@@ -719,11 +939,43 @@ interface VeicDecisionState {
         }
         .upload-dropzone--banner {
           flex-wrap: wrap;
+          align-items: flex-start;
         }
-        .upload-dropzone--banner .upload-dropzone__title {
+        .upload-dropzone--banner .upload-dropzone__main {
+          width: 100%;
+          min-width: 0;
+        }
+        .upload-dropzone--banner .upload-dropzone__text {
+          min-width: 0;
+          width: 100%;
+        }
+        .upload-dropzone--banner .upload-dropzone__title,
+        .upload-dropzone--banner .upload-dropzone__hint {
           white-space: normal;
+          overflow: visible;
+          text-overflow: unset;
+          word-break: break-word;
+        }
+        .upload-dropzone--banner .upload-dropzone__hint {
+          font-size: 0.8125rem;
+          color: #64748b;
+          line-height: 1.35;
         }
         .upload-dropzone__action {
+          width: 100%;
+          justify-content: center;
+        }
+        .wimp-foot,
+        .wimp-foot--embed {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .wimp-foot__right {
+          margin-left: 0;
+          width: 100%;
+          flex-direction: column;
+        }
+        .wimp-btn {
           width: 100%;
           justify-content: center;
         }
@@ -748,6 +1000,10 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   @Input() embedded = false;
   /** APIs externas (ex.: evento) — dispensa rascunho de acesso de serviço. */
   @Input() apiAdapter: BulkImportApiAdapter | null = null;
+  /** Admin de colaboradores: oculta eixo/resumo de veículos. */
+  @Input() hideVehicles = false;
+  /** Admin de frota: oculta eixo/resumo de colaboradores. */
+  @Input() hideCollaborators = false;
   @Output() closed = new EventEmitter<void>();
   @Output() completed = new EventEmitter<{
     roleProposals: {
@@ -799,12 +1055,30 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   dragging = signal(false);
   colDecisions = signal<Record<number, ColDecisionState>>({});
   veicDecisions = signal<Record<number, VeicDecisionState>>({});
+  dismissedColLines = signal<Set<number>>(new Set());
+  dismissedVeicLines = signal<Set<number>>(new Set());
+  roles = signal<CollaboratorRole[]>([]);
+  private rolesLoaded = false;
 
   get modalSubtitle(): string {
     const nome = this.accessName || 'Acesso';
     const emp = this.companyName || '';
     const left = emp ? `${nome} · ${emp}` : nome;
+    if (this.hideVehicles) return `${left} — colaboradores em uma planilha.`;
+    if (this.hideCollaborators) return `${left} — veículos em uma planilha.`;
     return `${left} — colaboradores e veículos em uma planilha.`;
+  }
+
+  stepNumber(): number {
+    if (this.step() === 'upload') return 1;
+    if (this.step() === 'review') return 2;
+    return 3;
+  }
+
+  stepLabel(): string {
+    if (this.step() === 'upload') return 'Enviar arquivo';
+    if (this.step() === 'review') return 'Revisar dados';
+    return 'Importar';
   }
 
   hasCommitable = computed(() => {
@@ -813,8 +1087,25 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     return cols || veics;
   });
 
+  canConfirm = computed(() => {
+    if (!this.hasCommitable()) return false;
+    const prev = this.preview();
+    if (!prev) return false;
+    const decisions = this.colDecisions();
+    for (const row of prev.colaboradores) {
+      if (row.cadastro === 'erro' && !row.pendente_funcao) continue;
+      if (this.dismissedColLines().has(row.linha)) continue;
+      const state = decisions[row.linha];
+      if (!state?.include) continue;
+      if (this.roleChangeDiff(row) && !state.roleDecision) return false;
+      if (row.pendente_funcao && !state.roleId) return false;
+    }
+    return true;
+  });
+
   constructor(
     private patrimonialService: PatrimonialService,
+    private collaboratorService: CollaboratorService,
     private notification: NotificationService,
   ) {}
 
@@ -874,8 +1165,62 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     this.tokenConsumed.set(false);
     this.colDecisions.set({});
     this.veicDecisions.set({});
+    this.dismissedColLines.set(new Set());
+    this.dismissedVeicLines.set(new Set());
     this.importing.set(false);
     this.dragging.set(false);
+  }
+
+  roleChangeDiff(row: UnifiedCollaboratorRow) {
+    return (row.divergencias_vinculo || []).find((d) => d.campo === 'id_collaborator_role') || null;
+  }
+
+  hasPendingRoleDecision(row: UnifiedCollaboratorRow): boolean {
+    if (!this.roleChangeDiff(row)) return false;
+    if (row.cadastro === 'erro' && !row.pendente_funcao) return false;
+    const state = this.colDecisions()[row.linha];
+    return !!state?.include && !state.roleDecision;
+  }
+
+  selectedRoleForRow(row: UnifiedCollaboratorRow, d: UnifiedDivergence): number | null {
+    const state = this.colDecisions()[row.linha];
+    if (state?.roleId != null) return state.roleId;
+    if (state?.roleDecision === 'manter') return this.resolveRoleId(String(d.atual ?? ''));
+    if (state?.roleDecision === 'aplicar') return this.resolveRoleId(String(d.novo ?? ''));
+    return this.resolveRoleId(String(d.novo ?? '')) ?? this.resolveRoleId(String(d.atual ?? ''));
+  }
+
+  private resolveRoleId(description: string): number | null {
+    const fold = (s: string) =>
+      String(s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+    const target = fold(description);
+    if (!target || target === '—') return null;
+    const hit = this.roles().find((r) => fold(r.description) === target);
+    return hit?.id_collaborator_role ?? null;
+  }
+
+  dismissColError(line: number) {
+    this.dismissedColLines.update((set) => {
+      const next = new Set(set);
+      next.add(line);
+      return next;
+    });
+    this.colDecisions.update((m) => {
+      if (!m[line]) return m;
+      return { ...m, [line]: { ...m[line], include: false } };
+    });
+  }
+
+  dismissVeicError(line: number) {
+    this.dismissedVeicLines.update((set) => {
+      const next = new Set(set);
+      next.add(line);
+      return next;
+    });
   }
 
   clearFile() {
@@ -884,6 +1229,10 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges) {
+    if (changes['open'] && this.open) {
+      this.ensureRolesLoaded();
+    }
+
     const syncReady =
       (changes['draftSyncToken'] || changes['serviceAccessId']) && this.hasServiceId();
     if (!syncReady) return;
@@ -901,6 +1250,17 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
         this.runPreview();
       }
     }
+  }
+
+  private ensureRolesLoaded() {
+    if (this.rolesLoaded) return;
+    this.rolesLoaded = true;
+    this.collaboratorService.listRoles().subscribe({
+      next: (res) => this.roles.set(res.roles || []),
+      error: () => {
+        this.rolesLoaded = false;
+      },
+    });
   }
 
   private hasServiceId(): boolean {
@@ -1094,18 +1454,34 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   private initDecisions(prev: UnifiedBulkPreviewResult) {
+    this.ensureRolesLoaded();
+    this.dismissedColLines.set(new Set());
+    this.dismissedVeicLines.set(new Set());
     const col: Record<number, ColDecisionState> = {};
     for (const row of prev.colaboradores) {
-      if (row.cadastro === 'erro') continue;
+      if (row.cadastro === 'erro' && !row.pendente_funcao) continue;
       const camposMaster: Record<string, boolean> = {};
       for (const d of row.divergencias) {
         camposMaster[d.campo] = false;
       }
-      // Só aplica nova função se o usuário confirmar (checkbox / linha)
-      const hasRoleChange = (row.divergencias_vinculo || []).some(
-        (d) => d.campo === 'id_collaborator_role',
-      );
-      col[row.linha] = { include: true, camposMaster, aplicarFuncao: !hasRoleChange };
+      const hasRoleChange = !!this.roleChangeDiff(row);
+      if (row.pendente_funcao) {
+        col[row.linha] = {
+          include: false,
+          camposMaster,
+          aplicarFuncao: true,
+          roleId: null,
+          roleDecision: null,
+        };
+        continue;
+      }
+      col[row.linha] = {
+        include: true,
+        camposMaster,
+        aplicarFuncao: false,
+        roleDecision: hasRoleChange ? null : 'manter',
+        roleId: null,
+      };
     }
     const veic: Record<number, VeicDecisionState> = {};
     for (const row of prev.veiculos) {
@@ -1137,9 +1513,74 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     }));
   }
 
-  toggleColFuncao(line: number, ev: Event) {
-    const checked = (ev.target as HTMLInputElement).checked;
-    this.colDecisions.update((m) => ({ ...m, [line]: { ...m[line], aplicarFuncao: checked } }));
+  setColRole(line: number, roleId: number | null) {
+    const id = roleId != null && Number(roleId) > 0 ? Number(roleId) : null;
+    this.colDecisions.update((m) => ({
+      ...m,
+      [line]: {
+        ...(m[line] || { include: false, camposMaster: {}, aplicarFuncao: true }),
+        roleId: id,
+        include: id != null,
+        aplicarFuncao: true,
+        roleDecision: id != null ? 'aplicar' : null,
+      },
+    }));
+  }
+
+  setColRoleChoice(line: number, roleId: number | null, diff: UnifiedDivergence) {
+    const id = roleId != null && Number(roleId) > 0 ? Number(roleId) : null;
+    const toId = this.resolveRoleId(String(diff.novo ?? ''));
+    const fromId = this.resolveRoleId(String(diff.atual ?? ''));
+    let roleDecision: 'aplicar' | 'manter' | null = null;
+    if (id != null && toId != null && id === toId) roleDecision = 'aplicar';
+    else if (id != null && fromId != null && id === fromId) roleDecision = 'manter';
+    else if (id != null) roleDecision = 'aplicar';
+    const row = this.preview()?.colaboradores.find((r) => r.linha === line);
+    const blocked = row?.cadastro === 'erro' && !row.pendente_funcao;
+    this.colDecisions.update((m) => ({
+      ...m,
+      [line]: {
+        ...(m[line] || { include: !blocked, camposMaster: {}, aplicarFuncao: false }),
+        roleId: id,
+        include: blocked ? false : m[line]?.include !== false,
+        aplicarFuncao: roleDecision === 'aplicar',
+        roleDecision,
+      },
+    }));
+  }
+
+  confirmRoleChange(line: number) {
+    const prev = this.preview();
+    const row = prev?.colaboradores.find((r) => r.linha === line);
+    const diff = row ? this.roleChangeDiff(row) : null;
+    const toId = diff ? this.resolveRoleId(String(diff.novo ?? '')) : null;
+    this.colDecisions.update((m) => ({
+      ...m,
+      [line]: {
+        ...(m[line] || { include: true, camposMaster: {}, aplicarFuncao: true }),
+        roleDecision: 'aplicar',
+        aplicarFuncao: true,
+        roleId: toId ?? m[line]?.roleId ?? null,
+        include: row?.cadastro === 'erro' && !row.pendente_funcao ? false : m[line]?.include !== false,
+      },
+    }));
+  }
+
+  dismissRoleChange(line: number) {
+    const prev = this.preview();
+    const row = prev?.colaboradores.find((r) => r.linha === line);
+    const diff = row ? this.roleChangeDiff(row) : null;
+    const fromId = diff ? this.resolveRoleId(String(diff.atual ?? '')) : null;
+    this.colDecisions.update((m) => ({
+      ...m,
+      [line]: {
+        ...(m[line] || { include: true, camposMaster: {}, aplicarFuncao: false }),
+        roleDecision: 'manter',
+        aplicarFuncao: false,
+        roleId: fromId ?? m[line]?.roleId ?? null,
+        include: row?.cadastro === 'erro' && !row.pendente_funcao ? false : m[line]?.include !== false,
+      },
+    }));
   }
 
   toggleVeicInclude(line: number, ev: Event) {
@@ -1166,14 +1607,18 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
         colaboradores.push({ linha, aplicar: false });
         continue;
       }
-      colaboradores.push({
+      const decision: UnifiedColaboradorDecision = {
         linha,
         aplicar: true,
-        camposMaster: Object.entries(state.camposMaster)
+        camposMaster: Object.entries(state.camposMaster || {})
           .filter(([, v]) => v)
           .map(([k]) => k),
         aplicarFuncao: state.aplicarFuncao === true,
-      });
+      };
+      if (state.roleId != null && Number(state.roleId) > 0) {
+        decision.id_collaborator_role = Number(state.roleId);
+      }
+      colaboradores.push(decision);
     }
 
     const veiculos: UnifiedVeiculoDecision[] = [];

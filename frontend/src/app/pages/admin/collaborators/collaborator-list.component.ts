@@ -21,8 +21,10 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
 import { ModalComponent } from '../../../shared/modal/modal.component';
 import { FaceCropModalComponent } from '../../../shared/face-crop/face-crop-modal.component';
 import { WebcamCaptureModalComponent } from '../../../shared/webcam-capture/webcam-capture-modal.component';
-import { BulkImportWizardComponent } from '../../../shared/bulk-import/bulk-import-wizard.component';
-import { BulkImportAdapters } from '../../../shared/bulk-import/bulk-import.types';
+import {
+  BulkImportApiAdapter,
+  ServiceAccessBulkImportWizardComponent,
+} from '../../patrimonial/service-access-bulk-import-wizard.component';
 
 interface CollaboratorFormState {
   id_collaborator_document_type: number | null;
@@ -48,7 +50,7 @@ interface CollaboratorFormState {
     ModalComponent,
     FaceCropModalComponent,
     WebcamCaptureModalComponent,
-    BulkImportWizardComponent,
+    ServiceAccessBulkImportWizardComponent,
   ],
   styleUrl: './collaborator-list.component.scss',
   template: `
@@ -614,14 +616,25 @@ interface CollaboratorFormState {
       </div>
     </app-modal>
 
-    <app-bulk-import-wizard
+    <app-modal
       [open]="showBulkModal()"
-      title="Upload em lote — Colaboradores"
-      subtitle="Envie a planilha, revise novos cadastros e divergências, e confirme a importação."
-      [adapters]="bulkAdapters"
-      (closed)="fecharBulkModal()"
-      (completed)="onBulkCompleted()"
-    />
+      title="Importar em lote"
+      subtitle="Modelo unificado de colaboradores — revise e confirme a importação."
+      size="xl"
+      [closeOnBackdrop]="false"
+      [focusFirstField]="false"
+      (close)="fecharBulkModal()"
+    >
+      <app-service-access-bulk-import-wizard
+        [open]="showBulkModal()"
+        [embedded]="true"
+        [hideVehicles]="true"
+        [apiAdapter]="collaboratorBulkAdapter"
+        accessName="Colaboradores"
+        (closed)="fecharBulkModal()"
+        (completed)="onBulkCompleted()"
+      />
+    </app-modal>
 
     <app-modal
       [open]="showRolesModal()"
@@ -804,11 +817,13 @@ export class CollaboratorListComponent implements OnDestroy {
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private thumbnailLoadId = 0;
 
-  readonly bulkAdapters: BulkImportAdapters = {
+  collaboratorBulkAdapter: BulkImportApiAdapter = {
     downloadTemplate: () => this.collaboratorService.downloadBulkTemplate(),
     preview: (file) => this.collaboratorService.bulkPreview(file),
-    commit: (previewId, decisions) => this.collaboratorService.bulkCommit(previewId, decisions),
-    templateFilename: 'template-colaboradores.xlsx',
+    confirm: (previewToken, decisoes) =>
+      this.collaboratorService.bulkCommit(previewToken, decisoes),
+    templateFilename: 'template-acesso-servico.xlsx',
+    confirmLabel: 'Importar colaboradores',
   };
 
   stats = signal({ total: 0, ativos: 0, inativos: 0, blacklist: 0 });

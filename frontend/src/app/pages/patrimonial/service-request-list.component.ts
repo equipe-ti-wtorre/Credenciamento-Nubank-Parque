@@ -14,12 +14,28 @@ import {
 import { statusBadgeClass } from '../../services/credential.service';
 import { ServiceAccessCreateWizardComponent } from './service-access-create-wizard.component';
 
-function formatDateBr(value: string | null | undefined): string {
-  if (!value) return '—';
-  const d = String(value).slice(0, 10);
-  const [y, m, day] = d.split('-');
-  if (!y || !m || !day) return d;
-  return `${day}/${m}/${y}`;
+function parseIsoDateParts(value: string | null | undefined): { y: string; m: string; d: string } | null {
+  if (!value) return null;
+  const raw = String(value).slice(0, 10);
+  const [y, m, d] = raw.split('-');
+  if (!y || !m || !d) return null;
+  return { y, m, d };
+}
+
+/** Período: 27/07 à 04/08/26 · mesmo dia: 27/07/26 · anos distintos: 27/12/25 à 04/01/26 */
+function formatPeriodBr(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): string {
+  const a = parseIsoDateParts(start);
+  const b = parseIsoDateParts(end);
+  const yy = (y: string) => y.slice(-2);
+  if (!a && !b) return '—';
+  if (!a) return `${b!.d}/${b!.m}/${yy(b!.y)}`;
+  if (!b) return `${a.d}/${a.m}/${yy(a.y)}`;
+  if (a.y === b.y && a.m === b.m && a.d === b.d) return `${a.d}/${a.m}/${yy(a.y)}`;
+  if (a.y === b.y) return `${a.d}/${a.m} à ${b.d}/${b.m}/${yy(b.y)}`;
+  return `${a.d}/${a.m}/${yy(a.y)} à ${b.d}/${b.m}/${yy(b.y)}`;
 }
 
 @Component({
@@ -50,7 +66,7 @@ function formatDateBr(value: string | null | undefined): string {
         </div>
       </div>
 
-      <div class="card-surface overflow-hidden">
+      <div class="card-surface overflow-hidden sa-list__desktop">
         <div class="sa-list__scroll">
           <table class="w-full text-sm sa-list__table">
             <thead class="table-head bg-slate-50">
@@ -73,7 +89,7 @@ function formatDateBr(value: string | null | undefined): string {
                   <p class="text-xs text-slate-500">{{ s.company_fancy_name }}</p>
                 </td>
                 <td class="px-4 py-3 text-slate-600 whitespace-nowrap">
-                  {{ formatDateBr(s.start_date) }} — {{ formatDateBr(s.end_date) }}
+                  {{ formatPeriodBr(s.start_date, s.end_date) }}
                 </td>
                 <td class="px-4 py-3 text-slate-600 hidden lg:table-cell">
                   {{ s.setor_nome || s.requesting_department }}
@@ -106,33 +122,8 @@ function formatDateBr(value: string | null | undefined): string {
                     {{ s.status ? 'Sim' : 'Não' }}
                   </span>
                 </td>
-                <td class="px-4 py-3 text-right">
-                  <app-action-menu>
-                    <app-action-btn
-                      icon="grid"
-                      title="Gerenciar"
-                      variant="neutral"
-                      (action)="abrirDetalhe(s)"
-                    />
-                    <app-action-dropdown *ngIf="isAdmin">
-                      <button appActionDropdownItem type="button" (click)="toggleEnabled(s)">
-                        <svg
-                          class="action-dropdown__item-icon"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="1.75"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-                          <path d="M12 2v10" />
-                        </svg>
-                        {{ s.status ? 'Desabilitar' : 'Habilitar' }}
-                      </button>
-                    </app-action-dropdown>
-                  </app-action-menu>
+                <td class="px-4 py-3 text-right whitespace-nowrap">
+                  <ng-container *ngTemplateOutlet="actionsTpl; context: { $implicit: s }"></ng-container>
                 </td>
               </tr>
               <tr *ngIf="!loading() && services().length === 0">
@@ -147,7 +138,75 @@ function formatDateBr(value: string | null | undefined): string {
           </table>
         </div>
       </div>
+
+      <div class="sa-list__mobile" aria-live="polite">
+        <div *ngIf="loading() && services().length === 0" class="sa-list__empty">Carregando...</div>
+        <div *ngIf="!loading() && services().length === 0" class="sa-list__empty">
+          Nenhum acesso de serviço encontrado.
+        </div>
+        <article *ngFor="let s of services()" class="sa-card">
+          <div class="sa-card__top">
+            <div class="sa-card__main min-w-0">
+              <p class="sa-card__title">{{ s.finalidade }}</p>
+              <p class="sa-card__company">{{ s.company_fancy_name }}</p>
+            </div>
+            <ng-container *ngTemplateOutlet="actionsTpl; context: { $implicit: s }"></ng-container>
+          </div>
+          <p class="sa-card__period">
+            {{ formatPeriodBr(s.start_date, s.end_date) }}
+          </p>
+          <div class="sa-card__meta">
+            <span
+              class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+              [ngClass]="statusBadgeClass(s.id_access_status)"
+            >
+              {{ s.access_status_description }}
+            </span>
+            <span class="sa-card__counts">
+              {{ s.collaborators.length || 0 }} colab. · {{ s.vehicles.length || 0 }} veíc.
+            </span>
+            <span
+              class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+              [class.bg-emerald-50]="s.status"
+              [class.text-emerald-700]="s.status"
+              [class.bg-slate-100]="!s.status"
+              [class.text-slate-600]="!s.status"
+            >
+              {{ s.status ? 'Habilitado' : 'Desabilitado' }}
+            </span>
+          </div>
+        </article>
+      </div>
     </div>
+
+    <ng-template #actionsTpl let-s>
+      <app-action-menu>
+        <app-action-btn
+          icon="grid"
+          title="Gerenciar"
+          variant="neutral"
+          (action)="abrirDetalhe(s)"
+        />
+        <app-action-dropdown *ngIf="isAdmin">
+          <button appActionDropdownItem type="button" (click)="toggleEnabled(s)">
+            <svg
+              class="action-dropdown__item-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+              <path d="M12 2v10" />
+            </svg>
+            {{ s.status ? 'Desabilitar' : 'Habilitar' }}
+          </button>
+        </app-action-dropdown>
+      </app-action-menu>
+    </ng-template>
 
     <app-service-access-create-wizard
       [open]="showWizard()"
@@ -159,6 +218,9 @@ function formatDateBr(value: string | null | undefined): string {
   `,
   styles: [
     `
+      .sa-list {
+        min-width: 0;
+      }
       .sa-list__scroll {
         width: 100%;
         overflow-x: auto;
@@ -167,14 +229,74 @@ function formatDateBr(value: string | null | undefined): string {
       .sa-list__table {
         min-width: 640px;
       }
+      .sa-list__mobile {
+        display: none;
+      }
+      .sa-list__empty {
+        padding: 2rem 1rem;
+        text-align: center;
+        color: #64748b;
+        font-size: 0.875rem;
+        background: #fff;
+        border: 1px solid var(--app-border, #e2e8f0);
+        border-radius: 12px;
+      }
+      .sa-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 1rem;
+        background: #fff;
+        border: 1px solid var(--app-border, #e2e8f0);
+        border-radius: 12px;
+      }
+      .sa-card + .sa-card {
+        margin-top: 0.625rem;
+      }
+      .sa-card__top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
+      .sa-card__title {
+        margin: 0;
+        font-size: 0.9375rem;
+        font-weight: 600;
+        color: #1e293b;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+      .sa-card__company {
+        margin: 0.15rem 0 0;
+        font-size: 0.8125rem;
+        color: #64748b;
+        word-break: break-word;
+      }
+      .sa-card__period {
+        margin: 0;
+        font-size: 0.8125rem;
+        color: #475569;
+        line-height: 1.4;
+      }
+      .sa-card__meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .sa-card__counts {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: #334155;
+        font-variant-numeric: tabular-nums;
+      }
       @media (max-width: 640px) {
-        .sa-list__table {
-          min-width: 520px;
+        .sa-list__desktop {
+          display: none;
         }
-        .sa-list__table th,
-        .sa-list__table td {
-          padding-left: 0.75rem;
-          padding-right: 0.75rem;
+        .sa-list__mobile {
+          display: block;
         }
       }
     `,
@@ -186,7 +308,7 @@ export class ServiceRequestListComponent implements OnInit {
   loading = signal(false);
   showWizard = signal(false);
   isAdmin = false;
-  formatDateBr = formatDateBr;
+  formatPeriodBr = formatPeriodBr;
   readonly statusBadgeClass = statusBadgeClass;
 
   constructor(

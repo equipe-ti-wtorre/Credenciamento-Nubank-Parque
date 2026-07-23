@@ -14,6 +14,8 @@
   border: 1px solid var(--app-border);
   box-shadow: 0 24px 60px rgba(20, 24, 43, 0.22);
   animation: modal-enter 0.2s ease-out;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .modal-panel--sm {
@@ -38,11 +40,17 @@
 
 .modal-header {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 24px 16px;
+  flex-shrink: 0;
+}
+
+.modal-header__row {
+  display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 22px 24px 16px;
-  flex-shrink: 0;
 }
 
 .modal-header__text {
@@ -61,7 +69,10 @@
 .modal-header__subtitle {
   margin: 0;
   font-size: 13.5px;
+  line-height: 1.4;
   color: #5a6178;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .modal-close {
@@ -149,6 +160,7 @@
     max-height: calc(100vh - 16px);
     max-height: calc(100dvh - 16px);
     border-radius: 12px;
+    overflow-x: hidden;
   }
 
   .modal-panel--2xl,
@@ -162,16 +174,24 @@
     gap: 10px;
   }
 
+  .modal-header__row {
+    gap: 10px;
+  }
+
   .modal-header__title {
     font-size: 1.1rem;
+    line-height: 1.3;
+    word-break: break-word;
   }
 
   .modal-header__subtitle {
-    font-size: 12.5px;
+    font-size: 13px;
+    line-height: 1.45;
   }
 
   .modal-body {
     padding: 4px 16px 16px;
+    overflow-x: hidden;
   }
 
   .modal-footer {

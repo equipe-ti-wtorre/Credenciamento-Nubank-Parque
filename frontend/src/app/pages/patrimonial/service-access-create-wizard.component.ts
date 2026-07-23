@@ -119,8 +119,12 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       [bodyScroll]="true"
       (close)="onClose()"
     >
-      <div class="wcrt" [class.wcrt--pessoas]="step() === 'pessoas'">
-        <div class="wcrt-stepper">
+      <div
+        modal-header-extra
+        class="wcrt-stepper"
+        [attr.aria-label]="'Passo ' + stepNumber() + ' de 3: ' + stepLabel()"
+      >
+        <div class="wcrt-stepper__track">
           <div
             class="wcrt-stepper__item"
             [class.is-active]="step() === 'dados'"
@@ -156,7 +160,12 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
             <span class="wcrt-stepper__label">Revisar e enviar</span>
           </div>
         </div>
+        <p class="wcrt-stepper__current" aria-hidden="true">
+          {{ stepNumber() }} · {{ stepLabel() }}
+        </p>
+      </div>
 
+      <div class="wcrt" [class.wcrt--pessoas]="step() === 'pessoas'">
         @if (step() === 'dados') {
           <form id="wcrt-dados-form" class="wcrt-form" [formGroup]="dadosForm" (ngSubmit)="runCreate()">
             <div class="wcrt-dados">
@@ -171,30 +180,46 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                 />
               </div>
               <div class="wcrt-dados__right">
-                @if (isAdmin) {
+                <div class="wcrt-dados__row" [class.wcrt-dados__row--single]="!isAdmin">
+                  @if (isAdmin) {
+                    <div>
+                      <label class="form-label" for="wcrt-company">Empresa</label>
+                      <select
+                        id="wcrt-company"
+                        formControlName="id_company"
+                        class="form-select"
+                        [class.is-invalid]="companyInvalid()"
+                      >
+                        <option [ngValue]="null">Selecione...</option>
+                        @for (c of companies; track c.id_company) {
+                          <option [ngValue]="c.id_company">
+                            {{ c.fancy_name || c.company_name }}
+                          </option>
+                        }
+                      </select>
+                      <p class="text-xs text-slate-500 mt-1">
+                        Não encontrou a empresa?
+                        <a routerLink="/admin/empresas" class="text-[var(--color-primary-dark)] font-medium hover:underline">
+                          Cadastrar empresa
+                        </a>
+                      </p>
+                    </div>
+                  }
                   <div>
-                    <label class="form-label" for="wcrt-company">Empresa</label>
+                    <label class="form-label" for="wcrt-setor">Setor aprovador</label>
                     <select
-                      id="wcrt-company"
-                      formControlName="id_company"
+                      id="wcrt-setor"
+                      formControlName="id_setor"
                       class="form-select"
-                      [class.is-invalid]="companyInvalid()"
+                      [class.is-invalid]="setorInvalid()"
                     >
-                      <option [ngValue]="null">Selecione...</option>
-                      @for (c of companies; track c.id_company) {
-                        <option [ngValue]="c.id_company">
-                          {{ c.fancy_name || c.company_name }}
-                        </option>
+                      <option [ngValue]="null" disabled>Selecione o setor</option>
+                      @for (s of sectors(); track s.id) {
+                        <option [ngValue]="s.id">{{ s.nome }}</option>
                       }
                     </select>
-                    <p class="text-xs text-slate-500 mt-1">
-                      Não encontrou a empresa?
-                      <a routerLink="/admin/empresas" class="text-[var(--color-primary-dark)] font-medium hover:underline">
-                        Cadastrar empresa
-                      </a>
-                    </p>
                   </div>
-                }
+                </div>
                 <div>
                   <label class="form-label" for="wcrt-finalidade">Nome do evento</label>
                   <input
@@ -206,11 +231,9 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                     class="form-field"
                     [class.is-invalid]="finalidadeInvalid()"
                   />
-                  <div class="wcrt-error-slot" aria-live="polite">
-                    @if (finalidadeInvalid()) {
-                      <p class="wcrt-field-error">Informe o nome do evento.</p>
-                    }
-                  </div>
+                  @if (finalidadeInvalid()) {
+                    <p class="wcrt-field-error" aria-live="polite">Informe o nome do evento.</p>
+                  }
                 </div>
                 <div>
                   <label class="form-label" for="wcrt-observacao">Descrição do serviço</label>
@@ -223,47 +246,25 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                     class="form-field"
                     [class.is-invalid]="observacaoInvalid()"
                   ></textarea>
-                  <div class="wcrt-error-slot" aria-live="polite">
-                    @if (observacaoInvalid()) {
-                      <p class="wcrt-field-error">Informe a descrição do serviço.</p>
-                    }
-                  </div>
-                </div>
-                <div>
-                  <label class="form-label" for="wcrt-setor">Setor aprovador</label>
-                  <select
-                    id="wcrt-setor"
-                    formControlName="id_setor"
-                    class="form-select"
-                    [class.is-invalid]="setorInvalid()"
-                  >
-                    <option [ngValue]="null" disabled>Selecione o setor</option>
-                    @for (s of sectors(); track s.id) {
-                      <option [ngValue]="s.id">{{ s.nome }}</option>
-                    }
-                  </select>
+                  @if (observacaoInvalid()) {
+                    <p class="wcrt-field-error" aria-live="polite">Informe a descrição do serviço.</p>
+                  }
                 </div>
                 <div class="wcrt-notify">
                   <p class="text-sm font-medium text-slate-800">Notificações de entrada na portaria</p>
                   <p class="text-xs text-slate-500">
                     Avisa solicitante e aprovadores no check-in, conforme o tipo selecionado.
                   </p>
-                  <label class="flex items-start gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      class="mt-1"
-                      formControlName="notificar_entrada_colaborador"
-                    />
-                    <span class="text-sm text-slate-800">Entrada de colaborador</span>
-                  </label>
-                  <label class="flex items-start gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      class="mt-1"
-                      formControlName="notificar_entrada_veiculo"
-                    />
-                    <span class="text-sm text-slate-800">Entrada de veículo</span>
-                  </label>
+                  <div class="wcrt-notify__checks">
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" formControlName="notificar_entrada_colaborador" />
+                      <span class="text-sm text-slate-800">Entrada de colaborador</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" formControlName="notificar_entrada_veiculo" />
+                      <span class="text-sm text-slate-800">Entrada de veículo</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -735,28 +736,43 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       .wcrt {
         display: flex;
         flex-direction: column;
+        min-width: 0;
         min-height: 0;
+        overflow-x: hidden;
+        max-width: 100%;
       }
       .wcrt--pessoas {
         flex: 1;
         min-height: 0;
       }
-      .wcrt--pessoas .wcrt-stepper {
-        flex: none;
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        background: #fff;
-      }
       .wcrt-stepper {
         display: flex;
+        flex-direction: column;
+        gap: 0;
+        padding: 2px 0 0;
+        min-width: 0;
+        flex: none;
+      }
+      .wcrt-stepper__track {
+        display: flex;
         align-items: center;
-        padding: 4px 0 14px;
+        width: 100%;
+        min-width: 0;
+      }
+      .wcrt-stepper__current {
+        display: none;
+        margin: 8px 0 0;
+        font-size: 12.5px;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--ink);
+        word-break: break-word;
       }
       .wcrt-stepper__item {
         display: flex;
         align-items: center;
         gap: 9px;
+        min-width: 0;
       }
       .wcrt-stepper__dot {
         width: 26px;
@@ -818,17 +834,38 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       .wcrt-dados__right {
         display: flex;
         flex-direction: column;
-        gap: 0.9rem;
+        gap: 0.65rem;
+      }
+      .wcrt-dados__row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.65rem;
+        align-items: start;
+      }
+      .wcrt-dados__row--single {
+        grid-template-columns: 1fr;
       }
       .wcrt-field-error {
-        margin: 0;
+        margin: 4px 0 0;
         font-size: 0.75rem;
         color: var(--danger);
         line-height: 1.25;
       }
       .wcrt-error-slot {
-        min-height: 1.125rem;
-        margin-top: 4px;
+        min-height: 0;
+        margin-top: 0;
+      }
+      .wcrt-notify {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      .wcrt-notify__checks {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem 1.25rem;
+        margin-top: 0.15rem;
       }
       .wcrt-td-role {
         vertical-align: top;
@@ -896,11 +933,6 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       .form-field.is-invalid,
       .form-select.is-invalid {
         border-color: var(--danger) !important;
-      }
-      .wcrt-notify {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
       }
       .wcrt-pessoas {
         display: flex;
@@ -1198,7 +1230,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       }
       .wcrt-table th {
         text-align: left;
-        font-size: 0.7rem;
+        font-size: 0.75rem;
         text-transform: uppercase;
         letter-spacing: 0.04em;
         color: var(--ink-3);
@@ -1221,7 +1253,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       }
       .wcrt-row-error {
         margin: 2px 0 0;
-        font-size: 0.72rem;
+        font-size: 0.8rem;
         line-height: 1.35;
         color: var(--danger);
       }
@@ -1232,7 +1264,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         margin-left: 6px;
         padding: 2px 8px;
         border-radius: 999px;
-        font-size: 0.65rem;
+        font-size: 0.75rem;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.02em;
@@ -1485,26 +1517,28 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         .wcrt-table-scroll--sm {
           flex: none;
           min-height: 0;
-          max-height: 280px;
+          max-height: min(240px, 36vh);
         }
       }
       @media (max-width: 720px) {
         .wcrt-dados {
           grid-template-columns: 1fr;
         }
+        .wcrt-dados__row {
+          grid-template-columns: 1fr;
+        }
         .wcrt-stepper {
-          gap: 0;
           padding-bottom: 10px;
         }
         .wcrt-stepper__label {
-          font-size: 11px;
-          white-space: normal;
-          line-height: 1.2;
-          max-width: 5.5rem;
+          display: none;
+        }
+        .wcrt-stepper__current {
+          display: block;
         }
         .wcrt-stepper__line {
-          margin: 0 6px;
-          min-width: 12px;
+          margin: 0 8px;
+          min-width: 16px;
         }
         .wcrt-block__head {
           flex-direction: column;
@@ -1547,16 +1581,17 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
           justify-content: center;
         }
         .wcrt-table {
-          min-width: 520px;
+          min-width: 420px;
         }
         .wcrt-td-role {
-          min-width: 160px;
+          min-width: 140px;
+        }
+        .wcrt-table-scroll,
+        .wcrt-table-scroll--sm {
+          max-height: min(220px, 32vh);
         }
       }
       @media (max-width: 640px) {
-        .wcrt-stepper__label {
-          display: none;
-        }
         .wcrt-review__grid,
         .wcrt-dl--grid {
           grid-template-columns: 1fr;
@@ -1568,6 +1603,9 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         }
         .wcrt-alert__check {
           margin-left: 0;
+        }
+        .wcrt-td-role {
+          min-width: 120px;
         }
       }
     `,
@@ -1702,6 +1740,18 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
       return 'Inclua manualmente ou importe por planilha XLSX. Corrija as pendências direto na tabela.';
     }
     return 'Confira os dados e envie para aprovação.';
+  }
+
+  stepNumber(): number {
+    if (this.step() === 'dados') return 1;
+    if (this.step() === 'pessoas') return 2;
+    return 3;
+  }
+
+  stepLabel(): string {
+    if (this.step() === 'dados') return 'Dados do acesso';
+    if (this.step() === 'pessoas') return 'Colaboradores e veículos';
+    return 'Revisar e enviar';
   }
 
   get finalidade(): string {

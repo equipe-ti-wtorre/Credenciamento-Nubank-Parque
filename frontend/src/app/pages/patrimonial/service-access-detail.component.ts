@@ -16,15 +16,32 @@ import {
   CollaboratorService,
 } from '../../services/collaborator.service';
 import { VehicleItem, VehicleService } from '../../services/vehicle.service';
-import { ApprovalService, EligibleSector } from '../../services/approval.service';
+import {
+  ApprovalLiberacaoStatus,
+  ApprovalService,
+  EligibleSector,
+  liberacaoStatusBadgeClass,
+  liberacaoStatusLabel,
+} from '../../services/approval.service';
 import { NotificationService } from '../../core/services/notification.service';
-import { AuthService, AuthUser, isSuperAdmin } from '../../core/services/auth.service';
+import { AuthService, AuthUser, hasPermission, isSuperAdmin } from '../../core/services/auth.service';
 import { ModalComponent } from '../../shared/modal/modal.component';
+import { ActionBtnComponent } from '../../shared/actions';
 import {
   PeriodoRangePickerComponent,
   PeriodoRangeValue,
 } from '../../shared/periodo-range-picker';
-import { ServiceAccessBulkImportWizardComponent } from './service-access-bulk-import-wizard.component';
+import { SuggestInputComponent } from '../../shared/suggest-input/suggest-input.component';
+import {
+  modelsForBrand,
+  VEHICLE_SUGGESTED_BRANDS,
+  VEHICLE_SUGGESTED_COLORS,
+  VEHICLE_SUGGESTED_TYPES,
+} from '../../shared/vehicle-catalog';
+import {
+  BulkImportApiAdapter,
+  ServiceAccessBulkImportWizardComponent,
+} from './service-access-bulk-import-wizard.component';
 
 function formatDateBr(value: string | null | undefined): string {
   if (!value) return '—';
@@ -44,8 +61,10 @@ type ModalMode = 'search' | 'create';
     FormsModule,
     RouterLink,
     ModalComponent,
+    ActionBtnComponent,
     PeriodoRangePickerComponent,
     ServiceAccessBulkImportWizardComponent,
+    SuggestInputComponent,
   ],
   styles: [
     `
@@ -548,7 +567,12 @@ type ModalMode = 'search' | 'create';
                 <button type="button" class="cred-btn cred-btn--ghost" (click)="carregar()">
                   Atualizar
                 </button>
-                <button type="button" class="cred-btn cred-btn--ghost" (click)="abrirBulk()">
+                <button
+                  *ngIf="canManageBulkImport()"
+                  type="button"
+                  class="cred-btn cred-btn--ghost"
+                  (click)="abrirBulk()"
+                >
                   Upload XLSX
                 </button>
                 <ng-container *ngIf="canDecideWorkflow()">
@@ -684,6 +708,7 @@ type ModalMode = 'search' | 'create';
                 <th class="py-2 text-left">Nome</th>
                 <th class="py-2 text-left">Documento</th>
                 <th class="py-2 text-left">Função</th>
+                <th class="py-2 text-left">Status</th>
                 <th class="py-2 text-right">Ações</th>
               </tr>
             </thead>
@@ -714,18 +739,27 @@ type ModalMode = 'search' | 'create';
                 </td>
                 <td class="py-2 font-mono text-xs">{{ c.collaborator_document }}</td>
                 <td class="py-2">{{ c.role_description }}</td>
-                <td class="py-2 text-right">
-                  <button
-                    type="button"
-                    class="text-xs text-rose-600 hover:underline"
-                    (click)="removerColaborador(c)"
+                <td class="py-2">
+                  <span
+                    class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                    [ngClass]="liberacaoBadgeClass(itemLiberacaoStatus(c.access_id))"
                   >
-                    Remover
-                  </button>
+                    {{ liberacaoLabel(itemLiberacaoStatus(c.access_id)) }}
+                  </span>
+                </td>
+                <td class="py-2 text-right">
+                  <div class="inline-flex justify-end">
+                    <app-action-btn
+                      icon="delete"
+                      title="Remover"
+                      variant="danger"
+                      (action)="removerColaborador(c)"
+                    />
+                  </div>
                 </td>
               </tr>
               <tr *ngIf="draftCollaborators().length === 0">
-                <td colspan="5" class="py-4 text-center text-slate-500">Nenhum colaborador vinculado.</td>
+                <td colspan="6" class="py-4 text-center text-slate-500">Nenhum colaborador vinculado.</td>
               </tr>
             </tbody>
           </table>
@@ -845,6 +879,7 @@ type ModalMode = 'search' | 'create';
                 <th class="py-2 text-left hidden sm:table-cell">Cor</th>
                 <th class="py-2 text-left hidden md:table-cell">Tipo</th>
                 <th class="py-2 text-left hidden lg:table-cell">Descrição</th>
+                <th class="py-2 text-left">Status</th>
                 <th class="py-2 text-right">Ações</th>
               </tr>
             </thead>
@@ -863,18 +898,27 @@ type ModalMode = 'search' | 'create';
                 <td class="py-2 text-slate-600 hidden sm:table-cell">{{ v.color || '—' }}</td>
                 <td class="py-2 text-slate-600 hidden md:table-cell">{{ v.type || '—' }}</td>
                 <td class="py-2 text-slate-600 hidden lg:table-cell">{{ v.vehicle_description || '—' }}</td>
-                <td class="py-2 text-right">
-                  <button
-                    type="button"
-                    class="text-xs text-rose-600 hover:underline"
-                    (click)="removerVeiculo(v)"
+                <td class="py-2">
+                  <span
+                    class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                    [ngClass]="liberacaoBadgeClass(itemLiberacaoStatus(v.access_id))"
                   >
-                    Remover
-                  </button>
+                    {{ liberacaoLabel(itemLiberacaoStatus(v.access_id)) }}
+                  </span>
+                </td>
+                <td class="py-2 text-right">
+                  <div class="inline-flex justify-end">
+                    <app-action-btn
+                      icon="delete"
+                      title="Remover"
+                      variant="danger"
+                      (action)="removerVeiculo(v)"
+                    />
+                  </div>
                 </td>
               </tr>
               <tr *ngIf="draftVehicles().length === 0">
-                <td colspan="7" class="py-4 text-center text-slate-500">Nenhum veículo vinculado.</td>
+                <td colspan="8" class="py-4 text-center text-slate-500">Nenhum veículo vinculado.</td>
               </tr>
             </tbody>
           </table>
@@ -1195,46 +1239,50 @@ type ModalMode = 'search' | 'create';
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="form-label" for="veic-brand">Marca</label>
-              <input
-                id="veic-brand"
+              <app-suggest-input
+                inputId="veic-brand"
                 [(ngModel)]="veicForm.brand"
                 name="veicFormBrand"
-                class="form-field"
+                [options]="brandOptions"
+                inputClass="form-field"
                 placeholder="Ex.: Toyota"
-                required
+                [required]="true"
               />
             </div>
             <div>
               <label class="form-label" for="veic-model">Modelo</label>
-              <input
-                id="veic-model"
+              <app-suggest-input
+                inputId="veic-model"
                 [(ngModel)]="veicForm.model"
                 name="veicFormModel"
-                class="form-field"
+                [options]="modelsForCurrentBrand()"
+                inputClass="form-field"
                 placeholder="Ex.: Corolla"
-                required
+                [required]="true"
               />
             </div>
             <div>
               <label class="form-label" for="veic-color">Cor</label>
-              <input
-                id="veic-color"
+              <app-suggest-input
+                inputId="veic-color"
                 [(ngModel)]="veicForm.color"
                 name="veicFormColor"
-                class="form-field"
+                [options]="colorOptions"
+                inputClass="form-field"
                 placeholder="Ex.: Prata"
-                required
+                [required]="true"
               />
             </div>
             <div>
               <label class="form-label" for="veic-type">Tipo</label>
-              <input
-                id="veic-type"
+              <app-suggest-input
+                inputId="veic-type"
                 [(ngModel)]="veicForm.type"
                 name="veicFormType"
-                class="form-field"
+                [options]="typeOptions"
+                inputClass="form-field"
                 placeholder="Ex.: Sedan"
-                required
+                [required]="true"
               />
             </div>
           </div>
@@ -1261,7 +1309,7 @@ type ModalMode = 'search' | 'create';
 
     <app-modal
       [open]="showBulkModal()"
-      title="Importar para o acesso"
+      title="Importar em lote"
       [subtitle]="bulkModalSubtitle"
       size="xl"
       [closeOnBackdrop]="false"
@@ -1270,7 +1318,8 @@ type ModalMode = 'search' | 'create';
     >
       <app-service-access-bulk-import-wizard
         [open]="showBulkModal()"
-        [serviceAccessId]="serviceId"
+        [embedded]="true"
+        [apiAdapter]="serviceBulkAdapter"
         [accessName]="service()?.finalidade || ''"
         [companyName]="service()?.company_fancy_name || ''"
         (closed)="fecharBulk()"
@@ -1450,6 +1499,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   togglingEnabled = signal(false);
   private currentUser: AuthUser | null = null;
   formatDateBr = formatDateBr;
+  readonly liberacaoLabel = liberacaoStatusLabel;
+  readonly liberacaoBadgeClass = liberacaoStatusBadgeClass;
 
   showEditModal = signal(false);
   editSaving = signal(false);
@@ -1513,6 +1564,10 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   veicForm = this.emptyVeicForm();
   private veicSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
+  readonly brandOptions = VEHICLE_SUGGESTED_BRANDS;
+  readonly colorOptions = VEHICLE_SUGGESTED_COLORS;
+  readonly typeOptions = VEHICLE_SUGGESTED_TYPES;
+
   showBulkModal = signal(false);
 
   get bulkModalSubtitle(): string {
@@ -1521,6 +1576,23 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     const left = emp ? `${nome} · ${emp}` : nome;
     return `${left} — colaboradores e veículos em uma planilha.`;
   }
+
+  serviceBulkAdapter: BulkImportApiAdapter = {
+    downloadTemplate: () => {
+      if (!this.serviceId) throw new Error('Contexto inválido');
+      return this.patrimonialService.baixarBulkImportTemplate(this.serviceId);
+    },
+    preview: (file: File) => {
+      if (!this.serviceId) throw new Error('Contexto inválido');
+      return this.patrimonialService.bulkImportPreview(this.serviceId, file);
+    },
+    confirm: (previewToken, decisoes) => {
+      if (!this.serviceId) throw new Error('Contexto inválido');
+      return this.patrimonialService.bulkImportConfirm(this.serviceId, previewToken, decisoes);
+    },
+    templateFilename: 'template-acesso-servico.xlsx',
+    confirmLabel: 'Importar para o acesso',
+  };
 
   draftCollaborators = signal<ServiceAccessCollaborator[]>([]);
   draftVehicles = signal<ServiceAccessVehicle[]>([]);
@@ -1606,6 +1678,10 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       type: '',
       description: '',
     };
+  }
+
+  modelsForCurrentBrand(): string[] {
+    return modelsForBrand(this.veicForm.brand);
   }
 
   onColabHeaderSearchChange(term: string) {
@@ -1931,6 +2007,15 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     this.thumbnailUrls.set({});
   }
 
+  canManageBulkImport(): boolean {
+    const user = this.currentUser;
+    if (!user) return false;
+    return (
+      hasPermission(user, 'service_access', 'edit') ||
+      hasPermission(user, 'service_access', 'create')
+    );
+  }
+
   canDecideWorkflow(): boolean {
     const svc = this.service();
     const user = this.currentUser;
@@ -2031,6 +2116,38 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     if (idAccessStatus === 5) return 'chip--muted';
     if (idAccessStatus === 1 || idAccessStatus === 2) return 'chip--warn';
     return 'chip--muted';
+  }
+
+  /** Status de liberação do colaborador/veículo (aprovado, bloqueado/recusado, reprovado, pendente). */
+  itemLiberacaoStatus(accessId: string | null | undefined): ApprovalLiberacaoStatus {
+    if (accessId) return 'APROVADO';
+    const approvalStatus = this.approvalStatusForLiberacao();
+    if (approvalStatus === 'PENDENTE') return 'PENDENTE';
+    if (
+      approvalStatus === 'REPROVADO' ||
+      approvalStatus === 'CANCELADO' ||
+      approvalStatus === 'EXPIRADO'
+    ) {
+      return 'REPROVADO';
+    }
+    // Acesso aprovado sem access_id = recusa parcial na aprovação seletiva
+    return 'BLOQUEADO';
+  }
+
+  private approvalStatusForLiberacao(): string {
+    const svc = this.service();
+    if (!svc) return 'PENDENTE';
+    if (svc.aprovacao_status) return String(svc.aprovacao_status);
+    switch (Number(svc.id_access_status)) {
+      case 3:
+        return 'APROVADO';
+      case 4:
+        return 'REPROVADO';
+      case 5:
+        return 'EXPIRADO';
+      default:
+        return 'PENDENTE';
+    }
   }
 
   toggleEnabled() {

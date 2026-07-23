@@ -45,28 +45,30 @@ let modalIdCounter = 0;
         >
           @if (title || showClose) {
             <div class="modal-header">
-              <div class="modal-header__text">
-                @if (title) {
-                  <h2 [id]="titleId" class="modal-header__title">{{ title }}</h2>
+              <div class="modal-header__row">
+                <div class="modal-header__text">
+                  @if (title) {
+                    <h2 [id]="titleId" class="modal-header__title">{{ title }}</h2>
+                  }
+                  @if (subtitle) {
+                    <p [id]="subtitleId" class="modal-header__subtitle">{{ subtitle }}</p>
+                  }
+                </div>
+                @if (showClose) {
+                  <button
+                    type="button"
+                    class="modal-close"
+                    aria-label="Fechar"
+                    (click)="close.emit()"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
                 }
-                @if (subtitle) {
-                  <p [id]="subtitleId" class="modal-header__subtitle">{{ subtitle }}</p>
-                }
-                <ng-content select="[modal-header-extra]"></ng-content>
               </div>
-              @if (showClose) {
-                <button
-                  type="button"
-                  class="modal-close"
-                  aria-label="Fechar"
-                  (click)="close.emit()"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                    <path d="M18 6 6 18" />
-                    <path d="m6 6 12 12" />
-                  </svg>
-                </button>
-              }
+              <ng-content select="[modal-header-extra]"></ng-content>
             </div>
           }
 

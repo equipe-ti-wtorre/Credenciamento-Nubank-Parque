@@ -95,19 +95,17 @@ export class VehicleService {
   bulkPreview(file: File) {
     const form = new FormData();
     form.append('file', file, file.name);
-    return this.api.postFormData<import('../shared/bulk-import/bulk-import.types').BulkPreviewResult>(
-      '/vehicles/bulk/preview',
-      form,
-    );
+    return this.api.postFormData<
+      import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkPreviewResult
+    >('/vehicles/bulk/preview', form);
   }
 
   bulkCommit(
-    previewId: string,
-    decisions: import('../shared/bulk-import/bulk-import.types').BulkDecision[],
+    previewToken: string,
+    decisoes: import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmBody['decisoes'],
   ) {
-    return this.api.post<import('../shared/bulk-import/bulk-import.types').BulkCommitResult>(
-      '/vehicles/bulk/commit',
-      { previewId, decisions },
-    );
+    return this.api.post<
+      import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmResult
+    >('/vehicles/bulk/commit', { previewToken, decisoes });
   }
 }

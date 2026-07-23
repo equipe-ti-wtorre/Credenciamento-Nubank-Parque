@@ -804,7 +804,15 @@ async function confirmUnifiedBulkImport(ctx) {
       result.colaboradores.ignorados += 1;
       continue;
     }
-    if (row.cadastro === "erro") {
+
+    const correctedRoleId = Number(decision.id_collaborator_role);
+    const roleCorrection =
+      row.cadastro === "erro" &&
+      row.pendente_funcao &&
+      Number.isFinite(correctedRoleId) &&
+      correctedRoleId > 0;
+
+    if (row.cadastro === "erro" && !roleCorrection) {
       result.colaboradores.erros.push({
         linha: line,
         motivo: (row.erros && row.erros[0]) || "Linha com erro.",
@@ -814,7 +822,24 @@ async function confirmUnifiedBulkImport(ctx) {
 
     try {
       let collaboratorId = row.existingId;
-      if (row.cadastro === "novo") {
+      if (roleCorrection && !collaboratorId) {
+        const docTypeId = Number(row.resolvido?.id_collaborator_document_type);
+        const document = String(row.chave?.documento || "").trim();
+        const name = String(row.nome || "").trim();
+        if (!docTypeId || !document || !name) {
+          throw new AppError("Dados insuficientes para cadastrar com a função corrigida.", 400);
+        }
+        const [ins] = await db.execute(
+          `INSERT INTO collaborator (
+             id_collaborator_document_type, id_collaborator_role,
+             document, name, rg, phone, status
+           ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [docTypeId, correctedRoleId, document, name, null, null],
+        );
+        collaboratorId = ins.insertId;
+        createdDocToId.set(document, collaboratorId);
+        result.colaboradores.inseridos += 1;
+      } else if (row.cadastro === "novo") {
         if (!row.validated) throw new AppError("Cadastro novo sem dados validados.", 400);
         const [ins] = await db.execute(
           `INSERT INTO collaborator (
@@ -859,6 +884,12 @@ async function confirmUnifiedBulkImport(ctx) {
             }
           }
         }
+        if (roleCorrection) {
+          await db.execute(
+            `UPDATE collaborator SET id_collaborator_role = ? WHERE id_collaborator = ? AND (id_collaborator_role IS NULL OR id_collaborator_role = 0)`,
+            [correctedRoleId, row.existingId],
+          );
+        }
       }
 
       if (!collaboratorId) {
@@ -866,10 +897,12 @@ async function confirmUnifiedBulkImport(ctx) {
         continue;
       }
 
-      const applyRole = decision.aplicarFuncao === true;
-      const roleId = applyRole
-        ? row.roleId
-        : row.linkRecord?.id_collaborator_role || row.masterRoleId || row.roleId || null;
+      const applyRole = decision.aplicarFuncao === true || roleCorrection;
+      const roleId = roleCorrection
+        ? correctedRoleId
+        : applyRole
+          ? row.roleId
+          : row.linkRecord?.id_collaborator_role || row.masterRoleId || row.roleId || null;
       if (!roleId) {
         result.colaboradores.erros.push({
           linha: line,

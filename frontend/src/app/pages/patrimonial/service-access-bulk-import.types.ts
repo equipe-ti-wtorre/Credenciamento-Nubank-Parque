@@ -25,6 +25,8 @@ export interface UnifiedCollaboratorRow {
   divergencias_vinculo?: UnifiedDivergence[];
   erros: string[];
   nome?: string | null;
+  /** Só falta Função / Cargo — pode corrigir na revisão. */
+  pendente_funcao?: boolean;
 }
 
 export interface UnifiedVehicleRow {
@@ -69,6 +71,8 @@ export interface UnifiedColaboradorDecision {
   aplicar: boolean;
   camposMaster?: string[];
   aplicarFuncao?: boolean;
+  /** Correção de função em linhas pendente_funcao. */
+  id_collaborator_role?: number;
 }
 
 export interface UnifiedVeiculoDecision {

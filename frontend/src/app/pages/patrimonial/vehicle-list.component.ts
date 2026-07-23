@@ -12,8 +12,17 @@ import { ActionMenuComponent } from '../../shared/actions/action-menu.component'
 import { ActionDropdownComponent } from '../../shared/actions/action-dropdown.component';
 import { ActionDropdownItemDirective } from '../../shared/actions/action-dropdown-item.directive';
 import { ModalComponent } from '../../shared/modal/modal.component';
-import { BulkImportWizardComponent } from '../../shared/bulk-import/bulk-import-wizard.component';
-import { BulkImportAdapters } from '../../shared/bulk-import/bulk-import.types';
+import { SuggestInputComponent } from '../../shared/suggest-input/suggest-input.component';
+import {
+  modelsForBrand,
+  VEHICLE_SUGGESTED_BRANDS,
+  VEHICLE_SUGGESTED_COLORS,
+  VEHICLE_SUGGESTED_TYPES,
+} from '../../shared/vehicle-catalog';
+import {
+  BulkImportApiAdapter,
+  ServiceAccessBulkImportWizardComponent,
+} from './service-access-bulk-import-wizard.component';
 
 interface VehicleFormState {
   plate: string;
@@ -39,7 +48,8 @@ interface VehicleFormState {
     ActionDropdownComponent,
     ActionDropdownItemDirective,
     ModalComponent,
-    BulkImportWizardComponent,
+    ServiceAccessBulkImportWizardComponent,
+    SuggestInputComponent,
   ],
   template: `
     <div class="w-full">
@@ -406,37 +416,45 @@ interface VehicleFormState {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="text-xs font-bold text-slate-500 uppercase">Marca</label>
-              <input
+              <app-suggest-input
+                class="mt-1 block"
                 [(ngModel)]="form.brand"
                 name="brand"
-                class="w-full mt-1 border rounded-xl px-3 py-2 text-sm"
+                [options]="brandOptions"
+                inputClass="form-field"
                 placeholder="Ex.: Toyota"
               />
             </div>
             <div>
               <label class="text-xs font-bold text-slate-500 uppercase">Modelo</label>
-              <input
+              <app-suggest-input
+                class="mt-1 block"
                 [(ngModel)]="form.model"
                 name="model"
-                class="w-full mt-1 border rounded-xl px-3 py-2 text-sm"
+                [options]="modelsForCurrentBrand()"
+                inputClass="form-field"
                 placeholder="Ex.: Corolla"
               />
             </div>
             <div>
               <label class="text-xs font-bold text-slate-500 uppercase">Cor</label>
-              <input
+              <app-suggest-input
+                class="mt-1 block"
                 [(ngModel)]="form.color"
                 name="color"
-                class="w-full mt-1 border rounded-xl px-3 py-2 text-sm"
+                [options]="colorOptions"
+                inputClass="form-field"
                 placeholder="Ex.: Prata"
               />
             </div>
             <div>
               <label class="text-xs font-bold text-slate-500 uppercase">Tipo</label>
-              <input
+              <app-suggest-input
+                class="mt-1 block"
                 [(ngModel)]="form.type"
                 name="type"
-                class="w-full mt-1 border rounded-xl px-3 py-2 text-sm"
+                [options]="typeOptions"
+                inputClass="form-field"
                 placeholder="Ex.: Sedan"
               />
             </div>
@@ -537,14 +555,25 @@ interface VehicleFormState {
       </div>
     </app-modal>
 
-    <app-bulk-import-wizard
+    <app-modal
       [open]="showBulkModal()"
-      title="Upload em lote — Frota"
-      subtitle="Envie a planilha, revise novos veículos e divergências, e confirme a importação."
-      [adapters]="bulkAdapters"
-      (closed)="showBulkModal.set(false)"
-      (completed)="onBulkCompleted()"
-    />
+      title="Importar em lote"
+      subtitle="Modelo unificado de veículos — revise e confirme a importação."
+      size="xl"
+      [closeOnBackdrop]="false"
+      [focusFirstField]="false"
+      (close)="fecharBulkModal()"
+    >
+      <app-service-access-bulk-import-wizard
+        [open]="showBulkModal()"
+        [embedded]="true"
+        [hideCollaborators]="true"
+        [apiAdapter]="fleetBulkAdapter"
+        accessName="Frota"
+        (closed)="fecharBulkModal()"
+        (completed)="onBulkCompleted()"
+      />
+    </app-modal>
   `,
 })
 export class VehicleListComponent implements OnInit {
@@ -562,11 +591,16 @@ export class VehicleListComponent implements OnInit {
   isAdmin = false;
   form: VehicleFormState = this.emptyForm();
 
-  readonly bulkAdapters: BulkImportAdapters = {
+  readonly brandOptions = VEHICLE_SUGGESTED_BRANDS;
+  readonly colorOptions = VEHICLE_SUGGESTED_COLORS;
+  readonly typeOptions = VEHICLE_SUGGESTED_TYPES;
+
+  fleetBulkAdapter: BulkImportApiAdapter = {
     downloadTemplate: () => this.vehicleService.downloadBulkTemplate(),
     preview: (file) => this.vehicleService.bulkPreview(file),
-    commit: (previewId, decisions) => this.vehicleService.bulkCommit(previewId, decisions),
-    templateFilename: 'template-frota-veiculos.xlsx',
+    confirm: (previewToken, decisoes) => this.vehicleService.bulkCommit(previewToken, decisoes),
+    templateFilename: 'template-acesso-servico.xlsx',
+    confirmLabel: 'Importar veículos',
   };
 
   pagination = signal({
@@ -607,6 +641,10 @@ export class VehicleListComponent implements OnInit {
     private authService: AuthService,
     private notification: NotificationService,
   ) {}
+
+  modelsForCurrentBrand(): string[] {
+    return modelsForBrand(this.form.brand);
+  }
 
   async ngOnInit() {
     const user = await this.authService.getCurrentUser();
@@ -731,7 +769,12 @@ export class VehicleListComponent implements OnInit {
     this.showBulkModal.set(true);
   }
 
+  fecharBulkModal() {
+    this.showBulkModal.set(false);
+  }
+
   onBulkCompleted() {
+    this.fecharBulkModal();
     this.carregar(1);
   }
 

@@ -68,18 +68,44 @@ Usar [`<app-modal>`](../frontend/src/app/shared/modal/modal.component.ts). **Nã
 
 ---
 
-## C) Menu de ações (kebab)
+## C) Menu de ações (kebab) e ícones em tabelas
 
 Componentes em [`frontend/src/app/shared/actions/`](../frontend/src/app/shared/actions/):
 
 - `app-action-menu` — container
-- `app-action-btn` — botão de ícone (variante `neutral` para Editar)
+- `app-action-btn` — botão de ícone (variante `neutral` para Editar; `danger` para Remover/Excluir)
 - `app-action-dropdown` + `button[appActionDropdownItem]` — menu ⋮
+
+### Ícones obrigatórios nas ações de tabela
+
+**Nunca** usar link/texto colorido como ação de linha (`Remover`, `Excluir`, `Editar` em `text-rose-600` / underline).
+
+| Situação | Padrão |
+|----------|--------|
+| Ação única na coluna Ações (ex.: Remover) | `<app-action-btn icon="delete" title="Remover" variant="danger" />` |
+| Editar + outras | Editar como `app-action-btn` + kebab para o restante |
+| Só texto no dropdown | Proibido — todo item precisa do SVG `action-dropdown__item-icon` |
+
+```html
+<!-- ✅ Remover / Excluir em linha -->
+<app-action-btn
+  icon="delete"
+  title="Remover"
+  variant="danger"
+  (action)="remover(item)"
+/>
+
+<!-- ❌ Texto como ação -->
+<button class="text-xs text-rose-600 hover:underline">Remover</button>
+```
+
+`title` / `aria-label` obrigatórios no botão de ícone (acessibilidade e tooltip).
 
 **Padrão em linha de tabela:**
 1. Ação mais frequente (**Editar**) como botão direto (`variant="neutral"`)
 2. Demais ações no kebab (ativar/desativar, blacklist, etc.)
 3. **Excluir** sempre por último, vermelho (`[danger]="true"`), após `<hr class="action-dropdown__divider" />`
+4. Remoção isolada (sem kebab) = `app-action-btn` com `icon="delete"` e `variant="danger"`
 
 ### Ícones obrigatórios no dropdown
 
@@ -147,6 +173,7 @@ Todo `button[appActionDropdownItem]` **deve** ter um SVG à esquerda do rótulo,
 
 **Anti-patterns:**
 - Item de menu só com texto (sem `action-dropdown__item-icon`)
+- Ação de tabela só com texto/link (`Remover`, `Excluir`) em vez de `app-action-btn`
 - Desativar/Ativar com `[danger]="true"` (vermelho reservado a Excluir)
 - Múltiplos `action-btn` coloridos lado a lado; `variant="success"` (verde proibido)
 - Ícones de biblioteca (Heroicons/Material) diferentes do stroke 1.75 / viewBox 24 neste menu
@@ -277,8 +304,9 @@ onTextFilterChange() {
 - Modais inline `fixed inset-0 z-50` sem `<app-modal>`
 - `.btn-primary` verde ou `.btn-secondary` índigo como hierarquia semântica
 - Mais de um botão colorido no mesmo footer/bloco
-- Links `text-emerald-600` / `text-rose-600` como ações de tabela
+- Links `text-emerald-600` / `text-rose-600` como ações de tabela (usar `app-action-btn`)
 - Fontes hardcoded — usar `--font-display` / `--font-body`
 - `appActionDropdownItem` sem ícone SVG `action-dropdown__item-icon`
+- Botão de ação só com texto na coluna Ações (sem ícone)
 - Botão **Filtrar** em barras de filtro de lista (usar digitar-já-filtra)
 - Upload sem `upload-dropzone--banner` (botão solto ou dropzone vertical)

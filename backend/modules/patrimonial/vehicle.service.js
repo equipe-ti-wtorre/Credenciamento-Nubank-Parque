@@ -2,15 +2,6 @@ const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const { normalizePlate, isValidPlate } = require("../../utils/plate");
 const { hasPermission } = require("../../utils/permissions");
-const { savePreviewSession, getPreviewSession, deletePreviewSession } = require("../bulk/previewSession");
-const { buildFieldDiffs, pickUpdatePatch, summarizePreviewRows } = require("../bulk/diff");
-const {
-  parseBulkFile,
-  normalizeFleetVehicleBulkRow,
-  isEmptyFleetVehicleBulkRow,
-} = require("./vehicle.bulk");
-
-const VEHICLE_BULK_UPDATE_FIELDS = ["brand", "model", "color", "type", "description"];
 
 const VEHICLE_SELECT = `
   SELECT v.*, c.fancy_name AS company_fancy_name, c.company_name,
@@ -314,7 +305,7 @@ async function findVehicleByCompanyPlate(idCompany, plate) {
 
 async function getFleetBulkTemplate(req) {
   assertCanManageVehicles(req);
-  const { buildFleetVehicleBulkTemplate } = require("../../utils/bulkTemplateXlsx");
+  const { buildFleetUnifiedTemplate } = require("./vehicle-bulk-import.flow");
   const scope = buildCompanyScope(req);
   let companies = [];
   if (scope.mode === "admin") {
@@ -332,22 +323,7 @@ async function getFleetBulkTemplate(req) {
       companies = rows;
     }
   }
-  return buildFleetVehicleBulkTemplate({ companies });
-}
-
-function publicVehicleExisting(row) {
-  return {
-    id_vehicle: row.id_vehicle,
-    id_company: row.id_company,
-    plate: row.plate,
-    brand: row.brand || null,
-    model: row.model || null,
-    color: row.color || null,
-    type: row.type || null,
-    description: row.description || null,
-    status: !!row.status,
-    is_blacklisted: !!row.blacklist_reason,
-  };
+  return buildFleetUnifiedTemplate({ companies });
 }
 
 async function previewBulkVehicles(req, file) {
@@ -355,230 +331,36 @@ async function previewBulkVehicles(req, file) {
   if (!hasPermission(req.user, "fleet", "create") && !hasPermission(req.user, "fleet", "edit")) {
     throw new AppError("Perfil sem permissão para importar veículos.", 403);
   }
+  if (!file) throw new AppError("Arquivo obrigatório.", 400);
 
-  const rawRows = await parseBulkFile(file.buffer, file.mimetype, file.originalname);
-  const rows = [];
-  const sessionRows = [];
-
-  for (let i = 0; i < rawRows.length; i++) {
-    if (isEmptyFleetVehicleBulkRow(rawRows[i])) continue;
-    const line = i + 2;
-    const payload = normalizeFleetVehicleBulkRow(rawRows[i]);
-
-    if (!payload.plate) {
-      const item = {
-        line,
-        status: "error",
-        key: { plate: payload.plate, id_company: payload.id_company },
-        incoming: payload,
-        message: "Placa obrigatória.",
-      };
-      rows.push(item);
-      sessionRows.push({ ...item, existingId: null });
-      continue;
-    }
-
-    if (!isValidPlate(payload.plate)) {
-      const item = {
-        line,
-        status: "error",
-        key: { plate: payload.plate, id_company: payload.id_company },
-        incoming: payload,
-        message: "Placa inválida. Use formato antigo (AAA0000) ou Mercosul (AAA0A00).",
-      };
-      rows.push(item);
-      sessionRows.push({ ...item, existingId: null });
-      continue;
-    }
-
-    let idCompany;
-    try {
-      idCompany = resolveCompanyIdForCreate(
-        req,
-        Number.isFinite(payload.id_company) ? payload.id_company : undefined,
-      );
-    } catch (err) {
-      const item = {
-        line,
-        status: "error",
-        key: { plate: payload.plate, id_company: payload.id_company },
-        incoming: payload,
-        message: err.message || "Empresa inválida.",
-      };
-      rows.push(item);
-      sessionRows.push({ ...item, existingId: null });
-      continue;
-    }
-
-    const incoming = {
-      id_company: idCompany,
-      plate: payload.plate,
-      brand: payload.brand || null,
-      model: payload.model || null,
-      color: payload.color || null,
-      type: payload.type || null,
-      description: payload.description || null,
-    };
-
-    const existing = await findVehicleByCompanyPlate(idCompany, payload.plate);
-    if (!existing) {
-      const item = {
-        line,
-        status: "create",
-        key: { plate: payload.plate, id_company: idCompany },
-        incoming,
-      };
-      rows.push(item);
-      sessionRows.push({ ...item, existingId: null });
-      continue;
-    }
-
-    if (existing.blacklist_reason) {
-      const item = {
-        line,
-        status: "error",
-        key: { plate: payload.plate, id_company: idCompany },
-        incoming,
-        existing: publicVehicleExisting(existing),
-        message: "Veículo está na blacklist frota.",
-      };
-      rows.push(item);
-      sessionRows.push({ ...item, existingId: existing.id_vehicle });
-      continue;
-    }
-
-    if (!existing.status) {
-      const item = {
-        line,
-        status: "error",
-        key: { plate: payload.plate, id_company: idCompany },
-        incoming,
-        existing: publicVehicleExisting(existing),
-        message: "Veículo inativo.",
-      };
-      rows.push(item);
-      sessionRows.push({ ...item, existingId: existing.id_vehicle });
-      continue;
-    }
-
-    const existingPublic = publicVehicleExisting(existing);
-    const diffs = buildFieldDiffs(existingPublic, incoming, VEHICLE_BULK_UPDATE_FIELDS);
-    const item = {
-      line,
-      status: diffs.length ? "update" : "link",
-      key: { plate: payload.plate, id_company: idCompany },
-      incoming,
-      existing: existingPublic,
-      diffs,
-      message: diffs.length ? undefined : "Cadastro idêntico ao existente — nada a atualizar.",
-    };
-    rows.push(item);
-    sessionRows.push({ ...item, existingId: existing.id_vehicle });
-  }
-
-  if (!rows.length) {
-    throw new AppError(
-      "Nenhuma linha de dados encontrada. Cabeçalho: id_company, plate, brand, model, color, type, description.",
-      400,
-    );
-  }
-
-  const previewId = savePreviewSession({
-    kind: "fleet_vehicles",
-    userId: req.user?.id || null,
-    rows: sessionRows,
+  return require("./vehicle-bulk-import.flow").previewUnifiedFleetBulk({
+    req,
+    file,
+    resolveCompanyIdForCreate,
+    findVehicleByCompanyPlate,
+    buildCompanyScope,
+    applyScopeToWhere,
+    db,
   });
-
-  return {
-    previewId,
-    summary: summarizePreviewRows(rows),
-    rows,
-    updateFields: VEHICLE_BULK_UPDATE_FIELDS,
-  };
 }
 
-async function commitBulkVehicles(req, { previewId, decisions }) {
+async function commitBulkVehicles(req, body = {}) {
   assertCanManageVehicles(req);
-  const session = getPreviewSession(previewId, "fleet_vehicles");
-  if (session.userId && req.user?.id && Number(session.userId) !== Number(req.user.id)) {
-    throw new AppError("Pré-visualização pertence a outro usuário.", 403);
+  if (!hasPermission(req.user, "fleet", "create") && !hasPermission(req.user, "fleet", "edit")) {
+    throw new AppError("Perfil sem permissão para importar veículos.", 403);
   }
 
-  const byLine = new Map(session.rows.map((r) => [r.line, r]));
-  const decisionList = Array.isArray(decisions) ? decisions : [];
-  const errors = [];
-  let created = 0;
-  let updated = 0;
-  let skipped = 0;
-  let linked = 0;
+  const previewToken = body.previewToken || body.previewId;
+  if (!previewToken) throw new AppError("previewToken é obrigatório.", 400);
 
-  for (const decision of decisionList) {
-    const line = Number(decision.line);
-    const action = decision.action;
-    const row = byLine.get(line);
-    if (!row) {
-      errors.push({ line, reason: "Linha não encontrada na pré-visualização." });
-      continue;
-    }
-    if (action === "skip") {
-      skipped += 1;
-      continue;
-    }
-    if (row.status === "error") {
-      errors.push({ line, reason: row.message || "Linha com erro." });
-      continue;
-    }
-
-    try {
-      if (action === "create") {
-        if (row.status !== "create") {
-          errors.push({ line, reason: "Linha não é um novo cadastro." });
-          continue;
-        }
-        if (!hasPermission(req.user, "fleet", "create")) {
-          errors.push({ line, reason: "Sem permissão para criar." });
-          continue;
-        }
-        await createVehicle(req, row.incoming);
-        created += 1;
-      } else if (action === "update") {
-        if (!row.existingId) {
-          errors.push({ line, reason: "Linha sem veículo existente." });
-          continue;
-        }
-        if (!hasPermission(req.user, "fleet", "edit")) {
-          errors.push({ line, reason: "Sem permissão para editar." });
-          continue;
-        }
-        const patch = pickUpdatePatch(row.incoming, decision.fields, VEHICLE_BULK_UPDATE_FIELDS);
-        if (!Object.keys(patch).length) {
-          skipped += 1;
-          continue;
-        }
-        await updateVehicle(req, row.existingId, patch);
-        updated += 1;
-      } else if (action === "link") {
-        linked += 1;
-      } else {
-        errors.push({ line, reason: `Ação inválida: ${action}` });
-      }
-    } catch (err) {
-      errors.push({
-        line,
-        reason: err instanceof AppError ? err.message : "Erro ao aplicar linha.",
-      });
-    }
-  }
-
-  deletePreviewSession(previewId);
-  return {
-    created,
-    updated,
-    linked,
-    skipped,
-    errors,
-    totalDecisions: decisionList.length,
-  };
+  return require("./vehicle-bulk-import.flow").confirmUnifiedFleetBulk({
+    req,
+    previewToken,
+    decisoes: body.decisoes || { colaboradores: [], veiculos: body.decisions || [] },
+    createVehicle,
+    updateVehicle,
+    hasPermission,
+  });
 }
 
 module.exports = {
