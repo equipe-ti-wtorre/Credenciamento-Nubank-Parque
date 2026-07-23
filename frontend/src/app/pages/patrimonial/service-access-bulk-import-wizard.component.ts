@@ -446,7 +446,10 @@ interface VeicDecisionState {
                       <span class="wimp-badge" [attr.data-status]="row.cadastro">{{ cadastroLabel(row.cadastro) }}</span>
                       <div class="wimp-entity__grow">
                         <div class="wimp-entity__title">{{ row.chave.placa || 'Linha ' + row.linha }}</div>
-                        <div class="wimp-entity__sub">
+                        @if (vehicleDetailsLine(row); as details) {
+                          <div class="wimp-entity__sub">{{ details }}</div>
+                        }
+                        <div class="wimp-entity__meta">
                           {{
                             hideCollaborators
                               ? row.cadastro === 'novo'
@@ -458,6 +461,9 @@ interface VeicDecisionState {
                                 ? 'Já no acesso'
                                 : 'Será vinculado'
                           }}
+                          @if (hideCollaborators && row.dados?.empresa) {
+                            <span> · {{ row.dados!.empresa }}</span>
+                          }
                         </div>
                       </div>
                       @if (row.cadastro === 'erro') {
@@ -848,6 +854,7 @@ interface VeicDecisionState {
       .wimp-badge[data-status='pendente'] { background: #fff7ed; color: #c2410c; }
       .wimp-entity__title { font-size: 14px; font-weight: 600; }
       .wimp-entity__sub { font-size: 12.5px; color: var(--ink-2); margin-top: 1px; }
+      .wimp-entity__meta { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
       .wimp-rowcard__err { margin-top: 8px; font-size: 12.5px; color: var(--danger); }
       .wimp-empty { font-size: 13px; color: var(--ink-3); margin: 0; }
 
@@ -1114,6 +1121,12 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     if (s === 'atualizacao') return 'Atualização';
     if (s === 'inalterado') return 'Sem alteração';
     return 'Erro';
+  }
+
+  vehicleDetailsLine(row: UnifiedVehicleRow): string {
+    const d = row.dados;
+    if (!d) return '';
+    return [d.marca, d.modelo, d.cor, d.tipo].filter((v) => !!v && String(v).trim()).join(' · ');
   }
 
   vinculoLabel(row: UnifiedCollaboratorRow): string {

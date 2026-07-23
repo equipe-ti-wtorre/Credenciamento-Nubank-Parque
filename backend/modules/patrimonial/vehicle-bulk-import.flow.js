@@ -6,6 +6,7 @@ const {
   isExampleVehicleRow,
   mapRowByHeaders,
   normalizeVeicIncoming,
+  buildVehiclePreviewDados,
   buildUnifiedTemplate,
   summarizeAxis,
   MAX_ROWS,
@@ -205,12 +206,22 @@ async function previewUnifiedFleetBulk(ctx) {
       erros.push(err.message || "Empresa inválida.");
     }
 
+    const empresaNome =
+      optionalTrim(mapped.empresa) ||
+      (idCompany
+        ? companies.find((c) => Number(c.id_company) === Number(idCompany))?.fancy_name ||
+          companies.find((c) => Number(c.id_company) === Number(idCompany))?.company_name ||
+          null
+        : null);
+    const dados = buildVehiclePreviewDados(incoming, { empresa: empresaNome });
+
     if (erros.length) {
       const row = {
         linha: line,
         cadastro: "erro",
         vinculo: "a_vincular",
         chave: { placa: incoming.placa || null },
+        dados,
         motorista: null,
         divergencias: [],
         erros,
@@ -242,6 +253,7 @@ async function previewUnifiedFleetBulk(ctx) {
         cadastro: "novo",
         vinculo: "a_vincular",
         chave: { placa: incoming.placa },
+        dados,
         motorista: null,
         divergencias: [],
         erros: [],
@@ -262,6 +274,7 @@ async function previewUnifiedFleetBulk(ctx) {
         cadastro: "erro",
         vinculo: "a_vincular",
         chave: { placa: incoming.placa },
+        dados,
         motorista: null,
         divergencias: [],
         erros: ["Veículo está na blacklist frota."],
@@ -282,6 +295,7 @@ async function previewUnifiedFleetBulk(ctx) {
         cadastro: "erro",
         vinculo: "a_vincular",
         chave: { placa: incoming.placa },
+        dados,
         motorista: null,
         divergencias: [],
         erros: ["Veículo inativo."],
@@ -325,6 +339,7 @@ async function previewUnifiedFleetBulk(ctx) {
       cadastro,
       vinculo: "ja_vinculado",
       chave: { placa: incoming.placa },
+      dados,
       motorista: null,
       divergencias: diffs,
       erros: [],

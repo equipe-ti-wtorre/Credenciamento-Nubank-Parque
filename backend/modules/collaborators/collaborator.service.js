@@ -173,6 +173,23 @@ async function checkBlacklist(idCollaborator) {
   return rows.length > 0;
 }
 
+async function getBlacklistInfo(idCollaborator) {
+  const [rows] = await db.execute(
+    `SELECT reason FROM collaborator_black_list
+      WHERE id_collaborator = ? LIMIT 1`,
+    [idCollaborator],
+  );
+  if (!rows.length) {
+    return { is_blacklisted: false, blacklist_reason: null };
+  }
+  const reason = rows[0].reason;
+  return {
+    is_blacklisted: true,
+    blacklist_reason:
+      reason != null && String(reason).trim() ? String(reason).trim() : null,
+  };
+}
+
 async function listDocumentTypes() {
   const [rows] = await db.execute(
     `SELECT id_collaborator_document_type, description
@@ -511,6 +528,130 @@ async function getCollaboratorDetailById(id) {
   if (!row) throw new AppError("Colaborador não encontrado.", 404);
   const isBlacklisted = await checkBlacklist(row.id_collaborator);
   return mapCollaboratorRow(row, { isBlacklisted });
+}
+
+function toIsoDateTime(value) {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  return String(value);
+}
+
+async function getCollaboratorAccessDetails(req, id) {
+  const row = await findCollaboratorById(id);
+  if (!row) throw new AppError("Colaborador não encontrado.", 404);
+  await assertCollaboratorInCompanyScope(req, row);
+
+  const blacklist = await getBlacklistInfo(row.id_collaborator);
+  let collaborator;
+  if (isAdmin(req) || hasPermission(req.user, "collaborators", "edit")) {
+    collaborator = mapCollaboratorRow(row, { isBlacklisted: blacklist.is_blacklisted });
+  } else if (req.user?.requires_company) {
+    collaborator = toMaskedCollaborator(row, { isBlacklisted: blacklist.is_blacklisted });
+  } else {
+    throw new AppError("Perfil sem permissão para consultar colaboradores.", 403);
+  }
+  collaborator.blacklist_reason = blacklist.blacklist_reason;
+
+  const companyId = getActorCompanyId(req);
+  const companyParams = [row.id_collaborator];
+  let companySql = `
+    SELECT co.id_company, co.fancy_name, co.company_name, co.cnpj
+    FROM company_collaborator cc
+    INNER JOIN company co ON co.id_company = cc.id_company
+    WHERE cc.id_collaborator = ?`;
+  if (companyId != null) {
+    companySql += " AND cc.id_company = ?";
+    companyParams.push(companyId);
+  }
+  companySql += " ORDER BY co.fancy_name ASC, co.company_name ASC";
+
+  const [companyRows] = await db.execute(companySql, companyParams);
+  const companyIds = companyRows.map((c) => Number(c.id_company));
+
+  const accessesByCompany = new Map(companyIds.map((cid) => [cid, []]));
+
+  if (companyIds.length > 0) {
+    const placeholders = companyIds.map(() => "?").join(", ");
+
+    const [serviceRows] = await db.execute(
+      `SELECT
+         sa.id_company,
+         'service_collaborator' AS source,
+         'Serviço — colaborador' AS source_label,
+         COALESCE(NULLIF(TRIM(sa.finalidade), ''), sa.service_type, 'Acesso de serviço') AS context_name,
+         DATE_FORMAT(gal.access_date, '%Y-%m-%d') AS access_date,
+         gal.check_in,
+         gal.check_out,
+         gal.access_id
+       FROM gate_access_day_log gal
+       INNER JOIN service_access_collaborator sac
+         ON sac.id_service_access_collaborator = gal.id_ref
+       INNER JOIN service_access sa ON sa.id_service_access = gal.id_service_access
+       WHERE gal.kind = 'collaborator'
+         AND gal.check_in IS NOT NULL
+         AND sac.id_collaborator = ?
+         AND sa.id_company IN (${placeholders})
+       ORDER BY gal.check_in DESC`,
+      [row.id_collaborator, ...companyIds],
+    );
+
+    const [eventRows] = await db.execute(
+      `SELECT
+         edc.id_company,
+         'event' AS source,
+         'Credencial de evento' AS source_label,
+         e.name AS context_name,
+         DATE_FORMAT(COALESCE(ed.date, DATE(edcc.access_check_in)), '%Y-%m-%d') AS access_date,
+         edcc.access_check_in AS check_in,
+         edcc.access_check_out AS check_out,
+         edcc.access_id
+       FROM event_day_company_collaborator edcc
+       INNER JOIN event_day_company edc
+         ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+       INNER JOIN event e ON e.id_event = ed.id_event
+       WHERE edcc.access_check_in IS NOT NULL
+         AND edcc.id_collaborator = ?
+         AND edc.id_company IN (${placeholders})
+       ORDER BY edcc.access_check_in DESC`,
+      [row.id_collaborator, ...companyIds],
+    );
+
+    for (const accessRow of [...serviceRows, ...eventRows]) {
+      const cid = Number(accessRow.id_company);
+      const list = accessesByCompany.get(cid);
+      if (!list) continue;
+      list.push({
+        source: accessRow.source,
+        source_label: accessRow.source_label,
+        context_name: accessRow.context_name || "—",
+        access_date: accessRow.access_date || null,
+        check_in: toIsoDateTime(accessRow.check_in),
+        check_out: toIsoDateTime(accessRow.check_out),
+        access_id: accessRow.access_id || null,
+      });
+    }
+
+    for (const list of accessesByCompany.values()) {
+      list.sort((a, b) => {
+        const ta = a.check_in ? new Date(a.check_in).getTime() : 0;
+        const tb = b.check_in ? new Date(b.check_in).getTime() : 0;
+        return tb - ta;
+      });
+    }
+  }
+
+  const companies = companyRows.map((c) => ({
+    id_company: Number(c.id_company),
+    fancy_name: c.fancy_name || null,
+    company_name: c.company_name || null,
+    cnpj: c.cnpj || null,
+    accesses: accessesByCompany.get(Number(c.id_company)) || [],
+  }));
+
+  return { collaborator, companies };
 }
 
 async function insertCollaboratorRecord(data) {
@@ -1002,6 +1143,7 @@ module.exports = {
   searchByDocument,
   searchCollaboratorsByTerm,
   getCollaboratorById,
+  getCollaboratorAccessDetails,
   createCollaborator,
   getCollaboratorBulkTemplate,
   bulkCreateCollaborators,

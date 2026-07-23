@@ -56,6 +56,11 @@ router.patch(
   ...docApprovalsEdit,
   documentChangeController.patchStatus,
 );
+router.get(
+  "/:id/access-details",
+  ...canView,
+  collaboratorController.getAccessDetails,
+);
 router.get("/:id", ...canView, collaboratorController.getById);
 router.post("/", ...canCreate, collaboratorController.create);
 router.post(

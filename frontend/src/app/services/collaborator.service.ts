@@ -50,11 +50,35 @@ export interface CollaboratorItem {
   picture?: string | null;
   status: boolean;
   is_blacklisted: boolean;
+  blacklist_reason?: string | null;
   can_delete?: boolean;
   criado_em: string;
   atualizado_em: string;
   document_type: CollaboratorDocumentType | null;
   role: CollaboratorRole | null;
+}
+
+export interface CollaboratorAccessDetailItem {
+  source: 'service_collaborator' | 'event' | string;
+  source_label: string;
+  context_name: string;
+  access_date: string | null;
+  check_in: string | null;
+  check_out: string | null;
+  access_id: string | null;
+}
+
+export interface CollaboratorLinkedCompany {
+  id_company: number;
+  fancy_name: string | null;
+  company_name: string | null;
+  cnpj: string | null;
+  accesses: CollaboratorAccessDetailItem[];
+}
+
+export interface CollaboratorAccessDetailsResponse {
+  collaborator: CollaboratorItem;
+  companies: CollaboratorLinkedCompany[];
 }
 
 export interface CollaboratorListFilters {
@@ -126,6 +150,12 @@ export class CollaboratorService {
 
   get(id: number): Observable<{ collaborator: CollaboratorItem }> {
     return this.api.get<{ collaborator: CollaboratorItem }>(`/collaborators/${id}`);
+  }
+
+  getAccessDetails(id: number): Observable<CollaboratorAccessDetailsResponse> {
+    return this.api.get<CollaboratorAccessDetailsResponse>(
+      `/collaborators/${id}/access-details`,
+    );
   }
 
   searchByDocument(

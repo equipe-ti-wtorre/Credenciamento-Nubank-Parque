@@ -1,0 +1,419 @@
+<div class="wrap">
+  <!-- Header -->
+  <div class="page-head">
+    <div>
+      <h1>Relatório de acessos</h1>
+      <p class="sub">
+        Consulte entradas e saídas da portaria (credenciais de evento e acessos de serviço).
+      </p>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-ghost" (click)="load()" [disabled]="loading()">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+          <path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          <path d="M3 21v-5h5" />
+        </svg>
+        {{ loading() ? 'Atualizando...' : 'Atualizar' }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-primary"
+        (click)="exportExcel()"
+        [disabled]="loading() || exporting()"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 3v12" />
+          <path d="m7 10 5 5 5-5" />
+          <path d="M5 21h14" />
+        </svg>
+        {{ exporting() ? 'Exportando...' : 'Exportar Excel' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button
+      type="button"
+      class="tab"
+      [class.active]="activeTab() === 'all'"
+      (click)="setTab('all')"
+    >
+      Todos <span class="pill">{{ allCount() }}</span>
+    </button>
+    <button
+      type="button"
+      class="tab"
+      [class.active]="activeTab() === 'no_exit'"
+      (click)="setTab('no_exit')"
+    >
+      Sem saída <span class="pill">{{ insideCount() }}</span>
+    </button>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis">
+    <div class="kpi hero">
+      <div class="k-top">
+        <span class="k-ic">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+            <path d="M10 17l5-5-5-5" />
+            <path d="M15 12H3" />
+          </svg>
+        </span>
+        <span class="k-lbl">Entradas</span>
+      </div>
+      <div class="k-num">{{ summary().total }}</div>
+    </div>
+
+    <div class="kpi amber">
+      <div class="k-top">
+        <span class="k-ic">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11z" />
+            <circle cx="12" cy="10" r="2.5" />
+          </svg>
+        </span>
+        <span class="k-lbl">Ainda no local</span>
+      </div>
+      <div class="k-num">{{ summary().inside }}</div>
+    </div>
+
+    <div class="kpi green">
+      <div class="k-top">
+        <span class="k-ic">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M22 11.1V12a10 10 0 1 1-5.9-9.1" />
+            <path d="m9 11 3 3L22 4" />
+          </svg>
+        </span>
+        <span class="k-lbl">Saídas concluídas</span>
+      </div>
+      <div class="k-num">{{ summary().completed }}</div>
+    </div>
+
+    <div class="kpi">
+      <div class="k-top">
+        <span class="k-ic">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 10h18M7 3v4M17 3v4" />
+            <rect x="3" y="5" width="18" height="16" rx="2" />
+          </svg>
+        </span>
+        <span class="k-lbl">Evento</span>
+      </div>
+      <div class="k-num">{{ summary().by_source.event }}</div>
+    </div>
+
+    <div class="kpi">
+      <div class="k-top">
+        <span class="k-ic">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          </svg>
+        </span>
+        <span class="k-lbl">Colaborador</span>
+      </div>
+      <div class="k-num">{{ summary().by_source.service_collaborator }}</div>
+    </div>
+
+    <div class="kpi">
+      <div class="k-top">
+        <span class="k-ic">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M5 17H3v-5l2-5h11l3 5h1a2 2 0 0 1 2 2v3h-2" />
+            <circle cx="7" cy="17" r="2" />
+            <circle cx="17" cy="17" r="2" />
+          </svg>
+        </span>
+        <span class="k-lbl">Veículo</span>
+      </div>
+      <div class="k-num">{{ summary().by_source.service_vehicle }}</div>
+    </div>
+  </div>
+
+  <!-- Filtros -->
+  <div class="filters">
+    <div class="fg">
+      <label for="ar-filter-source">Origem</label>
+      <select
+        id="ar-filter-source"
+        class="field"
+        [(ngModel)]="filterSource"
+        name="filterSource"
+        (ngModelChange)="applyFilters()"
+      >
+        <option value="">Todas</option>
+        <option *ngFor="let src of sources" [value]="src.key">{{ src.label }}</option>
+      </select>
+    </div>
+
+    <div *ngIf="activeTab() === 'all'" class="fg">
+      <label for="ar-filter-status">Status</label>
+      <select
+        id="ar-filter-status"
+        class="field"
+        [(ngModel)]="filterStatus"
+        name="filterStatus"
+        (ngModelChange)="applyFilters()"
+      >
+        <option *ngFor="let st of statuses" [value]="st.key">{{ st.label }}</option>
+      </select>
+    </div>
+
+    <div class="fg">
+      <label for="ar-filter-event">Evento</label>
+      <app-search-select
+        inputId="ar-filter-event"
+        name="filterIdEvent"
+        inputClass="field"
+        allLabel="Todos os eventos"
+        placeholder="Buscar evento…"
+        [options]="eventOptions()"
+        [(ngModel)]="filterIdEvent"
+        (ngModelChange)="applyFilters()"
+      />
+    </div>
+
+    <div *ngIf="companies().length" class="fg">
+      <label for="ar-filter-company">Empresa</label>
+      <select
+        id="ar-filter-company"
+        class="field"
+        [(ngModel)]="filterIdCompany"
+        name="filterIdCompany"
+        (ngModelChange)="applyFilters()"
+      >
+        <option value="">Todas</option>
+        <option *ngFor="let company of companies()" [value]="company.id_company">
+          {{ company.fancy_name || company.company_name }}
+        </option>
+      </select>
+    </div>
+
+    <div class="fg">
+      <label for="ar-filter-from">De</label>
+      <input
+        id="ar-filter-from"
+        class="field"
+        type="date"
+        [(ngModel)]="filterDateFrom"
+        name="filterDateFrom"
+        (ngModelChange)="applyFilters()"
+      />
+    </div>
+
+    <div class="fg">
+      <label for="ar-filter-to">Até</label>
+      <input
+        id="ar-filter-to"
+        class="field"
+        type="date"
+        [(ngModel)]="filterDateTo"
+        name="filterDateTo"
+        (ngModelChange)="applyFilters()"
+      />
+    </div>
+
+    <div class="fg search">
+      <label for="ar-filter-q">Busca</label>
+      <div class="search-wrap">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+        <input
+          id="ar-filter-q"
+          class="field"
+          type="text"
+          [(ngModel)]="filterQ"
+          name="filterQ"
+          (ngModelChange)="onSearchInput()"
+          placeholder="Nome, documento ou placa…"
+        />
+      </div>
+    </div>
+
+    <div class="fg limpar">
+      <label>&nbsp;</label>
+      <button type="button" class="btn-clear" (click)="clearFilters()">Limpar</button>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <div class="table-card">
+    <div class="table-scroll">
+      <table class="rel">
+        <thead>
+          <tr>
+            <th>Entrada</th>
+            <th>Saída</th>
+            <th>Origem</th>
+            <th>Pessoa / Veículo</th>
+            <th>Documento / Placa</th>
+            <th>Contexto</th>
+            <th>Empresa</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <ng-container *ngIf="!loading(); else loadingRow">
+            <tr *ngFor="let item of items(); trackBy: trackByAccess">
+              <td>
+                <span class="dt">
+                  <span class="d">{{ item.check_in | date: 'dd/MM/yy' }}</span>
+                  <span class="t">{{ item.check_in | date: 'HH:mm' }}</span>
+                </span>
+              </td>
+              <td>
+                <span *ngIf="item.check_out as checkout" class="dt">
+                  <span class="d">{{ checkout | date: 'dd/MM/yy' }}</span>
+                  <span class="t">{{ checkout | date: 'HH:mm' }}</span>
+                </span>
+                <span *ngIf="!item.check_out" class="empty-cell">—</span>
+              </td>
+              <td>
+                <span
+                  class="pill-origem"
+                  [class.veiculo]="item.source_key === 'service_vehicle'"
+                >
+                  <span class="sq"></span>
+                  {{ item.source_label }}
+                </span>
+              </td>
+              <td class="pessoa">{{ item.person_or_vehicle }}</td>
+              <td class="doc">{{ item.document_or_plate }}</td>
+              <td>{{ item.context_name }}</td>
+              <td class="empresa">{{ item.company_fancy_name }}</td>
+              <td>
+                <span class="badge" [class.done]="!!item.check_out" [class.local]="!item.check_out">
+                  <span class="dot"></span>
+                  {{ item.check_out ? 'Concluído' : 'No local' }}
+                </span>
+              </td>
+            </tr>
+            <tr *ngIf="items().length === 0">
+              <td colspan="8" class="empty-msg">
+                {{
+                  activeTab() === 'no_exit'
+                    ? 'Nenhum acesso sem saída registrada.'
+                    : 'Nenhum acesso encontrado.'
+                }}
+              </td>
+            </tr>
+          </ng-container>
+        </tbody>
+      </table>
+    </div>
+
+    <div *ngIf="!loading()" class="table-foot">
+      <span class="info">
+        Mostrando {{ items().length }} de {{ summary().total }} registros
+        <ng-container *ngIf="summary().total > items().length">
+          — lista limitada a 1000 mais recentes
+        </ng-container>
+      </span>
+    </div>
+  </div>
+</div>
+
+<ng-template #loadingRow>
+  <tr>
+    <td colspan="8" class="empty-msg">Carregando...</td>
+  </tr>
+</ng-template>

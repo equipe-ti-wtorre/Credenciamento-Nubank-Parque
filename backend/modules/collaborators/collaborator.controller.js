@@ -132,6 +132,18 @@ exports.getById = async (req, res, next) => {
   }
 };
 
+exports.getAccessDetails = async (req, res, next) => {
+  try {
+    const details = await collaboratorService.getCollaboratorAccessDetails(
+      req,
+      req.params.id,
+    );
+    res.json(details);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.downloadBulkTemplate = async (req, res, next) => {
   try {
     const { sendXlsx } = require("../../utils/bulkTemplateXlsx");

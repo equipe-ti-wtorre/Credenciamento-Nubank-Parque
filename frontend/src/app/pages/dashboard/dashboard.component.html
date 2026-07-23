@@ -1,71 +1,175 @@
-<div class="wt-dashboard">
-  <div class="welcome">
-    <h2>Bem-vindo, {{ userName }} 👋</h2>
-    <p>Aqui está um resumo da operação de acessos de hoje.</p>
-  </div>
-
-  @if (loading()) {
-    <div class="loading">Carregando indicadores...</div>
-  } @else if (metrics()) {
-    <!-- STATS -->
-    <section class="stats">
-      @for (s of stats(); track s.label) {
-        <div class="stat">
-          <div class="top">
-            <div class="ic" [class]="'ic ' + s.tone">
-              <span [innerHTML]="s.iconHtml" aria-hidden="true"></span>
-            </div>
-            @if (s.delta) {
-              <span class="delta" [class]="'delta ' + s.deltaType">
-                @if (s.deltaType === 'up') {
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M7 17L17 7M17 7H8M17 7v9" /></svg>
-                } @else if (s.deltaType === 'down') {
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M17 7L7 17M7 17h9M7 17V8" /></svg>
-                }
-                {{ s.delta }}
-              </span>
-            }
-          </div>
-          <div class="lbl">{{ s.label }}</div>
-          <div class="val">{{ s.value }}</div>
+<div
+  class="wt-dashboard"
+  #dashboardRoot
+  [class.is-fullscreen]="fullscreenMode()"
+>
+  <div class="wrap">
+    <div class="welcome" [class.welcome--fs]="fullscreenMode()">
+      @if (!fullscreenMode()) {
+        <div class="welcome-main">
+          <h2>Bem-vindo, {{ userName }}</h2>
+          <p>Aqui está um resumo da operação de acessos de hoje.</p>
+          @if (todayLabel) {
+            <div class="date">{{ todayLabel }}</div>
+          }
         </div>
       }
-    </section>
+      <div class="welcome-actions">
+        @if (fullscreenMode() && lastUpdatedLabel()) {
+          <span class="updated-pill" aria-live="polite">Atualizado {{ lastUpdatedLabel() }}</span>
+        }
+        <button
+          type="button"
+          class="fs-btn"
+          (click)="onRefreshClick()"
+          [disabled]="refreshing()"
+          title="Atualizar indicadores"
+          aria-label="Atualizar indicadores"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            [class.spin]="refreshing()"
+          >
+            <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
+          </svg>
+          <span>Atualizar</span>
+        </button>
+        <button
+          type="button"
+          class="fs-btn"
+          (click)="toggleFullscreen()"
+          [attr.title]="fullscreenMode() ? 'Sair da tela cheia' : 'Tela cheia (sem menu)'"
+          [attr.aria-label]="fullscreenMode() ? 'Sair da tela cheia' : 'Tela cheia sem menu'"
+          [attr.aria-pressed]="fullscreenMode()"
+        >
+          @if (!fullscreenMode()) {
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/>
+            </svg>
+            <span>Tela cheia</span>
+          } @else {
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/>
+            </svg>
+            <span>Sair da tela cheia</span>
+          }
+        </button>
+      </div>
+    </div>
 
-    <!-- PANELS -->
-    <section class="grid2">
-      <!-- Credenciais por status -->
-      <div class="panel">
-        <div class="panel-head">
-          <div><h3>Credenciais por status</h3><div class="sub">Distribuição atual</div></div>
-        </div>
-        <div class="panel-body">
-          @if (totalCredenciais() > 0) {
-            <div class="donut-wrap">
-              <div class="donut">
-                <svg viewBox="0 0 36 36" width="150" height="150" aria-hidden="true">
-                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#eef0f5" stroke-width="4.2" />
-                  @for (s of slices(); track s.name; let i = $index) {
-                    <circle cx="18" cy="18" r="15.9" fill="none" [attr.stroke]="s.color"
-                            stroke-width="4.2" stroke-linecap="round"
-                            [attr.stroke-dasharray]="dashArray(s.value)"
-                            [attr.stroke-dashoffset]="dashOffset(i)"
-                            transform="rotate(-90 18 18)" />
+    @if (loading()) {
+      <div class="loading">Carregando indicadores...</div>
+    } @else if (metrics(); as m) {
+      <!-- Hero KPIs -->
+      <div class="stats-grid">
+        @for (s of stats(); track s.label) {
+          @if (s.link; as link) {
+            <a class="stat" [class.highlight]="s.highlight" [routerLink]="link">
+              @if (s.tag) {
+                <span class="stat-tag">{{ s.tag }}</span>
+              }
+              @if (s.trend) {
+                <span class="stat-trend" [class.up]="!s.trendDown" [class.down]="s.trendDown">
+                  @if (s.trendDown) {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M7 7l10 10"/><path d="M17 7v10H7"/></svg>
+                  } @else {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M17 17L7 7"/><path d="M7 17V7h10"/></svg>
                   }
+                  {{ s.trend }}
+                </span>
+              }
+              <div class="stat-ic" [ngClass]="s.tone">
+                <span [innerHTML]="s.iconHtml" aria-hidden="true"></span>
+              </div>
+              <div class="stat-lbl">{{ s.label }}</div>
+              <div class="stat-num">{{ s.value }}</div>
+            </a>
+          } @else {
+            <div class="stat" [class.highlight]="s.highlight">
+              @if (s.tag) {
+                <span class="stat-tag">{{ s.tag }}</span>
+              }
+              @if (s.trend) {
+                <span class="stat-trend" [class.up]="!s.trendDown" [class.down]="s.trendDown">
+                  @if (s.trendDown) {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M7 7l10 10"/><path d="M17 7v10H7"/></svg>
+                  } @else {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M17 17L7 7"/><path d="M7 17V7h10"/></svg>
+                  }
+                  {{ s.trend }}
+                </span>
+              }
+              <div class="stat-ic" [ngClass]="s.tone">
+                <span [innerHTML]="s.iconHtml" aria-hidden="true"></span>
+              </div>
+              <div class="stat-lbl">{{ s.label }}</div>
+              <div class="stat-num">{{ s.value }}</div>
+            </div>
+          }
+        }
+      </div>
+
+      <!-- Chips -->
+      <div class="chips-grid">
+        @for (c of summaryCards(); track c.label) {
+          <div class="chip">
+            <span class="c-lbl">{{ c.label }}</span>
+            <span class="c-num" [ngClass]="c.tone">{{ c.value }}</span>
+          </div>
+        }
+      </div>
+
+      <!-- Credenciais + Acessos -->
+      <div class="two-col">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Credenciais por status</h3>
+              <p class="c-sub">Distribuição atual</p>
+            </div>
+          </div>
+          @if (totalCredenciais() > 0) {
+            <div class="donut-row">
+              <div class="donut">
+                <svg width="150" height="150" viewBox="0 0 140 140" aria-hidden="true">
+                  <g transform="rotate(-90 70 70)" fill="none" stroke-width="16" stroke-linecap="butt">
+                    <circle cx="70" cy="70" r="54" stroke="#e9e4f0"></circle>
+                    @for (s of slices(); track s.name) {
+                      <circle cx="70" cy="70" r="54"
+                              [attr.stroke]="s.color"
+                              [attr.stroke-dasharray]="s.dashArray"
+                              [attr.stroke-dashoffset]="s.dashOffset"></circle>
+                    }
+                  </g>
                 </svg>
                 <div class="center">
-                  <div><div class="n">{{ totalCredenciais() }}</div><div class="t">total</div></div>
+                  <span class="big">{{ totalCredenciais() }}</span>
+                  <span class="cap">total</span>
                 </div>
               </div>
               <div class="legend">
                 @for (s of slices(); track s.name) {
-                  <div class="row">
-                    <span class="k" [style.background]="s.color"></span>
-                    <span class="name">{{ s.name }}</span>
+                  <div class="legend-item">
+                    <span class="dot" [style.background]="s.color"></span>
+                    <span class="l">{{ s.name }}</span>
                     <span class="v">{{ s.value }}</span>
                   </div>
                 }
@@ -73,46 +177,202 @@
             </div>
           } @else {
             <div class="empty">
-              <div class="eic">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                  <path d="M3 3v18h18M8 14l3-3 3 2 4-5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-              </div>
               <h4>Sem dados</h4>
               <p>Nenhuma credencial registrada até o momento.</p>
             </div>
           }
         </div>
-      </div>
 
-      <!-- Acessos últimos 7 dias -->
-      <div class="panel">
-        <div class="panel-head">
-          <div><h3>Acessos</h3><div class="sub">Últimos 7 dias</div></div>
-        </div>
-        <div class="panel-body">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Acessos</h3>
+              <p class="c-sub">Últimos 7 dias</p>
+            </div>
+          </div>
           @if (week().length > 0) {
             <div class="bars">
               @for (d of week(); track d.day) {
-                <div class="col">
-                  <div class="bar" [style.height.%]="(d.value / maxAcessos()) * 100">
-                    <span class="tip">{{ d.value }} acessos</span>
-                  </div>
-                  <span class="d">{{ d.day }}</span>
+                <div class="bar-col">
+                  @if (d.value > 0) {
+                    <div class="bar-tip">{{ d.value }} acessos</div>
+                  }
+                  <div class="bar" [class.zero]="d.zero" [style.height.px]="d.heightPx"></div>
+                  <span class="bar-lbl">{{ d.day }}</span>
                 </div>
+              }
+            </div>
+            <div class="origem-chips">
+              @for (s of sourceRows(); track s.label) {
+                <span class="oc" [ngClass]="s.tone">{{ s.label }} <span class="n">{{ s.total }}</span></span>
               }
             </div>
           } @else {
             <div class="empty">
-              <div class="eic">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                  <path d="M3 3v18h18M8 14l3-3 3 2 4-5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-              </div>
               <h4>Sem dados</h4>
               <p>Nenhum acesso registrado nos últimos 7 dias.</p>
             </div>
           }
         </div>
       </div>
-    </section>
-  }
+
+      <!-- Origem + Workflow -->
+      <div class="two-col">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Origem dos acessos</h3>
+              <p class="c-sub">Hoje</p>
+            </div>
+          </div>
+          <div class="mini-grid">
+            @for (s of sourceRows(); track s.label) {
+              <div class="mini">
+                <div class="m-lbl">{{ s.label }}</div>
+                <div class="m-num" [ngClass]="s.numTone">{{ s.total }}</div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Workflow de aprovação</h3>
+              <p class="c-sub">
+                @if (m.workflow.approvalRate != null) {
+                  Taxa {{ m.workflow.approvalRate }}%
+                  @if (m.workflow.avgApprovalHours != null) {
+                    · média {{ m.workflow.avgApprovalHours }}h
+                  }
+                } @else {
+                  Sem decisões finalizadas
+                }
+              </p>
+            </div>
+            <a routerLink="/aprovacoes" class="inbox">
+              Inbox
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+              </svg>
+            </a>
+          </div>
+          <div class="mini-grid">
+            <div class="mini">
+              <div class="m-lbl">Pendentes</div>
+              <div class="m-num amber">{{ m.workflow.pending }}</div>
+              <div class="m-sub">Suas: {{ m.kpis.pendingWorkflowApprovals }}</div>
+            </div>
+            <div class="mini">
+              <div class="m-lbl">Aprovados</div>
+              <div class="m-num green">{{ m.workflow.approved }}</div>
+            </div>
+            <div class="mini">
+              <div class="m-lbl">Reprovados</div>
+              <div class="m-num rose">{{ m.workflow.rejected }}</div>
+            </div>
+            <div class="mini">
+              <div class="m-lbl">Expiradas</div>
+              <div class="m-num gray">{{ m.kpis.expiredCredentials }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cadastros + Empresas / Top -->
+      <div class="two-col">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Cadastros</h3>
+              <p class="c-sub">Volumes no escopo atual</p>
+            </div>
+          </div>
+          <div class="list">
+            @for (r of masterRows(); track r.label) {
+              <div class="list-item">
+                <span class="dot" [style.background]="r.color"></span>
+                <span class="l">{{ r.label }}</span>
+                <span class="v">{{ r.value }}</span>
+              </div>
+            }
+          </div>
+        </div>
+
+        @if (isAdmin() && companiesByType().length > 0) {
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Empresas por tipo</h3>
+                <p class="c-sub">Ativas</p>
+              </div>
+            </div>
+            <div class="hbars">
+              @for (r of companiesByType(); track r.label) {
+                <div class="hbar">
+                  <div class="top">
+                    <span class="name">{{ r.label }}</span>
+                    <span class="val">{{ r.total }}</span>
+                  </div>
+                  <div class="track"><div class="fill" [style.width.%]="r.pct"></div></div>
+                </div>
+              }
+            </div>
+          </div>
+        } @else if (isAdmin() && topCompanies().length > 0) {
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Top empresas</h3>
+                <p class="c-sub">Credenciais aprovadas</p>
+              </div>
+            </div>
+            <div class="hbars">
+              @for (r of topCompanies(); track r.label) {
+                <div class="hbar">
+                  <div class="top">
+                    <span class="name">{{ r.label }}</span>
+                    <span class="val">{{ r.total }}</span>
+                  </div>
+                  <div class="track"><div class="fill" [style.width.%]="r.pct"></div></div>
+                </div>
+              }
+            </div>
+          </div>
+        } @else {
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Pendências rápidas</h3>
+                <p class="c-sub">Atalhos operacionais</p>
+              </div>
+            </div>
+            <div class="list">
+              <a class="list-item link" routerLink="/aprovacoes">
+                <span class="dot" style="background: var(--db-amber)"></span>
+                <span class="l">Aprovações na inbox</span>
+                <span class="v">{{ m.kpis.pendingWorkflowApprovals }}</span>
+              </a>
+              <a class="list-item link" routerLink="/operacao/negacoes-credenciamento">
+                <span class="dot" style="background: var(--db-rose)"></span>
+                <span class="l">Negativas (7 dias)</span>
+                <span class="v">{{ m.kpis.denialsLast7Days }}</span>
+              </a>
+              <a class="list-item link" routerLink="/operacao/relatorio-acessos">
+                <span class="dot" style="background: var(--db-green)"></span>
+                <span class="l">Dentro agora</span>
+                <span class="v">{{ m.kpis.currentlyInside }}</span>
+              </a>
+              <a class="list-item link" routerLink="/admin/aprovacoes-documento">
+                <span class="dot" style="background: var(--db-blue)"></span>
+                <span class="l">Docs pendentes</span>
+                <span class="v">{{ m.masters.pendingDocumentChanges }}</span>
+              </a>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </div>
 </div>

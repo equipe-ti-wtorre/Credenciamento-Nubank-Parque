@@ -3,7 +3,7 @@ import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
-export type CredentialStatusKey = 'ACTIVE' | 'PENDING' | 'EXPIRED' | string;
+export type CredentialStatusKey = 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'DENIED' | 'UNKNOWN' | string;
 
 export type DenialModuleKey = 'credential' | 'service_access' | 'event' | 'document';
 
@@ -12,19 +12,51 @@ export type AccessSourceKey = 'event' | 'service_collaborator' | 'service_vehicl
 export type AccessStatusFilter = 'all' | 'inside' | 'completed';
 
 export interface DashboardMetrics {
-  /**
-   * `status` e a chave estavel (enum) usada para colorir o donut do dashboard.
-   * Enquanto a API nao a enviar, o front normaliza a partir de `label`.
-   * TODO(api): expor `status` no endpoint /reports/dashboard.
-   */
-  credentialsByStatus: { label: string; total: number; status?: CredentialStatusKey }[];
+  credentialsByStatus: {
+    label: string;
+    total: number;
+    status: CredentialStatusKey;
+    id_access_status?: number;
+  }[];
   accessesLast7Days: { day: string; total: number }[];
+  accessesBySourceToday: {
+    event: number;
+    service_collaborator: number;
+    service_vehicle: number;
+  };
   kpis: {
     activeCompanies: number;
     pendingApproval: number;
     accessesToday: number;
+    currentlyInside: number;
+    denialsLast7Days: number;
+    unreadAlerts: number;
+    pendingWorkflowApprovals: number;
+    expiredCredentials: number;
+    activeEvents: number;
   };
   topCompanies: { label: string; total: number }[];
+  summary_by_status: {
+    aprovados: number;
+    aguardando: number;
+    negados: number;
+    expirados: number;
+  };
+  workflow: {
+    pending: number;
+    approved: number;
+    rejected: number;
+    approvalRate: number | null;
+    avgApprovalHours: number | null;
+  };
+  masters: {
+    activeCollaborators: number;
+    activeVehicles: number;
+    blacklistedCollaborators: number;
+    blacklistedVehicles: number;
+    pendingDocumentChanges: number;
+    companiesByType: { label: string; total: number }[];
+  };
 }
 
 export interface DenialReportItem {

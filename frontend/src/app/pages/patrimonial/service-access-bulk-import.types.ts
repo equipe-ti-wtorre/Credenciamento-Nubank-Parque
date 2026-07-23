@@ -29,11 +29,22 @@ export interface UnifiedCollaboratorRow {
   pendente_funcao?: boolean;
 }
 
+export interface UnifiedVehicleDados {
+  marca?: string | null;
+  modelo?: string | null;
+  cor?: string | null;
+  tipo?: string | null;
+  observacoes?: string | null;
+  empresa?: string | null;
+}
+
 export interface UnifiedVehicleRow {
   linha: number;
   cadastro: CadastroStatus;
   vinculo: VinculoStatus;
   chave: { placa: string | null };
+  /** Marca, modelo, cor, tipo (e empresa na frota) para a revisão. */
+  dados?: UnifiedVehicleDados | null;
   motorista: UnifiedMotorista | null;
   divergencias: UnifiedDivergence[];
   erros: string[];

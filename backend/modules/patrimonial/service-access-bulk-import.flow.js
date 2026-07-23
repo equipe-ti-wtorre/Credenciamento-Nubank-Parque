@@ -21,6 +21,7 @@ const {
   mapRowByHeaders,
   normalizeCollabIncoming,
   normalizeVeicIncoming,
+  buildVehiclePreviewDados,
   loadLookups,
   summarizeAxis,
   findCollaboratorByDocType,
@@ -570,6 +571,7 @@ async function previewUnifiedBulkImport(ctx) {
         cadastro: "erro",
         vinculo: "a_vincular",
         chave: { placa: incoming.placa || null },
+        dados: buildVehiclePreviewDados(incoming),
         motorista:
           driverInfo ||
           (incoming.motorista_documento
@@ -597,6 +599,7 @@ async function previewUnifiedBulkImport(ctx) {
         cadastro: "erro",
         vinculo: "a_vincular",
         chave: { placa: incoming.placa },
+        dados: buildVehiclePreviewDados(incoming),
         motorista: driverInfo,
         divergencias: [],
         erros: ["Veículo inativo."],
@@ -619,6 +622,7 @@ async function previewUnifiedBulkImport(ctx) {
         cadastro: "erro",
         vinculo: "a_vincular",
         chave: { placa: incoming.placa },
+        dados: buildVehiclePreviewDados(incoming),
         motorista: driverInfo,
         divergencias: [],
         erros: [`Veículo na lista de restrição: ${existing.blacklist_reason}`],
@@ -652,6 +656,7 @@ async function previewUnifiedBulkImport(ctx) {
         cadastro: "novo",
         vinculo: "a_vincular",
         chave: { placa: incoming.placa },
+        dados: buildVehiclePreviewDados(incoming),
         motorista: driverInfo,
         divergencias: [],
         erros: [],
@@ -705,6 +710,7 @@ async function previewUnifiedBulkImport(ctx) {
       cadastro,
       vinculo,
       chave: { placa: existing.plate },
+      dados: buildVehiclePreviewDados(incoming),
       motorista: driverInfo,
       divergencias: diffs,
       erros: [],

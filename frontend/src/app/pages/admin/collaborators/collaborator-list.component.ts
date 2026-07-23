@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import Swal from 'sweetalert2';
 import {
+  CollaboratorAccessDetailsResponse,
   CollaboratorDocumentType,
   CollaboratorItem,
   CollaboratorRole,
@@ -211,6 +212,7 @@ interface CollaboratorFormState {
               <option value="">Todos</option>
               <option value="true">Ativo</option>
               <option value="false">Inativo</option>
+              <option value="blacklist">Blacklist</option>
             </select>
           </div>
           <div>
@@ -280,6 +282,12 @@ interface CollaboratorFormState {
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end">
                     <app-action-menu>
+                      <app-action-btn
+                        icon="document"
+                        title="Detalhes"
+                        variant="neutral"
+                        (action)="abrirDetalhes(c)"
+                      />
                       <app-action-btn icon="edit" title="Editar" variant="neutral" (action)="editar(c)" />
                       <app-action-dropdown>
                         <button
@@ -399,6 +407,245 @@ interface CollaboratorFormState {
         </div>
       </div>
     </div>
+
+    <app-modal
+      [open]="detailOpen()"
+      title=""
+      [showClose]="false"
+      size="xl"
+      [bodyScroll]="false"
+      (close)="fecharDetalhes()"
+    >
+      <div class="cdet" *ngIf="detailLoading()">
+        <div class="cdet__loading">Carregando...</div>
+      </div>
+
+      <div class="cdet" *ngIf="!detailLoading() && detail() as d">
+        <div class="cdet__head">
+          <div class="cdet__avatar" aria-hidden="true">
+            <img *ngIf="pictureUrl(d.collaborator) as photo" [src]="photo" [alt]="d.collaborator.name" />
+            <ng-container *ngIf="!pictureUrl(d.collaborator)">{{ initials(d.collaborator.name) }}</ng-container>
+          </div>
+          <div class="cdet__titles">
+            <h2 class="cdet__title">
+              {{ d.collaborator.name }}
+              <span class="cdet-status" [ngClass]="detailStatusClass(d.collaborator)">
+                <span class="cdet-status__dot" aria-hidden="true"></span>
+                {{ detailStatusLabel(d.collaborator) }}
+              </span>
+            </h2>
+            <p class="cdet__sub">Empresas vinculadas e acessos registrados por empresa.</p>
+            <div class="cdet-head-meta">
+              <span class="cdet-hm">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="2" y="7" width="20" height="14" rx="2" />
+                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                </svg>
+                <span class="cdet-hm__lbl">Função</span>
+                <strong>{{ d.collaborator.role?.description || '—' }}</strong>
+              </span>
+              <span class="cdet-hm">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="M7 15h4M15 15h2M7 11h10" />
+                </svg>
+                <span class="cdet-hm__lbl">Documento</span>
+                <strong class="cdet-hm__mono">{{ formatDocumento(d.collaborator) }}</strong>
+              </span>
+            </div>
+          </div>
+          <button type="button" class="cdet__close" aria-label="Fechar" (click)="fecharDetalhes()">✕</button>
+        </div>
+
+        <div class="cdet__body">
+          <div class="cdet-eyebrow">Resumo</div>
+
+          <div class="cdet-kpis" *ngIf="detailKpis(d) as kpis">
+            <div class="cdet-kpi cdet-kpi--hero">
+              <div class="cdet-kpi__top">
+                <span class="cdet-kpi__ic" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                    <path d="M10 17l5-5-5-5" />
+                    <path d="M15 12H3" />
+                  </svg>
+                </span>
+                <span class="cdet-kpi__lbl">Total de<br />acessos</span>
+              </div>
+              <div class="cdet-kpi__num">{{ kpis.total }}</div>
+              <div class="cdet-kpi__sub">em todas as empresas</div>
+            </div>
+
+            <div class="cdet-kpi">
+              <div class="cdet-kpi__top">
+                <span class="cdet-kpi__ic" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 21h18" />
+                    <path d="M5 21V7l8-4v18" />
+                    <path d="M19 21V11l-6-4" />
+                  </svg>
+                </span>
+                <span class="cdet-kpi__lbl">Empresas<br />vinculadas</span>
+              </div>
+              <div class="cdet-kpi__num">{{ kpis.empresas }}</div>
+              <div class="cdet-kpi__sub">
+                {{ kpis.empresasComAcesso }}
+                {{ kpis.empresasComAcesso === 1 ? 'com registro de acesso' : 'com registros de acesso' }}
+              </div>
+            </div>
+
+            <div class="cdet-kpi">
+              <div class="cdet-kpi__top">
+                <span class="cdet-kpi__ic" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <path d="M16 2v4M8 2v4M3 10h18" />
+                  </svg>
+                </span>
+                <span class="cdet-kpi__lbl">Último<br />acesso</span>
+              </div>
+              <div class="cdet-kpi__num" [class.cdet-kpi__num--sm]="!!kpis.ultimoAcessoDia">
+                {{ kpis.ultimoAcessoDia || '—' }}
+              </div>
+              <div class="cdet-kpi__sub">{{ kpis.ultimoAcessoSub }}</div>
+            </div>
+
+            <div class="cdet-kpi">
+              <div class="cdet-kpi__top">
+                <span class="cdet-kpi__ic" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="13" r="8" />
+                    <path d="M12 9v4l2 2" />
+                    <path d="M9 2h6" />
+                  </svg>
+                </span>
+                <span class="cdet-kpi__lbl">Permanência<br />média</span>
+              </div>
+              <div class="cdet-kpi__num">
+                {{ kpis.permanenciaValor }}
+                <span class="cdet-kpi__unit" *ngIf="kpis.permanenciaUnidade">{{ kpis.permanenciaUnidade }}</span>
+              </div>
+              <div class="cdet-kpi__sub">{{ kpis.permanenciaSub }}</div>
+            </div>
+          </div>
+
+          <div class="cdet-blacklist" *ngIf="d.collaborator.is_blacklisted">
+            <div class="cdet-blacklist__lbl">Motivo da blacklist</div>
+            <div class="cdet-blacklist__val">
+              {{ d.collaborator.blacklist_reason || 'Motivo não informado.' }}
+            </div>
+          </div>
+
+          <div class="cdet-eyebrow">
+            Empresas vinculadas
+            <span class="cdet-eyebrow__count">{{ d.companies.length }}</span>
+          </div>
+
+          <div *ngIf="d.companies.length === 0" class="cdet-empty">
+            <span class="cdet-empty__ic" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 21h18" />
+                <path d="M5 21V7l8-4v18" />
+                <path d="M19 21V11l-6-4" />
+              </svg>
+            </span>
+            <p>Nenhuma empresa vinculada a este colaborador.</p>
+          </div>
+
+          <div *ngFor="let company of d.companies" class="cdet-company" [class.open]="isCompanyExpanded(company.id_company)">
+            <button
+              type="button"
+              class="cdet-company__head"
+              [attr.aria-expanded]="isCompanyExpanded(company.id_company)"
+              (click)="toggleCompany(company.id_company)"
+            >
+              <span class="cdet-company__icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 21h18" />
+                  <path d="M5 21V7l8-4v18" />
+                  <path d="M19 21V11l-6-4" />
+                  <path d="M9 9h.01M9 13h.01M9 17h.01" />
+                </svg>
+              </span>
+              <span class="cdet-company__info">
+                <span class="cdet-company__name">{{ company.fancy_name || company.company_name || 'Empresa' }}</span>
+                <span class="cdet-company__meta">
+                  <ng-container *ngIf="company.company_name && company.fancy_name">{{ company.company_name }} · </ng-container>
+                  <span class="cdet-company__cnpj">{{ formatCnpj(company.cnpj) }}</span>
+                </span>
+              </span>
+              <span class="cdet-chip" [class.cdet-chip--zero]="company.accesses.length === 0">
+                {{ company.accesses.length }}
+                {{ company.accesses.length === 1 ? 'acesso' : 'acessos' }}
+              </span>
+              <span class="cdet-company__chev" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </span>
+            </button>
+
+            <div class="cdet-company__panel" *ngIf="isCompanyExpanded(company.id_company)">
+              <div *ngIf="company.accesses.length === 0" class="cdet-empty">
+                <span class="cdet-empty__ic" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 11l3 3L22 4" />
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                  </svg>
+                </span>
+                <p>Nenhum acesso registrado por esta empresa até o momento.</p>
+              </div>
+
+              <div *ngIf="company.accesses.length > 0" class="cdet-table-wrap">
+                <table class="cdet-acessos">
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Origem</th>
+                      <th>Contexto</th>
+                      <th>Entrada</th>
+                      <th>Saída</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr *ngFor="let access of company.accesses">
+                      <td class="cdet-acessos__date">{{ access.access_date | date: 'dd/MM/yyyy' }}</td>
+                      <td>
+                        <span class="cdet-origem">
+                          <span class="cdet-origem__tag" aria-hidden="true"></span>
+                          {{ access.source_label }}
+                        </span>
+                      </td>
+                      <td>{{ access.context_name || '—' }}</td>
+                      <td class="cdet-acessos__mono">{{ formatAccessTime(access.check_in) }}</td>
+                      <td class="cdet-acessos__mono">
+                        {{ formatAccessTime(access.check_out) }}
+                        <span
+                          *ngIf="formatDuration(access.check_in, access.check_out) as dur"
+                          class="cdet-dur"
+                        >{{ dur }}</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div modal-footer class="modal-footer cdet__foot">
+        <button type="button" class="cdet-btn cdet-btn--ghost" (click)="fecharDetalhes()">Fechar</button>
+        <button
+          type="button"
+          class="cdet-btn cdet-btn--primary"
+          [disabled]="detailLoading() || !detail()"
+          (click)="exportarAcessos()"
+        >
+          Exportar acessos
+        </button>
+      </div>
+    </app-modal>
 
     <app-modal
       [open]="showModal()"
@@ -768,6 +1015,10 @@ export class CollaboratorListComponent implements OnDestroy {
   loading = signal(false);
   saving = signal(false);
   showModal = signal(false);
+  detailOpen = signal(false);
+  detailLoading = signal(false);
+  detail = signal<CollaboratorAccessDetailsResponse | null>(null);
+  expandedCompanyIds = signal<Set<number>>(new Set());
   showBulkModal = signal(false);
   showRolesModal = signal(false);
   showFaceCropModal = signal(false);
@@ -805,6 +1056,7 @@ export class CollaboratorListComponent implements OnDestroy {
   appliedDocTypeId: number | null = null;
   appliedRoleId: number | null = null;
   appliedStatus: boolean | undefined = undefined;
+  appliedBlacklisted: boolean | undefined = undefined;
 
   form: CollaboratorFormState = this.emptyForm();
 
@@ -1022,6 +1274,7 @@ export class CollaboratorListComponent implements OnDestroy {
         id_collaborator_document_type: this.appliedDocTypeId ?? undefined,
         id_collaborator_role: this.appliedRoleId ?? undefined,
         status: this.appliedStatus,
+        is_blacklisted: this.appliedBlacklisted,
       })
       .subscribe({
         next: (res) => {
@@ -1099,9 +1352,19 @@ export class CollaboratorListComponent implements OnDestroy {
     this.appliedName = this.filterName.trim();
     this.appliedDocTypeId = this.filterDocTypeId;
     this.appliedRoleId = this.filterRoleId;
-    if (this.filterStatus === 'true') this.appliedStatus = true;
-    else if (this.filterStatus === 'false') this.appliedStatus = false;
-    else this.appliedStatus = undefined;
+    if (this.filterStatus === 'true') {
+      this.appliedStatus = true;
+      this.appliedBlacklisted = undefined;
+    } else if (this.filterStatus === 'false') {
+      this.appliedStatus = false;
+      this.appliedBlacklisted = undefined;
+    } else if (this.filterStatus === 'blacklist') {
+      this.appliedStatus = undefined;
+      this.appliedBlacklisted = true;
+    } else {
+      this.appliedStatus = undefined;
+      this.appliedBlacklisted = undefined;
+    }
     this.carregar(1);
   }
 
@@ -1117,6 +1380,7 @@ export class CollaboratorListComponent implements OnDestroy {
     this.appliedDocTypeId = null;
     this.appliedRoleId = null;
     this.appliedStatus = undefined;
+    this.appliedBlacklisted = undefined;
     this.carregar(1);
   }
 
@@ -1167,6 +1431,238 @@ export class CollaboratorListComponent implements OnDestroy {
       this.form.id_collaborator_role = this.roles()[0].id_collaborator_role;
     }
     this.showModal.set(true);
+  }
+
+  abrirDetalhes(c: CollaboratorItem) {
+    this.detailOpen.set(true);
+    this.detailLoading.set(true);
+    this.detail.set(null);
+    this.expandedCompanyIds.set(new Set());
+    this.collaboratorService.getAccessDetails(c.id_collaborator).subscribe({
+      next: (res) => {
+        this.detail.set(res);
+        const expanded = new Set<number>();
+        for (const company of res.companies) {
+          if (company.accesses.length > 0) {
+            expanded.add(company.id_company);
+          }
+        }
+        if (expanded.size === 0 && res.companies.length > 0) {
+          expanded.add(res.companies[0].id_company);
+        }
+        this.expandedCompanyIds.set(expanded);
+        this.detailLoading.set(false);
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.detailLoading.set(false);
+        this.detailOpen.set(false);
+        this.cdr.markForCheck();
+        this.notification.error(this.extractError(err) || 'Falha ao carregar detalhes.');
+      },
+    });
+  }
+
+  fecharDetalhes() {
+    this.detailOpen.set(false);
+    this.detailLoading.set(false);
+    this.detail.set(null);
+    this.expandedCompanyIds.set(new Set());
+  }
+
+  isCompanyExpanded(idCompany: number): boolean {
+    return this.expandedCompanyIds().has(idCompany);
+  }
+
+  toggleCompany(idCompany: number) {
+    const next = new Set(this.expandedCompanyIds());
+    if (next.has(idCompany)) next.delete(idCompany);
+    else next.add(idCompany);
+    this.expandedCompanyIds.set(next);
+  }
+
+  formatDocumento(c: CollaboratorItem): string {
+    if (!c?.document) return '—';
+    return isCpfDocumentType(c.document_type?.description) ? formatCpf(c.document) : c.document;
+  }
+
+  formatCnpj(cnpj: string | null | undefined): string {
+    if (!cnpj) return '—';
+    const digits = String(cnpj).replace(/\D/g, '');
+    if (digits.length !== 14) return cnpj;
+    return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  }
+
+  detailKpis(d: CollaboratorAccessDetailsResponse): {
+    empresas: number;
+    empresasComAcesso: number;
+    total: number;
+    ultimoAcessoDia: string | null;
+    ultimoAcessoSub: string;
+    permanenciaValor: string;
+    permanenciaUnidade: string | null;
+    permanenciaSub: string;
+  } {
+    let total = 0;
+    let empresasComAcesso = 0;
+    let lastCheckIn: Date | null = null;
+    let durationSum = 0;
+    let durationCount = 0;
+
+    for (const company of d.companies) {
+      if (company.accesses.length > 0) empresasComAcesso += 1;
+      for (const access of company.accesses) {
+        total += 1;
+        if (access.check_in) {
+          const dt = new Date(access.check_in);
+          if (!Number.isNaN(dt.getTime()) && (!lastCheckIn || dt > lastCheckIn)) {
+            lastCheckIn = dt;
+          }
+        }
+        if (access.check_in && access.check_out) {
+          const start = new Date(access.check_in).getTime();
+          const end = new Date(access.check_out).getTime();
+          if (!Number.isNaN(start) && !Number.isNaN(end) && end >= start) {
+            durationSum += Math.round((end - start) / 60000);
+            durationCount += 1;
+          }
+        }
+      }
+    }
+
+    let ultimoAcessoDia: string | null = null;
+    let ultimoAcessoSub = 'sem registros';
+    if (lastCheckIn) {
+      const day = String(lastCheckIn.getDate()).padStart(2, '0');
+      const month = String(lastCheckIn.getMonth() + 1).padStart(2, '0');
+      ultimoAcessoDia = `${day}/${month}`;
+      const daysAgo = this.daysBetween(lastCheckIn, new Date());
+      const year = lastCheckIn.getFullYear();
+      if (daysAgo === 0) ultimoAcessoSub = `hoje · ${year}`;
+      else if (daysAgo === 1) ultimoAcessoSub = `há 1 dia · ${year}`;
+      else ultimoAcessoSub = `há ${daysAgo} dias · ${year}`;
+    }
+
+    let permanenciaValor = '—';
+    let permanenciaUnidade: string | null = null;
+    let permanenciaSub = 'sem saídas registradas';
+    if (durationCount > 0) {
+      const avg = Math.round(durationSum / durationCount);
+      if (avg < 60) {
+        permanenciaValor = String(avg);
+        permanenciaUnidade = 'min';
+      } else {
+        const hours = Math.floor(avg / 60);
+        const rem = avg % 60;
+        permanenciaValor = rem ? `${hours}h ${rem}` : String(hours);
+        permanenciaUnidade = rem ? 'min' : 'h';
+      }
+      permanenciaSub = 'por acesso';
+    }
+
+    return {
+      empresas: d.companies.length,
+      empresasComAcesso,
+      total,
+      ultimoAcessoDia,
+      ultimoAcessoSub,
+      permanenciaValor,
+      permanenciaUnidade,
+      permanenciaSub,
+    };
+  }
+
+  private daysBetween(from: Date, to: Date): number {
+    const start = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+    const end = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+    return Math.max(0, Math.round((end - start) / 86400000));
+  }
+
+  detailStatusLabel(c: CollaboratorItem): string {
+    if (c.is_blacklisted) return 'Blacklist';
+    return c.status ? 'Ativo' : 'Inativo';
+  }
+
+  detailStatusClass(c: CollaboratorItem): string {
+    if (c.is_blacklisted) return 'cdet-status--blacklist';
+    return c.status ? 'cdet-status--active' : 'cdet-status--inactive';
+  }
+
+  formatAccessTime(value: string | null | undefined): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  formatDuration(checkIn: string | null | undefined, checkOut: string | null | undefined): string | null {
+    if (!checkIn || !checkOut) return null;
+    const start = new Date(checkIn).getTime();
+    const end = new Date(checkOut).getTime();
+    if (Number.isNaN(start) || Number.isNaN(end) || end < start) return null;
+    const minutes = Math.round((end - start) / 60000);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    const rem = minutes % 60;
+    return rem ? `${hours}h ${rem}min` : `${hours}h`;
+  }
+
+  exportarAcessos() {
+    const d = this.detail();
+    if (!d) return;
+
+    const rows: string[][] = [
+      ['Empresa', 'CNPJ', 'Data', 'Origem', 'Contexto', 'Entrada', 'Saída', 'Duração'],
+    ];
+
+    for (const company of d.companies) {
+      const empresa = company.fancy_name || company.company_name || 'Empresa';
+      const cnpj = this.formatCnpj(company.cnpj);
+      if (company.accesses.length === 0) {
+        rows.push([empresa, cnpj, '', '', '', '', '', '']);
+        continue;
+      }
+      for (const access of company.accesses) {
+        rows.push([
+          empresa,
+          cnpj,
+          access.access_date
+            ? new Date(`${access.access_date}T12:00:00`).toLocaleDateString('pt-BR')
+            : '',
+          access.source_label || '',
+          access.context_name || '',
+          access.check_in ? new Date(access.check_in).toLocaleString('pt-BR') : '',
+          access.check_out ? new Date(access.check_out).toLocaleString('pt-BR') : '',
+          this.formatDuration(access.check_in, access.check_out) || '',
+        ]);
+      }
+    }
+
+    const csv = rows
+      .map((cols) =>
+        cols
+          .map((cell) => {
+            const value = String(cell ?? '');
+            if (/[",;\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+            return value;
+          })
+          .join(';'),
+      )
+      .join('\n');
+
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const slug = d.collaborator.name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || String(d.collaborator.id_collaborator);
+    a.href = url;
+    a.download = `acessos-${slug}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   editar(c: CollaboratorItem) {

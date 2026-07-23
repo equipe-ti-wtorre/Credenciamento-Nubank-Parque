@@ -167,6 +167,18 @@ function normalizeVeicIncoming(mapped) {
   };
 }
 
+/** Dados para exibir na revisão do wizard (além da placa). */
+function buildVehiclePreviewDados(incoming, { empresa } = {}) {
+  return {
+    marca: incoming?.marca || null,
+    modelo: incoming?.modelo || null,
+    cor: incoming?.cor || null,
+    tipo: incoming?.tipo || null,
+    observacoes: incoming?.observacoes || null,
+    empresa: empresa || null,
+  };
+}
+
 async function loadLookups() {
   const [[types], [roles]] = await Promise.all([
     db.execute(
@@ -373,6 +385,7 @@ module.exports = {
   mapRowByHeaders,
   normalizeCollabIncoming,
   normalizeVeicIncoming,
+  buildVehiclePreviewDados,
   buildUnifiedTemplate,
   loadLookups,
   summarizeAxis,

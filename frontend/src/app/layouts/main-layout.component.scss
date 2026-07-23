@@ -643,8 +643,9 @@
   }
 }
 
-/* Portaria kiosk: hide chrome when Fullscreen API is unavailable or as CSS fallback */
-body.gate-kiosk {
+/* Kiosk / fullscreen: hide chrome (sidebar + topbar) */
+body.gate-kiosk,
+body.dashboard-kiosk {
   overflow: hidden;
 
   .wt-layout {
@@ -665,5 +666,16 @@ body.gate-kiosk {
     padding: 0;
     height: 100vh;
     overflow: hidden;
+  }
+}
+
+body.dashboard-kiosk {
+  .wt-main {
+    overflow: auto;
+  }
+
+  .wt-content {
+    overflow: auto;
+    padding: 20px 28px 40px;
   }
 }
