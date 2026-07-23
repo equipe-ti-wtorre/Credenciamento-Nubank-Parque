@@ -934,12 +934,24 @@ async function reopenEventForApproval(conn, eventRow, { force = false, idSetor =
   return { reopened: true, created: true, idAprovacao: approval.id };
 }
 
-async function assertEventDayRemovable(conn, idEventDay, dayDate) {
+function credentialRank(row) {
+  let score = 0;
+  if (row.access_id) score += 100;
+  const status = Number(row.id_access_status || 0);
+  if (status === STATUS_APROVADO) score += 40;
+  else if (status === STATUS_AGUARDANDO_APROVACAO) score += 30;
+  else if (status === STATUS_AGUARDANDO_PRODUTORA) score += 20;
+  else if (status === STATUS_NEGADO || status === STATUS_EXPIRADO) score += 5;
+  if (row.access_check_in) score += 10;
+  return score;
+}
+
+async function eventDayHasLinkedData(conn, idEventDay) {
   const [links] = await conn.execute(
     `SELECT id_event_day_company FROM event_day_company WHERE id_event_day = ?`,
     [idEventDay],
   );
-  if (!links.length) return;
+  if (!links.length) return false;
 
   const linkIds = links.map((l) => Number(l.id_event_day_company));
   const placeholders = linkIds.map(() => "?").join(", ");
@@ -950,28 +962,218 @@ async function assertEventDayRemovable(conn, idEventDay, dayDate) {
         WHERE id_event_day_company IN (${placeholders})`,
       linkIds,
     );
-    if (Number(credRows[0]?.total || 0) > 0) {
-      throw new AppError(
-        `Não é possível remover o dia ${dayDate}: existem credenciais vinculadas.`,
-        422,
-      );
-    }
+    if (Number(credRows[0]?.total || 0) > 0) return true;
   }
 
   if (await tableExists("event_day_company_vehicle")) {
     const [vehicleRows] = await conn.execute(
       `SELECT COUNT(*) AS total FROM event_day_company_vehicle
-        WHERE id_event_day_company IN (${placeholders})
-          AND access_id IS NOT NULL`,
+        WHERE id_event_day_company IN (${placeholders})`,
       linkIds,
     );
-    if (Number(vehicleRows[0]?.total || 0) > 0) {
-      throw new AppError(
-        `Não é possível remover o dia ${dayDate}: existem veículos com acesso liberado.`,
-        422,
+    if (Number(vehicleRows[0]?.total || 0) > 0) return true;
+  }
+
+  return false;
+}
+
+async function getEventDayTypeDescription(conn, idType) {
+  const [rows] = await conn.execute(
+    `SELECT description FROM event_day_type WHERE id_event_day_type = ? LIMIT 1`,
+    [idType],
+  );
+  return rows[0]?.description || `tipo ${idType}`;
+}
+
+async function ensureCompanyLinkOnDay(conn, idEventDay, idCompany, idProducer) {
+  const [existing] = await conn.execute(
+    `SELECT id_event_day_company, id_producer
+       FROM event_day_company
+      WHERE id_event_day = ? AND id_company = ?
+      LIMIT 1`,
+    [idEventDay, idCompany],
+  );
+  if (existing.length) {
+    const linkId = Number(existing[0].id_event_day_company);
+    if (
+      idProducer != null &&
+      existing[0].id_producer == null
+    ) {
+      await conn.execute(
+        `UPDATE event_day_company SET id_producer = ? WHERE id_event_day_company = ?`,
+        [idProducer, linkId],
+      );
+    }
+    return linkId;
+  }
+
+  const [result] = await conn.execute(
+    `INSERT INTO event_day_company (id_event_day, id_company, id_producer)
+     VALUES (?, ?, ?)`,
+    [idEventDay, idCompany, idProducer],
+  );
+  return Number(result.insertId);
+}
+
+async function migrateCredentialsBetweenLinksSafe(conn, fromLinkId, toLinkId, toEventDayId) {
+  if (!(await tableExists(CREDENTIAL_LINK_TABLE))) return;
+  if (Number(fromLinkId) === Number(toLinkId)) return;
+
+  const [rows] = await conn.execute(
+    `SELECT id_event_day_company_collaborator, id_collaborator, id_access_status,
+            access_id, access_check_in, access_check_out
+       FROM ${CREDENTIAL_LINK_TABLE}
+      WHERE id_event_day_company = ?`,
+    [fromLinkId],
+  );
+
+  for (const row of rows) {
+    const [targetRows] = await conn.execute(
+      `SELECT edcc.id_event_day_company_collaborator, edcc.id_event_day_company,
+              edcc.id_access_status, edcc.access_id, edcc.access_check_in, edcc.access_check_out
+         FROM ${CREDENTIAL_LINK_TABLE} edcc
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcc.id_event_day_company
+        WHERE edc.id_event_day = ? AND edcc.id_collaborator = ?
+        LIMIT 1`,
+      [toEventDayId, row.id_collaborator],
+    );
+
+    if (!targetRows.length) {
+      await conn.execute(
+        `UPDATE ${CREDENTIAL_LINK_TABLE}
+            SET id_event_day_company = ?
+          WHERE id_event_day_company_collaborator = ?`,
+        [toLinkId, row.id_event_day_company_collaborator],
+      );
+      continue;
+    }
+
+    const target = targetRows[0];
+    const keepSource = credentialRank(row) > credentialRank(target);
+    if (keepSource) {
+      await conn.execute(
+        `DELETE FROM ${CREDENTIAL_LINK_TABLE}
+          WHERE id_event_day_company_collaborator = ?`,
+        [target.id_event_day_company_collaborator],
+      );
+      await conn.execute(
+        `UPDATE ${CREDENTIAL_LINK_TABLE}
+            SET id_event_day_company = ?
+          WHERE id_event_day_company_collaborator = ?`,
+        [toLinkId, row.id_event_day_company_collaborator],
+      );
+    } else {
+      await conn.execute(
+        `DELETE FROM ${CREDENTIAL_LINK_TABLE}
+          WHERE id_event_day_company_collaborator = ?`,
+        [row.id_event_day_company_collaborator],
       );
     }
   }
+}
+
+async function migrateVehiclesBetweenLinksSafe(conn, fromLinkId, toLinkId) {
+  if (!(await tableExists("event_day_company_vehicle"))) return;
+  if (Number(fromLinkId) === Number(toLinkId)) return;
+
+  const [rows] = await conn.execute(
+    `SELECT id_event_day_company_vehicle, id_vehicle, id_access_status, access_id
+       FROM event_day_company_vehicle
+      WHERE id_event_day_company = ?`,
+    [fromLinkId],
+  );
+
+  for (const row of rows) {
+    const [targetRows] = await conn.execute(
+      `SELECT id_event_day_company_vehicle, id_access_status, access_id
+         FROM event_day_company_vehicle
+        WHERE id_event_day_company = ? AND id_vehicle = ?
+        LIMIT 1`,
+      [toLinkId, row.id_vehicle],
+    );
+
+    if (!targetRows.length) {
+      await conn.execute(
+        `UPDATE event_day_company_vehicle
+            SET id_event_day_company = ?
+          WHERE id_event_day_company_vehicle = ?`,
+        [toLinkId, row.id_event_day_company_vehicle],
+      );
+      continue;
+    }
+
+    const target = targetRows[0];
+    if (row.access_id && !target.access_id) {
+      await conn.execute(
+        `UPDATE event_day_company_vehicle
+            SET access_id = ?, id_access_status = ?
+          WHERE id_event_day_company_vehicle = ?`,
+        [row.access_id, row.id_access_status, target.id_event_day_company_vehicle],
+      );
+    }
+    await conn.execute(
+      `DELETE FROM event_day_company_vehicle
+        WHERE id_event_day_company_vehicle = ?`,
+      [row.id_event_day_company_vehicle],
+    );
+  }
+}
+
+async function migrateEventDayToTarget(conn, fromDayId, toDayId) {
+  const [links] = await conn.execute(
+    `SELECT id_event_day_company, id_company, id_producer
+       FROM event_day_company
+      WHERE id_event_day = ?`,
+    [fromDayId],
+  );
+
+  for (const link of links) {
+    const fromLinkId = Number(link.id_event_day_company);
+    const toLinkId = await ensureCompanyLinkOnDay(
+      conn,
+      toDayId,
+      Number(link.id_company),
+      link.id_producer != null ? Number(link.id_producer) : null,
+    );
+    await migrateCredentialsBetweenLinksSafe(conn, fromLinkId, toLinkId, toDayId);
+    await migrateVehiclesBetweenLinksSafe(conn, fromLinkId, toLinkId);
+  }
+}
+
+async function clearVehiclesOnDay(conn, idEventDay) {
+  if (!(await tableExists("event_day_company_vehicle"))) return;
+  const [links] = await conn.execute(
+    `SELECT id_event_day_company FROM event_day_company WHERE id_event_day = ?`,
+    [idEventDay],
+  );
+  if (!links.length) return;
+  const linkIds = links.map((l) => Number(l.id_event_day_company));
+  const placeholders = linkIds.map(() => "?").join(", ");
+  await conn.execute(
+    `DELETE FROM event_day_company_vehicle
+      WHERE id_event_day_company IN (${placeholders})`,
+    linkIds,
+  );
+}
+
+function pickMigrationTarget(candidates, fromDate) {
+  if (!candidates.length) return null;
+  const sorted = [...candidates].sort((a, b) => {
+    const distA = Math.abs(dateIsoDistance(a.date, fromDate));
+    const distB = Math.abs(dateIsoDistance(b.date, fromDate));
+    if (distA !== distB) return distA - distB;
+    return String(a.date).localeCompare(String(b.date));
+  });
+  return sorted[0];
+}
+
+function dateIsoDistance(a, b) {
+  const pa = String(a).slice(0, 10).split("-").map(Number);
+  const pb = String(b).slice(0, 10).split("-").map(Number);
+  const ta = Date.UTC(pa[0], pa[1] - 1, pa[2]);
+  const tb = Date.UTC(pb[0], pb[1] - 1, pb[2]);
+  return Math.round((ta - tb) / 86400000);
 }
 
 async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompanyResponsavel) {
@@ -998,27 +1200,10 @@ async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompany
     existingByDate.set(formatDateField(row.date), row);
   }
 
-  for (const [dayDate, row] of existingByDate) {
-    if (desired.has(dayDate)) continue;
-    await assertEventDayRemovable(conn, row.id_event_day, dayDate);
-    if (await tableExists("event_day_company_vehicle")) {
-      const [links] = await conn.execute(
-        `SELECT id_event_day_company FROM event_day_company WHERE id_event_day = ?`,
-        [row.id_event_day],
-      );
-      if (links.length) {
-        const linkIds = links.map((l) => Number(l.id_event_day_company));
-        const placeholders = linkIds.map(() => "?").join(", ");
-        await conn.execute(
-          `DELETE FROM event_day_company_vehicle
-            WHERE id_event_day_company IN (${placeholders})`,
-          linkIds,
-        );
-      }
-    }
-    await conn.execute(`DELETE FROM event_day WHERE id_event_day = ?`, [row.id_event_day]);
-  }
+  /** date → id_event_day após upsert */
+  const finalDayIdByDate = new Map();
 
+  // 1) Upsert dias desejados (para o alvo da migração já existir)
   for (const [dayDate, idType] of desired) {
     const existing = existingByDate.get(dayDate);
     if (existing) {
@@ -1028,6 +1213,7 @@ async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompany
           existing.id_event_day,
         ]);
       }
+      finalDayIdByDate.set(dayDate, Number(existing.id_event_day));
       continue;
     }
 
@@ -1035,13 +1221,49 @@ async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompany
       "INSERT INTO event_day (id_event, id_type, date) VALUES (?, ?, ?)",
       [eventId, idType, dayDate],
     );
+    const newDayId = Number(dayResult.insertId);
+    finalDayIdByDate.set(dayDate, newDayId);
     if (idCompanyResponsavel != null) {
       await conn.execute(
         `INSERT INTO event_day_company (id_event_day, id_company, id_producer)
          VALUES (?, ?, NULL)`,
-        [dayResult.insertId, idCompanyResponsavel],
+        [newDayId, idCompanyResponsavel],
       );
     }
+  }
+
+  // 2) Remover dias fora do payload, migrando vínculos pela mesma fase
+  for (const [dayDate, row] of existingByDate) {
+    if (desired.has(dayDate)) continue;
+
+    const fromDayId = Number(row.id_event_day);
+    const fromType = Number(row.id_type);
+    const hasData = await eventDayHasLinkedData(conn, fromDayId);
+
+    if (hasData) {
+      const candidates = [];
+      for (const [keepDate, keepType] of desired) {
+        if (Number(keepType) !== fromType) continue;
+        const keepId = finalDayIdByDate.get(keepDate);
+        if (!keepId || keepId === fromDayId) continue;
+        candidates.push({ id: keepId, date: keepDate });
+      }
+
+      const target = pickMigrationTarget(candidates, dayDate);
+      if (!target) {
+        const phaseName = await getEventDayTypeDescription(conn, fromType);
+        throw new AppError(
+          `Não é possível remover o dia ${dayDate}: há credenciais/veículos na fase "${phaseName}" e não há outro dia dessa fase no novo período.`,
+          422,
+        );
+      }
+
+      await migrateEventDayToTarget(conn, fromDayId, target.id);
+    } else {
+      await clearVehiclesOnDay(conn, fromDayId);
+    }
+
+    await conn.execute(`DELETE FROM event_day WHERE id_event_day = ?`, [fromDayId]);
   }
 }
 
