@@ -1,0 +1,30 @@
+:host {
+  display: block;
+
+  --mm-purple-900: var(--purple-900, var(--brand-ink, #420465));
+  --mm-ink-soft: var(--text-muted, #6b5b83);
+}
+
+.wrap {
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+.page-head {
+  margin-bottom: 20px;
+}
+
+.page-head h1 {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--mm-purple-900);
+  margin: 0 0 5px;
+  letter-spacing: -0.3px;
+}
+
+.page-head .sub {
+  font-size: 14px;
+  color: var(--mm-ink-soft);
+  margin: 0;
+}

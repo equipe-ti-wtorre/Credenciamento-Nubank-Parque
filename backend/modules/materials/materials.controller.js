@@ -1,6 +1,7 @@
 const AppError = require("../../utils/AppError");
 const { attachAudit } = require("../../utils/auditLogger");
 const materialsService = require("./materials.service");
+const invoiceOcrService = require("./materials-invoice-ocr.service");
 const {
   locationCreateSchema,
   locationUpdateSchema,
@@ -144,10 +145,31 @@ exports.listProductsSelect = async (req, res, next) => {
   }
 };
 
+exports.parseInvoice = async (req, res, next) => {
+  try {
+    const result = await invoiceOcrService.parseInvoiceFromPhoto(req, req.file);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+function movementFiles(req) {
+  if (Array.isArray(req.merchandisePhotos) && req.merchandisePhotos.length) {
+    return req.merchandisePhotos;
+  }
+  return req.file ? [req.file] : [];
+}
+
 exports.movementIn = async (req, res, next) => {
   try {
     const payload = parseMovementPayload(req);
-    const movement = await materialsService.createMovement(req, "ENTRADA", payload, req.file);
+    const movement = await materialsService.createMovement(
+      req,
+      "ENTRADA",
+      payload,
+      movementFiles(req),
+    );
     attachAudit(req, {
       action: "CREATE",
       module: "materials",
@@ -163,7 +185,12 @@ exports.movementIn = async (req, res, next) => {
 exports.movementOut = async (req, res, next) => {
   try {
     const payload = parseMovementPayload(req);
-    const movement = await materialsService.createMovement(req, "SAIDA", payload, req.file);
+    const movement = await materialsService.createMovement(
+      req,
+      "SAIDA",
+      payload,
+      movementFiles(req),
+    );
     attachAudit(req, {
       action: "CREATE",
       module: "materials",

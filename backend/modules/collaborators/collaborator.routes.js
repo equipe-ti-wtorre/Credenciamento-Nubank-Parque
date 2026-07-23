@@ -3,7 +3,10 @@ const collaboratorController = require("./collaborator.controller");
 const documentChangeController = require("./document-change.controller");
 const domainRoutes = require("./domain.routes");
 const { authMiddleware } = require("../../middleware/authMiddleware");
-const { authorizePermission } = require("../../middleware/permissionMiddleware");
+const {
+  authorizePermission,
+  authorizeAnyPermission,
+} = require("../../middleware/permissionMiddleware");
 const { bulkUploadMiddleware, pictureUploadMiddleware } = require("../../middleware/upload.middleware");
 
 const router = express.Router();
@@ -14,10 +17,20 @@ const canEdit = [auth, authorizePermission("collaborators", "edit")];
 const canDelete = [auth, authorizePermission("collaborators", "delete")];
 const docApprovalsView = [auth, authorizePermission("document_approvals", "view")];
 const docApprovalsEdit = [auth, authorizePermission("document_approvals", "edit")];
+const canSearch = [
+  auth,
+  authorizeAnyPermission([
+    { modulo: "collaborators", acao: "view" },
+    { modulo: "collaborators", acao: "create" },
+    { modulo: "gate", acao: "view" },
+    { modulo: "merchandise_entry", acao: "view" },
+    { modulo: "merchandise_exit", acao: "view" },
+  ]),
+];
 
 router.use(domainRoutes);
 
-router.get("/search", ...canView, collaboratorController.search);
+router.get("/search", ...canSearch, collaboratorController.search);
 router.get("/", ...canView, collaboratorController.list);
 router.get(
   "/bulk/template",

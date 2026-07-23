@@ -19,6 +19,7 @@ body {
 
 /* Select: marca ativa. Em Chromium, base-select permite estilizar hover do picker. */
 select,
+select.field,
 .form-select,
 .select {
   accent-color: var(--brand);
@@ -29,6 +30,7 @@ select,
 
 @supports (appearance: base-select) {
   select,
+  select.field,
   .form-select,
   .select {
     &,
@@ -66,8 +68,10 @@ select,
     }
 
     option:hover,
-    option:focus {
-      background-color: var(--wtorre-tonal-bg);
+    option:focus,
+    option:is(:hover),
+    option:is(:focus) {
+      background-color: var(--brand-tonal-bg, var(--wtorre-tonal-bg));
       color: var(--brand);
     }
 
@@ -77,7 +81,9 @@ select,
     }
 
     option:checked:hover,
-    option:checked:focus {
+    option:checked:focus,
+    option:checked:is(:hover),
+    option:checked:is(:focus) {
       background-color: var(--brand-hover);
       color: #fff;
     }

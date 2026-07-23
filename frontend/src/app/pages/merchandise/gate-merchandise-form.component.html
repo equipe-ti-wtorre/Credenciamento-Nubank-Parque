@@ -1,0 +1,442 @@
+<form class="card" (ngSubmit)="submit()">
+  <!-- Dados principais -->
+  <div class="form-grid">
+    <div class="fg">
+      <label>Agente (empresa) <span class="req">*</span></label>
+      <select
+        class="field"
+        [(ngModel)]="form.id_company"
+        name="id_company"
+        required
+        (ngModelChange)="onCompanyChange()"
+      >
+        <option [ngValue]="null" disabled>Selecione…</option>
+        <option *ngFor="let c of companies()" [ngValue]="c.id_company">{{ c.name }}</option>
+      </select>
+    </div>
+
+    <div class="fg">
+      <label>Número da NF <span class="req">*</span></label>
+      <input
+        class="field"
+        type="text"
+        name="invoice_number"
+        [(ngModel)]="form.invoice_number"
+        required
+        placeholder="Ex.: 000123456"
+        inputmode="numeric"
+      />
+    </div>
+
+    <div class="fg">
+      <label>Veículo <span class="req">*</span></label>
+      <select
+        class="field"
+        [(ngModel)]="form.id_vehicle"
+        name="id_vehicle"
+        required
+        [disabled]="!form.id_company"
+      >
+        <option [ngValue]="null" disabled>
+          {{ form.id_company ? 'Selecione…' : 'Selecione o agente primeiro…' }}
+        </option>
+        <option *ngFor="let v of vehicles()" [ngValue]="v.id_vehicle">
+          {{ v.description ? v.description + ' — ' : '' }}{{ v.plate }}
+        </option>
+      </select>
+      <p *ngIf="form.id_company && !vehicles().length" class="hint">
+        Nenhum veículo ativo para este agente.
+      </p>
+    </div>
+  </div>
+
+  <div class="fg party-block">
+    <label>Motorista / Ajudantes (CPF)</label>
+    <div class="input-group">
+      <div class="driver-search">
+        <input
+          class="field"
+          type="text"
+          name="partyDocument"
+          [ngModel]="partyDocument"
+          (ngModelChange)="onPartyDocumentChange($event)"
+          (keydown.enter)="$event.preventDefault(); buscarPessoa()"
+          placeholder="Digite o CPF para adicionar à relação"
+          inputmode="numeric"
+          maxlength="11"
+          autocomplete="off"
+        />
+        <div
+          *ngIf="partySuggestions().length"
+          class="driver-suggestions"
+          role="listbox"
+        >
+          <button
+            *ngFor="let s of partySuggestions()"
+            type="button"
+            class="driver-suggestion"
+            [class.is-blocked]="s.is_blacklisted"
+            role="option"
+            (mousedown)="$event.preventDefault()"
+            (click)="addToParty(s)"
+          >
+            <span class="driver-suggestion__name">{{ s.name }}</span>
+            <span class="driver-suggestion__meta">{{ s.document }}</span>
+            <span *ngIf="s.is_blacklisted" class="driver-suggestion__warn">Lista negra</span>
+          </button>
+        </div>
+      </div>
+      <button
+        class="btn-attach"
+        type="button"
+        (click)="buscarPessoa()"
+        [disabled]="partySearching()"
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+        {{ partySearching() ? 'Buscando…' : 'Adicionar' }}
+      </button>
+    </div>
+    <p *ngIf="partySearching() && !partySuggestions().length" class="hint">Buscando…</p>
+    <p *ngIf="partyError()" class="hint hint--err">{{ partyError() }}</p>
+
+    <div *ngIf="party().length" class="party-list" aria-label="Relação de motorista e ajudantes">
+      <div class="party-list__head">Relação ({{ party().length }})</div>
+      <div *ngFor="let p of party(); let i = index" class="party-item">
+        <div class="party-item__info">
+          <span class="party-item__role" [class.is-driver]="i === 0">{{ partyRoleLabel(i) }}</span>
+          <span class="party-item__name">{{ p.name }}</span>
+          <span class="party-item__doc">{{ p.document }}</span>
+        </div>
+        <button
+          type="button"
+          class="party-item__remove"
+          (click)="removeFromParty(p.id_collaborator)"
+        >
+          Remover
+        </button>
+      </div>
+    </div>
+    <p *ngIf="!party().length" class="hint">
+      Adicione o motorista e, se houver, os ajudantes.
+    </p>
+  </div>
+
+  <div class="section-div"></div>
+
+  <!-- Itens da NF -->
+  <div class="items-head">
+    <span class="lbl">Itens da NF</span>
+    <button class="btn-add" type="button" (click)="adicionarItem()">
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+      Adicionar item
+    </button>
+  </div>
+
+  <div class="items">
+    <div class="item-block" *ngFor="let item of form.items; let i = index">
+      <div class="item-row">
+      <select
+        class="field"
+        [(ngModel)]="item.id_product"
+        [name]="'product_' + i"
+        required
+      >
+        <option [ngValue]="null" disabled>Produto…</option>
+        <option *ngFor="let p of products()" [ngValue]="p.id_product">{{ p.description }}</option>
+      </select>
+      <select
+        class="field"
+        [(ngModel)]="item.id_storage_location"
+        [name]="'loc_' + i"
+        required
+      >
+        <option [ngValue]="null" disabled>Local…</option>
+        <option *ngFor="let l of locations()" [ngValue]="l.id_storage_location">{{ l.name }}</option>
+      </select>
+      <input
+        class="field"
+        type="number"
+        min="0.001"
+        step="0.001"
+        [(ngModel)]="item.quantity"
+        [name]="'qty_' + i"
+        required
+        placeholder="Qtd"
+      />
+      <button
+        class="btn-remove"
+        type="button"
+        (click)="removerItem(i)"
+        [disabled]="form.items.length <= 1"
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path
+            d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"
+          />
+        </svg>
+        Remover
+      </button>
+      </div>
+
+      <div *ngIf="showUnresolvedHelp(item)" class="item-resolve">
+        <p class="hint hint--warn item-ocr-hint">
+          Lido na NF: <strong>{{ item.raw_description }}</strong>
+          — escolha um similar ou cadastre o produto.
+        </p>
+
+        <div *ngIf="item.suggestions?.length" class="suggest-row">
+          <span class="suggest-lbl">Similares:</span>
+          <button
+            *ngFor="let s of item.suggestions"
+            type="button"
+            class="suggest-chip"
+            (click)="applySuggestion(i, s)"
+            [title]="'Confiança ' + (s.confidence * 100 | number: '1.0-0') + '%'"
+          >
+            {{ s.description }}
+            <span class="suggest-pct">{{ s.confidence * 100 | number: '1.0-0' }}%</span>
+          </button>
+        </div>
+
+        <div *ngIf="canCreateProduct()" class="create-product-actions">
+          <button
+            type="button"
+            class="btn-link-create"
+            (click)="toggleCreateProduct(i)"
+            [disabled]="!!item.createSaving"
+          >
+            {{ item.creating ? 'Cancelar cadastro' : 'Cadastrar produto' }}
+          </button>
+        </div>
+
+        <div *ngIf="item.creating" class="create-product-form">
+          <input
+            class="field"
+            type="text"
+            [(ngModel)]="item.createDescription"
+            [name]="'create_desc_' + i"
+            placeholder="Descrição do produto"
+            maxlength="200"
+          />
+          <input
+            class="field field-unit"
+            type="text"
+            [(ngModel)]="item.createUnit"
+            [name]="'create_unit_' + i"
+            placeholder="UN"
+            maxlength="40"
+          />
+          <button
+            type="button"
+            class="btn-save-product"
+            (click)="createProductForItem(i)"
+            [disabled]="!!item.createSaving"
+          >
+            {{ item.createSaving ? 'Salvando…' : 'Salvar produto' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-div"></div>
+
+  <!-- Foto -->
+  <div class="fg fg-full">
+    <label>Foto NF / produto</label>
+    <input
+      #photoInput
+      type="file"
+      accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+      hidden
+      [disabled]="ocrLoading()"
+      (change)="onPhotoSelected($event)"
+    />
+    <input
+      #cameraInput
+      type="file"
+      accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+      capture="environment"
+      hidden
+      [disabled]="ocrLoading()"
+      (change)="onPhotoSelected($event)"
+    />
+    <div
+      class="dropzone"
+      [class.drag]="photoDragOver()"
+      [class.has-preview]="!!photoPreview()"
+      [class.is-ocr]="ocrLoading()"
+      [attr.aria-busy]="ocrLoading()"
+      tabindex="0"
+      role="button"
+      (click)="!ocrLoading() && photoInput.click()"
+      (keydown.enter)="!ocrLoading() && photoInput.click()"
+      (keydown.space)="$event.preventDefault(); !ocrLoading() && photoInput.click()"
+      (dragover)="onPhotoDragOver($event)"
+      (dragleave)="onPhotoDragLeave($event)"
+      (drop)="onPhotoDrop($event)"
+    >
+      <span class="dz-ic" *ngIf="!photoPreview()" aria-hidden="true">
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M12 16V4" />
+          <path d="m7 9 5-5 5 5" />
+          <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+        </svg>
+      </span>
+      <span class="dz-preview" *ngIf="photoPreview()" aria-hidden="true">
+        <img [src]="photoPreview()!" alt="" />
+      </span>
+      <span class="dz-txt">
+        <span class="t1" *ngIf="!ocrLoading()">
+          Arraste a foto da NF aqui ou <a href="#" (click)="$event.preventDefault()">clique para procurar</a>
+        </span>
+        <span class="t1" *ngIf="ocrLoading()">Lendo NF…</span>
+        <span class="t2">
+          {{
+            ocrLoading()
+              ? 'Extraindo número e itens — revise antes de confirmar'
+              : ocrMessage()
+                ? ocrMessage()
+                : photoFiles.length
+                  ? photoFiles.length +
+                    ' foto(s) anexada(s) · serão salvas ao confirmar · anexe outra NF para somar'
+                  : 'JPEG, PNG ou WebP · máx. 2 MB · fotos são salvas no lançamento'
+          }}
+        </span>
+      </span>
+      <span class="dz-spinner" *ngIf="ocrLoading()" aria-hidden="true"></span>
+    </div>
+
+    <div class="photo-actions">
+      <button
+        type="button"
+        class="btn-photo-cam"
+        (click)="openWebcamCapture()"
+        [disabled]="ocrLoading() || submitting()"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.9"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+          <circle cx="12" cy="13" r="4" />
+        </svg>
+        Tirar foto
+      </button>
+      <button
+        type="button"
+        class="btn-photo-cam btn-photo-cam--ghost"
+        (click)="cameraInput.click()"
+        [disabled]="ocrLoading() || submitting()"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.9"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="5" y="2" width="14" height="20" rx="2" />
+          <circle cx="12" cy="14" r="3.5" />
+          <path d="M12 6h.01" />
+        </svg>
+        Câmera do celular
+      </button>
+    </div>
+  </div>
+
+  <app-webcam-capture-modal
+    [open]="showWebcamModal()"
+    title="Tirar foto da NF"
+    subtitle="Enquadre a nota fiscal inteira, bem iluminada e sem reflexo, e capture."
+    (cancel)="closeWebcamCapture()"
+    (captured)="onWebcamCaptured($event)"
+  />
+
+  <!-- Ações -->
+  <div class="form-foot">
+    <button class="btn btn-ghost" type="button" (click)="cancel()" [disabled]="submitting()">
+      Cancelar
+    </button>
+    <button class="btn btn-primary" type="submit" [disabled]="submitting() || ocrLoading()">
+      <svg
+        *ngIf="!submitting() && !ocrLoading()"
+        width="17"
+        height="17"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+      {{
+        ocrLoading()
+          ? 'Lendo NF…'
+          : submitting()
+            ? 'Registrando…'
+            : movementType === 'ENTRADA'
+              ? 'Confirmar entrada'
+              : 'Confirmar saída'
+      }}
+    </button>
+  </div>
+</form>

@@ -934,6 +934,117 @@ async function reopenEventForApproval(conn, eventRow, { force = false, idSetor =
   return { reopened: true, created: true, idAprovacao: approval.id };
 }
 
+async function assertEventDayRemovable(conn, idEventDay, dayDate) {
+  const [links] = await conn.execute(
+    `SELECT id_event_day_company FROM event_day_company WHERE id_event_day = ?`,
+    [idEventDay],
+  );
+  if (!links.length) return;
+
+  const linkIds = links.map((l) => Number(l.id_event_day_company));
+  const placeholders = linkIds.map(() => "?").join(", ");
+
+  if (await tableExists(CREDENTIAL_LINK_TABLE)) {
+    const [credRows] = await conn.execute(
+      `SELECT COUNT(*) AS total FROM ${CREDENTIAL_LINK_TABLE}
+        WHERE id_event_day_company IN (${placeholders})`,
+      linkIds,
+    );
+    if (Number(credRows[0]?.total || 0) > 0) {
+      throw new AppError(
+        `Não é possível remover o dia ${dayDate}: existem credenciais vinculadas.`,
+        422,
+      );
+    }
+  }
+
+  if (await tableExists("event_day_company_vehicle")) {
+    const [vehicleRows] = await conn.execute(
+      `SELECT COUNT(*) AS total FROM event_day_company_vehicle
+        WHERE id_event_day_company IN (${placeholders})
+          AND access_id IS NOT NULL`,
+      linkIds,
+    );
+    if (Number(vehicleRows[0]?.total || 0) > 0) {
+      throw new AppError(
+        `Não é possível remover o dia ${dayDate}: existem veículos com acesso liberado.`,
+        422,
+      );
+    }
+  }
+}
+
+async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompanyResponsavel) {
+  const desired = new Map();
+  for (const day of days || []) {
+    const dayDate = toDateOnly(day.date);
+    if (dayDate < start || dayDate > end) {
+      throw new AppError(
+        "A data do dia deve estar entre a data de início e a data de término do evento.",
+        400,
+      );
+    }
+    await assertEventDayTypeExists(day.id_type, conn);
+    desired.set(dayDate, Number(day.id_type));
+  }
+
+  const [existingRows] = await conn.execute(
+    `SELECT id_event_day, date, id_type FROM event_day WHERE id_event = ? ORDER BY date ASC`,
+    [eventId],
+  );
+
+  const existingByDate = new Map();
+  for (const row of existingRows) {
+    existingByDate.set(formatDateField(row.date), row);
+  }
+
+  for (const [dayDate, row] of existingByDate) {
+    if (desired.has(dayDate)) continue;
+    await assertEventDayRemovable(conn, row.id_event_day, dayDate);
+    if (await tableExists("event_day_company_vehicle")) {
+      const [links] = await conn.execute(
+        `SELECT id_event_day_company FROM event_day_company WHERE id_event_day = ?`,
+        [row.id_event_day],
+      );
+      if (links.length) {
+        const linkIds = links.map((l) => Number(l.id_event_day_company));
+        const placeholders = linkIds.map(() => "?").join(", ");
+        await conn.execute(
+          `DELETE FROM event_day_company_vehicle
+            WHERE id_event_day_company IN (${placeholders})`,
+          linkIds,
+        );
+      }
+    }
+    await conn.execute(`DELETE FROM event_day WHERE id_event_day = ?`, [row.id_event_day]);
+  }
+
+  for (const [dayDate, idType] of desired) {
+    const existing = existingByDate.get(dayDate);
+    if (existing) {
+      if (Number(existing.id_type) !== idType) {
+        await conn.execute(`UPDATE event_day SET id_type = ? WHERE id_event_day = ?`, [
+          idType,
+          existing.id_event_day,
+        ]);
+      }
+      continue;
+    }
+
+    const [dayResult] = await conn.execute(
+      "INSERT INTO event_day (id_event, id_type, date) VALUES (?, ?, ?)",
+      [eventId, idType, dayDate],
+    );
+    if (idCompanyResponsavel != null) {
+      await conn.execute(
+        `INSERT INTO event_day_company (id_event_day, id_company, id_producer)
+         VALUES (?, ?, NULL)`,
+        [dayResult.insertId, idCompanyResponsavel],
+      );
+    }
+  }
+}
+
 async function updateEventPeriod(req, id, data) {
   const eventRow = await findEventById(id);
   if (!eventRow) throw new AppError("Evento não encontrado.", 404);
@@ -953,23 +1064,31 @@ async function updateEventPeriod(req, id, data) {
     );
   }
 
+  const hasDaysPayload = Array.isArray(data.days);
   const [dayRows] = await db.execute(
     `SELECT id_event_day, date FROM event_day WHERE id_event = ? ORDER BY date ASC`,
     [id],
   );
-  for (const day of dayRows) {
-    const dayDate = formatDateField(day.date);
-    if (dayDate < start || dayDate > end) {
-      throw new AppError(
-        `O dia ${dayDate} fica fora do novo período. Ajuste ou remova os dias fora do intervalo antes de salvar.`,
-        422,
-      );
+
+  if (!hasDaysPayload) {
+    for (const day of dayRows) {
+      const dayDate = formatDateField(day.date);
+      if (dayDate < start || dayDate > end) {
+        throw new AppError(
+          `O dia ${dayDate} fica fora do novo período. Ajuste ou remova os dias fora do intervalo antes de salvar.`,
+          422,
+        );
+      }
     }
   }
 
   const previousStart = formatDateField(eventRow.start);
   const previousEnd = formatDateField(eventRow.end);
   const datesChanged = previousStart !== start || previousEnd !== end;
+  const idCompanyResponsavel =
+    eventRow.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
 
   const conn = await db.getConnection();
   try {
@@ -979,6 +1098,17 @@ async function updateEventPeriod(req, id, data) {
       end,
       id,
     ]);
+
+    if (hasDaysPayload) {
+      await syncEventDaysForPeriod(
+        conn,
+        id,
+        start,
+        end,
+        data.days,
+        idCompanyResponsavel,
+      );
+    }
 
     let reopenResult = { reopened: false, created: false, idAprovacao: null };
     if (datesChanged) {

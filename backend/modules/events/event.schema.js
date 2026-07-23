@@ -63,6 +63,7 @@ const eventPeriodSchema = Joi.object({
   end: Joi.alternatives()
     .try(Joi.date().iso(), Joi.string().isoDate())
     .required(),
+  days: Joi.array().items(eventDayItemSchema).optional(),
 })
   .custom((value, helpers) => {
     const start = toDateOnly(value.start);
@@ -70,10 +71,26 @@ const eventPeriodSchema = Joi.object({
     if (start > end) {
       return helpers.error("event.dateRange");
     }
+    if (value.days && value.days.length > 0) {
+      const seen = new Set();
+      for (let i = 0; i < value.days.length; i++) {
+        const dayDate = toDateOnly(value.days[i].date);
+        if (dayDate < start || dayDate > end) {
+          return helpers.error("event.dayOutOfRange", { index: i });
+        }
+        if (seen.has(dayDate)) {
+          return helpers.error("event.dayDuplicate", { index: i });
+        }
+        seen.add(dayDate);
+      }
+    }
     return value;
   })
   .messages({
     "event.dateRange": "A data de início deve ser anterior ou igual à data de término.",
+    "event.dayOutOfRange":
+      "A data do dia {{#index}} deve estar entre a data de início e a data de término do evento.",
+    "event.dayDuplicate": "Há datas duplicadas na lista de dias do evento.",
   });
 
 const eventPreferencesSchema = Joi.object({

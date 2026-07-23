@@ -34,11 +34,27 @@ const movementItemSchema = Joi.object({
 
 const movementPayloadSchema = Joi.object({
   id_company: Joi.number().integer().positive().required(),
-  invoice_number: Joi.string().trim().min(1).max(60).required(),
-  id_collaborator: Joi.number().integer().positive().required(),
+  invoice_number: Joi.string().trim().min(1).max(255).required(),
+  /** Motorista principal (compat). Preferir id_collaborators. */
+  id_collaborator: Joi.number().integer().positive().optional(),
+  /** Relação completa: 1º = motorista, demais = ajudantes. */
+  id_collaborators: Joi.array().items(Joi.number().integer().positive()).min(1).optional(),
   id_vehicle: Joi.number().integer().positive().required(),
   items: Joi.array().items(movementItemSchema).min(1).required(),
-});
+})
+  .or("id_collaborator", "id_collaborators")
+  .custom((value, helpers) => {
+    const fromList = Array.isArray(value.id_collaborators)
+      ? value.id_collaborators.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+      : [];
+    const ids = [...new Set(fromList.length ? fromList : [Number(value.id_collaborator)])];
+    if (!ids.length || !ids[0]) {
+      return helpers.message("Informe ao menos um colaborador na relação (motorista).");
+    }
+    value.id_collaborators = ids;
+    value.id_collaborator = ids[0];
+    return value;
+  });
 
 const historyQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),

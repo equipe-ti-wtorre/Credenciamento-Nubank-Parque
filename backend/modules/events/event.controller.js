@@ -180,6 +180,7 @@ exports.updatePeriod = async (req, res, next) => {
       metadata: {
         start: value.start,
         end: value.end,
+        daysCount: Array.isArray(value.days) ? value.days.length : null,
         approvalReopened: event.approvalReopened,
         id_aprovacao: event.id_aprovacao || null,
       },

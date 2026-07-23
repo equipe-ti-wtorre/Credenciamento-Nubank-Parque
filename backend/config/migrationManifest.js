@@ -292,6 +292,28 @@ const migrations = [
     filename: "042_company_logo.sql",
     validate: (conn) => columnExists(conn, "company", "logo"),
   },
+  {
+    filename: "043_material_movement_collaborator.sql",
+    validate: (conn) => tableExists(conn, "material_movement_collaborator"),
+  },
+  {
+    filename: "044_material_movement_invoice_number_len.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT CHARACTER_MAXIMUM_LENGTH AS len
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'material_movement'
+           AND COLUMN_NAME = 'invoice_number'
+         LIMIT 1`,
+      );
+      return Number(rows[0]?.len || 0) >= 255;
+    },
+  },
+  {
+    filename: "045_material_movement_photo.sql",
+    validate: (conn) => tableExists(conn, "material_movement_photo"),
+  },
 ];
 
 module.exports = migrations;

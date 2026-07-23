@@ -24,8 +24,8 @@ import { ModalComponent } from '../modal/modal.component';
   template: `
     <app-modal
       [open]="open"
-      title="Capturar foto"
-      subtitle="Posicione o rosto de frente, bem iluminado, e capture."
+      [title]="title"
+      [subtitle]="subtitle"
       size="lg"
       [closeOnBackdrop]="false"
       [focusFirstField]="false"
@@ -146,6 +146,8 @@ import { ModalComponent } from '../modal/modal.component';
 })
 export class WebcamCaptureModalComponent implements OnChanges, OnDestroy {
   @Input() open = false;
+  @Input() title = 'Capturar foto';
+  @Input() subtitle = 'Posicione o rosto de frente, bem iluminado, e capture.';
 
   @Output() cancel = new EventEmitter<void>();
   @Output() captured = new EventEmitter<File>();

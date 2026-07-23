@@ -1281,10 +1281,143 @@ select.select {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 
 .event-edit-form .field {
   margin-bottom: 0;
+}
+
+/* Passo 2: caber calendário + lista sem scroll horizontal no modal */
+.event-edit-form--dias {
+  overflow-x: hidden;
+
+  ::ng-deep app-novo-evento-step-dias {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+
+    .two {
+      grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+      gap: 24px;
+      max-width: 100%;
+    }
+
+    .days__hint {
+      margin-bottom: 10px;
+    }
+
+    .daylist {
+      max-height: min(280px, 36vh);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    .dayrow {
+      min-width: 0;
+      gap: 8px;
+      padding: 7px 8px 7px 10px;
+    }
+
+    .dayrow__date {
+      min-width: 0;
+      width: 104px;
+      flex: 0 0 104px;
+    }
+
+    .dayrow__sel {
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .dayrow__sel .select {
+      max-width: 100%;
+      min-width: 0;
+    }
+  }
+}
+
+:host ::ng-deep app-modal .modal-panel--2xl:has(.event-edit-form--dias) {
+  max-width: min(52rem, calc(100vw - 32px));
+  width: 100%;
+}
+
+.edit-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.edit-stitem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-sdot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  font-size: 12px;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  color: #94a3b8;
+}
+
+.edit-slabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.edit-sline {
+  flex: 1;
+  height: 2px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  min-width: 16px;
+}
+
+.edit-sline.is-done {
+  background: var(--wtorre, #1d54e6);
+}
+
+.edit-stitem.is-active .edit-sdot,
+.edit-stitem.is-done .edit-sdot {
+  background: var(--wtorre, #1d54e6);
+  border-color: var(--wtorre, #1d54e6);
+  color: #fff;
+}
+
+.edit-stitem.is-active .edit-slabel,
+.edit-stitem.is-done .edit-slabel {
+  color: #0f172a;
+}
+
+.edit-orphan-banner {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.edit-orphan-banner p {
+  margin: 0;
+}
+
+.edit-days-loading {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.875rem;
 }
 
 .event-edit-form ::ng-deep app-periodo-range-picker,

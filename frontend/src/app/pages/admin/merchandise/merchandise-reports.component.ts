@@ -108,6 +108,7 @@ import { NotificationService } from '../../../core/services/notification.service
                 <th class="px-4 py-3 text-left">Agente</th>
                 <th class="px-4 py-3 text-left">Motorista</th>
                 <th class="px-4 py-3 text-left">Veículo</th>
+                <th class="px-4 py-3 text-left">Fotos</th>
                 <th class="px-4 py-3 text-left">Itens</th>
               </tr>
             </thead>
@@ -129,6 +130,19 @@ import { NotificationService } from '../../../core/services/notification.service
                 <td class="px-4 py-3">{{ m.company_fancy_name }}</td>
                 <td class="px-4 py-3">{{ m.collaborator_name }}</td>
                 <td class="px-4 py-3 font-mono">{{ m.vehicle_plate }}</td>
+                <td class="px-4 py-3 text-xs">
+                  <ng-container *ngIf="movementPhotoCount(m) as n">
+                    <button
+                      *ngIf="n > 0"
+                      type="button"
+                      class="text-[var(--brand,#8d0de3)] font-semibold underline"
+                      (click)="openMovementPhotos(m)"
+                    >
+                      {{ n }} foto(s)
+                    </button>
+                    <span *ngIf="n === 0" class="text-slate-400">—</span>
+                  </ng-container>
+                </td>
                 <td class="px-4 py-3 text-xs text-slate-600">
                   <div *ngFor="let item of m.items">
                     {{ item.product_description }} — {{ item.location_name }}: {{ item.quantity }}
@@ -137,7 +151,7 @@ import { NotificationService } from '../../../core/services/notification.service
                 </td>
               </tr>
               <tr *ngIf="!loadingHistory() && history().length === 0">
-                <td colspan="7" class="px-4 py-8 text-center text-slate-500">Nenhuma movimentação encontrada.</td>
+                <td colspan="8" class="px-4 py-8 text-center text-slate-500">Nenhuma movimentação encontrada.</td>
               </tr>
             </tbody>
           </table>
@@ -247,5 +261,34 @@ export class MerchandiseReportsComponent implements OnInit {
     const d = new Date(day + 'T12:00:00');
     if (Number.isNaN(d.getTime())) return day;
     return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  }
+
+  movementPhotoCount(m: MaterialMovement): number {
+    if (m.photos?.length) return m.photos.length;
+    return m.photo ? 1 : 0;
+  }
+
+  openMovementPhotos(m: MaterialMovement) {
+    const filenames = (m.photos?.length ? m.photos.map((p) => p.filename) : m.photo ? [m.photo] : []).filter(
+      Boolean,
+    ) as string[];
+    if (!filenames.length) return;
+
+    let opened = 0;
+    for (const filename of filenames) {
+      this.materials.getMerchandisePhoto(filename).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          window.open(url, '_blank', 'noopener');
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          opened += 1;
+        },
+        error: (err) => {
+          if (opened === 0) {
+            this.notification.notifyHttpError(err, 'Falha ao abrir foto da movimentação.');
+          }
+        },
+      });
+    }
   }
 }

@@ -162,7 +162,7 @@ export class EventService {
 
   updatePeriod(
     id: number,
-    data: { start: string; end: string },
+    data: { start: string; end: string; days?: EventDayInput[] },
   ): Observable<{ event: EventDetail }> {
     return this.api.patch<{ event: EventDetail }>(`/events/${id}/period`, data);
   }

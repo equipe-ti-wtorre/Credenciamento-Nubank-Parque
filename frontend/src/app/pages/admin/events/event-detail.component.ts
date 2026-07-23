@@ -7,6 +7,7 @@ import Swal from 'sweetalert2';
 import {
   EventCompanyVehicleItem,
   EventDayCompanyBrief,
+  EventDayType,
   EventDetail,
   EventService,
   formatDateBr,
@@ -39,6 +40,8 @@ import {
   BulkImportApiAdapter,
   ServiceAccessBulkImportWizardComponent,
 } from '../../patrimonial/service-access-bulk-import-wizard.component';
+import { NovoEventoStepDiasComponent } from './novo-evento-modal/steps/step-dias.component';
+import { eachIsoInRange } from './novo-evento-modal/ui/calendar.util';
 
 type CredStatusSummary = 'aprovado' | 'aguardando' | 'rascunho';
 type DrawerSeg = 'lote' | 'ind';
@@ -79,6 +82,7 @@ function maskDocument(document: string): string {
     ModalComponent,
     PeriodoRangePickerComponent,
     ServiceAccessBulkImportWizardComponent,
+    NovoEventoStepDiasComponent,
   ],
   styleUrl: './event-detail.component.scss',
   template: `
@@ -290,7 +294,12 @@ function maskDocument(document: string): string {
 
         <div *ngIf="event()!.days.length === 0" class="empty">
           <p>Este evento não possui dias cadastrados.</p>
-          <p class="mt-2 text-sm">Os dias são definidos na criação do evento.</p>
+          <p class="mt-2 text-sm" *ngIf="canAdjustPeriod()">
+            Use <b>Editar</b> para definir o período e marcar os dias/fases do evento.
+          </p>
+          <p class="mt-2 text-sm" *ngIf="!canAdjustPeriod()">
+            Os dias podem ser definidos ao editar o período do evento.
+          </p>
         </div>
 
         <ng-container *ngIf="event()!.days.length > 0">
@@ -541,44 +550,102 @@ function maskDocument(document: string): string {
         </div>
       </app-modal>
 
-      <!-- Modal editar (período + responsável) -->
+      <!-- Modal editar (wizard: período → dias/fases) -->
       <app-modal
         [open]="showEditModal()"
         title="Editar evento"
-        size="sm"
+        [subtitle]="editModalSubtitle()"
+        [size]="editStep() === 2 ? '2xl' : 'sm'"
         (close)="fecharModalEditar()"
       >
-        <form id="event-edit-form" class="event-edit-form" (ngSubmit)="salvarEdicao()">
-          <div class="field" *ngIf="canChangeResponsavel()">
-            <label class="label" for="event-responsavel">Empresa responsável</label>
-            <select
-              id="event-responsavel"
-              class="select"
-              [(ngModel)]="responsavelFormId"
-              name="eventResponsavel"
-              required
-            >
-              <option [ngValue]="null">Selecione</option>
-              <option *ngFor="let p of producers()" [ngValue]="p.id_company">
-                {{ p.company_name }}
-              </option>
-            </select>
+        <form
+          id="event-edit-form"
+          class="event-edit-form"
+          [class.event-edit-form--dias]="editStep() === 2"
+          (ngSubmit)="onEditFormSubmit()"
+        >
+          <div *ngIf="canAdjustPeriod()" class="edit-stepper" aria-label="Progresso da edição">
+            <div class="edit-stitem" [class.is-active]="editStep() === 1" [class.is-done]="editStep() > 1">
+              <span class="edit-sdot">1</span>
+              <span class="edit-slabel">Período</span>
+            </div>
+            <span class="edit-sline" [class.is-done]="editStep() > 1"></span>
+            <div class="edit-stitem" [class.is-active]="editStep() === 2">
+              <span class="edit-sdot">2</span>
+              <span class="edit-slabel">Dias / fases</span>
+            </div>
           </div>
-          <app-periodo-range-picker
-            *ngIf="canAdjustPeriod()"
-            [(ngModel)]="editPeriodRange"
-            name="editPeriodRange"
-            label="Período do evento"
-            inputId="event-edit-range"
-            [inline]="true"
-            [controlInvalid]="editPeriodTouched() && !editPeriodRange?.inicio"
-            [controlTouched]="editPeriodTouched()"
-          />
+
+          <ng-container *ngIf="editStep() === 1">
+            <div class="field" *ngIf="canChangeResponsavel()">
+              <label class="label" for="event-responsavel">Empresa responsável</label>
+              <select
+                id="event-responsavel"
+                class="select"
+                [(ngModel)]="responsavelFormId"
+                name="eventResponsavel"
+                required
+              >
+                <option [ngValue]="null">Selecione</option>
+                <option *ngFor="let p of producers()" [ngValue]="p.id_company">
+                  {{ p.company_name }}
+                </option>
+              </select>
+            </div>
+            <app-periodo-range-picker
+              *ngIf="canAdjustPeriod()"
+              [(ngModel)]="editPeriodRange"
+              name="editPeriodRange"
+              label="Período do evento"
+              inputId="event-edit-range"
+              [inline]="true"
+              [controlInvalid]="editPeriodTouched() && !editPeriodRange?.inicio"
+              [controlTouched]="editPeriodTouched()"
+            />
+          </ng-container>
+
+          <ng-container *ngIf="editStep() === 2">
+            <div *ngIf="editOrphanDays().length" class="edit-orphan-banner" role="status">
+              <p>
+                {{ editOrphanDays().length }}
+                dia{{ editOrphanDays().length > 1 ? 's' : '' }}
+                fora do novo período
+                {{ editOrphanDays().length > 1 ? 'serão removidos' : 'será removido' }}:
+                <b>{{ editOrphanDaysLabel() }}</b>
+              </p>
+            </div>
+            <p *ngIf="editDaysLoading()" class="edit-days-loading">Carregando tipos de dia…</p>
+            <app-novo-evento-step-dias
+              *ngIf="!editDaysLoading()"
+              [dataInicio]="editPeriodRange?.inicio || null"
+              [dataFim]="editPeriodRange?.fim || null"
+              [types]="editDayTypes()"
+              [dias]="editDias()"
+              [(brushTypeId)]="editBrushTypeId"
+              [calViewKey]="editCalViewKey()"
+              (tagDay)="onEditTagDay($event)"
+              (fillPeriod)="onEditFillPeriod()"
+              (changeType)="onEditChangeDayType($event)"
+              (removeDay)="onEditRemoveDay($event)"
+            />
+          </ng-container>
         </form>
         <div modal-footer class="modal-footer">
-          <button type="button" class="btn-action-secondary" (click)="fecharModalEditar()">Cancelar</button>
-          <button type="submit" form="event-edit-form" class="btn-action-primary" [disabled]="editSaving()">
-            {{ editSaving() ? 'Salvando...' : 'Salvar alterações' }}
+          <button
+            type="button"
+            class="btn-action-secondary"
+            (click)="editStep() === 2 ? voltarEditStep() : fecharModalEditar()"
+            [disabled]="editSaving()"
+          >
+            {{ editStep() === 2 ? 'Voltar' : 'Cancelar' }}
+          </button>
+          <button
+            type="submit"
+            form="event-edit-form"
+            class="btn-action-primary"
+            [disabled]="editSaving() || editDaysLoading()"
+          >
+            {{ editPrimaryButtonLabel() }}
           </button>
         </div>
       </app-modal>
@@ -954,6 +1021,13 @@ export class EventDetailComponent implements OnInit {
   editSaving = signal(false);
   editPeriodTouched = signal(false);
   editPeriodRange: PeriodoRangeValue | null = null;
+  editStep = signal<1 | 2>(1);
+  editDias = signal(new Map<string, number>());
+  editDayTypes = signal<EventDayType[]>([]);
+  editBrushTypeId = signal(0);
+  editCalViewKey = signal(0);
+  editOrphanDays = signal<string[]>([]);
+  editDaysLoading = signal(false);
   statusToggling = signal(false);
   prefSaving = signal(false);
   submitApprovalSaving = signal(false);
@@ -1854,6 +1928,40 @@ export class EventDetailComponent implements OnInit {
       });
   }
 
+  editModalSubtitle(): string {
+    if (this.editStep() === 2) {
+      return 'Marque os dias e fases que farão parte do novo período.';
+    }
+    if (this.canAdjustPeriod()) {
+      return 'Ajuste o período. Se ele mudar, você poderá redefinir os dias/fases.';
+    }
+    return 'Atualize a empresa responsável do evento.';
+  }
+
+  editOrphanDaysLabel(): string {
+    return this.editOrphanDays()
+      .map((iso) => formatDateBr(iso))
+      .join(', ');
+  }
+
+  editPrimaryButtonLabel(): string {
+    if (this.editSaving()) return 'Salvando...';
+    if (this.editStep() === 2) return 'Salvar alterações';
+    if (this.canAdjustPeriod() && this.isEditPeriodChanged()) return 'Continuar';
+    return 'Salvar alterações';
+  }
+
+  private isEditPeriodChanged(): boolean {
+    const ev = this.event();
+    if (!ev || !this.canAdjustPeriod()) return false;
+    const periodStart = this.editPeriodRange?.inicio || '';
+    const periodEnd = this.editPeriodRange?.fim || '';
+    return (
+      periodStart !== String(ev.start || '').slice(0, 10) ||
+      periodEnd !== String(ev.end || '').slice(0, 10)
+    );
+  }
+
   abrirModalEditar() {
     const ev = this.event();
     if (!ev || !this.canEditEvent() || !ev.ativo) return;
@@ -1862,6 +1970,10 @@ export class EventDetailComponent implements OnInit {
     this.editPeriodRange = start && end ? { inicio: start, fim: end } : null;
     this.editPeriodTouched.set(false);
     this.responsavelFormId = ev.id_company_responsavel ?? null;
+    this.editStep.set(1);
+    this.editDias.set(new Map());
+    this.editOrphanDays.set([]);
+    this.editDaysLoading.set(false);
     this.showEditModal.set(true);
     if (this.canChangeResponsavel() && this.producers().length === 0) {
       this.carregarProdutoras();
@@ -1869,7 +1981,16 @@ export class EventDetailComponent implements OnInit {
   }
 
   fecharModalEditar() {
+    if (this.editSaving()) return;
     this.showEditModal.set(false);
+    this.editStep.set(1);
+    this.editDias.set(new Map());
+    this.editOrphanDays.set([]);
+  }
+
+  voltarEditStep() {
+    if (this.editSaving()) return;
+    this.editStep.set(1);
   }
 
   carregarProdutoras() {
@@ -1880,6 +2001,145 @@ export class EventDetailComponent implements OnInit {
       },
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar produtoras.'),
     });
+  }
+
+  private ensureEditDayTypes(done: () => void) {
+    if (this.editDayTypes().length) {
+      if (!this.editBrushTypeId() && this.editDayTypes().length) {
+        this.editBrushTypeId.set(this.editDayTypes()[0].id_event_day_type);
+      }
+      done();
+      return;
+    }
+    this.editDaysLoading.set(true);
+    this.eventService.listTypes().subscribe({
+      next: (res) => {
+        const list = res.types || [];
+        this.editDayTypes.set(list);
+        if (list.length && !this.editBrushTypeId()) {
+          this.editBrushTypeId.set(list[0].id_event_day_type);
+        }
+        this.editDaysLoading.set(false);
+        done();
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.editDaysLoading.set(false);
+        this.notification.notifyHttpError(err, 'Falha ao carregar tipos de dia.');
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  private prepareEditDaysStep() {
+    const ev = this.event();
+    const start = this.editPeriodRange?.inicio || '';
+    const end = this.editPeriodRange?.fim || '';
+    if (!ev || !start || !end) return;
+
+    const orphans: string[] = [];
+    const next = new Map<string, number>();
+    for (const day of ev.days || []) {
+      const iso = String(day.date || '').slice(0, 10);
+      const typeId = Number(day.type?.id_event_day_type || 0);
+      if (!iso || !typeId) continue;
+      if (iso < start || iso > end) {
+        orphans.push(iso);
+        continue;
+      }
+      next.set(iso, typeId);
+    }
+    orphans.sort();
+    this.editOrphanDays.set(orphans);
+    this.editDias.set(next);
+    this.editCalViewKey.update((n) => n + 1);
+    this.editStep.set(2);
+    this.cdr.markForCheck();
+  }
+
+  onEditFormSubmit() {
+    if (this.editStep() === 1) {
+      this.avancarOuSalvarEdicao();
+      return;
+    }
+    this.salvarEdicao();
+  }
+
+  avancarOuSalvarEdicao() {
+    const ev = this.event();
+    if (!ev) return;
+
+    const savePeriod = this.canAdjustPeriod();
+    const saveResponsavel = this.canChangeResponsavel();
+    if (!savePeriod && !saveResponsavel) return;
+
+    const periodStart = this.editPeriodRange?.inicio || '';
+    const periodEnd = this.editPeriodRange?.fim || '';
+
+    if (savePeriod) {
+      this.editPeriodTouched.set(true);
+      if (!periodStart || !periodEnd) {
+        this.notification.error('Informe o período do evento.');
+        return;
+      }
+      if (periodEnd < periodStart) {
+        this.notification.error('Data fim deve ser igual ou posterior à data início.');
+        return;
+      }
+    }
+    if (saveResponsavel && !this.responsavelFormId) {
+      this.notification.error('Selecione a empresa responsável.');
+      return;
+    }
+
+    const periodChanged = this.isEditPeriodChanged();
+    const responsavelChanged =
+      saveResponsavel && this.responsavelFormId !== (ev.id_company_responsavel ?? null);
+
+    if (!periodChanged && !responsavelChanged) {
+      this.fecharModalEditar();
+      return;
+    }
+
+    if (periodChanged) {
+      this.ensureEditDayTypes(() => this.prepareEditDaysStep());
+      return;
+    }
+
+    this.salvarEdicao();
+  }
+
+  onEditTagDay(iso: string) {
+    const brush = this.editBrushTypeId();
+    if (!brush) return;
+    const next = new Map(this.editDias());
+    if (next.get(iso) === brush) next.delete(iso);
+    else next.set(iso, brush);
+    this.editDias.set(next);
+  }
+
+  onEditFillPeriod() {
+    const start = this.editPeriodRange?.inicio || '';
+    const end = this.editPeriodRange?.fim || '';
+    const brush = this.editBrushTypeId();
+    if (!start || !end || !brush) return;
+    const next = new Map(this.editDias());
+    for (const iso of eachIsoInRange(start, end)) {
+      if (!next.has(iso)) next.set(iso, brush);
+    }
+    this.editDias.set(next);
+  }
+
+  onEditChangeDayType(ev: { iso: string; id_type: number }) {
+    const next = new Map(this.editDias());
+    next.set(ev.iso, ev.id_type);
+    this.editDias.set(next);
+  }
+
+  onEditRemoveDay(iso: string) {
+    const next = new Map(this.editDias());
+    next.delete(iso);
+    this.editDias.set(next);
   }
 
   salvarEdicao() {
@@ -1915,9 +2175,15 @@ export class EventDetailComponent implements OnInit {
         periodEnd !== String(ev.end || '').slice(0, 10));
     const responsavelChanged =
       saveResponsavel && this.responsavelFormId !== (ev.id_company_responsavel ?? null);
+    const syncingDays = periodChanged && this.editStep() === 2;
 
     if (!periodChanged && !responsavelChanged) {
       this.fecharModalEditar();
+      return;
+    }
+
+    if (periodChanged && !syncingDays) {
+      this.ensureEditDayTypes(() => this.prepareEditDaysStep());
       return;
     }
 
@@ -1931,8 +2197,11 @@ export class EventDetailComponent implements OnInit {
       if (reloadLinks && (this.event()?.can_manage_companies || this.isAdmin)) {
         this.carregarEmpresas(ev.id_event);
       }
-      if (reloadLinks) {
+      if (reloadLinks || syncingDays) {
         this.carregarCredenciais(ev.id_event);
+      }
+      if (syncingDays && (this.event()?.can_manage_companies || this.isAdmin)) {
+        this.carregarEmpresas(ev.id_event);
       }
       this.cdr.markForCheck();
     };
@@ -1963,10 +2232,15 @@ export class EventDetailComponent implements OnInit {
     };
 
     if (periodChanged) {
+      const days = [...this.editDias().entries()]
+        .map(([date, id_type]) => ({ date, id_type }))
+        .sort((a, b) => (a.date < b.date ? -1 : 1));
+
       this.eventService
         .updatePeriod(ev.id_event, {
           start: periodStart,
           end: periodEnd,
+          days,
         })
         .subscribe({
           next: (res) => {
@@ -1978,9 +2252,9 @@ export class EventDetailComponent implements OnInit {
             }
             finishOk(
               approvalReopened
-                ? 'Período atualizado. Evento enviado novamente para aprovação.'
-                : 'Período atualizado.',
-              false,
+                ? 'Período e fases atualizados. Evento enviado novamente para aprovação.'
+                : 'Período e fases atualizados.',
+              true,
             );
           },
           error: (err) => fail(err, 'Falha ao ajustar período.'),

@@ -113,11 +113,50 @@ const merchandisePhotoMiddleware = createOptionalUploadMiddleware({
   invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
 });
 
+/** Aceita `photo` (1) e/ou `photos` (até 10) para movimentações com várias NFs. */
+function merchandisePhotosMiddleware(req, res, next) {
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 2 * 1024 * 1024, files: 10 },
+    fileFilter(_req, file, cb) {
+      if (!matchesAllowed(file, IMAGE_EXTENSIONS, IMAGE_MIMETYPES)) {
+        return cb(new AppError("Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).", 400));
+      }
+      cb(null, true);
+    },
+  }).fields([
+    { name: "photo", maxCount: 1 },
+    { name: "photos", maxCount: 10 },
+  ]);
+
+  upload(req, res, (err) => {
+    if (err) {
+      if (err instanceof AppError) return next(err);
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return next(new AppError("Arquivo excede o limite de 2MB.", 400));
+      }
+      if (err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE") {
+        return next(new AppError("Envie no máximo 10 imagens por movimentação.", 400));
+      }
+      return next(new AppError(err.message || "Falha no upload.", 400));
+    }
+
+    const bag = req.files || {};
+    const list = [];
+    if (Array.isArray(bag.photo)) list.push(...bag.photo);
+    if (Array.isArray(bag.photos)) list.push(...bag.photos);
+    req.merchandisePhotos = list;
+    req.file = list[0] || undefined;
+    next();
+  });
+}
+
 module.exports = {
   bulkUploadMiddleware,
   pictureUploadMiddleware,
   logoUploadMiddleware,
   merchandisePhotoMiddleware,
+  merchandisePhotosMiddleware,
   createUploadMiddleware,
   MAX_FILE_SIZE,
 };

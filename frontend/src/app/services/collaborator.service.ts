@@ -171,6 +171,12 @@ export class CollaboratorService {
     );
   }
 
+  /** Typeahead por nome ou documento parcial. */
+  searchByTerm(q: string): Observable<{ results: CollaboratorItem[] }> {
+    const params = new HttpParams().set('q', q);
+    return this.api.get<{ results: CollaboratorItem[] }>('/collaborators/search', params);
+  }
+
   create(data: CollaboratorCreatePayload): Observable<{
     collaborator: CollaboratorItem;
     linked?: boolean;

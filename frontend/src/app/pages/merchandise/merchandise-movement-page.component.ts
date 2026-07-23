@@ -8,15 +8,8 @@ import { GateMerchandiseFormComponent } from './gate-merchandise-form.component'
   selector: 'app-merchandise-movement-page',
   standalone: true,
   imports: [CommonModule, GateMerchandiseFormComponent],
-  template: `
-    <div class="w-full max-w-6xl mx-auto">
-      <div class="mb-4">
-        <h2 class="page-section-title">{{ pageTitle }}</h2>
-        <p class="page-section-subtitle">{{ pageSubtitle }}</p>
-      </div>
-      <app-gate-merchandise-form [movementType]="movementType" />
-    </div>
-  `,
+  templateUrl: './merchandise-movement-page.component.html',
+  styleUrl: './merchandise-movement-page.component.scss',
 })
 export class MerchandiseMovementPageComponent {
   private route = inject(ActivatedRoute);
@@ -29,7 +22,7 @@ export class MerchandiseMovementPageComponent {
 
   get pageSubtitle(): string {
     return this.movementType === 'ENTRADA'
-      ? 'Registro de mercadorias que entram no site'
-      : 'Registro de mercadorias que saem do site';
+      ? 'Registro de mercadorias que entram no site.'
+      : 'Registro de mercadorias que saem do site.';
   }
 }

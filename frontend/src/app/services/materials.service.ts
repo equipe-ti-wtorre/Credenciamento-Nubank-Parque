@@ -43,10 +43,35 @@ export interface MovementItemPayload {
   quantity: number;
 }
 
+export interface InvoiceProductSuggestion {
+  id_product: number;
+  description: string;
+  unit_measure?: string;
+  confidence: number;
+}
+
+export interface InvoiceParseItem {
+  raw_description: string;
+  quantity: number;
+  id_product: number | null;
+  matched_description: string | null;
+  confidence: number;
+  suggestions?: InvoiceProductSuggestion[];
+}
+
+export interface InvoiceParseResult {
+  invoice_number: string | null;
+  items: InvoiceParseItem[];
+  warnings: string[];
+  ocr_preview?: string;
+}
+
 export interface MovementPayload {
   id_company: number;
   invoice_number: string;
   id_collaborator: number;
+  /** Relação completa: 1º motorista, demais ajudantes. */
+  id_collaborators?: number[];
   id_vehicle: number;
   items: MovementItemPayload[];
 }
@@ -69,6 +94,21 @@ export interface MovementItemDetail extends MovementItemPayload {
   location_type: StorageLocationType;
 }
 
+export interface MaterialMovementCollaborator {
+  id_collaborator: number;
+  role: 'MOTORISTA' | 'AJUDANTE';
+  name: string;
+  document: string | null;
+}
+
+export interface MaterialMovementPhoto {
+  id_material_movement_photo: number | null;
+  filename: string;
+  original_name: string | null;
+  sort_order: number;
+  criado_em?: string;
+}
+
 export interface MaterialMovement {
   id_material_movement: number;
   movement_type: MovementType;
@@ -77,9 +117,11 @@ export interface MaterialMovement {
   invoice_number: string;
   id_collaborator: number;
   collaborator_name: string;
+  collaborators?: MaterialMovementCollaborator[];
   id_vehicle: number;
   vehicle_plate: string;
   photo: string | null;
+  photos?: MaterialMovementPhoto[];
   criado_em: string;
   items: MovementItemDetail[];
 }
@@ -176,6 +218,14 @@ export class MaterialsService {
 
   registerOut(formData: FormData): Observable<{ movement: unknown }> {
     return this.api.postFormData<{ movement: unknown }>('/materials/movements/out', formData);
+  }
+
+  parseInvoice(formData: FormData): Observable<InvoiceParseResult> {
+    return this.api.postFormData<InvoiceParseResult>('/materials/movements/parse-invoice', formData);
+  }
+
+  getMerchandisePhoto(filename: string): Observable<Blob> {
+    return this.api.getBlob(`/storage/merchandise/${encodeURIComponent(filename)}`);
   }
 
   getStock(): Observable<{ stock: StockRow[] }> {

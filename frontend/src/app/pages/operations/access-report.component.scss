@@ -358,10 +358,61 @@
 select.field {
   appearance: none;
   cursor: pointer;
+  accent-color: var(--ar-core, var(--brand));
+  display: flex;
+  align-items: center;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23B9A3E4' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 34px;
+
+  @supports (appearance: base-select) {
+    &,
+    &::picker(select) {
+      appearance: base-select;
+    }
+
+    background-image: none;
+    padding-right: 2rem;
+
+    &::picker(select) {
+      border: 1px solid var(--ar-line-strong, var(--app-border));
+      border-radius: var(--ar-radius-sm, var(--form-radius));
+      background: var(--ar-surface, var(--color-bg-surface));
+      padding: 0.25rem;
+      color: var(--ar-ink, var(--text-primary));
+    }
+
+    &::picker-icon {
+      color: var(--ar-lavanda-icon, var(--text-muted));
+      align-self: center;
+      margin-block: auto;
+    }
+
+    option {
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      color: var(--ar-ink, var(--text-primary));
+      background: transparent;
+    }
+
+    option:hover,
+    option:focus {
+      background-color: var(--ar-lavanda-bg, var(--brand-tonal-bg));
+      color: var(--ar-core, var(--brand));
+    }
+
+    option:checked {
+      background-color: var(--ar-core, var(--brand));
+      color: #fff;
+    }
+
+    option:checked:hover,
+    option:checked:focus {
+      background-color: var(--ar-purple-900, var(--brand-hover));
+      color: #fff;
+    }
+  }
 }
 
 .search-wrap {

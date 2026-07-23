@@ -12,6 +12,17 @@ function assertAdmin(req) {
   assertPermission(req.user, "merchandise_products", "view");
 }
 
+function assertProductCreateAccess(req) {
+  if (
+    hasPermission(req.user, "merchandise_products", "create") ||
+    hasPermission(req.user, "merchandise_entry", "create") ||
+    hasPermission(req.user, "merchandise_exit", "create")
+  ) {
+    return;
+  }
+  throw new AppError("Perfil sem permissão para cadastrar produtos.", 403);
+}
+
 function assertOperator(req) {
   if (
     hasPermission(req.user, "merchandise_entry", "create") ||
@@ -20,6 +31,18 @@ function assertOperator(req) {
     return;
   }
   throw new AppError("Perfil sem permissão para operações de mercadorias.", 403);
+}
+
+function assertMovementCatalogAccess(req) {
+  if (
+    hasPermission(req.user, "merchandise_entry", "view") ||
+    hasPermission(req.user, "merchandise_exit", "view") ||
+    hasPermission(req.user, "merchandise_entry", "create") ||
+    hasPermission(req.user, "merchandise_exit", "create")
+  ) {
+    return;
+  }
+  throw new AppError("Perfil sem permissão para consultar catálogos de mercadorias.", 403);
 }
 
 function mapLocation(row) {
@@ -107,11 +130,19 @@ async function listProducts(req) {
 }
 
 async function createProduct(req, data) {
-  assertAdmin(req);
+  assertProductCreateAccess(req);
   const manufacturer = data.manufacturer?.trim() || null;
+  const description = data.description.trim();
+  const [dup] = await db.execute(
+    `SELECT id_product FROM product WHERE LOWER(description) = LOWER(?) LIMIT 1`,
+    [description],
+  );
+  if (dup.length) {
+    throw new AppError("Já existe um produto com esta descrição.", 409);
+  }
   const [result] = await db.execute(
     `INSERT INTO product (description, unit_measure, manufacturer, status) VALUES (?, ?, ?, 1)`,
-    [data.description.trim(), data.unit_measure.trim(), manufacturer],
+    [description, data.unit_measure.trim(), manufacturer],
   );
   const [rows] = await db.execute(`SELECT * FROM product WHERE id_product = ?`, [result.insertId]);
   return mapProduct(rows[0]);
@@ -149,7 +180,7 @@ async function updateProduct(req, id, data) {
 }
 
 async function listLocationsForSelect(req) {
-  assertOperator(req);
+  assertMovementCatalogAccess(req);
   const [rows] = await db.execute(
     `SELECT id_storage_location, name, type, status FROM storage_location WHERE status = 1 ORDER BY name ASC`,
   );
@@ -157,7 +188,7 @@ async function listLocationsForSelect(req) {
 }
 
 async function listProductsForSelect(req) {
-  assertOperator(req);
+  assertMovementCatalogAccess(req);
   const [rows] = await db.execute(
     `SELECT id_product, description, unit_measure, manufacturer, status FROM product WHERE status = 1 ORDER BY description ASC`,
   );
@@ -165,7 +196,7 @@ async function listProductsForSelect(req) {
 }
 
 async function listCompaniesForSelect(req) {
-  assertOperator(req);
+  assertMovementCatalogAccess(req);
   const [rows] = await db.execute(
     `SELECT id_company, fancy_name, company_name FROM company WHERE status = 1
      ORDER BY COALESCE(fancy_name, company_name) ASC`,
@@ -179,7 +210,7 @@ async function listCompaniesForSelect(req) {
 }
 
 async function listVehiclesForSelect(req, idCompany) {
-  assertOperator(req);
+  assertMovementCatalogAccess(req);
   if (!idCompany) throw new AppError("Informe a empresa.", 400);
   await assertCompanyExists(idCompany);
   const [rows] = await db.execute(
@@ -253,13 +284,56 @@ async function getStockBalance(conn, idProduct, idStorageLocation) {
 }
 
 function saveMovementPhoto(file) {
-  if (!file) return null;
+  if (!file?.buffer?.length) return null;
   fs.mkdirSync(MERCHANDISE_STORAGE_DIR, { recursive: true });
   const ext = path.extname(file.originalname || ".jpg").toLowerCase() || ".jpg";
   const safeExt = [".jpg", ".jpeg", ".png", ".webp"].includes(ext) ? ext : ".jpg";
   const filename = `${crypto.randomUUID()}${safeExt}`;
   fs.writeFileSync(path.join(MERCHANDISE_STORAGE_DIR, filename), file.buffer);
-  return filename;
+  return {
+    filename,
+    original_name: String(file.originalname || "").slice(0, 255) || null,
+  };
+}
+
+function normalizeMovementFiles(fileOrFiles) {
+  if (!fileOrFiles) return [];
+  const list = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
+  return list.filter((f) => f?.buffer?.length);
+}
+
+function unlinkMovementPhotos(saved) {
+  for (const item of saved || []) {
+    const name = typeof item === "string" ? item : item?.filename;
+    if (!name) continue;
+    try {
+      fs.unlinkSync(path.join(MERCHANDISE_STORAGE_DIR, name));
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function loadMovementPhotos(idMovement) {
+  try {
+    const [rows] = await db.execute(
+      `SELECT id_material_movement_photo, filename, original_name, sort_order, criado_em
+       FROM material_movement_photo
+       WHERE id_material_movement = ?
+       ORDER BY sort_order ASC, id_material_movement_photo ASC`,
+      [idMovement],
+    );
+    return rows.map((r) => ({
+      id_material_movement_photo: r.id_material_movement_photo,
+      filename: r.filename,
+      original_name: r.original_name || null,
+      sort_order: Number(r.sort_order) || 0,
+      criado_em: r.criado_em,
+    }));
+  } catch {
+    // Tabela ainda não migrada: fallback pela coluna legado.
+    return [];
+  }
 }
 
 async function loadMovementItems(idMovement) {
@@ -285,8 +359,54 @@ async function loadMovementItems(idMovement) {
   }));
 }
 
+async function loadMovementCollaborators(idMovement) {
+  const [rows] = await db.execute(
+    `SELECT mmc.id_collaborator, mmc.role, col.name, col.document
+     FROM material_movement_collaborator mmc
+     INNER JOIN collaborator col ON col.id_collaborator = mmc.id_collaborator
+     WHERE mmc.id_material_movement = ?
+     ORDER BY CASE mmc.role WHEN 'MOTORISTA' THEN 0 ELSE 1 END,
+              mmc.id_material_movement_collaborator ASC`,
+    [idMovement],
+  );
+  return rows.map((r) => ({
+    id_collaborator: Number(r.id_collaborator),
+    role: r.role,
+    name: r.name,
+    document: r.document,
+  }));
+}
+
 async function mapMovementRow(row) {
   const items = await loadMovementItems(row.id_material_movement);
+  let collaborators = [];
+  try {
+    collaborators = await loadMovementCollaborators(row.id_material_movement);
+  } catch {
+    collaborators = [];
+  }
+  if (!collaborators.length && row.id_collaborator) {
+    collaborators = [
+      {
+        id_collaborator: Number(row.id_collaborator),
+        role: "MOTORISTA",
+        name: row.collaborator_name,
+        document: null,
+      },
+    ];
+  }
+  let photos = await loadMovementPhotos(row.id_material_movement);
+  if (!photos.length && row.photo) {
+    photos = [
+      {
+        id_material_movement_photo: null,
+        filename: row.photo,
+        original_name: null,
+        sort_order: 0,
+        criado_em: row.criado_em,
+      },
+    ];
+  }
   return {
     id_material_movement: row.id_material_movement,
     movement_type: row.movement_type,
@@ -295,18 +415,30 @@ async function mapMovementRow(row) {
     invoice_number: row.invoice_number,
     id_collaborator: row.id_collaborator,
     collaborator_name: row.collaborator_name,
+    collaborators,
     id_vehicle: row.id_vehicle,
     vehicle_plate: row.vehicle_plate,
-    photo: row.photo || null,
+    photo: photos[0]?.filename || row.photo || null,
+    photos,
     criado_em: row.criado_em,
     items,
   };
 }
 
-async function createMovement(req, movementType, payload, file) {
+async function createMovement(req, movementType, payload, fileOrFiles) {
   assertOperator(req);
   await assertCompanyExists(payload.id_company);
-  await assertCollaboratorExists(payload.id_collaborator);
+
+  const collaboratorIds = Array.isArray(payload.id_collaborators)
+    ? [...new Set(payload.id_collaborators.map(Number))]
+    : [Number(payload.id_collaborator)];
+  if (!collaboratorIds.length) {
+    throw new AppError("Informe ao menos um colaborador na relação (motorista).", 400);
+  }
+  for (const id of collaboratorIds) {
+    await assertCollaboratorExists(id);
+  }
+
   await assertVehicleForCompany(payload.id_vehicle, payload.id_company);
 
   for (const item of payload.items) {
@@ -314,7 +446,14 @@ async function createMovement(req, movementType, payload, file) {
     await assertActiveLocation(item.id_storage_location);
   }
 
-  let photoFilename = saveMovementPhoto(file);
+  const primaryCollaboratorId = collaboratorIds[0];
+  const incomingFiles = normalizeMovementFiles(fileOrFiles);
+  const savedPhotos = [];
+  for (const file of incomingFiles) {
+    const saved = saveMovementPhoto(file);
+    if (saved) savedPhotos.push(saved);
+  }
+  const photoFilename = savedPhotos[0]?.filename || null;
   const idUsuario = req.user?.id ?? req.user?.id_usuario ?? null;
   const conn = await db.getConnection();
 
@@ -348,12 +487,21 @@ async function createMovement(req, movementType, payload, file) {
         movementType,
         payload.id_company,
         payload.invoice_number.trim(),
-        payload.id_collaborator,
+        primaryCollaboratorId,
         payload.id_vehicle,
         photoFilename,
         idUsuario,
       ],
     );
+
+    for (let i = 0; i < collaboratorIds.length; i += 1) {
+      await conn.execute(
+        `INSERT INTO material_movement_collaborator
+         (id_material_movement, id_collaborator, role)
+         VALUES (?, ?, ?)`,
+        [result.insertId, collaboratorIds[i], i === 0 ? "MOTORISTA" : "AJUDANTE"],
+      );
+    }
 
     for (const item of payload.items) {
       await conn.execute(
@@ -362,6 +510,24 @@ async function createMovement(req, movementType, payload, file) {
          VALUES (?, ?, ?, ?)`,
         [result.insertId, item.id_product, item.id_storage_location, item.quantity],
       );
+    }
+
+    for (let i = 0; i < savedPhotos.length; i += 1) {
+      const p = savedPhotos[i];
+      try {
+        await conn.execute(
+          `INSERT INTO material_movement_photo
+           (id_material_movement, filename, original_name, sort_order)
+           VALUES (?, ?, ?, ?)`,
+          [result.insertId, p.filename, p.original_name, i],
+        );
+      } catch (err) {
+        // Se a migração ainda não rodou, mantém ao menos a coluna photo.
+        const missingTable =
+          err?.code === "ER_NO_SUCH_TABLE" || /material_movement_photo/i.test(String(err?.message || ""));
+        if (missingTable) break;
+        throw err;
+      }
     }
 
     await conn.commit();
@@ -379,13 +545,7 @@ async function createMovement(req, movementType, payload, file) {
     return mapMovementRow(rows[0]);
   } catch (err) {
     await conn.rollback();
-    if (photoFilename) {
-      try {
-        fs.unlinkSync(path.join(MERCHANDISE_STORAGE_DIR, photoFilename));
-      } catch {
-        /* ignore */
-      }
-    }
+    unlinkMovementPhotos(savedPhotos);
     throw err;
   } finally {
     conn.release();

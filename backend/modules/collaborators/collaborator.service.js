@@ -44,7 +44,9 @@ function assertCanWriteCollaborator(req) {
 function assertCanSearchCollaborator(req) {
   if (
     hasPermission(req.user, "collaborators", "view") ||
-    hasPermission(req.user, "gate", "view")
+    hasPermission(req.user, "gate", "view") ||
+    hasPermission(req.user, "merchandise_entry", "view") ||
+    hasPermission(req.user, "merchandise_exit", "view")
   ) {
     return;
   }
@@ -1079,8 +1081,12 @@ async function countCollaboratorUsage(id) {
     [id, id],
   );
   const [movementRows] = await db.execute(
-    "SELECT COUNT(*) AS total FROM material_movement WHERE id_collaborator = ?",
-    [id],
+    `SELECT COUNT(*) AS total FROM (
+       SELECT id_material_movement FROM material_movement WHERE id_collaborator = ?
+       UNION
+       SELECT id_material_movement FROM material_movement_collaborator WHERE id_collaborator = ?
+     ) mm_usage`,
+    [id, id],
   );
   const [documentChangeRows] = await db.execute(
     "SELECT COUNT(*) AS total FROM document_change_request WHERE id_collaborator = ?",

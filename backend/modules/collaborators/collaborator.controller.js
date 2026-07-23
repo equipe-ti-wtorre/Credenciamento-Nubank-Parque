@@ -110,6 +110,18 @@ exports.list = async (req, res, next) => {
 
 exports.search = async (req, res, next) => {
   try {
+    // Typeahead: termo parcial (nome ou documento) retorna lista.
+    if (req.query.q !== undefined) {
+      const q = String(req.query.q || "").trim();
+      if (q.length < 2) {
+        res.json({ results: [] });
+        return;
+      }
+      const result = await collaboratorService.searchCollaboratorsByTerm(req, { q });
+      res.json(result);
+      return;
+    }
+
     const validated = await validateSearchQuery(req.query);
     if (validated.error) throw new AppError(validated.error, 400);
 
