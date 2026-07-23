@@ -45,6 +45,12 @@ router.patch("/:id/period", ...canEdit, eventController.updatePeriod);
 router.patch("/:id/responsavel", ...canEdit, eventController.updateResponsavel);
 router.patch("/:id/status", ...canToggleActive, eventController.patchStatus);
 router.patch("/:id/preferences", ...canViewOrApprove, eventController.updatePreferences);
+router.post("/:id/submit-approval", ...canEdit, eventController.submitApproval);
+router.post(
+  "/:id/companies/:idCompany/notify-complete",
+  ...canEdit,
+  eventController.notifyCompanyComplete,
+);
 router.post(
   "/days/:id_event_day/companies",
   ...canEdit,
@@ -59,6 +65,11 @@ router.put(
   "/:id/companies/:idCompany/phases",
   ...canEdit,
   eventController.syncCompanyPhases,
+);
+router.delete(
+  "/:id/companies/:idCompany",
+  ...canEdit,
+  eventController.removeCompanyFromEvent,
 );
 router.post(
   "/:id/companies/:idCompany/credentials/bulk/preview",

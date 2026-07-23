@@ -651,7 +651,7 @@
     </div>
 
     <!-- Calendário -->
-    <ng-container *ngIf="gateMode() === 'calendar'">
+    <div class="cal-view" *ngIf="gateMode() === 'calendar'">
       <div class="cal-sub">
         <div class="month-nav">
           <button type="button" class="nav-btn" (click)="prevCalendarMonth()" aria-label="Mês anterior">
@@ -696,7 +696,7 @@
                 [ngClass]="chipClass(item.type_key)"
                 [class.live]="isLiveToday(item)"
                 (click)="openCalendarItem(item); $event.stopPropagation()"
-                [title]="item.name"
+                [title]="item.type_label + ' · ' + item.name"
               >
                 <span class="cdot"></span>
                 <span class="cname">{{ item.type_label }} · {{ item.name }}</span>
@@ -719,32 +719,32 @@
             *ngFor="let item of upcomingItems()"
             type="button"
             class="up-card"
+            [style.--up-rail]="railColor(item.type_key)"
             (click)="openCalendarItem(item)"
           >
-            <span class="rail" [style.background]="railColor(item.type_key)"></span>
-            <div class="up-date">
-              <div class="up-datebox">
-                <span class="d">{{ upcomingDateParts(item).d }}</span>
-                <span class="m">{{ upcomingDateParts(item).m }}</span>
-              </div>
-              <div>
+            <div class="up-datebox" aria-hidden="true">
+              <span class="d">{{ upcomingDateParts(item).d }}</span>
+              <span class="m">{{ upcomingDateParts(item).m }}</span>
+            </div>
+            <div class="up-body">
+              <div class="up-top">
                 <div class="up-when">{{ formatUpcomingWhen(item) }}</div>
                 <span class="pill" [class.live]="isLiveToday(item)" [class.soon]="!isLiveToday(item)">
                   <span *ngIf="isLiveToday(item)" class="pdot"></span>
                   {{ isLiveToday(item) ? 'Ao vivo hoje' : 'Em breve' }}
                 </span>
               </div>
-            </div>
-            <div class="up-name">{{ item.name }}</div>
-            <div class="up-meta">
-              <span>{{ item.type_label }}</span>
-              <span *ngIf="item.company_name">{{ item.company_name }}</span>
-              <span *ngIf="item.status_label">{{ item.status_label }}</span>
+              <div class="up-name">{{ item.name }}</div>
+              <div class="up-meta">
+                <span>{{ item.type_label }}</span>
+                <span *ngIf="item.company_name">{{ item.company_name }}</span>
+                <span *ngIf="item.status_label">{{ item.status_label }}</span>
+              </div>
             </div>
           </button>
         </div>
       </div>
-    </ng-container>
+    </div>
   </div>
 
   <div
@@ -802,30 +802,30 @@
         *ngFor="let item of dayListItems()"
         type="button"
         class="up-card day-list-card"
+        [style.--up-rail]="railColor(item.type_key)"
         (click)="openCalendarItem(item)"
       >
-        <span class="rail" [style.background]="railColor(item.type_key)"></span>
-        <div class="up-date">
-          <div class="up-datebox">
-            <span class="d">{{ upcomingDateParts(item).d }}</span>
-            <span class="m">{{ upcomingDateParts(item).m }}</span>
-          </div>
-          <div>
+        <div class="up-datebox" aria-hidden="true">
+          <span class="d">{{ upcomingDateParts(item).d }}</span>
+          <span class="m">{{ upcomingDateParts(item).m }}</span>
+        </div>
+        <div class="up-body">
+          <div class="up-top">
             <div class="up-when">{{ item.type_label }}</div>
             <span class="pill" [class.live]="isLiveToday(item)" [class.soon]="!isLiveToday(item)">
               <span *ngIf="isLiveToday(item)" class="pdot"></span>
               {{ isLiveToday(item) ? 'Ao vivo hoje' : item.status_label || 'Em breve' }}
             </span>
           </div>
-        </div>
-        <div class="up-name">{{ item.name }}</div>
-        <div class="up-meta">
-          <span *ngIf="item.company_name">{{ item.company_name }}</span>
-          <span *ngIf="item.department">{{ item.department }}</span>
-          <span *ngIf="item.kind === 'event'">{{ item.collaborators_count || 0 }} colaborador(es)</span>
-          <span *ngIf="item.kind === 'service'">
-            {{ item.collaborators_count || 0 }} colab. · {{ item.vehicles_count || 0 }} veíc.
-          </span>
+          <div class="up-name">{{ item.name }}</div>
+          <div class="up-meta">
+            <span *ngIf="item.company_name">{{ item.company_name }}</span>
+            <span *ngIf="item.department">{{ item.department }}</span>
+            <span *ngIf="item.kind === 'event'">{{ item.collaborators_count || 0 }} colaborador(es)</span>
+            <span *ngIf="item.kind === 'service'">
+              {{ item.collaborators_count || 0 }} colab. · {{ item.vehicles_count || 0 }} veíc.
+            </span>
+          </div>
         </div>
       </button>
     </div>

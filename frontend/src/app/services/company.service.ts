@@ -23,6 +23,7 @@ export interface CompanyItem {
   cnpj: string;
   company_name: string;
   fancy_name: string | null;
+  logo?: string | null;
   status: boolean;
   criado_em: string;
   atualizado_em: string;
@@ -94,6 +95,19 @@ export class CompanyService {
     data: { id_company_contact?: number; email?: string; name?: string },
   ): Observable<{ invite: { id_usuario: number; email: string; profile_codigo: string } }> {
     return this.api.post(`/companies/${id}/invite-access`, data);
+  }
+
+  uploadLogo(id: number, file: File): Observable<{ company: CompanyItem; logo: string }> {
+    const form = new FormData();
+    form.append('logo', file, file.name);
+    return this.api.postFormData<{ company: CompanyItem; logo: string }>(
+      `/companies/${id}/logo`,
+      form,
+    );
+  }
+
+  getLogoBlob(filename: string): Observable<Blob> {
+    return this.api.getBlob(`/storage/company-logos/${filename}`);
   }
 
   private buildParams(page: number, limit: number, filters: CompanyListFilters): HttpParams {

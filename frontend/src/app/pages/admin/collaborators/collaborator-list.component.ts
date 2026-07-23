@@ -483,36 +483,44 @@ interface CollaboratorFormState {
                 </span>
               </div>
               <div class="collab-photo__main">
+                <input
+                  #pictureInput
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                  class="hidden"
+                  (change)="onPictureSelected($event)"
+                />
                 <div
-                  class="collab-dropzone"
-                  [class.collab-dropzone--dragover]="pictureDragOver()"
+                  class="upload-dropzone upload-dropzone--banner"
+                  [class.upload-dropzone--dragover]="pictureDragOver()"
+                  [class.upload-dropzone--selected]="!!picturePreviewUrl()"
+                  [attr.aria-disabled]="pictureValidating() || null"
                   tabindex="0"
                   role="button"
-                  (click)="pictureInput.click()"
-                  (keydown.enter)="pictureInput.click()"
-                  (keydown.space)="$event.preventDefault(); pictureInput.click()"
+                  (click)="!pictureValidating() && pictureInput.click()"
+                  (keydown.enter)="!pictureValidating() && pictureInput.click()"
+                  (keydown.space)="$event.preventDefault(); !pictureValidating() && pictureInput.click()"
                   (dragover)="onPictureDragOver($event)"
                   (dragleave)="onPictureDragLeave($event)"
                   (drop)="onPictureDrop($event)"
                 >
-                  <input
-                    #pictureInput
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                    class="hidden"
-                    (change)="onPictureSelected($event)"
-                  />
-                  <span class="collab-dropzone__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 16V4" />
-                      <path d="M6 10l6-6 6 6" />
-                      <path d="M4 20h16" />
-                    </svg>
-                  </span>
-                  <span class="collab-dropzone__title">Escolher arquivo ou arraste aqui</span>
-                  <span class="collab-dropzone__hint">
-                    JPEG, PNG ou WebP · até 12 MB · enquadre o rosto (envio até 2 MB)
-                  </span>
+                  <div class="upload-dropzone__main">
+                    <span class="upload-dropzone__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 16V4M6 10l6-6 6 6" />
+                        <path d="M4 20h16" />
+                      </svg>
+                    </span>
+                    <span class="upload-dropzone__text">
+                      <span class="upload-dropzone__title">
+                        Arraste a foto aqui ou
+                        <span class="upload-dropzone__link">clique para procurar</span>
+                      </span>
+                      <span class="upload-dropzone__hint">
+                        JPEG, PNG ou WebP · até 12 MB · enquadre o rosto (envio até 2 MB)
+                      </span>
+                    </span>
+                  </div>
                 </div>
                 <div class="collab-photo__actions">
                   <button

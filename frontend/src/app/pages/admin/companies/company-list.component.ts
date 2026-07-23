@@ -115,6 +115,7 @@ interface CompanyFormState {
         <table class="w-full text-sm">
           <thead class="table-head sticky top-0 bg-slate-50 z-10">
             <tr>
+              <th class="px-4 py-3 text-left w-14">Logo</th>
               <th class="px-4 py-3 text-left">Razão social</th>
               <th class="px-4 py-3 text-left">Nome fantasia</th>
               <th class="px-4 py-3 text-left">CNPJ</th>
@@ -126,6 +127,21 @@ interface CompanyFormState {
           <tbody>
             <ng-container *ngIf="!loading(); else loadingRow">
               <tr *ngFor="let c of companies()" class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3">
+                  <img
+                    *ngIf="logoUrl(c) as url"
+                    [src]="url"
+                    [alt]="'Logo de ' + c.company_name"
+                    class="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 shrink-0"
+                  />
+                  <div
+                    *ngIf="!logoUrl(c)"
+                    class="w-10 h-10 rounded-lg bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center shrink-0 border border-slate-200"
+                    aria-hidden="true"
+                  >
+                    {{ initials(c.fancy_name || c.company_name) }}
+                  </div>
+                </td>
                 <td class="px-4 py-3 font-medium text-slate-800">{{ c.company_name }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ c.fancy_name || '—' }}</td>
                 <td class="px-4 py-3 font-mono text-slate-600">{{ formatCnpj(c.cnpj) }}</td>
@@ -168,12 +184,12 @@ interface CompanyFormState {
                 </td>
               </tr>
               <tr *ngIf="companies().length === 0">
-                <td colspan="6" class="px-4 py-8 text-center text-slate-500">Nenhuma empresa encontrada.</td>
+                <td colspan="7" class="px-4 py-8 text-center text-slate-500">Nenhuma empresa encontrada.</td>
               </tr>
             </ng-container>
             <ng-template #loadingRow>
               <tr>
-                <td colspan="6" class="px-4 py-8 text-center text-slate-500">Carregando empresas...</td>
+                <td colspan="7" class="px-4 py-8 text-center text-slate-500">Carregando empresas...</td>
               </tr>
             </ng-template>
           </tbody>
@@ -216,6 +232,55 @@ interface CompanyFormState {
       (close)="fecharModal()"
     >
       <form id="company-form" class="space-y-4" (ngSubmit)="salvar()">
+          <div>
+            <label class="form-label">Logo</label>
+            <input
+              #logoInput
+              type="file"
+              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+              class="hidden"
+              (change)="onLogoSelected($event)"
+            />
+            <div
+              class="upload-dropzone upload-dropzone--banner"
+              [class.upload-dropzone--dragover]="logoDragOver()"
+              [class.upload-dropzone--selected]="!!logoPreviewUrl()"
+              tabindex="0"
+              role="button"
+              (click)="logoInput.click()"
+              (keydown.enter)="logoInput.click()"
+              (keydown.space)="$event.preventDefault(); logoInput.click()"
+              (dragover)="onLogoDragOver($event)"
+              (dragleave)="onLogoDragLeave($event)"
+              (drop)="onLogoDrop($event)"
+            >
+              <div class="upload-dropzone__main">
+                <span *ngIf="!logoPreviewUrl()" class="upload-dropzone__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 16V4M6 10l6-6 6 6" />
+                    <path d="M4 20h16" />
+                  </svg>
+                </span>
+                <span *ngIf="logoPreviewUrl()" class="upload-dropzone__preview" aria-hidden="true">
+                  <img [src]="logoPreviewUrl()!" alt="" />
+                </span>
+                <span class="upload-dropzone__text">
+                  <span class="upload-dropzone__title">
+                    Arraste o logo aqui ou
+                    <span class="upload-dropzone__link">clique para procurar</span>
+                  </span>
+                  <span class="upload-dropzone__hint">
+                    {{
+                      pendingLogoFile()
+                        ? pendingLogoFile()!.name
+                        : 'JPEG, PNG ou WebP · máx. 2 MB'
+                    }}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="form-label" for="company-type">Tipo</label>
@@ -343,6 +408,10 @@ export class CompanyListComponent implements OnDestroy {
   inviting = signal(false);
   showModal = signal(false);
   editingId = signal<number | null>(null);
+  logoPreviewUrl = signal<string | null>(null);
+  pendingLogoFile = signal<File | null>(null);
+  logoDragOver = signal(false);
+  thumbnailUrls = signal<Record<number, string>>({});
 
   pagination = signal({
     page: 1,
@@ -361,6 +430,10 @@ export class CompanyListComponent implements OnDestroy {
 
   private readonly filterDebounceMs = 500;
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private thumbnailLoadId = 0;
+  private readonly logoAcceptMime = new Set(['image/jpeg', 'image/png', 'image/webp']);
+  private readonly logoAcceptExt = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+  private readonly logoMaxBytes = 2 * 1024 * 1024;
 
   form: CompanyFormState = this.emptyForm();
 
@@ -383,6 +456,19 @@ export class CompanyListComponent implements OnDestroy {
 
   ngOnDestroy() {
     this.clearFilterDebounce();
+    this.revokeLogoPreview();
+    this.revokeThumbnails();
+  }
+
+  logoUrl(c: CompanyItem): string | null {
+    return this.thumbnailUrls()[c.id_company] ?? null;
+  }
+
+  initials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
   private emptyForm(): CompanyFormState {
@@ -415,6 +501,7 @@ export class CompanyListComponent implements OnDestroy {
         next: (res) => {
           this.companies.set(res.companies);
           this.pagination.set(res.pagination);
+          this.loadThumbnails(res.companies);
           this.loading.set(false);
           this.cdr.markForCheck();
         },
@@ -465,6 +552,7 @@ export class CompanyListComponent implements OnDestroy {
   novaEmpresa() {
     this.editingId.set(null);
     this.form = this.emptyForm();
+    this.resetLogoState();
     if (this.types().length > 0) {
       this.form.id_company_type = this.types()[0].id_company_type;
     }
@@ -473,6 +561,7 @@ export class CompanyListComponent implements OnDestroy {
 
   editar(c: CompanyItem) {
     this.editingId.set(c.id_company);
+    this.resetLogoState();
     this.loading.set(true);
     this.companyService.get(c.id_company).subscribe({
       next: (res) => {
@@ -490,6 +579,9 @@ export class CompanyListComponent implements OnDestroy {
             email: ct.email || '',
           })),
         };
+        if (company.logo) {
+          this.loadLogoPreview(company.logo);
+        }
         this.loading.set(false);
         this.showModal.set(true);
         this.cdr.markForCheck();
@@ -505,6 +597,51 @@ export class CompanyListComponent implements OnDestroy {
     this.showModal.set(false);
     this.editingId.set(null);
     this.form = this.emptyForm();
+    this.resetLogoState();
+  }
+
+  onLogoSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file) return;
+    this.applyLogoFile(file);
+  }
+
+  onLogoDragOver(event: DragEvent) {
+    event.preventDefault();
+    this.logoDragOver.set(true);
+  }
+
+  onLogoDragLeave(event: DragEvent) {
+    event.preventDefault();
+    this.logoDragOver.set(false);
+  }
+
+  onLogoDrop(event: DragEvent) {
+    event.preventDefault();
+    this.logoDragOver.set(false);
+    const file = event.dataTransfer?.files?.[0] ?? null;
+    if (!file) return;
+    this.applyLogoFile(file);
+  }
+
+  private applyLogoFile(file: File) {
+    const ext = `.${(file.name.split('.').pop() || '').toLowerCase()}`;
+    const mimeOk = this.logoAcceptMime.has(file.type);
+    const extOk = this.logoAcceptExt.has(ext);
+    if (!mimeOk && !extOk) {
+      this.notification.error('Imagem inválida. Use JPEG, PNG ou WebP.');
+      return;
+    }
+    if (file.size > this.logoMaxBytes) {
+      this.notification.error('Logo excede o limite de 2 MB.');
+      return;
+    }
+
+    this.pendingLogoFile.set(file);
+    this.revokeLogoPreview();
+    this.logoPreviewUrl.set(URL.createObjectURL(file));
   }
 
   adicionarContato() {
@@ -560,7 +697,6 @@ export class CompanyListComponent implements OnDestroy {
 
     req.subscribe({
       next: (res) => {
-        this.saving.set(false);
         const company = res.company;
         this.editingId.set(company.id_company);
         this.form = {
@@ -576,15 +712,92 @@ export class CompanyListComponent implements OnDestroy {
             email: ct.email || '',
           })),
         };
-        this.notification.success(id ? 'Empresa atualizada.' : 'Empresa criada. Você já pode enviar o acesso.');
-        this.carregar(id ? this.pagination().page : 1);
-        this.cdr.markForCheck();
+
+        this.uploadLogoIfNeeded(company.id_company, () => {
+          this.saving.set(false);
+          this.notification.success(id ? 'Empresa atualizada.' : 'Empresa criada. Você já pode enviar o acesso.');
+          this.carregar(id ? this.pagination().page : 1);
+          this.cdr.markForCheck();
+        });
       },
       error: (err) => {
         this.saving.set(false);
         this.notification.error(this.extractError(err) || 'Falha ao salvar empresa.');
       },
     });
+  }
+
+  private uploadLogoIfNeeded(id: number, onDone: () => void) {
+    const file = this.pendingLogoFile();
+    if (!file) {
+      onDone();
+      return;
+    }
+    this.companyService.uploadLogo(id, file).subscribe({
+      next: (res) => {
+        this.pendingLogoFile.set(null);
+        if (res.company.logo) {
+          this.loadLogoPreview(res.company.logo);
+        }
+        onDone();
+      },
+      error: (err) => {
+        this.notification.error(
+          this.extractError(err) || 'Empresa salva, mas falhou o envio do logo.',
+        );
+        onDone();
+      },
+    });
+  }
+
+  private loadLogoPreview(filename: string) {
+    this.companyService.getLogoBlob(filename).subscribe({
+      next: (blob) => {
+        this.revokeLogoPreview();
+        this.logoPreviewUrl.set(URL.createObjectURL(blob));
+        this.cdr.markForCheck();
+      },
+      error: () => {},
+    });
+  }
+
+  private resetLogoState() {
+    this.pendingLogoFile.set(null);
+    this.logoDragOver.set(false);
+    this.revokeLogoPreview();
+  }
+
+  private revokeLogoPreview() {
+    const url = this.logoPreviewUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.logoPreviewUrl.set(null);
+  }
+
+  private loadThumbnails(list: CompanyItem[]) {
+    this.revokeThumbnails();
+    const loadId = ++this.thumbnailLoadId;
+    for (const c of list) {
+      if (!c.logo) continue;
+      this.companyService.getLogoBlob(c.logo).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          if (loadId !== this.thumbnailLoadId) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          this.thumbnailUrls.update((map) => ({ ...map, [c.id_company]: url }));
+          this.cdr.markForCheck();
+        },
+        error: () => {},
+      });
+    }
+  }
+
+  private revokeThumbnails() {
+    for (const url of Object.values(this.thumbnailUrls())) {
+      URL.revokeObjectURL(url);
+    }
+    this.thumbnailUrls.set({});
   }
 
   enviarAcesso() {

@@ -40,7 +40,8 @@ export class AuthInterceptor implements HttpInterceptor {
       req.url.includes('/tenants/msal-config') ||
       req.url.includes('/auth/login') ||
       req.url.includes('/auth/refresh') ||
-      req.url.includes('/auth/invite');
+      req.url.includes('/auth/invite') ||
+      (req.method === 'GET' && req.url.includes('/system-settings/appearance'));
 
     if (isPublic) {
       return next.handle(req);

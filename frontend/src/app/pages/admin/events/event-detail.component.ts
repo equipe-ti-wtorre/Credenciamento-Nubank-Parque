@@ -32,6 +32,10 @@ import { NotificationService } from '../../../core/services/notification.service
 import { AuthService } from '../../../core/services/auth.service';
 import { ModalComponent } from '../../../shared/modal/modal.component';
 import {
+  PeriodoRangePickerComponent,
+  PeriodoRangeValue,
+} from '../../../shared/periodo-range-picker';
+import {
   BulkImportApiAdapter,
   ServiceAccessBulkImportWizardComponent,
 } from '../../patrimonial/service-access-bulk-import-wizard.component';
@@ -68,7 +72,14 @@ function maskDocument(document: string): string {
 @Component({
   selector: 'app-event-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ModalComponent, ServiceAccessBulkImportWizardComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterLink,
+    ModalComponent,
+    PeriodoRangePickerComponent,
+    ServiceAccessBulkImportWizardComponent,
+  ],
   styleUrl: './event-detail.component.scss',
   template: `
     <div class="ev-page">
@@ -79,31 +90,99 @@ function maskDocument(document: string): string {
           <div class="evhead__top">
             <h1 class="evhead__name">{{ event()!.name }}</h1>
             <div class="evhead__actions">
-              <label class="chk" title="Receber alerta no Teams quando um colaborador entrar na portaria neste evento">
-                <input
-                  type="checkbox"
-                  [checked]="!!event()!.notificar_portaria"
-                  [disabled]="prefSaving() || !event()!.ativo"
-                  (change)="toggleNotifyPortaria($event)"
-                />
-                Alerta portaria
-              </label>
-              <button *ngIf="canChangeResponsavel()" type="button" class="btn btn--ghost" [disabled]="!event()!.ativo" (click)="abrirModalResponsavel()">
-                Trocar responsável
+              <button
+                type="button"
+                class="pref-toggle"
+                [class.is-on]="!!event()!.notificar_portaria"
+                title="Receber alerta no Teams quando um colaborador entrar na portaria neste evento"
+                [attr.aria-label]="
+                  event()!.notificar_portaria
+                    ? 'Desativar alerta de portaria'
+                    : 'Ativar alerta de portaria'
+                "
+                [attr.aria-pressed]="!!event()!.notificar_portaria"
+                [disabled]="prefSaving() || !event()!.ativo"
+                (click)="toggleNotifyPortaria()"
+              >
+                <svg
+                  class="pref-toggle__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.7 21a2 2 0 01-3.4 0" />
+                </svg>
+                <span class="pref-toggle__label">Alerta portaria</span>
+                <span class="switch" [class.is-on]="!!event()!.notificar_portaria"></span>
               </button>
-              <button *ngIf="canAdjustPeriod()" type="button" class="btn btn--ghost" [disabled]="!event()!.ativo" (click)="abrirModalPeriodo()">
-                Ajustar período
+
+              <button
+                *ngIf="canEditEvent()"
+                type="button"
+                class="btn btn--ghost"
+                [disabled]="!event()!.ativo"
+                (click)="abrirModalEditar()"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+                Editar
               </button>
+
+              <button
+                *ngIf="canSubmitApproval()"
+                type="button"
+                class="btn btn--primary"
+                [disabled]="!event()!.ativo || submitApprovalSaving()"
+                (click)="notificarSetor()"
+              >
+                {{ submitApprovalSaving() ? 'Notificando...' : 'Notificar' }}
+              </button>
+
+              <button type="button" class="btn btn--ghost" (click)="carregar()">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+                Atualizar
+              </button>
+
               <button
                 *ngIf="canToggleActive()"
                 type="button"
-                class="btn btn--ghost"
-                [class.btn--danger-ghost]="event()!.ativo"
+                class="status-toggle"
+                [class.is-on]="event()!.ativo"
+                role="switch"
+                [attr.aria-checked]="event()!.ativo"
+                [attr.aria-label]="event()!.ativo ? 'Desativar evento' : 'Ativar evento'"
+                [disabled]="statusToggling()"
                 (click)="toggleEventActive()"
               >
-                {{ event()!.ativo ? 'Desativar' : 'Ativar' }}
+                <span class="switch" [class.is-on]="event()!.ativo"></span>
+                <span class="status-toggle__label">{{ event()!.ativo ? 'Ativo' : 'Inativo' }}</span>
               </button>
-              <button type="button" class="btn btn--ghost" (click)="carregar()">Atualizar</button>
             </div>
           </div>
 
@@ -122,7 +201,6 @@ function maskDocument(document: string): string {
               </ng-container>
             </div>
             <div class="evhead__badges">
-              <span *ngIf="event()!.ativo === false" class="badge badge--err">Inativo</span>
               <span
                 *ngIf="event()!.access_status_description"
                 class="badge"
@@ -216,34 +294,33 @@ function maskDocument(document: string): string {
         </div>
 
         <ng-container *ngIf="event()!.days.length > 0">
-          <div class="section__head">
-            <h2 class="section__title">
-              Empresas parceiras
-              <span class="count-pill">{{ aggregatedCompanies().length }}</span>
-            </h2>
-            <div class="flex gap-2 flex-wrap">
-              <button
-                type="button"
-                class="btn btn--primary btn--sm"
-                [disabled]="aggregatedCompanies().length === 0 || !event()!.ativo"
-                (click)="abrirDrawer()"
-              >
-                Adicionar colaboradores
-              </button>
-              <button
-                *ngIf="canManageCompanies()"
-                type="button"
-                class="btn btn--ghost btn--sm"
-                [disabled]="!event()!.ativo"
-                (click)="abrirVincularModal()"
-              >
-                Vincular empresa
-              </button>
-            </div>
-          </div>
-
           <div class="tablecard">
             <div class="tablecard__head">
+              <div class="tablecard__title-row">
+                <h2 class="section__title">
+                  Empresas parceiras
+                  <span class="count-pill">{{ aggregatedCompanies().length }}</span>
+                </h2>
+                <div class="flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    class="btn btn--primary btn--sm"
+                    [disabled]="aggregatedCompanies().length === 0 || !event()!.ativo"
+                    (click)="abrirDrawer()"
+                  >
+                    Adicionar colaboradores
+                  </button>
+                  <button
+                    *ngIf="canManageCompanies()"
+                    type="button"
+                    class="btn btn--ghost btn--sm"
+                    [disabled]="!event()!.ativo"
+                    (click)="abrirVincularModal()"
+                  >
+                    Vincular empresa
+                  </button>
+                </div>
+              </div>
               <div class="tabs">
                 <button
                   type="button"
@@ -326,8 +403,46 @@ function maskDocument(document: string): string {
                         >
                           ✎
                         </button>
+                        <button
+                          *ngIf="canEditCompanyPhases(row)"
+                          type="button"
+                          class="iconbtn iconbtn--danger"
+                          title="Remover empresa parceira"
+                          (click)="removerEmpresaParceira(row)"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4h8v2" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                          </svg>
+                        </button>
                         <button type="button" class="btn btn--ghost btn--sm" (click)="abrirDrawer(row.id_company)">
                           Colaboradores
+                        </button>
+                        <button
+                          *ngIf="canNotifyCompleteForCompany(row)"
+                          type="button"
+                          class="btn btn--ghost btn--sm"
+                          [disabled]="notifyCompleteSaving()"
+                          (click)="notificarTermino(row)"
+                        >
+                          {{
+                            notifyCompleteSaving() && notifyCompleteCompanyId() === row.id_company
+                              ? 'Enviando...'
+                              : event()!.notified_complete_at
+                                ? 'Renotificar término'
+                                : 'Notificar término'
+                          }}
                         </button>
                         <button
                           *ngIf="canRequestCredentialForCompany(row)"
@@ -426,56 +541,15 @@ function maskDocument(document: string): string {
         </div>
       </app-modal>
 
-      <!-- Modal período -->
+      <!-- Modal editar (período + responsável) -->
       <app-modal
-        [open]="showPeriodModal()"
-        title="Ajustar período"
-        subtitle="Ao alterar as datas de um evento aprovado, a solicitação volta para o fluxo de aprovação."
+        [open]="showEditModal()"
+        title="Editar evento"
         size="sm"
-        (close)="fecharModalPeriodo()"
+        (close)="fecharModalEditar()"
       >
-        <form id="event-period-form" (ngSubmit)="salvarPeriodo()" class="space-y-4">
-          <div class="field">
-            <label class="label" for="event-period-start">Data início</label>
-            <input
-              id="event-period-start"
-              type="date"
-              class="input"
-              [(ngModel)]="periodForm.start"
-              name="eventPeriodStart"
-              required
-            />
-          </div>
-          <div class="field">
-            <label class="label" for="event-period-end">Data fim</label>
-            <input
-              id="event-period-end"
-              type="date"
-              class="input"
-              [(ngModel)]="periodForm.end"
-              name="eventPeriodEnd"
-              required
-            />
-          </div>
-        </form>
-        <div modal-footer class="modal-footer">
-          <button type="button" class="btn-action-secondary" (click)="fecharModalPeriodo()">Cancelar</button>
-          <button type="submit" form="event-period-form" class="btn-action-primary" [disabled]="periodSaving()">
-            {{ periodSaving() ? 'Salvando...' : 'Salvar período' }}
-          </button>
-        </div>
-      </app-modal>
-
-      <!-- Modal responsável -->
-      <app-modal
-        [open]="showResponsavelModal()"
-        title="Trocar empresa responsável"
-        subtitle="A nova empresa deve ser do tipo Produtora. Os vínculos dos dias serão atualizados."
-        size="sm"
-        (close)="fecharModalResponsavel()"
-      >
-        <form id="event-responsavel-form" (ngSubmit)="salvarResponsavel()" class="space-y-4">
-          <div class="field">
+        <form id="event-edit-form" class="event-edit-form" (ngSubmit)="salvarEdicao()">
+          <div class="field" *ngIf="canChangeResponsavel()">
             <label class="label" for="event-responsavel">Empresa responsável</label>
             <select
               id="event-responsavel"
@@ -490,11 +564,21 @@ function maskDocument(document: string): string {
               </option>
             </select>
           </div>
+          <app-periodo-range-picker
+            *ngIf="canAdjustPeriod()"
+            [(ngModel)]="editPeriodRange"
+            name="editPeriodRange"
+            label="Período do evento"
+            inputId="event-edit-range"
+            [inline]="true"
+            [controlInvalid]="editPeriodTouched() && !editPeriodRange?.inicio"
+            [controlTouched]="editPeriodTouched()"
+          />
         </form>
         <div modal-footer class="modal-footer">
-          <button type="button" class="btn-action-secondary" (click)="fecharModalResponsavel()">Cancelar</button>
-          <button type="submit" form="event-responsavel-form" class="btn-action-primary" [disabled]="responsavelSaving()">
-            {{ responsavelSaving() ? 'Salvando...' : 'Salvar responsável' }}
+          <button type="button" class="btn-action-secondary" (click)="fecharModalEditar()">Cancelar</button>
+          <button type="submit" form="event-edit-form" class="btn-action-primary" [disabled]="editSaving()">
+            {{ editSaving() ? 'Salvando...' : 'Salvar alterações' }}
           </button>
         </div>
       </app-modal>
@@ -866,11 +950,15 @@ export class EventDetailComponent implements OnInit {
   drawerCompanyId = signal<number | null>(null);
   drawerSeg = signal<DrawerSeg>('lote');
 
-  showPeriodModal = signal(false);
-  periodSaving = signal(false);
-  showResponsavelModal = signal(false);
-  responsavelSaving = signal(false);
+  showEditModal = signal(false);
+  editSaving = signal(false);
+  editPeriodTouched = signal(false);
+  editPeriodRange: PeriodoRangeValue | null = null;
+  statusToggling = signal(false);
   prefSaving = signal(false);
+  submitApprovalSaving = signal(false);
+  notifyCompleteSaving = signal(false);
+  notifyCompleteCompanyId = signal<number | null>(null);
 
   individualSubmitting = signal(false);
   colabSearching = signal(false);
@@ -909,7 +997,6 @@ export class EventDetailComponent implements OnInit {
     description: '',
   };
 
-  periodForm = { start: '', end: '' };
   responsavelFormId: number | null = null;
 
   isAdmin = false;
@@ -1155,6 +1242,20 @@ export class EventDetailComponent implements OnInit {
     return this.canManageCompanies() && !!this.event()?.ativo;
   }
 
+  canEditEvent(): boolean {
+    return this.canChangeResponsavel() || this.canManageCompanies();
+  }
+
+  canSubmitApproval(): boolean {
+    return !!(this.event()?.can_submit_approval);
+  }
+
+  canNotifyCompleteForCompany(row: AggregatedCompany): boolean {
+    if (row.isResponsavel || this.event()?.ativo === false) return false;
+    if (!this.event()?.can_notify_complete) return false;
+    return this.userCompanyId != null && row.id_company === this.userCompanyId && row.collaboratorCount > 0;
+  }
+
   canEditCompanyPhases(row: AggregatedCompany): boolean {
     return this.canManageCompanies() && !row.isResponsavel && this.event()?.ativo !== false;
   }
@@ -1318,6 +1419,30 @@ export class EventDetailComponent implements OnInit {
         this.notification.notifyHttpError(err, 'Falha ao vincular empresa.');
         this.cdr.markForCheck();
       },
+    });
+  }
+
+  removerEmpresaParceira(row: AggregatedCompany) {
+    const ev = this.event();
+    if (!ev || !this.canEditCompanyPhases(row)) return;
+
+    Swal.fire({
+      title: 'Remover empresa parceira?',
+      text: `Remover ${row.company_name} deste evento? A empresa será desvinculada de todas as fases.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Remover empresa',
+      cancelButtonText: 'Cancelar',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.eventService.removeCompanyFromEvent(ev.id_event, row.id_company).subscribe({
+        next: () => {
+          this.notification.success('Empresa parceira removida do evento.');
+          this.carregar(ev.id_event);
+        },
+        error: (err) =>
+          this.notification.notifyHttpError(err, 'Falha ao remover empresa parceira.'),
+      });
     });
   }
 
@@ -1729,32 +1854,22 @@ export class EventDetailComponent implements OnInit {
       });
   }
 
-  abrirModalPeriodo() {
+  abrirModalEditar() {
     const ev = this.event();
-    if (!ev) return;
-    this.periodForm = {
-      start: String(ev.start || '').slice(0, 10),
-      end: String(ev.end || '').slice(0, 10),
-    };
-    this.showPeriodModal.set(true);
-  }
-
-  fecharModalPeriodo() {
-    this.showPeriodModal.set(false);
-  }
-
-  abrirModalResponsavel() {
-    const ev = this.event();
-    if (!ev) return;
+    if (!ev || !this.canEditEvent() || !ev.ativo) return;
+    const start = String(ev.start || '').slice(0, 10);
+    const end = String(ev.end || '').slice(0, 10);
+    this.editPeriodRange = start && end ? { inicio: start, fim: end } : null;
+    this.editPeriodTouched.set(false);
     this.responsavelFormId = ev.id_company_responsavel ?? null;
-    this.showResponsavelModal.set(true);
-    if (this.producers().length === 0) {
+    this.showEditModal.set(true);
+    if (this.canChangeResponsavel() && this.producers().length === 0) {
       this.carregarProdutoras();
     }
   }
 
-  fecharModalResponsavel() {
-    this.showResponsavelModal.set(false);
+  fecharModalEditar() {
+    this.showEditModal.set(false);
   }
 
   carregarProdutoras() {
@@ -1767,69 +1882,113 @@ export class EventDetailComponent implements OnInit {
     });
   }
 
-  salvarResponsavel() {
+  salvarEdicao() {
     const ev = this.event();
     if (!ev) return;
-    if (!this.responsavelFormId) {
+
+    const savePeriod = this.canAdjustPeriod();
+    const saveResponsavel = this.canChangeResponsavel();
+    if (!savePeriod && !saveResponsavel) return;
+
+    const periodStart = this.editPeriodRange?.inicio || '';
+    const periodEnd = this.editPeriodRange?.fim || '';
+
+    if (savePeriod) {
+      this.editPeriodTouched.set(true);
+      if (!periodStart || !periodEnd) {
+        this.notification.error('Informe o período do evento.');
+        return;
+      }
+      if (periodEnd < periodStart) {
+        this.notification.error('Data fim deve ser igual ou posterior à data início.');
+        return;
+      }
+    }
+    if (saveResponsavel && !this.responsavelFormId) {
       this.notification.error('Selecione a empresa responsável.');
       return;
     }
-    this.responsavelSaving.set(true);
-    this.eventService.updateResponsavel(ev.id_event, this.responsavelFormId).subscribe({
-      next: (res) => {
-        this.responsavelSaving.set(false);
-        this.event.set(res.event);
-        this.fecharModalResponsavel();
-        this.notification.success('Empresa responsável atualizada.');
-        if (res.event.can_manage_companies || this.isAdmin) {
-          this.carregarEmpresas(ev.id_event);
-        }
-        this.carregarCredenciais(ev.id_event);
-        this.cdr.markForCheck();
-      },
-      error: (err) => {
-        this.responsavelSaving.set(false);
-        this.notification.notifyHttpError(err, 'Falha ao trocar responsável.');
-        this.cdr.markForCheck();
-      },
-    });
-  }
 
-  salvarPeriodo() {
-    const ev = this.event();
-    if (!ev) return;
-    if (!this.periodForm.start || !this.periodForm.end) {
-      this.notification.error('Informe as datas de início e fim.');
+    const periodChanged =
+      savePeriod &&
+      (periodStart !== String(ev.start || '').slice(0, 10) ||
+        periodEnd !== String(ev.end || '').slice(0, 10));
+    const responsavelChanged =
+      saveResponsavel && this.responsavelFormId !== (ev.id_company_responsavel ?? null);
+
+    if (!periodChanged && !responsavelChanged) {
+      this.fecharModalEditar();
       return;
     }
-    if (this.periodForm.end < this.periodForm.start) {
-      this.notification.error('Data fim deve ser igual ou posterior à data início.');
-      return;
-    }
-    this.periodSaving.set(true);
-    this.eventService
-      .updatePeriod(ev.id_event, {
-        start: this.periodForm.start,
-        end: this.periodForm.end,
-      })
-      .subscribe({
+
+    this.editSaving.set(true);
+    let approvalReopened = false;
+
+    const finishOk = (message: string, reloadLinks: boolean) => {
+      this.editSaving.set(false);
+      this.fecharModalEditar();
+      this.notification.success(message);
+      if (reloadLinks && (this.event()?.can_manage_companies || this.isAdmin)) {
+        this.carregarEmpresas(ev.id_event);
+      }
+      if (reloadLinks) {
+        this.carregarCredenciais(ev.id_event);
+      }
+      this.cdr.markForCheck();
+    };
+
+    const fail = (err: unknown, fallback: string) => {
+      this.editSaving.set(false);
+      this.notification.notifyHttpError(err, fallback);
+      this.cdr.markForCheck();
+    };
+
+    const runResponsavel = () => {
+      this.eventService.updateResponsavel(ev.id_event, this.responsavelFormId!).subscribe({
         next: (res) => {
-          this.periodSaving.set(false);
           this.event.set(res.event);
-          this.fecharModalPeriodo();
-          if (res.event.approvalReopened) {
-            this.notification.success('Período atualizado. Evento enviado novamente para aprovação.');
+          if (periodChanged) {
+            finishOk(
+              approvalReopened
+                ? 'Alterações salvas. Evento enviado novamente para aprovação.'
+                : 'Alterações salvas.',
+              true,
+            );
           } else {
-            this.notification.success('Período atualizado.');
+            finishOk('Empresa responsável atualizada.', true);
           }
-          this.cdr.markForCheck();
         },
-        error: (err) => {
-          this.periodSaving.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao ajustar período.');
-          this.cdr.markForCheck();
-        },
+        error: (err) => fail(err, 'Falha ao trocar responsável.'),
       });
+    };
+
+    if (periodChanged) {
+      this.eventService
+        .updatePeriod(ev.id_event, {
+          start: periodStart,
+          end: periodEnd,
+        })
+        .subscribe({
+          next: (res) => {
+            this.event.set(res.event);
+            approvalReopened = !!res.event.approvalReopened;
+            if (responsavelChanged) {
+              runResponsavel();
+              return;
+            }
+            finishOk(
+              approvalReopened
+                ? 'Período atualizado. Evento enviado novamente para aprovação.'
+                : 'Período atualizado.',
+              false,
+            );
+          },
+          error: (err) => fail(err, 'Falha ao ajustar período.'),
+        });
+      return;
+    }
+
+    runResponsavel();
   }
 
   carregarEmpresas(eventId: number) {
@@ -1884,11 +2043,11 @@ export class EventDetailComponent implements OnInit {
     });
   }
 
-  toggleNotifyPortaria(event: Event): void {
+  toggleNotifyPortaria(): void {
     const ev = this.event();
-    if (!ev?.id_event) return;
+    if (!ev?.id_event || this.prefSaving()) return;
     if (ev.ativo === false) return;
-    const checked = !!(event.target as HTMLInputElement)?.checked;
+    const checked = !ev.notificar_portaria;
     this.prefSaving.set(true);
     this.eventService.updatePreferences(ev.id_event, { notificar_portaria: checked }).subscribe({
       next: (res) => {
@@ -1910,29 +2069,97 @@ export class EventDetailComponent implements OnInit {
     });
   }
 
+  notificarSetor() {
+    const ev = this.event();
+    if (!ev?.id_event || !this.canSubmitApproval() || this.submitApprovalSaving()) return;
+    Swal.fire({
+      title: 'Notificar setor de aprovação?',
+      text: `O evento "${ev.name}" será enviado para aprovação do setor. A empresa responsável deve ter concluído o vínculo das parceiras.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Notificar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#1d54e6',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.submitApprovalSaving.set(true);
+      this.eventService.submitApproval(ev.id_event).subscribe({
+        next: (res) => {
+          this.submitApprovalSaving.set(false);
+          this.event.set(res.event);
+          this.notification.success('Setor de aprovação notificado.');
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.submitApprovalSaving.set(false);
+          this.notification.notifyHttpError(err, 'Não foi possível notificar o setor.');
+          this.cdr.markForCheck();
+        },
+      });
+    });
+  }
+
+  notificarTermino(row: AggregatedCompany) {
+    const ev = this.event();
+    if (!ev?.id_event || !this.canNotifyCompleteForCompany(row) || this.notifyCompleteSaving()) {
+      return;
+    }
+    Swal.fire({
+      title: 'Notificar término do cadastro?',
+      text: `A empresa responsável será avisada por e-mail que "${row.company_name}" concluiu o cadastro de colaboradores.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Notificar término',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#1d54e6',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.notifyCompleteSaving.set(true);
+      this.notifyCompleteCompanyId.set(row.id_company);
+      this.eventService.notifyCompanyComplete(ev.id_event, row.id_company).subscribe({
+        next: (res) => {
+          this.notifyCompleteSaving.set(false);
+          this.notifyCompleteCompanyId.set(null);
+          this.event.set(res.event);
+          this.notification.success('Empresa responsável notificada por e-mail.');
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.notifyCompleteSaving.set(false);
+          this.notifyCompleteCompanyId.set(null);
+          this.notification.notifyHttpError(err, 'Não foi possível notificar o término.');
+          this.cdr.markForCheck();
+        },
+      });
+    });
+  }
+
   toggleEventActive() {
     const ev = this.event();
-    if (!ev?.id_event || !this.canToggleActive()) return;
+    if (!ev?.id_event || !this.canToggleActive() || this.statusToggling()) return;
     const ativar = ev.ativo === false;
     Swal.fire({
-      title: ativar ? 'Ativar evento?' : 'Desativar evento?',
+      title: ativar ? 'Habilitar evento?' : 'Desabilitar evento?',
       text: ativar
-        ? `Reativar "${ev.name}"? Novas solicitações e a portaria voltarão a funcionar.`
-        : `Desativar "${ev.name}"? Novas solicitações e acessos na portaria ficarão bloqueados.`,
+        ? `Habilitar "${ev.name}"? Novas solicitações e a portaria voltarão a funcionar.`
+        : `Desabilitar "${ev.name}"? Novas solicitações e acessos na portaria ficarão bloqueados.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: ativar ? 'Ativar' : 'Desativar',
+      confirmButtonText: ativar ? 'Habilitar' : 'Desabilitar',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: ativar ? '#059669' : '#dc2626',
     }).then((result) => {
       if (!result.isConfirmed) return;
+      this.statusToggling.set(true);
       this.eventService.patchStatus(ev.id_event, ativar).subscribe({
         next: (res) => {
+          this.statusToggling.set(false);
           this.event.set(res.event);
-          this.notification.success(ativar ? 'Evento ativado.' : 'Evento desativado.');
+          this.notification.success(ativar ? 'Evento habilitado.' : 'Evento desabilitado.');
           this.cdr.markForCheck();
         },
         error: (err) => {
+          this.statusToggling.set(false);
           this.notification.notifyHttpError(err, 'Não foi possível alterar o status do evento.');
           this.cdr.markForCheck();
         },

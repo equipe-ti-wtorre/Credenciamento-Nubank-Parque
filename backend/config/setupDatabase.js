@@ -174,6 +174,7 @@ async function migrateCompanies(connection) {
         cnpj VARCHAR(14) NOT NULL,
         company_name VARCHAR(200) NOT NULL,
         fancy_name VARCHAR(200) NULL,
+        logo VARCHAR(255) NULL,
         status TINYINT(1) NOT NULL DEFAULT 1,
         criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -184,6 +185,13 @@ async function migrateCompanies(connection) {
       )
     `);
     logger.info("Migration: tabela company criada");
+  }
+
+  if (!(await columnExists(connection, "company", "logo"))) {
+    await connection.query(`
+      ALTER TABLE company ADD COLUMN logo VARCHAR(255) NULL AFTER fancy_name
+    `);
+    logger.info("Migration: company.logo adicionada");
   }
 
   const [contactTables] = await connection.query(
@@ -1542,16 +1550,26 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS system_settings (
         id INT AUTO_INCREMENT PRIMARY KEY,
         session_idle_minutes INT NOT NULL DEFAULT 30,
+        color_palette VARCHAR(32) NOT NULL DEFAULT 'wtorre',
         atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       );
     `);
+
+    if (!(await columnExists(connection, "system_settings", "color_palette"))) {
+      await connection.query(`
+        ALTER TABLE system_settings
+        ADD COLUMN color_palette VARCHAR(32) NOT NULL DEFAULT 'wtorre'
+        COMMENT 'wtorre | nubank-parque'
+      `);
+      logger.info("Migration: system_settings.color_palette adicionada");
+    }
 
     const [systemSettingsRows] = await connection.query(
       "SELECT id FROM system_settings LIMIT 1",
     );
     if (systemSettingsRows.length === 0) {
       await connection.query(
-        "INSERT INTO system_settings (session_idle_minutes) VALUES (30)",
+        "INSERT INTO system_settings (session_idle_minutes, color_palette) VALUES (30, 'wtorre')",
       );
     }
 

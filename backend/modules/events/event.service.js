@@ -5,6 +5,7 @@ const { toDateOnly } = require("./event.schema");
 const companyService = require("../companies/company.service");
 const approvalsService = require("../approvals/approvals.service");
 const {
+  STATUS_AGUARDANDO_PRODUTORA,
   STATUS_AGUARDANDO_APROVACAO,
   STATUS_APROVADO,
   STATUS_NEGADO,
@@ -97,6 +98,8 @@ function mapEventRow(row) {
     access_status_description: row.access_status_description || null,
     id_company_responsavel:
       row.id_company_responsavel != null ? Number(row.id_company_responsavel) : null,
+    id_setor: row.id_setor != null ? Number(row.id_setor) : null,
+    id_solicitante: row.id_solicitante != null ? Number(row.id_solicitante) : null,
     company_responsavel: row.responsavel_company_name
       ? {
           id_company: Number(row.id_company_responsavel),
@@ -221,6 +224,13 @@ function buildListJoinAndWhere(scope, filters, userId = null) {
 }
 
 async function getEventSolicitanteId(idEvent, conn = db) {
+  const [eventRows] = await conn.execute(
+    `SELECT id_solicitante FROM event WHERE id_event = ? LIMIT 1`,
+    [idEvent],
+  );
+  if (eventRows[0]?.id_solicitante != null) {
+    return Number(eventRows[0].id_solicitante);
+  }
   const [rows] = await conn.execute(
     `SELECT id_solicitante FROM aprovacoes
       WHERE tipo_entidade = 'EVENTO' AND id_entidade = ?
@@ -612,6 +622,31 @@ async function getEventById(req, id) {
   const can_change_responsavel = !!req.user?.is_super_admin || is_solicitante;
   const can_toggle_active =
     !!req.user?.is_super_admin || is_solicitante;
+  const status = Number(row.id_access_status);
+  const can_submit_approval =
+    Number(row.ativo) !== 0 &&
+    status === STATUS_AGUARDANDO_PRODUTORA &&
+    (!!req.user?.is_super_admin || can_manage_companies || is_solicitante) &&
+    row.id_setor != null;
+  const userCompanyId =
+    req.user?.id_company != null ? Number(req.user.id_company) : null;
+  const responsavelId =
+    row.id_company_responsavel != null ? Number(row.id_company_responsavel) : null;
+  let can_notify_complete = false;
+  let notified_complete_at = null;
+  if (
+    userCompanyId &&
+    responsavelId != null &&
+    userCompanyId !== responsavelId &&
+    Number(row.ativo) !== 0
+  ) {
+    const linked = await isCompanyLinkedToEvent(id, userCompanyId);
+    if (linked) {
+      const colabCount = await countCompanyCollaboratorsOnEvent(id, userCompanyId);
+      can_notify_complete = colabCount > 0;
+      notified_complete_at = await getCompanyNotifyCompleteAt(id, userCompanyId);
+    }
+  }
   const hasData = await eventHasRegisteredData(id);
   const can_delete =
     !hasData && (await userCanDeleteEvent(req, row, id));
@@ -623,6 +658,9 @@ async function getEventById(req, id) {
     is_solicitante,
     can_change_responsavel,
     can_toggle_active,
+    can_submit_approval,
+    can_notify_complete,
+    notified_complete_at,
     can_delete,
     has_registered_data: hasData,
   };
@@ -719,9 +757,17 @@ async function createEvent(req, data) {
     await approvalsService.assertUserCanOpenForSector(conn, idSetor, req.user);
 
     const [result] = await conn.execute(
-      `INSERT INTO event (name, start, end, id_access_status, id_company_responsavel)
-       VALUES (?, ?, ?, ?, ?)`,
-      [data.name, start, end, STATUS_AGUARDANDO_APROVACAO, idCompanyResponsavel],
+      `INSERT INTO event (name, start, end, id_access_status, id_company_responsavel, id_setor, id_solicitante)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        data.name,
+        start,
+        end,
+        STATUS_AGUARDANDO_PRODUTORA,
+        idCompanyResponsavel,
+        idSetor,
+        idSolicitante,
+      ],
     );
     const eventId = result.insertId;
 
@@ -745,16 +791,14 @@ async function createEvent(req, data) {
       );
     }
 
-    const approval = await approvalsService.createApprovalFor(conn, {
-      tipoEntidade: "EVENTO",
-      idEntidade: eventId,
-      idSetor,
-      idSolicitante,
-    });
-
     await conn.commit();
     const detail = await getEventDetailById(eventId);
-    return { ...detail, notificar_portaria: false, approvalCreated: approval };
+    return {
+      ...detail,
+      notificar_portaria: false,
+      approvalCreated: null,
+      notifyResponsavelEmail: true,
+    };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -785,6 +829,12 @@ async function markExpired(conn, idEntidade) {
 }
 
 async function resolveEventSetorId(conn, idEvent) {
+  const [eventRows] = await conn.execute(
+    `SELECT id_setor FROM event WHERE id_event = ? LIMIT 1`,
+    [idEvent],
+  );
+  if (eventRows[0]?.id_setor != null) return Number(eventRows[0].id_setor);
+
   const [rows] = await conn.execute(
     `SELECT id_setor FROM aprovacoes
       WHERE tipo_entidade = 'EVENTO' AND id_entidade = ?
@@ -854,6 +904,9 @@ async function reopenEventForApproval(conn, eventRow, { force = false, idSetor =
   }
 
   let resolvedSolicitante = idSolicitante;
+  if (!resolvedSolicitante && eventRow.id_solicitante != null) {
+    resolvedSolicitante = Number(eventRow.id_solicitante);
+  }
   if (!resolvedSolicitante) {
     const [solRows] = await conn.execute(
       `SELECT id_solicitante FROM aprovacoes
@@ -951,7 +1004,7 @@ async function updateEventPeriod(req, id, data) {
       approvalReopened: !!reopenResult.reopened,
       id_aprovacao: reopenResult.idAprovacao || detail.approval?.id || null,
       aprovacao_status: detail.approval?.status || null,
-      id_setor: detail.approval?.idSetor || null,
+      id_setor: detail.approval?.idSetor || detail.id_setor || null,
     };
   } catch (err) {
     await conn.rollback();
@@ -1506,6 +1559,9 @@ async function syncCompanyPhases(req, idEvent, idCompany, phases) {
     [eventId, companyId],
   );
 
+  const wasNewLink = existingLinks.length === 0;
+  let insertedLinks = 0;
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -1541,6 +1597,7 @@ async function syncCompanyPhases(req, idEvent, idCompany, phases) {
          VALUES (?, ?, ?)`,
         [dayId, companyId, responsavelId],
       );
+      insertedLinks += 1;
     }
 
     await conn.commit();
@@ -1554,7 +1611,296 @@ async function syncCompanyPhases(req, idEvent, idCompany, phases) {
     conn.release();
   }
 
-  return getEventById(req, eventId);
+  const detail = await getEventById(req, eventId);
+  return {
+    ...detail,
+    partnerNewlyLinked: wasNewLink && insertedLinks > 0,
+    partnerCompanyName: company.company_name || company.fancy_name || null,
+  };
+}
+
+async function countCompanyCollaboratorsOnEvent(idEvent, idCompany, conn = db) {
+  if (!(await tableExists(CREDENTIAL_LINK_TABLE))) return 0;
+  const [rows] = await conn.execute(
+    `SELECT COUNT(*) AS total
+       FROM ${CREDENTIAL_LINK_TABLE} edcc
+       INNER JOIN event_day_company edc
+         ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ? AND edc.id_company = ?`,
+    [idEvent, idCompany],
+  );
+  return Number(rows[0]?.total || 0);
+}
+
+async function isCompanyLinkedToEvent(idEvent, idCompany, conn = db) {
+  const [rows] = await conn.execute(
+    `SELECT 1
+       FROM event_day_company edc
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ? AND edc.id_company = ?
+      LIMIT 1`,
+    [idEvent, idCompany],
+  );
+  return rows.length > 0;
+}
+
+async function getCompanyNotifyCompleteAt(idEvent, idCompany) {
+  if (!(await tableExists("event_company_notify"))) return null;
+  const [rows] = await db.execute(
+    `SELECT notified_complete_at
+       FROM event_company_notify
+      WHERE id_event = ? AND id_company = ?
+      LIMIT 1`,
+    [idEvent, idCompany],
+  );
+  return rows[0]?.notified_complete_at || null;
+}
+
+async function submitEventApproval(req, id) {
+  const eventId = Number(id);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+
+  const eventRow = await findEventById(eventId);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+  assertEventActive(eventRow);
+
+  const canSubmit =
+    !!req.user?.is_super_admin ||
+    userCanManageEventCompanies(req, eventRow) ||
+    (req.user?.id ? await userIsEventSolicitante(req.user.id, eventId) : false);
+  if (!canSubmit) {
+    throw new AppError("Sem permissão para notificar o setor deste evento.", 403);
+  }
+
+  const status = Number(eventRow.id_access_status);
+  if (status !== STATUS_AGUARDANDO_PRODUTORA) {
+    if (status === STATUS_AGUARDANDO_APROVACAO) {
+      throw new AppError("Este evento já está aguardando aprovação.", 409);
+    }
+    if (status === STATUS_APROVADO) {
+      throw new AppError("Este evento já está aprovado.", 409);
+    }
+    throw new AppError(
+      "Só é possível notificar o setor enquanto o evento estiver aguardando a produtora.",
+      409,
+    );
+  }
+
+  const idSetor = eventRow.id_setor != null ? Number(eventRow.id_setor) : null;
+  const idSolicitante =
+    eventRow.id_solicitante != null
+      ? Number(eventRow.id_solicitante)
+      : req.user?.id || null;
+  if (!idSetor) {
+    throw new AppError("Evento sem setor aprovador definido.", 422);
+  }
+  if (!idSolicitante) {
+    throw new AppError("Evento sem solicitante definido.", 422);
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await approvalsService.assertUserCanOpenForSector(conn, idSetor, req.user);
+
+    const [pending] = await conn.execute(
+      `SELECT id FROM aprovacoes
+        WHERE tipo_entidade = 'EVENTO' AND id_entidade = ? AND status = 'PENDENTE'
+        LIMIT 1`,
+      [eventId],
+    );
+    if (pending.length) {
+      throw new AppError("Este evento já possui aprovação pendente.", 409);
+    }
+
+    await conn.execute(`UPDATE event SET id_access_status = ? WHERE id_event = ?`, [
+      STATUS_AGUARDANDO_APROVACAO,
+      eventId,
+    ]);
+
+    const approval = await approvalsService.createApprovalFor(conn, {
+      tipoEntidade: "EVENTO",
+      idEntidade: eventId,
+      idSetor,
+      idSolicitante,
+    });
+
+    await conn.commit();
+    const detail = await getEventById(req, eventId);
+    return {
+      ...detail,
+      approvalCreated: approval,
+      id_setor: idSetor,
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+async function notifyCompanyComplete(req, idEvent, idCompany) {
+  const eventId = Number(idEvent);
+  const companyId = Number(idCompany);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+  if (!Number.isInteger(companyId) || companyId <= 0) {
+    throw new AppError("Empresa inválida.", 400);
+  }
+
+  const eventRow = await findEventById(eventId);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+  assertEventActive(eventRow);
+
+  const responsavelId =
+    eventRow.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
+  if (responsavelId == null) {
+    throw new AppError("Evento sem empresa responsável definida.", 400);
+  }
+  if (companyId === responsavelId) {
+    throw new AppError("A empresa responsável não usa Notificar término.", 400);
+  }
+
+  const isAdmin = !!req.user?.is_super_admin;
+  const userCompanyId =
+    req.user?.id_company != null ? Number(req.user.id_company) : null;
+  if (!isAdmin && userCompanyId !== companyId) {
+    throw new AppError("Sem permissão para notificar término desta empresa.", 403);
+  }
+
+  if (!(await isCompanyLinkedToEvent(eventId, companyId))) {
+    throw new AppError("Empresa não está vinculada a este evento.", 400);
+  }
+
+  const collaboratorCount = await countCompanyCollaboratorsOnEvent(eventId, companyId);
+  if (collaboratorCount < 1) {
+    throw new AppError(
+      "Cadastre ao menos um colaborador antes de notificar o término.",
+      400,
+    );
+  }
+
+  const company = await companyService.findCompanyById(companyId);
+  const partnerName = company?.company_name || company?.fancy_name || "Empresa parceira";
+
+  if (await tableExists("event_company_notify")) {
+    await db.execute(
+      `INSERT INTO event_company_notify (id_event, id_company, notified_complete_at, id_usuario)
+       VALUES (?, ?, NOW(), ?)
+       ON DUPLICATE KEY UPDATE notified_complete_at = NOW(), id_usuario = VALUES(id_usuario)`,
+      [eventId, companyId, req.user?.id || null],
+    );
+  }
+
+  const detail = await getEventById(req, eventId);
+  return {
+    ...detail,
+    notifyCompleteEmail: {
+      idCompanyResponsavel: responsavelId,
+      partnerName,
+    },
+  };
+}
+
+async function removeCompanyFromEvent(req, idEvent, idCompany) {
+  const eventId = Number(idEvent);
+  const companyId = Number(idCompany);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+  if (!Number.isInteger(companyId) || companyId <= 0) {
+    throw new AppError("Empresa inválida.", 400);
+  }
+
+  const eventRow = await findEventById(eventId);
+  if (!eventRow) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+  assertEventActive(eventRow);
+
+  if (!userCanManageEventCompanies(req, eventRow)) {
+    throw new AppError("Sem permissão para remover empresas deste evento.", 403);
+  }
+
+  const responsavelId =
+    eventRow.id_company_responsavel != null
+      ? Number(eventRow.id_company_responsavel)
+      : null;
+  if (responsavelId != null && companyId === responsavelId) {
+    throw new AppError(
+      "Não é possível remover a empresa responsável do evento.",
+      400,
+    );
+  }
+
+  const [links] = await db.execute(
+    `SELECT edc.id_event_day_company
+       FROM event_day_company edc
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ? AND edc.id_company = ?`,
+    [eventId, companyId],
+  );
+
+  if (links.length === 0) {
+    throw new AppError("Empresa não vinculada a este evento.", 404);
+  }
+
+  const linkIds = links.map((l) => Number(l.id_event_day_company));
+  const placeholders = linkIds.map(() => "?").join(", ");
+
+  if (await tableExists(CREDENTIAL_LINK_TABLE)) {
+    const [credRows] = await db.execute(
+      `SELECT COUNT(*) AS total FROM ${CREDENTIAL_LINK_TABLE}
+        WHERE id_event_day_company IN (${placeholders})`,
+      linkIds,
+    );
+    if (Number(credRows[0]?.total || 0) > 0) {
+      throw new AppError(
+        "Não é possível remover o vínculo: existem colaboradores credenciados associados.",
+        400,
+      );
+    }
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    if (await tableExists("event_day_company_vehicle")) {
+      await conn.execute(
+        `DELETE FROM event_day_company_vehicle
+          WHERE id_event_day_company IN (${placeholders})`,
+        linkIds,
+      );
+    }
+
+    await conn.execute(
+      `DELETE FROM event_day_company
+        WHERE id_event_day_company IN (${placeholders})`,
+      linkIds,
+    );
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  return {
+    id_event: eventId,
+    id_company: companyId,
+    removed_links: linkIds,
+  };
 }
 
 async function listCompanyVehicles(req, idEvent, idCompany) {
@@ -1650,7 +1996,10 @@ module.exports = {
   deleteEvent,
   assertEventActive,
   syncCompanyPhases,
+  removeCompanyFromEvent,
   reopenEventForApproval,
+  submitEventApproval,
+  notifyCompanyComplete,
   addCompanyToEventDay,
   removeCompanyFromEventDay,
   listProducerCompanies,

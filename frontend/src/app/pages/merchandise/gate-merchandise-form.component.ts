@@ -148,15 +148,49 @@ interface MovementItemRow {
         </div>
 
         <div>
-          <label class="text-xs font-bold text-slate-500 uppercase">Foto NF / Produto</label>
+          <label class="form-label">Foto NF / Produto</label>
           <input
+            #photoInput
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
             capture="environment"
-            class="w-full mt-1 text-sm"
+            class="hidden"
             (change)="onPhotoSelected($event)"
           />
-          <img *ngIf="photoPreview()" [src]="photoPreview()!" alt="Preview" class="mt-2 max-h-40 rounded-lg border" />
+          <div
+            class="upload-dropzone upload-dropzone--banner"
+            [class.upload-dropzone--dragover]="photoDragOver()"
+            [class.upload-dropzone--selected]="!!photoPreview()"
+            tabindex="0"
+            role="button"
+            (click)="photoInput.click()"
+            (keydown.enter)="photoInput.click()"
+            (keydown.space)="$event.preventDefault(); photoInput.click()"
+            (dragover)="onPhotoDragOver($event)"
+            (dragleave)="onPhotoDragLeave($event)"
+            (drop)="onPhotoDrop($event)"
+          >
+            <div class="upload-dropzone__main">
+              <span *ngIf="!photoPreview()" class="upload-dropzone__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 16V4M6 10l6-6 6 6" />
+                  <path d="M4 20h16" />
+                </svg>
+              </span>
+              <span *ngIf="photoPreview()" class="upload-dropzone__preview" aria-hidden="true">
+                <img [src]="photoPreview()!" alt="" />
+              </span>
+              <span class="upload-dropzone__text">
+                <span class="upload-dropzone__title">
+                  Arraste a foto aqui ou
+                  <span class="upload-dropzone__link">clique para procurar</span>
+                </span>
+                <span class="upload-dropzone__hint">
+                  {{ photoFile ? photoFile.name : 'JPEG, PNG ou WebP · máx. 2 MB' }}
+                </span>
+              </span>
+            </div>
+          </div>
         </div>
 
         <div class="flex justify-end">
@@ -185,6 +219,7 @@ export class GateMerchandiseFormComponent implements OnInit {
   submitting = signal(false);
   photoFile: File | null = null;
   photoPreview = signal<string | null>(null);
+  photoDragOver = signal(false);
 
   private cpfTypeId: number | null = null;
 
@@ -271,7 +306,32 @@ export class GateMerchandiseFormComponent implements OnInit {
   }
 
   onPhotoSelected(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    this.applyPhotoFile(file);
+  }
+
+  onPhotoDragOver(event: DragEvent) {
+    event.preventDefault();
+    this.photoDragOver.set(true);
+  }
+
+  onPhotoDragLeave(event: DragEvent) {
+    event.preventDefault();
+    this.photoDragOver.set(false);
+  }
+
+  onPhotoDrop(event: DragEvent) {
+    event.preventDefault();
+    this.photoDragOver.set(false);
+    this.applyPhotoFile(event.dataTransfer?.files?.[0] ?? null);
+  }
+
+  private applyPhotoFile(file: File | null) {
+    if (this.photoPreview()) {
+      URL.revokeObjectURL(this.photoPreview()!);
+    }
     if (!file) {
       this.photoFile = null;
       this.photoPreview.set(null);

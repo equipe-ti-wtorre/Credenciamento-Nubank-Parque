@@ -1,0 +1,2 @@
+ALTER TABLE company
+  ADD COLUMN logo VARCHAR(255) NULL AFTER fancy_name;

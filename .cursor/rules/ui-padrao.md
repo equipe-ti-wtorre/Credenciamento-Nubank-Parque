@@ -171,8 +171,7 @@ Classes reutilizáveis (não Tailwind ad hoc):
 - Foco: borda `--wtorre` + halo `--wtorre-focus-ring`
 - Select: seta customizada via `form-select`
 - Opcionais: `(opcional)` em `form-label__optional`
-
-Upload: `upload-dropzone` e variantes `--dragover`, `--selected`.
+- Upload de arquivo: ver **F) Upload de arquivo (dropzone banner)**
 
 ---
 
@@ -199,6 +198,76 @@ onTextFilterChange() {
 
 ---
 
+## F) Upload de arquivo (dropzone banner)
+
+**Padrão obrigatório para uploads novos.** Faixa horizontal com drag-and-drop + clique. Classes em [`_components.scss`](../frontend/src/styles/_components.scss): `upload-dropzone upload-dropzone--banner`.
+
+```html
+<label class="form-label">Logo</label>
+<input #fileInput type="file" accept="..." class="hidden" (change)="onFileSelected($event)" />
+<div
+  class="upload-dropzone upload-dropzone--banner"
+  [class.upload-dropzone--dragover]="dragOver()"
+  [class.upload-dropzone--selected]="!!previewUrl()"
+  tabindex="0"
+  role="button"
+  (click)="fileInput.click()"
+  (keydown.enter)="fileInput.click()"
+  (keydown.space)="$event.preventDefault(); fileInput.click()"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <div class="upload-dropzone__main">
+    <!-- ícone OU preview de imagem -->
+    <span class="upload-dropzone__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4M6 10l6-6 6 6" />
+        <path d="M4 20h16" />
+      </svg>
+    </span>
+    <!-- <span class="upload-dropzone__preview"><img [src]="previewUrl()" alt="" /></span> -->
+    <span class="upload-dropzone__text">
+      <span class="upload-dropzone__title">
+        Arraste o arquivo aqui ou
+        <span class="upload-dropzone__link">clique para procurar</span>
+      </span>
+      <span class="upload-dropzone__hint">Formato .png, .jpg — máx. 2 MB</span>
+    </span>
+  </div>
+  <!-- Opcional: só quando houver template/download -->
+  <!--
+  <button type="button" class="upload-dropzone__action" (click)="$event.stopPropagation(); downloadTemplate()">
+    <svg>...</svg>
+    Baixar modelo
+  </button>
+  -->
+</div>
+```
+
+**Regras:**
+- Copy: “Arraste … aqui ou **clique para procurar**” — o trecho “clique para procurar” usa `upload-dropzone__link` (sublinhado `--wtorre`).
+- Hint: formatos aceitos e limite de tamanho; com arquivo pendente, pode mostrar o nome do arquivo.
+- Ícone 40×40 fundo `--wtorre` (`upload-dropzone__icon`); com preview de imagem, usar `upload-dropzone__preview` no lugar do ícone.
+- Ação à direita (`upload-dropzone__action`, pill) **somente** para baixar modelo/template — não inventar outros botões soltos.
+- Sempre: `input[type=file]` hidden + drag-and-drop + teclado (Enter/Space).
+- Tokens `--wtorre` / `--wtorre-tonal-bg` / `--wtorre-focus-ring` — sem cores roxas hardcoded.
+- Estados: `--dragover`, `--selected`; desabilitado via `aria-disabled="true"`.
+
+**Referências:**
+- Uso atual: logo em [`company-list.component.ts`](../frontend/src/app/pages/admin/companies/company-list.component.ts)
+- Origem visual (legado local): wizard patrimonial `wimp-dropzone--embed` — **não** copiar classes `wimp-*` em telas novas
+
+**Referências de uso:** empresas (logo), colaboradores (foto), mercadoria (foto NF), bulk-import e importação patrimonial (planilha + Baixar modelo).
+
+**Anti-patterns:**
+- Botão solto “Escolher arquivo” / “Escolher logo” sem dropzone
+- Dropzone vertical (sem `--banner`)
+- Estilos locais `wimp-dropzone*` / `collab-dropzone*`
+- Ação à direita que não seja download de modelo
+
+---
+
 ## Referência end-to-end
 
 [`collaborator-list.component.ts`](../frontend/src/app/pages/admin/collaborators/collaborator-list.component.ts) — modal + kebab + `btn-action-*` + `form-*` + filtros live.
@@ -212,3 +281,4 @@ onTextFilterChange() {
 - Fontes hardcoded — usar `--font-display` / `--font-body`
 - `appActionDropdownItem` sem ícone SVG `action-dropdown__item-icon`
 - Botão **Filtrar** em barras de filtro de lista (usar digitar-já-filtra)
+- Upload sem `upload-dropzone--banner` (botão solto ou dropzone vertical)

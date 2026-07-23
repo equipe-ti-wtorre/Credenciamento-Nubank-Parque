@@ -88,36 +88,33 @@ interface VeicDecisionState {
                 <input #fileInput type="file" accept=".xlsx,.xls" class="hidden" (change)="onFileSelected($event)" />
                 @if (!file()) {
                   <div
-                    class="wimp-dropzone wimp-dropzone--embed"
-                    [class.is-drag]="dragging()"
-                    [class.is-hover]="embedHover()"
+                    class="upload-dropzone upload-dropzone--banner"
+                    [class.upload-dropzone--dragover]="dragging()"
                     tabindex="0"
                     role="button"
-                    [attr.aria-disabled]="busy() || importing()"
+                    [attr.aria-disabled]="busy() || importing() || null"
                     (click)="!busy() && !importing() && fileInput.click()"
                     (keydown.enter)="!busy() && !importing() && fileInput.click()"
                     (keydown.space)="$event.preventDefault(); !busy() && !importing() && fileInput.click()"
                     (dragover)="$event.preventDefault(); dragging.set(true)"
                     (dragleave)="dragging.set(false)"
                     (drop)="dragging.set(false); onDrop($event)"
-                    (mouseenter)="embedHover.set(true)"
-                    (mouseleave)="embedHover.set(false)"
                   >
-                    <div class="wimp-dropzone__main">
-                      <span class="wimp-dropzone__icon" aria-hidden="true">
+                    <div class="upload-dropzone__main">
+                      <span class="upload-dropzone__icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
                       </span>
-                      <span class="wimp-dropzone__text">
-                        <span class="wimp-dropzone__title">
+                      <span class="upload-dropzone__text">
+                        <span class="upload-dropzone__title">
                           Arraste a planilha aqui ou
-                          <span class="wimp-dropzone__link">clique para procurar</span>
+                          <span class="upload-dropzone__link">clique para procurar</span>
                         </span>
-                        <span class="wimp-dropzone__hint">Formato .xlsx — use o modelo para preencher corretamente</span>
+                        <span class="upload-dropzone__hint">Formato .xlsx — use o modelo para preencher corretamente</span>
                       </span>
                     </div>
                     <button
                       type="button"
-                      class="wimp-embed__template"
+                      class="upload-dropzone__action"
                       [disabled]="templateDownloading() || busy() || importing()"
                       (click)="$event.stopPropagation(); downloadTemplate()"
                     >
@@ -145,7 +142,7 @@ interface VeicDecisionState {
                     </button>
                     <button
                       type="button"
-                      class="wimp-embed__template"
+                      class="upload-dropzone__action"
                       [disabled]="templateDownloading() || busy() || importing()"
                       (click)="$event.stopPropagation(); downloadTemplate()"
                     >
@@ -161,18 +158,7 @@ interface VeicDecisionState {
                 </div>
               </div>
             } @else {
-              <div class="wimp-template-row">
-                <button
-                  type="button"
-                  class="wimp-btn wimp-btn--soft"
-                  [disabled]="templateDownloading()"
-                  (click)="downloadTemplate()"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 21h14"/></svg>
-                  {{ templateDownloading() ? 'Baixando...' : 'Baixar modelo XLSX' }}
-                </button>
-                <span class="wimp-template-note">Modelo com duas abas: Colaboradores e Veículos. Não altere os cabeçalhos.</span>
-              </div>
+              <p class="wimp-template-note">Modelo com duas abas: Colaboradores e Veículos. Não altere os cabeçalhos.</p>
 
               <div class="wimp-cols">
                 <div class="wimp-cols__group">
@@ -202,8 +188,8 @@ interface VeicDecisionState {
               <input #fileInputFull type="file" accept=".xlsx,.xls" class="hidden" (change)="onFileSelected($event)" />
               @if (!file()) {
                 <div
-                  class="wimp-dropzone"
-                  [class.is-drag]="dragging()"
+                  class="upload-dropzone upload-dropzone--banner"
+                  [class.upload-dropzone--dragover]="dragging()"
                   tabindex="0"
                   role="button"
                   (click)="fileInputFull.click()"
@@ -213,11 +199,27 @@ interface VeicDecisionState {
                   (dragleave)="dragging.set(false)"
                   (drop)="dragging.set(false); onDrop($event)"
                 >
-                  <span class="wimp-dropzone__icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
-                  </span>
-                  <span class="wimp-dropzone__title">Escolher arquivo ou arraste aqui</span>
-                  <span class="wimp-dropzone__hint">Somente .xlsx · até 5 MB</span>
+                  <div class="upload-dropzone__main">
+                    <span class="upload-dropzone__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+                    </span>
+                    <span class="upload-dropzone__text">
+                      <span class="upload-dropzone__title">
+                        Arraste a planilha aqui ou
+                        <span class="upload-dropzone__link">clique para procurar</span>
+                      </span>
+                      <span class="upload-dropzone__hint">Somente .xlsx · até 5 MB</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="upload-dropzone__action"
+                    [disabled]="templateDownloading()"
+                    (click)="$event.stopPropagation(); downloadTemplate()"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 21h14"/></svg>
+                    {{ templateDownloading() ? 'Baixando...' : 'Baixar modelo' }}
+                  </button>
                 </div>
               } @else {
                 <div class="wimp-filecard">
@@ -464,9 +466,7 @@ interface VeicDecisionState {
   styles: [
     `
       :host {
-        --wtorre: #1d54e6;
-        --wtorre-hover: #1846c4;
-        --wtorre-soft: #eaf0fe;
+        --wtorre-soft: var(--wtorre-tonal-bg);
         --ink: #14182b;
         --ink-2: #5a6178;
         --ink-3: #8b91a7;
@@ -495,130 +495,6 @@ interface VeicDecisionState {
       .wimp-embed__err {
         min-height: 1.125rem;
         margin-top: 6px;
-      }
-      .wimp-dropzone--embed {
-        position: relative;
-        display: flex;
-        flex-direction: row;
-        flex-wrap: nowrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        min-height: 64px;
-        padding: 12px 14px;
-        text-align: left;
-        border: 1.5px dashed #c5cddd;
-        background: #f7f8fb;
-        border-radius: 14px;
-        cursor: pointer;
-        transition: border-color .15s, background .15s, box-shadow .15s;
-        box-sizing: border-box;
-      }
-      .wimp-dropzone__main {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: 12px;
-        min-width: 0;
-        flex: 1 1 auto;
-      }
-      .wimp-dropzone--embed .wimp-dropzone__icon {
-        position: static;
-        transform: none;
-        width: 40px;
-        height: 40px;
-        margin: 0;
-        border-radius: 10px;
-        background: var(--wtorre);
-        color: #fff;
-        display: grid;
-        place-items: center;
-        flex: none;
-        box-shadow: none;
-      }
-      .wimp-dropzone--embed .wimp-dropzone__icon svg {
-        width: 18px;
-        height: 18px;
-      }
-      .wimp-dropzone--embed .wimp-dropzone__text {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        justify-content: center;
-        gap: 2px;
-        min-width: 0;
-        flex: 1 1 auto;
-        padding: 0;
-      }
-      .wimp-dropzone--embed .wimp-dropzone__title {
-        font-size: 0.875rem;
-        font-weight: 700;
-        color: var(--ink);
-        line-height: 1.3;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
-      }
-      .wimp-dropzone__link {
-        color: var(--wtorre);
-        font-weight: 700;
-        text-decoration: underline;
-        text-underline-offset: 2px;
-      }
-      .wimp-dropzone--embed .wimp-dropzone__hint {
-        font-size: 0.75rem;
-        font-weight: 500;
-        color: #94a3b8;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
-      }
-      .wimp-embed__template {
-        position: static;
-        transform: none;
-        flex: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        height: 34px;
-        padding: 0 14px;
-        border: 1px solid #c5d6f7;
-        border-radius: 999px;
-        background: #fff;
-        color: var(--wtorre);
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        white-space: nowrap;
-        box-shadow: none;
-      }
-      .wimp-embed__template svg {
-        width: 15px;
-        height: 15px;
-        flex: none;
-      }
-      .wimp-embed__template:hover:not(:disabled) {
-        background: #f8fafc;
-        border-color: var(--wtorre);
-      }
-      .wimp-embed__template:disabled {
-        opacity: 0.55;
-        cursor: not-allowed;
-      }
-      .wimp-dropzone--embed:hover,
-      .wimp-dropzone--embed.is-hover,
-      .wimp-dropzone--embed.is-drag {
-        border-style: solid;
-        border-color: var(--wtorre);
-        background: #eef3fe;
-        box-shadow: 0 0 0 3px rgba(29, 84, 230, 0.12);
-      }
-      .wimp-dropzone--embed[aria-disabled='true'] {
-        opacity: .55;
-        cursor: not-allowed;
-        pointer-events: none;
       }
       .wimp-filecard--embed {
         position: relative;
@@ -677,8 +553,7 @@ interface VeicDecisionState {
       .wimp-stepper__line.is-done { background: var(--ok); }
 
       .wimp-panel { padding-bottom: 4px; }
-      .wimp-template-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 14px; }
-      .wimp-template-note { font-size: 12.5px; color: var(--ink-2); }
+      .wimp-template-note { font-size: 12.5px; color: var(--ink-2); margin: 4px 0 14px; }
 
       .wimp-cols { border: 1px solid var(--line); border-radius: var(--radius-field); overflow: hidden; margin-bottom: 20px; }
       .wimp-cols__group {
@@ -703,25 +578,6 @@ interface VeicDecisionState {
       }
       .wimp-tag--req { background: var(--wtorre-soft); color: var(--wtorre); }
       .wimp-tag--opt { background: #f0f1f5; color: var(--ink-3); }
-
-      /* :not(--embed): o bloco genérico não pode sobrescrever o layout horizontal do embed */
-      .wimp-dropzone:not(.wimp-dropzone--embed) {
-        border: 1.5px dashed #cdd3e2; border-radius: var(--radius-field); background: #f8f9fd;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 3px; padding: 26px 16px; text-align: center; cursor: pointer; transition: .15s;
-      }
-      .wimp-dropzone:not(.wimp-dropzone--embed):hover,
-      .wimp-dropzone:not(.wimp-dropzone--embed).is-drag {
-        border-color: var(--wtorre);
-        background: var(--wtorre-soft);
-      }
-      .wimp-dropzone:not(.wimp-dropzone--embed) .wimp-dropzone__icon {
-        width: 40px; height: 40px; border-radius: 10px; background: var(--wtorre-soft); color: var(--wtorre);
-        display: grid; place-items: center; margin-bottom: 6px;
-      }
-      .wimp-dropzone:not(.wimp-dropzone--embed) .wimp-dropzone__icon svg { width: 20px; height: 20px; }
-      .wimp-dropzone:not(.wimp-dropzone--embed) .wimp-dropzone__title { font-size: 14px; font-weight: 600; }
-      .wimp-dropzone:not(.wimp-dropzone--embed) .wimp-dropzone__hint { font-size: 12px; color: var(--ink-3); }
 
       .wimp-filecard {
         display: flex; align-items: center; gap: 12px; padding: 12px 14px;
@@ -857,25 +713,19 @@ interface VeicDecisionState {
         .wimp-cols__desc { grid-column: 1 / -1; }
         .wimp-diff__row { grid-template-columns: 1fr 1fr 40px; }
         .wimp-diff__field { grid-column: 1 / -1; }
-        .wimp-dropzone--embed {
-          flex-wrap: wrap;
-          justify-content: flex-start;
-          gap: 12px;
-        }
-        .wimp-dropzone--embed .wimp-dropzone__title {
-          white-space: normal;
-        }
-        .wimp-embed__template {
-          width: 100%;
-          justify-content: center;
-        }
         .wimp-filecard--embed {
           flex-wrap: wrap;
           width: 100%;
         }
-        .wimp-template-row {
-          flex-direction: column;
-          align-items: stretch;
+        .upload-dropzone--banner {
+          flex-wrap: wrap;
+        }
+        .upload-dropzone--banner .upload-dropzone__title {
+          white-space: normal;
+        }
+        .upload-dropzone__action {
+          width: 100%;
+          justify-content: center;
         }
       }
     `,
@@ -947,7 +797,6 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   uploadError = signal<string | null>(null);
   tokenConsumed = signal(false);
   dragging = signal(false);
-  embedHover = signal(false);
   colDecisions = signal<Record<number, ColDecisionState>>({});
   veicDecisions = signal<Record<number, VeicDecisionState>>({});
 
@@ -1032,7 +881,6 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   clearFile() {
     this.file.set(null);
     this.uploadError.set(null);
-    this.embedHover.set(false);
   }
 
   ngOnChanges(changes: SimpleChanges) {

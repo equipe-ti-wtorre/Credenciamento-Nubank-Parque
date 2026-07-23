@@ -1,9 +1,13 @@
 import {
+  AfterViewInit,
   ChangeDetectorRef,
   Component,
+  ElementRef,
   OnDestroy,
   OnInit,
+  ViewChild,
   ViewEncapsulation,
+  inject,
   signal,
 } from '@angular/core';
 import {
@@ -19,6 +23,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subscription, filter } from 'rxjs';
 import { AuthService, AuthUser, hasPermission, isSectorGestor } from '../core/services/auth.service';
 import { SessionIdleService } from '../core/services/session-idle.service';
+import { ThemeService } from '../core/services/theme.service';
 import { StorageService } from '../core/services/storage.service';
 import { ApprovalService } from '../services/approval.service';
 import { DocumentChangeService } from '../services/document-change.service';
@@ -55,12 +60,16 @@ interface NavGroup {
   templateUrl: './main-layout.component.html',
   styleUrls: ['./main-layout.component.scss'],
 })
-export class MainLayoutComponent implements OnInit, OnDestroy {
+export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
+  @ViewChild('navScroll') private navScrollRef?: ElementRef<HTMLElement>;
+
   collapsed = signal(false);
   pageTitle = signal(DEFAULT_TITLE);
   isGatePage = signal(false);
   pendingApprovals = signal(0);
   pendingDocumentApprovals = signal(0);
+  navCanScrollUp = signal(false);
+  navCanScrollDown = signal(false);
 
   navGroups: NavGroup[] = [];
 
@@ -73,6 +82,8 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
   /** Icones SVG sanitizados UMA vez (sem chamada de metodo por render). */
   private readonly iconMap: Map<string, SafeHtml>;
   private routerSub?: Subscription;
+  private navResizeObserver?: ResizeObserver;
+  private navHintRaf = 0;
 
   private readonly rawIcons: Record<string, string> = {
     home: '<path d="M3 10l9-7 9 7v10a1 1 0 01-1 1h-5v-7H9v7H4a1 1 0 01-1-1z" stroke-linejoin="round"/>',
@@ -99,6 +110,8 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     wrench:
       '<path d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 005.4-5.4l-2.6 2.6-2.3-2.3 2.9-2.3z" stroke-linecap="round" stroke-linejoin="round"/>',
   };
+
+  readonly theme = inject(ThemeService);
 
   constructor(
     private authService: AuthService,
@@ -166,6 +179,7 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     const storedCollapsed = await this.storage.get(SIDEBAR_COLLAPSED_KEY);
     this.collapsed.set(storedCollapsed === '1');
 
+    void this.theme.syncFromApi();
     void this.sessionIdle.startMonitoring();
 
     // Sino / card do Teams: contentUrl é "/" — navegar para /aprovacoes/:id via subEntityId
@@ -203,8 +217,48 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
   }
 
+  ngAfterViewInit(): void {
+    const el = this.navScrollRef?.nativeElement;
+    if (el && typeof ResizeObserver !== 'undefined') {
+      this.navResizeObserver = new ResizeObserver(() => this.scheduleNavScrollHintUpdate());
+      this.navResizeObserver.observe(el);
+    }
+    this.scheduleNavScrollHintUpdate();
+  }
+
   ngOnDestroy(): void {
     this.routerSub?.unsubscribe();
+    this.navResizeObserver?.disconnect();
+    if (this.navHintRaf) cancelAnimationFrame(this.navHintRaf);
+  }
+
+  onNavScroll(): void {
+    this.updateNavScrollHints();
+  }
+
+  scrollNav(direction: -1 | 1): void {
+    const el = this.navScrollRef?.nativeElement;
+    if (!el) return;
+    el.scrollBy({ top: direction * Math.max(120, el.clientHeight * 0.55), behavior: 'smooth' });
+  }
+
+  private scheduleNavScrollHintUpdate(): void {
+    if (this.navHintRaf) cancelAnimationFrame(this.navHintRaf);
+    this.navHintRaf = requestAnimationFrame(() => this.updateNavScrollHints());
+  }
+
+  private updateNavScrollHints(): void {
+    const el = this.navScrollRef?.nativeElement;
+    if (!el) {
+      this.navCanScrollUp.set(false);
+      this.navCanScrollDown.set(false);
+      return;
+    }
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    const top = el.scrollTop;
+    const epsilon = 2;
+    this.navCanScrollUp.set(maxScroll > epsilon && top > epsilon);
+    this.navCanScrollDown.set(maxScroll > epsilon && top < maxScroll - epsilon);
   }
 
   private roleLabel(role: string): string {
@@ -296,6 +350,7 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     }
 
     this.navGroups = groups;
+    this.scheduleNavScrollHintUpdate();
   }
 
   badgeCountFor(item: NavItem): number {
@@ -359,6 +414,7 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
     const next = !this.collapsed();
     this.collapsed.set(next);
     await this.storage.set(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+    this.scheduleNavScrollHintUpdate();
   }
 
   async logout() {

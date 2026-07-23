@@ -97,6 +97,7 @@ function mapCompanyRow(row, contacts = null) {
     cnpj: row.cnpj,
     company_name: row.company_name,
     fancy_name: row.fancy_name || null,
+    logo: row.logo || null,
     status: !!row.status,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
@@ -406,6 +407,27 @@ async function inviteCompanyAccess(companyId, data, { usuarioId, requestId } = {
   });
 }
 
+async function updateCompanyLogo(id, filename) {
+  const existing = await findCompanyById(id);
+  if (!existing) throw new AppError("Empresa não encontrada.", 404);
+
+  const previousLogo = existing.logo || null;
+  await db.execute("UPDATE company SET logo = ? WHERE id_company = ?", [filename, id]);
+
+  if (previousLogo && previousLogo !== filename) {
+    const path = require("path");
+    const fs = require("fs");
+    const oldPath = path.join(__dirname, "../../storage/company-logos", path.basename(previousLogo));
+    try {
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    } catch {
+      /* ignore orphan cleanup failures */
+    }
+  }
+
+  return getCompanyDetailById(id);
+}
+
 module.exports = {
   TYPE_EMPRESA_PADRAO,
   parseListQuery,
@@ -418,6 +440,7 @@ module.exports = {
   createCompany,
   updateCompany,
   updateCompanyStatus,
+  updateCompanyLogo,
   findActiveCompanyById,
   findCompanyById,
   mapCompanyRow,

@@ -24,6 +24,11 @@ import { ErrorInterceptor } from './core/interceptors/error.interceptor';
 import { MsalConfigService } from './services/msal-config.service';
 import { PlatformService } from './core/services/platform.service';
 import { AuthService } from './core/services/auth.service';
+import {
+  ThemeService,
+  themeCacheInitializer,
+  themeApiSyncInitializer,
+} from './core/services/theme.service';
 import { bootstrapPlatform } from './core/platform-bootstrap';
 import { provideCharts, withDefaultRegisterables } from 'ng2-charts';
 
@@ -67,6 +72,18 @@ export const appConfig: ApplicationConfig = {
     importProvidersFrom(BrowserModule, MsalModule),
     provideAnimations(),
     provideCharts(withDefaultRegisterables()),
+    {
+      provide: APP_INITIALIZER,
+      useFactory: themeCacheInitializer,
+      deps: [ThemeService],
+      multi: true,
+    },
+    {
+      provide: APP_INITIALIZER,
+      useFactory: themeApiSyncInitializer,
+      deps: [ThemeService],
+      multi: true,
+    },
     {
       provide: APP_INITIALIZER,
       useFactory: msalConfigInitializer,

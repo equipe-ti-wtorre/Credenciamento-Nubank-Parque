@@ -1,19 +1,25 @@
-<div class="wt-layout" [class.collapsed]="collapsed()" [class.is-gate-page]="isGatePage()">
+<div
+  class="wt-layout"
+  [class.collapsed]="collapsed()"
+  [class.is-gate-page]="isGatePage()"
+  [class.theme-nubank]="theme.palette() === 'nubank-parque'"
+>
   <!-- ============ SIDEBAR ============ -->
   <aside class="wt-sidebar">
     <div class="brand">
       <a routerLink="/dashboard" class="logo" title="Início">
         <img
           class="logo-full"
-          src="assets/logo.svg"
-          alt="WTorre"
-          width="120"
-          height="26"
+          [src]="theme.logoSidebarSrc()"
+          [alt]="theme.logoAlt()"
+          width="210"
+          height="44"
         />
         <img
           class="logo-mark"
-          src="assets/wt-mark.svg"
-          alt="WTorre"
+          [class.logo-mark--wordmark]="theme.palette() === 'nubank-parque'"
+          [src]="theme.logoMarkSrc()"
+          [alt]="theme.logoAlt()"
           width="24"
           height="24"
         />
@@ -51,40 +57,85 @@
       </div>
     </div>
 
-    <nav class="nav" aria-label="Navegação principal">
-      @for (group of navGroups; track $index) {
-        @if (group.title) {
-          <div class="nav-label">{{ group.title }}</div>
-        }
-        @for (item of group.items; track item.route) {
-          <a
-            class="wt-nav-item"
-            [routerLink]="item.route"
-            routerLinkActive="active"
-            [routerLinkActiveOptions]="{ exact: !!item.exact }"
-            [title]="collapsed() ? item.label : ''"
-          >
-            <span class="ico" aria-hidden="true">
-              @if (item.iconLibrary === 'fontawesome' && item.iconName) {
-                <i [class]="faIconClass(item.iconName)"></i>
-              } @else if (item.iconLibrary === 'material' && item.iconName) {
-                <span class="material-symbols-outlined">{{ item.iconName }}</span>
-              } @else if (item.iconLibrary === 'image' && item.iconSrc) {
-                <img [src]="item.iconSrc" alt="" class="nav-ico-img" />
-              } @else {
-                <span [innerHTML]="item.iconHtml"></span>
+    <div class="nav-shell">
+      <button
+        type="button"
+        class="nav-scroll-hint nav-scroll-hint--up"
+        [class.nav-scroll-hint--visible]="navCanScrollUp()"
+        (click)="scrollNav(-1)"
+        tabindex="-1"
+        aria-hidden="true"
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M6 14.5 12 8.5l6 6"
+            stroke="currentColor"
+            stroke-width="2.25"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+
+      <nav
+        #navScroll
+        class="nav"
+        aria-label="Navegação principal"
+        (scroll)="onNavScroll()"
+      >
+        @for (group of navGroups; track $index) {
+          @if (group.title) {
+            <div class="nav-label">{{ group.title }}</div>
+          }
+          @for (item of group.items; track item.route) {
+            <a
+              class="wt-nav-item"
+              [routerLink]="item.route"
+              routerLinkActive="active"
+              [routerLinkActiveOptions]="{ exact: !!item.exact }"
+              [title]="collapsed() ? item.label : ''"
+            >
+              <span class="ico" aria-hidden="true">
+                @if (item.iconLibrary === 'fontawesome' && item.iconName) {
+                  <i [class]="faIconClass(item.iconName)"></i>
+                } @else if (item.iconLibrary === 'material' && item.iconName) {
+                  <span class="material-symbols-outlined">{{ item.iconName }}</span>
+                } @else if (item.iconLibrary === 'image' && item.iconSrc) {
+                  <img [src]="item.iconSrc" alt="" class="nav-ico-img" />
+                } @else {
+                  <span [innerHTML]="item.iconHtml"></span>
+                }
+              </span>
+              <span class="txt">{{ item.label }}</span>
+              @if (item.showBadge && badgeCountFor(item) > 0) {
+                <span class="badge" [attr.aria-label]="badgeCountFor(item) + ' pendências'">{{
+                  badgeCountFor(item)
+                }}</span>
               }
-            </span>
-            <span class="txt">{{ item.label }}</span>
-            @if (item.showBadge && badgeCountFor(item) > 0) {
-              <span class="badge" [attr.aria-label]="badgeCountFor(item) + ' pendências'">{{
-                badgeCountFor(item)
-              }}</span>
-            }
-          </a>
+            </a>
+          }
         }
-      }
-    </nav>
+      </nav>
+
+      <button
+        type="button"
+        class="nav-scroll-hint nav-scroll-hint--down"
+        [class.nav-scroll-hint--visible]="navCanScrollDown()"
+        (click)="scrollNav(1)"
+        tabindex="-1"
+        aria-hidden="true"
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M6 9.5 12 15.5l6-6"
+            stroke="currentColor"
+            stroke-width="2.25"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
 
     <button
       type="button"

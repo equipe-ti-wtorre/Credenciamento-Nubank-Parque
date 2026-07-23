@@ -5,11 +5,18 @@
    Fontes (Sora + Plus Jakarta Sans) carregadas no index.html.
    ========================================================= */
 .wt-layout {
-  /* Tokens prefixados --wt-* (escopo do layout, nao no :root global) */
-  --wt-sidebar: #0e1626;
-  --wt-sidebar-2: #121d33;
-  --wt-sidebar-line: rgba(255, 255, 255, 0.07);
-  --wt-bg: #f3f5fa;
+  /* Tokens prefixados --wt-* — menu herda --menu-* da paleta ativa (data-theme) */
+  --wt-sidebar: var(--menu-bg-top);
+  --wt-sidebar-2: var(--menu-bg);
+  --wt-sidebar-line: var(--menu-line);
+  --wt-menu-label: var(--menu-label-inactive);
+  --wt-menu-icon: var(--menu-icon-inactive);
+  --wt-menu-section: var(--menu-section);
+  --wt-menu-label-active: var(--menu-label-active);
+  --wt-menu-active: var(--menu-active);
+  --wt-menu-status: var(--menu-status);
+  --wt-menu-muted: var(--menu-muted);
+  --wt-bg: var(--app-bg, #f3f5fa);
   --wt-surface: #fff;
   --wt-surface-2: #fafbfe;
   --wt-border: #e7eaf2;
@@ -19,7 +26,7 @@
   --wt-muted: #8a92a8;
   --wt-primary: var(--wtorre);
   --wt-primary-soft: var(--wtorre-tonal-bg);
-  --wt-success: #13a36b;
+  --wt-success: var(--menu-status, #13a36b);
   --wt-warning: #d98315;
   --wt-info: #2f7ef0;
   --wt-danger: #e23a47;
@@ -49,7 +56,7 @@
   /* ---------------- SIDEBAR ---------------- */
   .wt-sidebar {
     background: linear-gradient(180deg, var(--wt-sidebar), var(--wt-sidebar-2));
-    color: #cdd4e4;
+    color: var(--wt-menu-label);
     display: flex;
     flex-direction: column;
     height: 100vh;
@@ -83,6 +90,13 @@
         height: 24px;
         width: 24px;
       }
+
+      .logo-mark--wordmark {
+        width: auto;
+        height: 14px;
+        max-width: 56px;
+        object-fit: contain;
+      }
     }
 
     .collapse {
@@ -95,7 +109,7 @@
       border-radius: 8px;
       display: grid;
       place-items: center;
-      color: #7f8aa6;
+      color: var(--wt-menu-muted);
       background: rgba(255, 255, 255, 0.04);
       border: none;
       cursor: pointer;
@@ -109,13 +123,29 @@
 
       &:hover {
         background: rgba(255, 255, 255, 0.09);
-        color: #fff;
+        color: var(--wt-menu-label-active);
       }
 
       &:focus-visible {
-        outline: 2px solid var(--wt-primary);
+        outline: 2px solid var(--wt-menu-active);
         outline-offset: 2px;
       }
+    }
+  }
+
+  &.theme-nubank {
+    .brand {
+      padding: 26px 38px 22px 16px;
+    }
+
+    .brand .logo .logo-full {
+      height: 44px;
+      max-width: 210px;
+    }
+
+    .brand .logo .logo-mark--wordmark {
+      height: 22px;
+      max-width: 72px;
     }
   }
 
@@ -133,7 +163,7 @@
       overflow: hidden;
 
       .name {
-        color: #fff;
+        color: var(--wt-menu-label-active);
         font-weight: 600;
         font-size: 14px;
         white-space: nowrap;
@@ -142,7 +172,7 @@
       }
 
       .role {
-        color: #7f8aa6;
+        color: var(--wt-menu-muted);
         font-size: 12px;
         margin-top: 1px;
         white-space: nowrap;
@@ -158,8 +188,8 @@
     display: grid;
     place-items: center;
     overflow: hidden;
-    background: linear-gradient(135deg, var(--wt-primary), #8b7bff);
-    color: #fff;
+    background: linear-gradient(135deg, var(--wt-menu-active), var(--wt-primary));
+    color: var(--wt-menu-label-active);
     font-weight: 700;
     font-family: var(--wt-display);
     font-size: 15px;
@@ -183,8 +213,17 @@
     }
   }
 
+  .nav-shell {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
   .nav {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 6px 12px 12px;
 
@@ -198,11 +237,66 @@
     }
   }
 
+  .nav-scroll-hint {
+    position: absolute;
+    left: 0;
+    right: 6px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    padding: 0;
+    border: none;
+    cursor: pointer;
+    color: #fff;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+    background: transparent;
+
+    svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+    }
+
+    &--visible {
+      opacity: 0.95;
+      pointer-events: auto;
+    }
+
+    &--up {
+      top: 0;
+      background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--wt-sidebar) 92%, transparent) 0%,
+        color-mix(in srgb, var(--wt-sidebar) 55%, transparent) 70%,
+        transparent 100%
+      );
+    }
+
+    &--down {
+      bottom: 0;
+      background: linear-gradient(
+        0deg,
+        color-mix(in srgb, var(--wt-sidebar-2) 92%, transparent) 0%,
+        color-mix(in srgb, var(--wt-sidebar-2) 55%, transparent) 70%,
+        transparent 100%
+      );
+    }
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+
   .nav-label {
     font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 1.4px;
-    color: #5d6883;
+    color: var(--wt-menu-section);
     text-transform: uppercase;
     padding: 16px 12px 8px;
     white-space: nowrap;
@@ -214,7 +308,7 @@
     gap: 12px;
     padding: 10px 12px;
     border-radius: 11px;
-    color: #aab2c8;
+    color: var(--wt-menu-label);
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
@@ -229,6 +323,7 @@
       width: 19px;
       height: 19px;
       flex-shrink: 0;
+      color: var(--wt-menu-icon);
 
       &:has(.nav-ico-img) {
         width: 22px;
@@ -271,18 +366,26 @@
 
     &:hover {
       background: rgba(255, 255, 255, 0.05);
-      color: #fff;
+      color: var(--wt-menu-label-active);
+
+      .ico {
+        color: var(--wt-menu-label-active);
+      }
     }
 
     &:focus-visible {
-      outline: 2px solid var(--wt-primary);
+      outline: 2px solid var(--wt-menu-active);
       outline-offset: 2px;
     }
 
     &.active {
-      background: linear-gradient(90deg, rgba(91, 80, 232, 0.22), rgba(91, 80, 232, 0.04));
-      color: #fff;
+      background: color-mix(in srgb, var(--wt-menu-active) 22%, transparent);
+      color: var(--wt-menu-label-active);
       font-weight: 600;
+
+      .ico {
+        color: var(--wt-menu-label-active);
+      }
 
       .ico .nav-ico-img {
         filter: brightness(0) invert(1);
@@ -297,7 +400,7 @@
         width: 3px;
         height: 20px;
         border-radius: 0 3px 3px 0;
-        background: var(--wt-primary);
+        background: var(--wt-menu-active);
       }
     }
 
@@ -305,8 +408,8 @@
       margin-left: auto;
       font-size: 10.5px;
       font-weight: 700;
-      background: var(--wt-primary);
-      color: #fff;
+      background: var(--wt-menu-status);
+      color: var(--menu-bg, #0e1626);
       padding: 2px 7px;
       border-radius: 20px;
     }
@@ -319,7 +422,7 @@
     gap: 11px;
     padding: 11px 14px;
     border-radius: 12px;
-    color: #aab2c8;
+    color: var(--wt-menu-label);
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -340,7 +443,7 @@
     }
 
     &:focus-visible {
-      outline: 2px solid var(--wt-primary);
+      outline: 2px solid var(--wt-menu-active);
       outline-offset: 2px;
     }
 

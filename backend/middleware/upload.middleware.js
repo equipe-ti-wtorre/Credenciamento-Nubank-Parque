@@ -69,6 +69,14 @@ const pictureUploadMiddleware = createUploadMiddleware({
   invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
 });
 
+const logoUploadMiddleware = createUploadMiddleware({
+  fieldName: "logo",
+  extensions: IMAGE_EXTENSIONS,
+  mimetypes: IMAGE_MIMETYPES,
+  maxSize: 2 * 1024 * 1024,
+  invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
+});
+
 function createOptionalUploadMiddleware({ fieldName, extensions, mimetypes, maxSize, invalidMessage }) {
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -108,6 +116,7 @@ const merchandisePhotoMiddleware = createOptionalUploadMiddleware({
 module.exports = {
   bulkUploadMiddleware,
   pictureUploadMiddleware,
+  logoUploadMiddleware,
   merchandisePhotoMiddleware,
   createUploadMiddleware,
   MAX_FILE_SIZE,

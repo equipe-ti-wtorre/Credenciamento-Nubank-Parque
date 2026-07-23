@@ -158,3 +158,37 @@ exports.inviteAccess = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.uploadLogo = async (req, res, next) => {
+  try {
+    const path = require("path");
+    const fs = require("fs");
+    const { v4: uuidv4 } = require("uuid");
+
+    if (!req.file) {
+      throw new AppError("Envie o arquivo do logo.", 400);
+    }
+
+    const storageDir = path.join(__dirname, "../../storage/company-logos");
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const ext = path.extname(req.file.originalname || ".jpg").toLowerCase() || ".jpg";
+    const safeExt = [".jpg", ".jpeg", ".png", ".webp"].includes(ext) ? ext : ".jpg";
+    const filename = `${uuidv4()}${safeExt}`;
+    fs.writeFileSync(path.join(storageDir, filename), req.file.buffer);
+
+    const company = await companyService.updateCompanyLogo(req.params.id, filename);
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "companies",
+      event: "company.logo.upload",
+      resource: { type: "company", id: company.id_company },
+      changes: { logo: filename },
+    });
+
+    res.json({ company, logo: filename });
+  } catch (err) {
+    next(err);
+  }
+};

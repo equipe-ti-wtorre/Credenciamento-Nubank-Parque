@@ -1,0 +1,154 @@
+:host {
+  display: block;
+  min-height: 100vh;
+}
+
+.auth-nubank {
+  display: flex;
+  min-height: 100vh;
+  font-family: var(--font-body);
+  color: var(--text-primary, #1e293b);
+}
+
+.auth-nubank__hero {
+  flex: 1.15;
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(150deg, #9a1cf0 0%, var(--core-purple) 45%, #6f0ab2 100%);
+  display: flex;
+  flex-direction: column;
+  padding: 44px 52px;
+}
+
+.auth-nubank__bars {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  z-index: 1;
+  opacity: 0.97;
+
+  svg {
+    height: 100%;
+    width: auto;
+    display: block;
+  }
+}
+
+.auth-nubank__wm {
+  position: relative;
+  z-index: 2;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+}
+
+.auth-nubank__mid {
+  position: relative;
+  z-index: 2;
+  margin-top: auto;
+  max-width: 560px;
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 52px;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    margin: 0;
+  }
+
+  p {
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--purple-100);
+    margin: 20px 0 0;
+    max-width: 440px;
+  }
+}
+
+.auth-nubank__tagline {
+  position: relative;
+  z-index: 2;
+  margin-top: 34px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+  opacity: 0.9;
+}
+
+.auth-nubank__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green-300);
+  margin-right: 9px;
+  vertical-align: middle;
+}
+
+.auth-nubank__panel {
+  flex: 0.85;
+  background: var(--color-bg-surface-alt, #faf8fd);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 40px 70px;
+  position: relative;
+}
+
+.auth-nubank__outlet {
+  width: 100%;
+  max-width: 392px;
+}
+
+.auth-nubank__foot {
+  position: absolute;
+  bottom: 22px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: #a99cbb;
+}
+
+@media (max-width: 880px) {
+  .auth-nubank {
+    flex-direction: column;
+  }
+
+  .auth-nubank__hero {
+    flex: none;
+    padding: 30px 26px 34px;
+  }
+
+  .auth-nubank__bars {
+    opacity: 0.9;
+  }
+
+  .auth-nubank__mid {
+    margin-top: 24px;
+
+    h1 {
+      font-size: 34px;
+    }
+
+    p {
+      font-size: 15px;
+    }
+  }
+
+  .auth-nubank__tagline {
+    margin-top: 22px;
+  }
+
+  .auth-nubank__panel {
+    flex: 1;
+    padding: 34px 22px 70px;
+  }
+}

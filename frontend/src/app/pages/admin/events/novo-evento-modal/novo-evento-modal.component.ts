@@ -31,7 +31,7 @@ import {
 const SUBS: Record<number, string> = {
   1: 'Preencha os dados básicos e selecione o período no calendário.',
   2: 'Marque em quais dias ocorre montagem, show, desmontagem ou jogo. É opcional.',
-  3: 'Confira tudo antes de salvar o evento.',
+  3: 'O setor só será notificado depois, quando a produtora responsável clicar em Notificar.',
 };
 
 @Component({
@@ -344,7 +344,9 @@ export class NovoEventoModalComponent {
       .subscribe({
         next: (res) => {
           this.saving.set(false);
-          this.notification.success('Evento criado.');
+          this.notification.success(
+            'Evento criado. A empresa responsável será notificada por e-mail.',
+          );
           this.saved.emit(res.event);
         },
         error: (err) => {

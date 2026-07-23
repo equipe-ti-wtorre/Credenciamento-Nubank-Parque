@@ -7,6 +7,7 @@ import { DashboardComponent } from './pages/dashboard/dashboard.component';
 import { TenantListComponent } from './pages/admin/tenants/tenant-list.component';
 import { SmtpSettingsComponent } from './pages/admin/smtp/smtp-settings.component';
 import { SessionSettingsComponent } from './pages/admin/session/session-settings.component';
+import { AppearanceSettingsComponent } from './pages/admin/appearance/appearance-settings.component';
 import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
 import { AboutComponent } from './pages/admin/about/about.component';
 import { SystemReportsComponent } from './pages/admin/system-reports/system-reports.component';
@@ -301,6 +302,16 @@ export const routes: Routes = [
             canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
             data: { permission: { module: 'settings_session', action: 'view' }, title: 'Sessão' },
+          },
+          {
+            path: 'aparencia',
+            component: AppearanceSettingsComponent,
+            canActivate: [PermissionGuard],
+            runGuardsAndResolvers: 'always',
+            data: {
+              permission: { module: 'settings_appearance', action: 'view' },
+              title: 'Aparência',
+            },
           },
           {
             path: 'teams',

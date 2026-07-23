@@ -721,8 +721,6 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
   styles: [
     `
       :host {
-        --wtorre: #1d54e6;
-        --wtorre-hover: #1846c4;
         --ink: #14182b;
         --ink-2: #5a6178;
         --ink-3: #8b91a7;

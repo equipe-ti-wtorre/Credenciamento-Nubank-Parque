@@ -277,6 +277,21 @@ const migrations = [
     filename: "039_event_ativo.sql",
     validate: (conn) => columnExists(conn, "event", "ativo"),
   },
+  {
+    filename: "040_event_setor_solicitante_notify.sql",
+    validate: (conn) =>
+      columnExists(conn, "event", "id_setor") &&
+      columnExists(conn, "event", "id_solicitante") &&
+      tableExists(conn, "event_company_notify"),
+  },
+  {
+    filename: "041_system_settings_color_palette.sql",
+    validate: (conn) => columnExists(conn, "system_settings", "color_palette"),
+  },
+  {
+    filename: "042_company_logo.sql",
+    validate: (conn) => columnExists(conn, "company", "logo"),
+  },
 ];
 
 module.exports = migrations;

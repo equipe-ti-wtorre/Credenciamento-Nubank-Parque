@@ -15,6 +15,7 @@ const {
   eventCompanyBulkConfirmSchema,
 } = require("./event.schema");
 const { notifyApprovalCreated } = require("../approvals/approvals.notifications");
+const eventNotifications = require("./event.notifications");
 
 exports.listTypes = async (req, res, next) => {
   try {
@@ -116,8 +117,17 @@ exports.create = async (req, res, next) => {
       },
     });
 
-    const { approvalCreated, ...eventPayload } = event;
+    const { approvalCreated, notifyResponsavelEmail, ...eventPayload } = event;
     res.status(201).json({ event: eventPayload });
+
+    if (notifyResponsavelEmail && eventPayload.id_company_responsavel) {
+      eventNotifications.notifyEventCreated({
+        event: eventPayload,
+        idCompanyResponsavel: eventPayload.id_company_responsavel,
+        usuarioId: req.user?.id || null,
+        requestId: req.id || null,
+      });
+    }
 
     if (approvalCreated) {
       setImmediate(() => {
@@ -324,14 +334,20 @@ exports.syncCompanyPhases = async (req, res, next) => {
       value.phases,
     );
 
+    const {
+      partnerNewlyLinked,
+      partnerCompanyName,
+      ...eventPayload
+    } = event;
+
     attachAudit(req, {
       action: "UPDATE",
       module: "events",
       event: "events.company_phases_sync",
       resource: {
         type: "event",
-        id: event.id_event,
-        name: event.name,
+        id: eventPayload.id_event,
+        name: eventPayload.name,
       },
       changes: {
         id_company: Number(req.params.idCompany),
@@ -339,7 +355,121 @@ exports.syncCompanyPhases = async (req, res, next) => {
       },
     });
 
-    res.json({ event });
+    res.json({ event: eventPayload });
+
+    if (partnerNewlyLinked) {
+      eventNotifications.notifyPartnerLinked({
+        event: eventPayload,
+        idCompanyPartner: Number(req.params.idCompany),
+        partnerName: partnerCompanyName,
+        usuarioId: req.user?.id || null,
+        requestId: req.id || null,
+      });
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.submitApproval = async (req, res, next) => {
+  try {
+    const event = await eventService.submitEventApproval(req, req.params.id);
+    const { approvalCreated, ...eventPayload } = event;
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "events",
+      event: "events.submit_approval",
+      resource: {
+        type: "event",
+        id: eventPayload.id_event,
+        name: eventPayload.name,
+      },
+      metadata: {
+        id_aprovacao: approvalCreated?.id || null,
+        id_setor: event.id_setor || eventPayload.id_setor || null,
+      },
+    });
+
+    res.json({ event: eventPayload });
+
+    if (approvalCreated) {
+      setImmediate(() => {
+        void notifyApprovalCreated({
+          idAprovacao: approvalCreated.id,
+          idSetor: event.id_setor || eventPayload.id_setor,
+          idSolicitante: eventPayload.id_solicitante || req.user.id,
+        }).catch(() => {});
+      });
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.notifyCompanyComplete = async (req, res, next) => {
+  try {
+    const event = await eventService.notifyCompanyComplete(
+      req,
+      req.params.id,
+      req.params.idCompany,
+    );
+    const { notifyCompleteEmail, ...eventPayload } = event;
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "events",
+      event: "events.company_notify_complete",
+      resource: {
+        type: "event",
+        id: eventPayload.id_event,
+        name: eventPayload.name,
+      },
+      changes: {
+        id_company: Number(req.params.idCompany),
+      },
+    });
+
+    res.json({ event: eventPayload });
+
+    if (notifyCompleteEmail) {
+      eventNotifications.notifyPartnerComplete({
+        event: eventPayload,
+        idCompanyResponsavel: notifyCompleteEmail.idCompanyResponsavel,
+        partnerName: notifyCompleteEmail.partnerName,
+        usuarioId: req.user?.id || null,
+        requestId: req.id || null,
+      });
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.removeCompanyFromEvent = async (req, res, next) => {
+  try {
+    const removed = await eventService.removeCompanyFromEvent(
+      req,
+      req.params.id,
+      req.params.idCompany,
+    );
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "events",
+      event: "events.companies.remove",
+      resource: {
+        type: "event_company",
+        id: removed.id_company,
+        id_event: removed.id_event,
+      },
+      changes: {
+        id_company: removed.id_company,
+        removed_links: removed.removed_links,
+      },
+    });
+
+    res.json({ removed });
   } catch (err) {
     next(err);
   }

@@ -1,7 +1,10 @@
 const AppError = require("../../utils/AppError");
 const { logAudit } = require("../../utils/auditLogger");
 const systemSettingsService = require("./system-settings.service");
-const { sessionSettingsSchema } = require("./system-settings.schema");
+const {
+  sessionSettingsSchema,
+  appearanceSettingsSchema,
+} = require("./system-settings.schema");
 
 exports.getSessionSettings = async (req, res, next) => {
   try {
@@ -27,6 +30,38 @@ exports.updateSessionSettings = async (req, res, next) => {
       module: "system_settings",
       req,
       metadata: { session_idle_minutes: settings.session_idle_minutes },
+    });
+
+    res.json({ settings });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAppearanceSettings = async (req, res, next) => {
+  try {
+    const settings = await systemSettingsService.getAppearanceSettings();
+    res.json({ settings });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateAppearanceSettings = async (req, res, next) => {
+  try {
+    const { error, value } = appearanceSettingsSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const settings = await systemSettingsService.updateAppearanceSettings(
+      value.color_palette,
+    );
+
+    await logAudit({
+      userId: req.user?.id,
+      action: "UPDATE",
+      module: "system_settings",
+      req,
+      metadata: { color_palette: settings.color_palette },
     });
 
     res.json({ settings });

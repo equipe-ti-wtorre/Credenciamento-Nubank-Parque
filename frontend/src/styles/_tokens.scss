@@ -1,18 +1,29 @@
-// Design tokens — Intranet WTorre (fonte única de verdade)
+// Design tokens — Intranet Credenciamento (fonte única de verdade)
+// Paletas: WTorre (padrão) e Nubank Parque via html[data-theme]
 
-:root {
-  // Marca
-  --wtorre: #1d54e6;
-  --wtorre-hover: #1442ba;
-  --wtorre-tonal-bg: #e8eefd;
-  --wtorre-focus-ring: color-mix(in srgb, var(--wtorre) 25%, transparent);
+:root,
+[data-theme='wtorre'] {
+  // Marca semântica
+  --brand: #1d54e6;
+  --brand-hover: #1442ba;
+  --brand-tonal-bg: #e8eefd;
+  --brand-focus-ring: color-mix(in srgb, var(--brand) 25%, transparent);
+
+  // Compatibilidade: nomes legados
+  --wtorre: var(--brand);
+  --wtorre-hover: var(--brand-hover);
+  --wtorre-tonal-bg: var(--brand-tonal-bg);
+  --wtorre-focus-ring: var(--brand-focus-ring);
+  --wtorre-600: var(--wtorre-hover);
+  --wtorre-tint: var(--wtorre-tonal-bg);
+  --wtorre-tint-2: color-mix(in srgb, var(--wtorre) 18%, white);
 
   // Perigo
   --danger: #e11d48;
   --danger-soft-bg: #fff1f2;
   --danger-border: #fecdd3;
 
-  // Tipografia (fontes reais do projeto — referenciar sempre estes tokens)
+  // Tipografia
   --font-display: 'Sora', system-ui, sans-serif;
   --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
 
@@ -32,14 +43,106 @@
   --app-text-muted: var(--text-muted);
   --app-border: var(--color-border-primary);
   --app-nav-hover-bg: #f1f5f9;
-  --app-nav-active-bg: color-mix(in srgb, var(--wtorre) 12%, white);
-  --app-nav-active-text: var(--wtorre);
+  --app-nav-active-bg: color-mix(in srgb, var(--brand) 12%, white);
+  --app-nav-active-text: var(--brand);
 
-  // Aliases de compatibilidade (deprecar gradualmente)
-  --color-primary: var(--wtorre);
-  --color-primary-dark: var(--wtorre-hover);
-  --color-primary-light: color-mix(in srgb, var(--wtorre) 70%, white);
-  --color-success: var(--wtorre);
+  // Aliases de compatibilidade
+  --color-primary: var(--brand);
+  --color-primary-dark: var(--brand-hover);
+  --color-primary-light: color-mix(in srgb, var(--brand) 70%, white);
+  --color-success: var(--brand);
   --color-text-primary: var(--text-primary);
   --color-text-muted: var(--text-muted);
+
+  // Paleta do menu (sidebar) — chrome escuro WTorre
+  --menu-bg: #121d33; // base (fim do gradiente)
+  --menu-bg-top: #0e1626; // topo do gradiente
+  --menu-active: var(--brand);
+  --menu-label-inactive: #aab2c8;
+  --menu-icon-inactive: #aab2c8;
+  --menu-section: #5d6883;
+  --menu-label-active: #ffffff;
+  --menu-status: #13a36b;
+  --menu-line: rgba(255, 255, 255, 0.07);
+  --menu-muted: #7f8aa6;
+}
+
+// Nubank Parque — Core Purple + herança verde
+[data-theme='nubank-parque'] {
+  --core-purple: #8d0de3;
+  --purple-900: #420465;
+  --purple-300: #cba5fd;
+  --purple-100: #ecdfff;
+  --purple-1000: #1e002f;
+  --green-900: #174006;
+  --green-300: #a7d296;
+  --green-200: #c9e2bf;
+  --green-100: #e9f7e4;
+
+  --brand: #8d0de3;
+  --brand-hover: #7209bd;
+  --brand-tonal-bg: var(--purple-100);
+  --brand-ink: var(--purple-900);
+  --brand-focus-ring: color-mix(in srgb, var(--brand) 25%, transparent);
+
+  --wtorre: var(--brand);
+  --wtorre-hover: var(--brand-hover);
+  --wtorre-tonal-bg: var(--brand-tonal-bg);
+  --wtorre-focus-ring: var(--brand-focus-ring);
+  --wtorre-600: var(--wtorre-hover);
+  --wtorre-tint: var(--wtorre-tonal-bg);
+  --wtorre-tint-2: color-mix(in srgb, var(--wtorre) 18%, white);
+
+  --success: var(--green-900);
+  --success-soft-bg: var(--green-100);
+  --success-border: var(--green-200);
+
+  --warning: #b45309;
+  --warning-soft-bg: #fef3e2;
+
+  --danger: #e11d48;
+  --danger-soft-bg: #fff1f2;
+  --danger-border: #fecdd3;
+
+  --premium: var(--purple-1000);
+
+  --font-display: 'Sora', system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+
+  --form-field-height: 2.625rem;
+  --form-radius: 0.75rem;
+  --text-muted: #64748b;
+  --text-primary: #1e293b;
+
+  --color-bg-primary: #f4f1f8;
+  --color-bg-surface: #ffffff;
+  --color-bg-surface-alt: #faf8fd;
+  --color-border-primary: #e6e2ec;
+  --app-bg: var(--color-bg-primary);
+  --app-text: var(--text-primary);
+  --app-text-muted: var(--text-muted);
+  --app-border: var(--color-border-primary);
+  --app-nav-hover-bg: #f4f1f8;
+  --app-nav-active-bg: color-mix(in srgb, var(--brand) 12%, white);
+  --app-nav-active-text: var(--brand);
+
+  --color-primary: var(--brand);
+  --color-primary-dark: var(--brand-hover);
+  --color-primary-light: color-mix(in srgb, var(--brand) 70%, white);
+  --color-success: var(--success);
+  --color-text-primary: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+
+  // Paleta do menu — chrome Purple 900, ativo Core Purple, status Green 300
+  // Purple 1000 (#1e002f) evitado de propósito (Áreas Premium).
+  --menu-bg: var(--purple-900); // #420465 base
+  --menu-bg-top: #2e0348; // topo do gradiente
+  --menu-active: var(--core-purple); // #8d0de3 barra / item ativo
+  --menu-label-inactive: #e9def7; // lavanda
+  --menu-icon-inactive: #b9a3e4; // lavanda
+  --menu-section: #a98fd6; // cabeçalho de seção
+  --menu-label-active: #ffffff;
+  --menu-status: var(--green-300); // #a7d296 herança
+  --menu-line: rgba(233, 222, 247, 0.12);
+  --menu-muted: #b9a3e4;
 }

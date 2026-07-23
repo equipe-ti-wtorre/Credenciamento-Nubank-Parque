@@ -62,12 +62,16 @@ export interface EventDetail extends EventItem {
   id_aprovacao?: number | null;
   aprovacao_status?: string | null;
   id_setor?: number | null;
+  id_solicitante?: number | null;
   notificar_portaria?: boolean;
   can_approve_credentials?: boolean;
   can_manage_companies?: boolean;
   is_solicitante?: boolean;
   can_change_responsavel?: boolean;
   can_toggle_active?: boolean;
+  can_submit_approval?: boolean;
+  can_notify_complete?: boolean;
+  notified_complete_at?: string | null;
   can_delete?: boolean;
   has_registered_data?: boolean;
 }
@@ -189,6 +193,20 @@ export class EventService {
     return this.api.patch<{ event: EventDetail }>(`/events/${id}/preferences`, data);
   }
 
+  submitApproval(id: number): Observable<{ event: EventDetail }> {
+    return this.api.post<{ event: EventDetail }>(`/events/${id}/submit-approval`, {});
+  }
+
+  notifyCompanyComplete(
+    idEvent: number,
+    idCompany: number,
+  ): Observable<{ event: EventDetail }> {
+    return this.api.post<{ event: EventDetail }>(
+      `/events/${idEvent}/companies/${idCompany}/notify-complete`,
+      {},
+    );
+  }
+
   addCompanyToDay(
     idEventDay: number,
     data: EventDayCompanyPayload,
@@ -211,6 +229,15 @@ export class EventService {
       `/events/${idEvent}/companies/${idCompany}/phases`,
       { phases },
     );
+  }
+
+  removeCompanyFromEvent(
+    idEvent: number,
+    idCompany: number,
+  ): Observable<{ removed: { id_event: number; id_company: number; removed_links: number[] } }> {
+    return this.api.delete<{
+      removed: { id_event: number; id_company: number; removed_links: number[] };
+    }>(`/events/${idEvent}/companies/${idCompany}`);
   }
 
   previewCompanyCredentialsBulk(

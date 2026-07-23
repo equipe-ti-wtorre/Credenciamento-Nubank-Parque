@@ -38,6 +38,7 @@ export const MODULES: ModuleDefinition[] = [
   { key: 'settings_tenants', label: 'Tenants Azure', group: 'Configurações' },
   { key: 'settings_smtp', label: 'Envios de e-mail', group: 'Configurações' },
   { key: 'settings_session', label: 'Sessão', group: 'Configurações' },
+  { key: 'settings_appearance', label: 'Aparência', group: 'Configurações' },
   { key: 'settings_teams', label: 'Integração Teams', group: 'Configurações' },
   { key: 'settings_system_reports', label: 'Relatórios do sistema', group: 'Configurações' },
   { key: 'settings_about', label: 'Sobre', group: 'Configurações' },

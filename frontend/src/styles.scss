@@ -14,6 +14,81 @@ body {
   background: var(--app-bg);
   color: var(--app-text);
   font-family: var(--font-body);
+  accent-color: var(--brand);
+}
+
+/* Select: marca ativa. Em Chromium, base-select permite estilizar hover do picker. */
+select,
+.form-select,
+.select {
+  accent-color: var(--brand);
+  /* Centraliza texto/seta (Plus Jakarta no tema Nubank desalinha com height fixo). */
+  line-height: 1.25;
+  vertical-align: middle;
+}
+
+@supports (appearance: base-select) {
+  select,
+  .form-select,
+  .select {
+    &,
+    &::picker(select) {
+      appearance: base-select;
+    }
+
+    display: flex;
+    align-items: center;
+
+    &::picker(select) {
+      border: 1px solid var(--app-border);
+      border-radius: var(--form-radius, 0.75rem);
+      background: var(--color-bg-surface, #fff);
+      padding: 0.25rem;
+      box-shadow:
+        0 10px 15px -3px rgba(0, 0, 0, 0.1),
+        0 4px 6px -4px rgba(0, 0, 0, 0.1);
+      color: var(--text-primary);
+    }
+
+    &::picker-icon {
+      color: var(--text-muted);
+      align-self: center;
+      margin-block: auto;
+      opacity: 0.85;
+    }
+
+    option {
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      color: var(--text-primary);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    option:hover,
+    option:focus {
+      background-color: var(--wtorre-tonal-bg);
+      color: var(--brand);
+    }
+
+    option:checked {
+      background-color: var(--brand);
+      color: #fff;
+    }
+
+    option:checked:hover,
+    option:checked:focus {
+      background-color: var(--brand-hover);
+      color: #fff;
+    }
+  }
+}
+
+@supports (-moz-appearance: none) and (not (appearance: base-select)) {
+  select option:checked {
+    background: linear-gradient(var(--brand), var(--brand));
+    color: #fff;
+  }
 }
 
 @layer components {

@@ -44,39 +44,59 @@ interface RowDecisionState {
 
         @if (step() === 'upload') {
           <div class="space-y-3">
-            <button
-              type="button"
-              class="btn-outline"
-              [disabled]="templateDownloading()"
-              (click)="downloadTemplate()"
-            >
-              {{ templateDownloading() ? 'Baixando...' : 'Baixar template XLSX' }}
-            </button>
+            <input
+              #fileInput
+              type="file"
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              class="hidden"
+              (change)="onFileSelected($event)"
+            />
             <div
-              class="upload-dropzone"
+              class="upload-dropzone upload-dropzone--banner"
+              [class.upload-dropzone--dragover]="dragOver()"
               [class.upload-dropzone--selected]="!!file()"
               tabindex="0"
               role="button"
               (click)="fileInput.click()"
               (keydown.enter)="fileInput.click()"
               (keydown.space)="$event.preventDefault(); fileInput.click()"
-              (dragover)="$event.preventDefault()"
+              (dragover)="onDragOver($event)"
+              (dragleave)="onDragLeave($event)"
               (drop)="onDrop($event)"
             >
-              <input
-                #fileInput
-                type="file"
-                accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
-                class="hidden"
-                (change)="onFileSelected($event)"
-              />
-              @if (file(); as f) {
-                <p class="upload-dropzone__text">{{ f.name }}</p>
-                <p class="upload-dropzone__hint">{{ formatBytes(f.size) }} · clique para trocar</p>
-              } @else {
-                <p class="upload-dropzone__text">Escolher arquivo ou arraste aqui</p>
-                <p class="upload-dropzone__hint">XLSX, XLS ou CSV · até 5 MB · linhas existentes entram em revisão</p>
-              }
+              <div class="upload-dropzone__main">
+                <span class="upload-dropzone__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 16V4M6 10l6-6 6 6" />
+                    <path d="M4 20h16" />
+                  </svg>
+                </span>
+                <span class="upload-dropzone__text">
+                  <span class="upload-dropzone__title">
+                    Arraste a planilha aqui ou
+                    <span class="upload-dropzone__link">clique para procurar</span>
+                  </span>
+                  <span class="upload-dropzone__hint">
+                    @if (file(); as f) {
+                      {{ f.name }} · {{ formatBytes(f.size) }}
+                    } @else {
+                      XLSX, XLS ou CSV · até 5 MB · linhas existentes entram em revisão
+                    }
+                  </span>
+                </span>
+              </div>
+              <button
+                type="button"
+                class="upload-dropzone__action"
+                [disabled]="templateDownloading()"
+                (click)="$event.stopPropagation(); downloadTemplate()"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3v12M8 11l4 4 4-4" />
+                  <path d="M5 21h14" />
+                </svg>
+                {{ templateDownloading() ? 'Baixando...' : 'Baixar modelo' }}
+              </button>
             </div>
           </div>
         }
@@ -340,6 +360,7 @@ export class BulkImportWizardComponent {
   commitResult = signal<BulkCommitResult | null>(null);
   busy = signal(false);
   templateDownloading = signal(false);
+  dragOver = signal(false);
   filter = signal<ReviewFilter>('all');
 
   readonly filterOptions: { id: ReviewFilter; label: string }[] = [
@@ -379,8 +400,19 @@ export class BulkImportWizardComponent {
     input.value = '';
   }
 
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(true);
+  }
+
+  onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(false);
+  }
+
   onDrop(event: DragEvent): void {
     event.preventDefault();
+    this.dragOver.set(false);
     this.setFile(event.dataTransfer?.files?.[0] || null);
   }
 

@@ -57,6 +57,32 @@ export type GateTypeFilter = 'todos' | 'veiculo' | 'colaborador';
 const GATE_DATABASE_TIMEZONE_OFFSET = '-03:00';
 const GATE_DISPLAY_TIMEZONE = 'America/Sao_Paulo';
 
+function digitsOnly(value: string | null | undefined): string {
+  return String(value || '').replace(/\D/g, '');
+}
+
+/** Busca textual; se a query tiver dígitos, também compara só números do documento. */
+function matchesGateSearch(
+  query: string,
+  parts: Array<string | null | undefined>,
+  documents: Array<string | null | undefined> = [],
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = parts
+    .concat(documents)
+    .filter((p): p is string => !!p)
+    .join(' ')
+    .toLowerCase();
+  if (haystack.includes(q)) return true;
+  const qDigits = digitsOnly(q);
+  if (qDigits.length >= 3) {
+    const docDigits = documents.map(digitsOnly).join(' ');
+    if (docDigits.includes(qDigits)) return true;
+  }
+  return false;
+}
+
 interface GateStats {
   total: number;
   wait: number;
@@ -107,7 +133,7 @@ const CAL_MES_ABBR = [
   'DEZ',
 ];
 const CAL_DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-const CAL_DAY_CHIP_LIMIT = 2;
+const CAL_DAY_CHIP_LIMIT = 1;
 
 @Component({
   selector: 'app-gate-control',
@@ -323,18 +349,22 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         if (status === 'wait' && row.next_action !== 'CHECK_IN') return false;
         if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
         if (status === 'done' && row.next_action !== 'COMPLETED') return false;
-        if (q) {
-          const haystack = [
-            row.collaborator.name,
-            row.collaborator.document_masked,
-            row.collaborator.role,
-            row.company.name,
-            row.event_name,
-            row.block_reason,
-          ]
-            .join(' ')
-            .toLowerCase();
-          if (!haystack.includes(q)) return false;
+        if (
+          q &&
+          !matchesGateSearch(
+            q,
+            [
+              row.collaborator.name,
+              row.collaborator.document_masked,
+              row.collaborator.role,
+              row.company.name,
+              row.event_name,
+              row.block_reason,
+            ],
+            [row.collaborator.document, row.collaborator.document_masked],
+          )
+        ) {
+          return false;
         }
         return true;
       })
@@ -388,7 +418,12 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
         if (status === 'done' && row.next_action !== 'COMPLETED') return false;
         if (q) {
-          const parts = [row.company.name, row.finalidade, row.kind];
+          const parts: Array<string | null | undefined> = [
+            row.company.name,
+            row.finalidade,
+            row.kind,
+          ];
+          const docs: Array<string | null | undefined> = [];
           if (row.vehicle) parts.push(row.vehicle.plate);
           if (row.collaborator) {
             parts.push(
@@ -396,8 +431,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
               row.collaborator.document_masked,
               row.collaborator.role,
             );
+            docs.push(row.collaborator.document, row.collaborator.document_masked);
           }
-          if (!parts.join(' ').toLowerCase().includes(q)) return false;
+          if (!matchesGateSearch(q, parts, docs)) return false;
         }
         return true;
       })
