@@ -1,0 +1,86 @@
+---
+description: Tokens e temas — só wtorre | nubank-parque; nunca hex em telas
+globs: frontend/src/**/*.{ts,scss,html}
+alwaysApply: false
+---
+
+# Tokens e temas (Credenciamento)
+
+Fonte única: `frontend/src/styles/_tokens.scss`. Detalhe: `frontend/docs/cores.md`.
+
+**Sempre** `var(--…)`. Nunca hex de marca em componentes.
+
+## Paletas permitidas (somente estas duas)
+
+| `html[data-theme]` | Paleta |
+|--------------------|--------|
+| `wtorre` (padrão) | Azul institucional WTorre |
+| `nubank-parque` | Core Purple Nubank Parque + herança verde |
+
+**Proibido** inventar temas extras (Oceano, Âmbar, Grafite, dark genérico, etc.).
+
+Escolha em **Configurações → Aparência**: exatamente 2 cards (WTorre / Nubank Parque), tipo `ColorPalette = 'wtorre' | 'nubank-parque'`. `ThemeService` aplica `data-theme` + cache `localStorage` e sincroniza com `GET /system-settings/appearance`.
+
+## Marca semântica
+
+| Token | WTorre | Nubank Parque | Uso |
+|-------|--------|---------------|-----|
+| `--brand` / `--wtorre` | `#1d54e6` | `#8d0de3` | CTA, links, foco, dropzone |
+| `--brand-hover` / `--wtorre-hover` | `#1442ba` | `#7209bd` | Hover/pressed |
+| `--brand-tonal-bg` / `--wtorre-tonal-bg` | `#e8eefd` | `#ecdfff` | Fundo tonal |
+| `--brand-focus-ring` / `--wtorre-focus-ring` | mix 25% | mix 25% | Halo de foco |
+
+Aliases: `--wtorre-600` → hover; `--wtorre-tint` → tonal; `--wtorre-tint-2` → mix 18%.
+
+## Perigo (igual nas duas)
+
+`--danger` `#e11d48` · `--danger-soft-bg` `#fff1f2` · `--danger-border` `#fecdd3`
+
+## Tipografia e forma
+
+- `--font-display`: Sora (títulos)
+- `--font-body`: Plus Jakarta Sans
+- `--form-field-height`: ~42px · `--form-radius`: 0.75rem
+
+## Superfícies
+
+| Token | WTorre | Nubank |
+|-------|--------|--------|
+| `--app-bg` / `--color-bg-primary` | `#f1f5f9` | `#f4f1f8` |
+| `--color-bg-surface-alt` | `#f8fafc` | `#faf8fd` |
+| `--app-border` | `#e2e8f0` | `#e6e2ec` |
+| `--text-primary` / `--text-muted` | `#1e293b` / `#64748b` | iguais |
+
+## Nubank — extras (só quando necessário)
+
+Preferir `--brand*`. Usar `--core-purple` / `--purple-*` / `--green-*` só em telas Nubank (login) ou tinta/premium.
+
+| Token | Hex | Uso |
+|-------|-----|-----|
+| `--core-purple` / `--brand` | `#8d0de3` | Primária |
+| `--purple-900` / `--brand-ink` | `#420465` | Títulos fortes |
+| `--purple-1000` / `--premium` | `#1e002f` | Premium — **nunca no menu** |
+| `--success*` / `--menu-status` | greens | Status — **não** rivalizar com CTA roxo |
+| `--warning` / `--warning-soft-bg` | `#b45309` / `#fef3e2` | Aviso |
+
+## Logos
+
+| Paleta | Asset |
+|--------|-------|
+| WTorre | `assets/logo.svg` |
+| Nubank (sidebar/login/fundo escuro) | `assets/logo-nubank-parque-negativo.png` |
+| Nubank (wordmark roxo, opcional) | `assets/logo-nubank-parque.png` |
+
+## Regras
+
+1. Componentes novos: só `--brand` / `--wtorre*` / `--danger` / `--success*` — funcionam nas duas paletas.
+2. Não redefinir `--brand` em `:host`.
+3. Alterar paleta: `_tokens.scss` e/ou Aparência — nunca CSS ad hoc por página.
+4. Sidebar: ver rule `ui-sidebar.mdc` (`--menu-*`).
+
+```scss
+/* ❌ BAD */
+.btn { background: #8d0de3; }
+/* ✅ GOOD */
+.btn { background: var(--brand); }
+```

@@ -1,0 +1,34 @@
+---
+description: Hierarquia de botões btn-action-* — um colorido por contexto
+globs: frontend/src/**/*.{ts,scss,html}
+alwaysApply: false
+---
+
+# Hierarquia de botões
+
+**Regra única.** No máximo **um botão colorido** por contexto (footer, barra, bloco).
+
+| Tipo | Classe | Quando usar |
+|------|--------|-------------|
+| Primária | `btn-action-primary` | Salvar, Enviar, Adicionar, Confirmar — sólido `--wtorre`/`--brand`, texto branco |
+| Secundária | `btn-action-secondary` | Cancelar, Fechar, Voltar — fundo branco, borda cinza. **Nunca colorida** |
+| Tonal | `btn-action-tonal` | Apoio (ex.: baixar template) — fundo `--wtorre-tonal-bg`, texto `--wtorre` |
+| Destrutiva | `btn-action-danger` ou `[danger]` no dropdown | Excluir/remover — vermelho, só irreversíveis |
+
+## Regras
+
+- Eliminar botões verdes soltos e pares roxo+verde competindo.
+- Verde Nubank (`--success*`, `--menu-status`) = status — **não** rivalizar com o CTA (`--brand`).
+- `disabled` = visual cinza real + atributo `disabled`, nunca só opacidade.
+- Rótulos descritivos: **"Salvar colaborador"**, não só "Salvar".
+- Legacy `.btn-primary`, `.btn-secondary`, `.btn-primary-blue` = aliases — preferir `btn-action-*` em código novo.
+
+```html
+<!-- ✅ GOOD -->
+<button type="button" class="btn-action-secondary">Cancelar</button>
+<button type="submit" class="btn-action-primary">Salvar colaborador</button>
+
+<!-- ❌ BAD -->
+<button class="btn-green">OK</button>
+<button class="btn-purple">Salvar</button>
+```

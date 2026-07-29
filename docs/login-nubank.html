@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="nubank-parque">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login — Nubank Parque</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    /* Tokens — data-theme="nubank-parque" (frontend/src/styles/_tokens.scss) */
+    :root,
+    [data-theme='nubank-parque'] {
+      --core-purple: #8d0de3;
+      --purple-900: #420465;
+      --purple-300: #cba5fd;
+      --purple-100: #ecdfff;
+      --purple-1000: #1e002f;
+      --green-900: #174006;
+      --green-300: #a7d296;
+      --green-200: #c9e2bf;
+      --green-100: #e9f7e4;
+      --brand: #8d0de3;
+      --brand-hover: #7209bd;
+      --font-display: 'Sora', system-ui, sans-serif;
+      --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+      --text-muted: #64748b;
+      --text-primary: #1e293b;
+      --color-bg-surface-alt: #faf8fd;
+      --color-border-primary: #e6e2ec;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--color-bg-surface-alt);
+    }
+
+    /* —— Layout auth-nubank (auth-layout.component) —— */
+    .auth-nubank {
+      display: flex;
+      min-height: 100vh;
+      font-family: var(--font-body);
+      color: var(--text-primary);
+    }
+
+    .auth-nubank__hero {
+      flex: 1.15;
+      position: relative;
+      overflow: hidden;
+      color: #fff;
+      background: linear-gradient(150deg, #9a1cf0 0%, var(--core-purple) 45%, #6f0ab2 100%);
+      display: flex;
+      flex-direction: column;
+      padding: 44px 52px;
+    }
+
+    .auth-nubank__bars {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: auto;
+      z-index: 1;
+      opacity: 0.97;
+    }
+
+    .auth-nubank__bars svg {
+      height: 100%;
+      width: auto;
+      display: block;
+    }
+
+    .auth-nubank__wm {
+      position: relative;
+      z-index: 2;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 26px;
+      letter-spacing: -0.01em;
+    }
+
+    .auth-nubank__mid {
+      position: relative;
+      z-index: 2;
+      margin-top: auto;
+      max-width: 560px;
+    }
+
+    .auth-nubank__mid h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 52px;
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+      margin: 0;
+    }
+
+    .auth-nubank__mid p {
+      font-size: 17px;
+      line-height: 1.55;
+      color: var(--purple-100);
+      margin: 20px 0 0;
+      max-width: 440px;
+    }
+
+    .auth-nubank__tagline {
+      position: relative;
+      z-index: 2;
+      margin-top: 34px;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 14px;
+      color: #fff;
+      opacity: 0.9;
+    }
+
+    .auth-nubank__dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green-300);
+      margin-right: 9px;
+      vertical-align: middle;
+    }
+
+    .auth-nubank__panel {
+      flex: 0.85;
+      background: var(--color-bg-surface-alt);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 40px 70px;
+      position: relative;
+    }
+
+    .auth-nubank__outlet {
+      width: 100%;
+      max-width: 392px;
+    }
+
+    .auth-nubank__foot {
+      position: absolute;
+      bottom: 22px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 12px;
+      color: #a99cbb;
+    }
+
+    /* —— Formulário login-nubank (login.component) —— */
+    .login-nubank {
+      width: 100%;
+      max-width: 392px;
+      margin: 0 auto;
+      text-align: left;
+      font-family: var(--font-body);
+      color: var(--text-primary);
+    }
+
+    .login-nubank__brand {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--core-purple);
+      letter-spacing: -0.01em;
+      margin-bottom: 26px;
+    }
+
+    .login-nubank__underline {
+      width: 34px;
+      height: 3px;
+      background: var(--core-purple);
+      border-radius: 2px;
+      display: block;
+      margin-top: 8px;
+    }
+
+    .login-nubank__title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 26px;
+      letter-spacing: -0.02em;
+      margin: 0 0 8px;
+      color: var(--purple-900);
+    }
+
+    .login-nubank__sub {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin: 0 0 28px;
+    }
+
+    .login-nubank__msg {
+      font-size: 13px;
+      line-height: 1.45;
+      margin: 0 0 14px;
+      padding: 0;
+    }
+
+    .login-nubank__msg--warn {
+      color: #b45309;
+    }
+
+    .login-nubank__msg--info {
+      color: #0369a1;
+    }
+
+    .login-nubank__form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .login-nubank__form[hidden] {
+      display: none;
+    }
+
+    .login-nubank__label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .login-nubank__input {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--color-border-primary);
+      border-radius: 12px;
+      background: #fff;
+      padding: 12px 16px;
+      font-size: 15px;
+      color: var(--text-primary);
+      font-family: var(--font-body);
+    }
+
+    .login-nubank__input:disabled {
+      opacity: 0.6;
+    }
+
+    .login-nubank__input:focus {
+      outline: 2px solid color-mix(in srgb, var(--core-purple) 35%, transparent);
+      outline-offset: 1px;
+      border-color: var(--core-purple);
+    }
+
+    .login-nubank__submit {
+      width: 100%;
+      height: 48px;
+      border: none;
+      border-radius: 14px;
+      background: var(--core-purple);
+      color: #fff;
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .login-nubank__submit:hover:not(:disabled) {
+      background: var(--brand-hover);
+    }
+
+    .login-nubank__submit:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .login-nubank__ms {
+      width: 100%;
+      height: 54px;
+      border: none;
+      border-radius: 14px;
+      background: var(--core-purple);
+      color: #fff;
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 15.5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      box-shadow: 0 12px 26px -10px rgba(141, 13, 227, 0.7);
+      transition: transform 0.12s, background 0.15s;
+    }
+
+    .login-nubank__ms:hover:not(:disabled) {
+      background: #6a0ab0;
+    }
+
+    .login-nubank__ms:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    .login-nubank__ms:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .login-nubank__chip {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: #fff;
+      display: grid;
+      place-items: center;
+      flex: none;
+    }
+
+    .login-nubank__divider {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin: 20px 0;
+      color: var(--text-muted);
+      font-size: 12.5px;
+    }
+
+    .login-nubank__divider::before,
+    .login-nubank__divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--color-border-primary);
+    }
+
+    .login-nubank__alt {
+      width: 100%;
+      text-align: center;
+    }
+
+    .login-nubank__alt-btn {
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      color: var(--core-purple);
+      font-weight: 600;
+      font-size: 14px;
+      font-family: var(--font-body);
+    }
+
+    .login-nubank__alt-btn:hover {
+      text-decoration: underline;
+    }
+
+    .login-nubank__secure {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 30px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .login-nubank__secure svg {
+      color: var(--green-300);
+      flex: none;
+    }
+
+    @media (max-width: 880px) {
+      .auth-nubank {
+        flex-direction: column;
+      }
+
+      .auth-nubank__hero {
+        flex: none;
+        padding: 30px 26px 34px;
+      }
+
+      .auth-nubank__bars {
+        opacity: 0.9;
+      }
+
+      .auth-nubank__mid {
+        margin-top: 24px;
+      }
+
+      .auth-nubank__mid h1 {
+        font-size: 34px;
+      }
+
+      .auth-nubank__mid p {
+        font-size: 15px;
+      }
+
+      .auth-nubank__tagline {
+        margin-top: 22px;
+      }
+
+      .auth-nubank__panel {
+        flex: 1;
+        padding: 34px 22px 70px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!--
+    Export do tema Nubank Parque — login
+    Fontes Angular:
+      frontend/src/app/layouts/auth-layout.component.ts
+      frontend/src/app/pages/login/login.component.ts
+      *.scss correspondentes + tokens nubank-parque
+  -->
+  <div class="auth-nubank">
+    <section class="auth-nubank__hero">
+      <div class="auth-nubank__bars" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 225 648" preserveAspectRatio="none">
+          <rect x="0" y="0" width="90" height="216" fill="#c9e2bf" />
+          <rect x="0" y="432" width="90" height="216" fill="#c9e2bf" />
+          <rect x="92" y="216" width="39" height="216" fill="#c9e2bf" />
+          <rect x="133" y="0" width="26" height="216" fill="#c9e2bf" />
+          <rect x="133" y="432" width="26" height="216" fill="#c9e2bf" />
+          <rect x="161" y="216" width="27" height="216" fill="#c9e2bf" />
+          <rect x="190" y="0" width="12" height="216" fill="#c9e2bf" />
+          <rect x="190" y="432" width="12" height="216" fill="#c9e2bf" />
+          <rect x="204" y="216" width="12" height="216" fill="#c9e2bf" />
+          <rect x="218" y="0" width="7" height="216" fill="#c9e2bf" />
+          <rect x="218" y="432" width="7" height="216" fill="#c9e2bf" />
+        </svg>
+      </div>
+      <div class="auth-nubank__wm">Nubank Parque</div>
+      <div class="auth-nubank__mid">
+        <h1>Credenciamento</h1>
+        <p>
+          Eventos, colaboradores e empresas parceiras — acesso controlado em um so lugar, do
+          portao a arquibancada.
+        </p>
+      </div>
+      <div class="auth-nubank__tagline">
+        <span class="auth-nubank__dot"></span>Viver o momento.
+      </div>
+    </section>
+
+    <section class="auth-nubank__panel">
+      <div class="auth-nubank__outlet">
+        <div class="login-nubank">
+          <div class="login-nubank__brand">
+            Nubank Parque
+            <span class="login-nubank__underline" aria-hidden="true"></span>
+          </div>
+          <h2 class="login-nubank__title">Credenciamento</h2>
+          <p class="login-nubank__sub">Entre com sua conta corporativa para acessar o sistema.</p>
+
+          <!-- Exemplos de mensagens (opcional):
+          <p class="login-nubank__msg login-nubank__msg--warn">Sua sessão expirou por inatividade.</p>
+          <p class="login-nubank__msg login-nubank__msg--info">Abrindo com sua conta Microsoft do Teams…</p>
+          -->
+
+          <form id="admin-form" class="login-nubank__form" hidden>
+            <div>
+              <label class="login-nubank__label" for="username">E-mail</label>
+              <input
+                id="username"
+                type="text"
+                name="username"
+                placeholder="admin@exemplo.com"
+                class="login-nubank__input"
+                autocomplete="username"
+              />
+            </div>
+            <div>
+              <label class="login-nubank__label" for="password">Senha</label>
+              <input
+                id="password"
+                type="password"
+                name="password"
+                class="login-nubank__input"
+                autocomplete="current-password"
+              />
+            </div>
+            <button type="submit" class="login-nubank__submit">Entrar</button>
+          </form>
+
+          <button type="button" class="login-nubank__ms">
+            <span class="login-nubank__chip" aria-hidden="true">
+              <svg viewBox="0 0 23 23" width="16" height="16">
+                <path fill="#f25022" d="M1 1h10v10H1z" />
+                <path fill="#7fba00" d="M12 1h10v10H12z" />
+                <path fill="#00a4ef" d="M1 12h10v10H1z" />
+                <path fill="#ffb900" d="M12 12h10v10H12z" />
+              </svg>
+            </span>
+            <span>Entrar com Microsoft</span>
+          </button>
+
+          <div class="login-nubank__divider">ou</div>
+
+          <div class="login-nubank__alt">
+            <button type="button" id="toggle-admin" class="login-nubank__alt-btn">
+              Login sem Microsoft
+            </button>
+          </div>
+
+          <div class="login-nubank__secure">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            Ambiente seguro &middot; acesso corporativo
+          </div>
+        </div>
+      </div>
+      <div class="auth-nubank__foot">
+        &copy; <span id="year"></span> &middot; Credenciamento Nubank Parque
+      </div>
+    </section>
+  </div>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+    const form = document.getElementById('admin-form');
+    const toggle = document.getElementById('toggle-admin');
+    toggle.addEventListener('click', () => {
+      const open = form.hasAttribute('hidden');
+      if (open) {
+        form.removeAttribute('hidden');
+        toggle.textContent = 'Ocultar login admin';
+      } else {
+        form.setAttribute('hidden', '');
+        toggle.textContent = 'Login sem Microsoft';
+      }
+    });
+  </script>
+</body>
+</html>

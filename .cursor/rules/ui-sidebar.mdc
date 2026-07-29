@@ -1,0 +1,63 @@
+---
+description: Sidebar chrome escuro — .wt-layout, tokens --menu-*, theme-nubank
+globs: frontend/src/app/layouts/**/*.{ts,scss,html}
+alwaysApply: false
+---
+
+# Sidebar / layout principal
+
+Referência: `frontend/src/app/layouts/main-layout.component.scss` (+ `.ts`).
+
+**Não** usar menu claro com item ativo em “pill” azul sobre fundo branco. O chrome é **sempre escuro** (gradiente), nas duas paletas.
+
+## Estrutura
+
+- Container: `.wt-layout` — grid `264px 1fr`, altura `100vh`
+- Collapsed: `.wt-layout.collapsed` → `78px 1fr`
+- Sidebar: `.wt-sidebar` — `linear-gradient(180deg, var(--wt-sidebar), var(--wt-sidebar-2))`
+- Nav: `.nav` + itens `.wt-nav-item`; seções `.nav-label`
+- Brand/logo no topo; perfil; logout na base
+
+Aliases no layout: `--wt-sidebar*` / `--wt-menu-*` mapeiam de `--menu-*` (não hardcodar hex no SCSS do layout além do que já existe).
+
+## Tokens `--menu-*` (obrigatórios)
+
+| Token | WTorre | Nubank Parque | Uso |
+|-------|--------|---------------|-----|
+| `--menu-bg-top` | `#0e1626` | `#2e0348` | Topo do gradiente |
+| `--menu-bg` | `#121d33` | `#420465` | Base do gradiente |
+| `--menu-active` | `--brand` | `#8d0de3` | Barra / item ativo |
+| `--menu-label-inactive` | `#aab2c8` | `#e9def7` | Label inativo |
+| `--menu-icon-inactive` | `#aab2c8` | `#b9a3e4` | Ícone inativo |
+| `--menu-section` | `#5d6883` | `#a98fd6` | Cabeçalho de seção |
+| `--menu-label-active` | `#ffffff` | `#ffffff` | Label ativo |
+| `--menu-status` | `#13a36b` | `#a7d296` | Badge |
+| `--menu-line` | branco 7% | lavanda 12% | Separadores |
+| `--menu-muted` | `#7f8aa6` | `#b9a3e4` | Texto auxiliar |
+
+## Item ativo (padrão real)
+
+`.wt-nav-item.active`:
+
+- Fundo: `color-mix` de `--menu-active` ~22% transparente (sobre o chrome escuro)
+- Texto/ícone: `--menu-label-active`
+- Barra esquerda `::before` com `--menu-active` (3px)
+- **Não** pill claro (`--app-nav-active-bg`) no sidebar — esses tokens `--app-nav-*` são para nav em superfície clara, se houver
+
+## Nubank
+
+- Classe `.wt-layout.theme-nubank` para logo maior / padding do brand
+- Logo: `assets/logo-nubank-parque-negativo.png`
+- **Nunca** `--purple-1000` / `--premium` no chrome do menu
+
+## WTorre
+
+- Logo: `assets/logo.svg`
+- Mesma estrutura de classes; só os tokens `--menu-*` mudam via `data-theme`
+
+## Anti-patterns
+
+- Sidebar fundo claro + item ativo com background azul claro / pill
+- Quatro+ temas de menu ou chrome diferente por “Oceano/Âmbar/Grafite”
+- Hex de menu solto em telas (usar `--menu-*` / `--wt-*`)
+- Inventar layout de menu sem `.wt-layout` / `.wt-sidebar` / `.wt-nav-item`

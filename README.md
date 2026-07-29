@@ -35,7 +35,7 @@ Os tenants do **Azure AD** são configurados pelo painel administrativo e armaze
 | Login local | E-mail/senha com JWT de acesso + refresh token |
 | Login Microsoft | MSAL no cliente; API valida token contra tenants cadastrados no MySQL |
 | Multi-tenant Azure | CRUD em **Configurações → Tenants Azure** |
-| SMTP / Azure ACS | Provedor de e-mail unificado (SMTP ou Communication Services) + histórico e delivery reports |
+| SMTP / Azure ACS / SendGrid | Provedor de e-mail unificado (SMTP, Communication Services ou SendGrid) + histórico e delivery reports |
 | Microsoft Teams | Notificações em canais via Graph API |
 | API versionada | Prefixo `/api/v1` (rotas em `/api` mantidas com aviso de depreciação) |
 | Observabilidade | Interceptor de auditoria + error handler global; `audit_logs` (JSON) e `app_error_logs` |
@@ -77,7 +77,7 @@ Credenciamento/
 │   ├── modules/
 │   │   ├── auth/              # login, refresh, logout, me
 │   │   ├── tenants/           # CRUD Azure + msal-config
-│   │   ├── smtp/              # E-mail unificado (SMTP + Azure ACS) + webhook + logs
+│   │   ├── smtp/              # E-mail unificado (SMTP + Azure ACS + SendGrid) + webhook + logs
 │   │   ├── teams/             # Integração Teams (Graph)
 │   │   └── health/            # health check
 │   ├── middleware/            # auth, rate-limit, erros, MS token
@@ -154,7 +154,7 @@ Copie `backend/.env.example` para `backend/.env`.
 | `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Sim | Conexão MySQL |
 | `JWT_SECRET` | Produção | Assinatura do access token (mín. 32 caracteres) |
 | `REFRESH_TOKEN_SECRET` | Produção | Assinatura do refresh token |
-| `ENCRYPTION_KEY` | Produção | Criptografia AES de secrets (tenants, SMTP, ACS) — 32+ chars |
+| `ENCRYPTION_KEY` | Produção | Criptografia AES de secrets (tenants, SMTP, ACS, SendGrid) — 32+ chars |
 | `JWT_ACCESS_EXPIRES` | Não | Padrão `30m` |
 | `JWT_REFRESH_EXPIRES` | Não | Padrão `7d` |
 | `CORS_ORIGINS` | Não | Origens web permitidas (vírgula) |
@@ -165,7 +165,7 @@ Copie `backend/.env.example` para `backend/.env`.
 | `MSAL_REDIRECT_URI_IOS` | Mobile | URI iOS |
 | `LOG_LEVEL` | Não | `info`, `debug`, etc. |
 
-**Não use no `.env`:** `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` — cadastre em **Tenants Azure**. Connection string ACS e senha SMTP também **não** vão no `.env` — configure em **Envios de e-mail**.
+**Não use no `.env`:** `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` — cadastre em **Tenants Azure**. Connection string ACS, senha SMTP e API key SendGrid também **não** vão no `.env` — configure em **Envios de e-mail**.
 
 Gerar chave de criptografia:
 
@@ -224,12 +224,12 @@ Rotas legadas em `/api` respondem igualmente, com header de depreciação.
 | DELETE | `/api/v1/tenants/:id` | ADMIN | Desativar (soft delete) |
 | GET | `/api/v1/tenants/status` | ADMIN | Diagnóstico OAuth + Graph |
 
-### E-mail — SMTP e Azure ACS (ADMIN)
+### E-mail — SMTP, Azure ACS e SendGrid (ADMIN)
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| GET | `/api/v1/smtp/settings` | Configuração (SMTP + provedor ACS; sem segredos) |
-| PUT | `/api/v1/smtp/settings` | Salvar provedor, SMTP e/ou ACS (`email_ativo`, `ocultar_para`) |
+| GET | `/api/v1/smtp/settings` | Configuração (SMTP + provedor ACS/SendGrid; sem segredos) |
+| PUT | `/api/v1/smtp/settings` | Salvar provedor, SMTP, ACS e/ou SendGrid (`email_ativo`, `ocultar_para`) |
 | POST | `/api/v1/smtp/verificar` | Verifica conexão SMTP (`transporter.verify`) |
 | POST | `/api/v1/smtp/test` | Enviar e-mail de teste pelo provedor ativo |
 | GET | `/api/v1/smtp/logs` | Histórico (`sent` / `failed` / `entregue` / `bounce`) |
@@ -309,14 +309,15 @@ curl -X POST http://127.0.0.1:3007/api/v1/auth/login \
    - `ChannelMessage.Send` (aplicação) — opcional, envio a **canal** do Teams
 5. Cada combinação **Tenant ID + Client ID** usada no login deve existir em `azure_tenants` com `ativo = 1`.
 
-### E-mail (SMTP e Azure ACS)
+### E-mail (SMTP, Azure ACS e SendGrid)
 
 Configure em **Configurações → Envios de e-mail**:
 
-1. Escolha o provedor **SMTP** ou **Azure ACS**.
+1. Escolha o provedor **SMTP**, **Azure ACS** ou **SendGrid**.
 2. **SMTP:** host, porta, TLS, usuário, senha e remetente. Use **Verificar SMTP** e **Testar envio**.
 3. **Azure ACS:** connection string (cifrada com `ENCRYPTION_KEY`) e remetente do domínio verificado. Ative o envio e teste.
-4. Opcional: **Ocultar e-mail do destinatário no campo Para** (destinatário real em BCC).
+4. **SendGrid:** API key (cifrada com `ENCRYPTION_KEY`) e e-mail/nome do remetente verificado no SendGrid. Ative o envio e teste.
+5. Opcional: **Ocultar e-mail do destinatário no campo Para** (destinatário real em BCC).
 
 Envios (sucesso ou falha) vão para `smtp_send_logs`. Com ACS, o `message_id` permite atualizar status via webhook:
 
@@ -371,7 +372,7 @@ O backend valida o token Microsoft conferindo `tid` e `aud` no banco e a assinat
 | `/admin/usuarios` | ADMIN | Gestão de usuários |
 | `/admin/configuracoes` | ADMIN | Configurações do sistema (layout com menu lateral interno) |
 | `/admin/configuracoes/tenants-azure` | ADMIN | Tenants Azure |
-| `/admin/configuracoes/smtp` | ADMIN | Envios de e-mail (SMTP / Azure ACS) e histórico |
+| `/admin/configuracoes/smtp` | ADMIN | Envios de e-mail (SMTP / Azure ACS / SendGrid) e histórico |
 | `/admin/configuracoes/teams` | ADMIN | Integração Microsoft Teams |
 | `/admin/configuracoes/sobre` | ADMIN | Sobre o sistema |
 | `/admin/tenants` | ADMIN | Redireciona para `tenants-azure` |
@@ -625,6 +626,7 @@ Crie em `frontend/src/app/features/<nome>/` ou `pages/<nome>/`:
 | MSAL sem clientId | Cadastre tenant principal em **Tenants Azure** |
 | SMTP falha no teste | Verifique host/porta/TLS, credenciais e firewall; consulte histórico em Envios de e-mail |
 | ACS falha no teste | Domínio verificado (SPF/DKIM), connection string e remetente no painel; `ENCRYPTION_KEY` válida |
+| SendGrid falha no teste | API key com permissão Mail Send, remetente/domínio verificado no SendGrid; `ENCRYPTION_KEY` válida |
 | Webhook ACS sem update | `EVENT_GRID_WEBHOOK_SECRET`, assinatura `aeg-signature` e `message_id` no log |
 | Teams teste falha | Confirme `ChannelMessage.Send` + admin consent e IDs corretos de team/canal |
 | Angular CLI exige Node 20.19+ | Use Node 24 do servidor ou atualize o Node local |

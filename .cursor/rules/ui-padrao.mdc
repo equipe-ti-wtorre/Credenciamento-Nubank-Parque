@@ -1,21 +1,112 @@
-# Padrão UI — Intranet WTorre
+---
+description: Padrão UI completo Credenciamento — temas, componentes, anti-patterns
+globs: frontend/src/**/*.{ts,scss,html}
+alwaysApply: false
+---
+
+# Padrão UI — Intranet Credenciamento
 
 Aplica-se a `frontend/src/**/*.{ts,scss,html}` ao criar ou alterar telas, modais, menus de ação e formulários.
 
 ## Tokens (fonte única)
 
-Definidos em [`frontend/src/styles/_tokens.scss`](../frontend/src/styles/_tokens.scss). **Sempre referenciar tokens**, nunca valores hardcoded:
+Definidos em [`frontend/src/styles/_tokens.scss`](../frontend/src/styles/_tokens.scss). Detalhamento de cores: [`frontend/docs/cores.md`](../frontend/docs/cores.md).
+
+**Sempre referenciar tokens** (`var(--…)`), nunca hex hardcoded. A paleta ativa vem de `html[data-theme]` (`wtorre` | `nubank-parque`), escolhida em **Configurações → Aparência**.
 
 | Token | Uso |
 |-------|-----|
-| `--wtorre`, `--wtorre-hover`, `--wtorre-tonal-bg` | Cor de marca |
-| `--danger`, `--danger-soft-bg`, `--danger-border` | Ações destrutivas |
+| `--brand` / `--wtorre`, `--brand-hover` / `--wtorre-hover`, `--brand-tonal-bg` / `--wtorre-tonal-bg` | Cor de marca (azul WTorre ou Core Purple Nubank) |
+| `--danger`, `--danger-soft-bg`, `--danger-border` | Ações destrutivas (iguais nas duas paletas) |
 | `--font-display` | Títulos (Sora) |
 | `--font-body` | Corpo (Plus Jakarta Sans) |
 | `--form-field-height`, `--form-radius` | Campos (~42px, rounded-xl) |
-| `--app-border`, `--text-muted` | Bordas e texto secundário |
+| `--app-border`, `--text-muted`, `--app-bg` | Bordas, texto secundário, fundo da app |
 
 Componentes em [`frontend/src/styles/_components.scss`](../frontend/src/styles/_components.scss).
+
+**Regra de marca:** botões, foco, links e dropzones usam `--brand` / `--wtorre*` — assim WTorre e Nubank mudam juntos sem CSS por tela.
+
+---
+
+## Tema Nubank Parque (`data-theme="nubank-parque"`)
+
+Quando a paleta Nubank estiver ativa, os tokens semânticos já resolvem para o Core Purple. **Não** hardcodar `#8d0de3` / `#820AD1` em componentes — usar os tokens abaixo.
+
+### Paleta canônica
+
+| Token | Hex | Uso |
+|-------|-----|-----|
+| `--core-purple` / `--brand` | `#8d0de3` | Primária, CTA, links ativos, ícone do dropzone |
+| `--brand-hover` | `#7209bd` | Hover / pressed do botão primário |
+| `--purple-100` / `--brand-tonal-bg` | `#ecdfff` | Fundos tonais, chips, hover suave |
+| `--purple-300` | `#cba5fd` | Apoio / destaque leve |
+| `--purple-900` / `--brand-ink` | `#420465` | Títulos fortes, tinta escura |
+| `--purple-1000` / `--premium` | `#1e002f` | Só áreas Premium — **nunca** no menu |
+| `--success` (`--green-900`) | `#174006` | Sucesso / disponível |
+| `--success-soft-bg` (`--green-100`) | `#e9f7e4` | Fundo sucesso |
+| `--success-border` (`--green-200`) | `#c9e2bf` | Borda sucesso |
+| `--menu-status` (`--green-300`) | `#a7d296` | Badge / status no sidebar |
+| `--warning` / `--warning-soft-bg` | `#b45309` / `#fef3e2` | Aviso / pendente |
+
+### Superfícies (Nubank)
+
+| Token | Hex |
+|-------|-----|
+| `--app-bg` / `--color-bg-primary` | `#f4f1f8` |
+| `--color-bg-surface-alt` | `#faf8fd` |
+| `--app-border` | `#e6e2ec` |
+
+### Sidebar (chrome roxo)
+
+| Token | Valor | Uso |
+|-------|-------|-----|
+| `--menu-bg-top` → `--menu-bg` | `#2e0348` → `#420465` | Gradiente do menu |
+| `--menu-active` | `--core-purple` | Item ativo / barra |
+| `--menu-label-inactive` | `#e9def7` | Label inativo |
+| `--menu-icon-inactive` / `--menu-muted` | `#b9a3e4` | Ícone / texto auxiliar |
+| `--menu-section` | `#a98fd6` | Cabeçalho de seção |
+| `--menu-line` | lavanda 12% | Separadores |
+
+Layout: [`main-layout.component.scss`](../frontend/src/app/layouts/main-layout.component.scss) (`theme-nubank`).  
+**Não** usar `--purple-1000` no chrome do menu.
+
+### Tipografia e forma (igual WTorre)
+
+- Display: `--font-display` (Sora) — títulos e marca
+- Corpo: `--font-body` (Plus Jakarta Sans)
+- Raio de campos: `--form-radius` (0.75rem / ~12px) — pills só em chips/ações de dropzone (`upload-dropzone__action`)
+- Hierarquia de botões: mesmas classes `btn-action-*` (primária = Core Purple via token)
+
+### Login / convite (só tema Nubank)
+
+Quando `ThemeService.palette() === 'nubank-parque'`, usar o bloco BEM `login-nubank` (não reinventar layout):
+
+| Classe | Papel |
+|--------|-------|
+| `.login-nubank` | Container (~392px), tipografia body |
+| `.login-nubank__brand` + `__underline` | Wordmark + traço Core Purple |
+| `.login-nubank__title` | Título em `--purple-900` / Sora |
+| `.login-nubank__input` / `__submit` | Campo e CTA (submit = `--core-purple`) |
+| `.login-nubank__ms` / `__chip` | Entrada Microsoft / chips |
+
+Referências: [`login.component.ts`](../frontend/src/app/pages/login/login.component.ts), [`invite-register.component.ts`](../frontend/src/app/pages/auth/invite-register.component.ts).
+
+### Logos
+
+| Contexto | Asset |
+|----------|-------|
+| Sidebar / login / convite (fundo escuro ou wordmark branco) | `assets/logo-nubank-parque-negativo.png` |
+| Wordmark roxo (opcional, fundo claro) | `assets/logo-nubank-parque.png` |
+| Paleta WTorre | `assets/logo.svg` |
+
+### Regras Nubank
+
+1. Componentes novos: só tokens semânticos (`--brand`, `--wtorre*`, `--danger`, `--success*`) — funcionam nas duas paletas.
+2. Tokens `--core-purple` / `--purple-*` / `--green-*`: só em telas já específicas do Nubank (login) ou quando o design exigir tinta/premium; preferir `--brand*`.
+3. Verde Nubank (`--success*`, `--menu-status`) = status / sucesso — **não** rivalizar com o botão primário roxo (continua valendo “um botão colorido por contexto”).
+4. Proibido: hex roxo/verde solto, redefinir `--brand` em `:host`, misturar azul WTorre hardcoded com tema Nubank.
+5. Alterar paleta: editar `_tokens.scss` e/ou Aparência — não CSS ad hoc por página.
 
 ---
 
@@ -278,7 +369,7 @@ onTextFilterChange() {
 - Ícone 40×40 fundo `--wtorre` (`upload-dropzone__icon`); com preview de imagem, usar `upload-dropzone__preview` no lugar do ícone.
 - Ação à direita (`upload-dropzone__action`, pill) **somente** para baixar modelo/template — não inventar outros botões soltos.
 - Sempre: `input[type=file]` hidden + drag-and-drop + teclado (Enter/Space).
-- Tokens `--wtorre` / `--wtorre-tonal-bg` / `--wtorre-focus-ring` — sem cores roxas hardcoded.
+- Tokens `--brand` / `--wtorre*` / `--wtorre-focus-ring` — sem hex de marca hardcoded (WTorre ou Nubank).
 - Estados: `--dragover`, `--selected`; desabilitado via `aria-disabled="true"`.
 
 **Referências:**
@@ -306,6 +397,9 @@ onTextFilterChange() {
 - Mais de um botão colorido no mesmo footer/bloco
 - Links `text-emerald-600` / `text-rose-600` como ações de tabela (usar `app-action-btn`)
 - Fontes hardcoded — usar `--font-display` / `--font-body`
+- Hex de marca (`#1d54e6`, `#8d0de3`, `#820AD1`, etc.) em telas — usar `--brand` / `--wtorre*`
+- `--purple-1000` / `--premium` no sidebar
+- Botão primário verde Nubank competindo com Core Purple
 - `appActionDropdownItem` sem ícone SVG `action-dropdown__item-icon`
 - Botão de ação só com texto na coluna Ações (sem ícone)
 - Botão **Filtrar** em barras de filtro de lista (usar digitar-já-filtra)

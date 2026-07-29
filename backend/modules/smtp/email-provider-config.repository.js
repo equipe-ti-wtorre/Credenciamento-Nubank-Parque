@@ -28,6 +28,9 @@ async function ensureRow() {
  * @param {string} [fields.provider]
  * @param {string|null|undefined} [fields.acs_connection_string_ciphertext] — undefined = keep; null = clear
  * @param {string|null} [fields.acs_sender]
+ * @param {string|null|undefined} [fields.sendgrid_api_key_ciphertext] — undefined = keep; null = clear
+ * @param {string|null} [fields.sendgrid_from_email]
+ * @param {string|null} [fields.sendgrid_from_name]
  * @param {boolean} [fields.ocultar_para]
  * @param {boolean} [fields.ativo]
  */
@@ -38,6 +41,14 @@ async function update(fields) {
   const provider = fields.provider !== undefined ? fields.provider : current.provider;
   const acsSender =
     fields.acs_sender !== undefined ? fields.acs_sender : current.acs_sender;
+  const sendgridFromEmail =
+    fields.sendgrid_from_email !== undefined
+      ? fields.sendgrid_from_email
+      : current.sendgrid_from_email;
+  const sendgridFromName =
+    fields.sendgrid_from_name !== undefined
+      ? fields.sendgrid_from_name
+      : current.sendgrid_from_name;
   const ocultarPara =
     fields.ocultar_para !== undefined
       ? fields.ocultar_para
@@ -47,17 +58,33 @@ async function update(fields) {
   const ativo =
     fields.ativo !== undefined ? (fields.ativo ? 1 : 0) : current.ativo;
 
-  let ciphertext = current.acs_connection_string_ciphertext;
+  let acsCiphertext = current.acs_connection_string_ciphertext;
   if (fields.acs_connection_string_ciphertext !== undefined) {
-    ciphertext = fields.acs_connection_string_ciphertext;
+    acsCiphertext = fields.acs_connection_string_ciphertext;
+  }
+
+  let sendgridCiphertext = current.sendgrid_api_key_ciphertext;
+  if (fields.sendgrid_api_key_ciphertext !== undefined) {
+    sendgridCiphertext = fields.sendgrid_api_key_ciphertext;
   }
 
   await db.execute(
     `UPDATE email_provider_config
      SET provider = ?, acs_connection_string_ciphertext = ?, acs_sender = ?,
+         sendgrid_api_key_ciphertext = ?, sendgrid_from_email = ?, sendgrid_from_name = ?,
          ocultar_para = ?, ativo = ?
      WHERE id = ?`,
-    [provider, ciphertext, acsSender || null, ocultarPara, ativo, SINGLETON_ID],
+    [
+      provider,
+      acsCiphertext,
+      acsSender || null,
+      sendgridCiphertext,
+      sendgridFromEmail || null,
+      sendgridFromName || null,
+      ocultarPara,
+      ativo,
+      SINGLETON_ID,
+    ],
   );
 
   return getRow();

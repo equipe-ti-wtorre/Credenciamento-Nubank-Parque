@@ -1,0 +1,90 @@
+---
+description: Kebab e ícones de ação em tabelas — app-action-*
+globs: frontend/src/**/*.{ts,scss,html}
+alwaysApply: false
+---
+
+# Ações em tabelas (kebab)
+
+Componentes: `frontend/src/app/shared/actions/`
+
+- `app-action-menu` — container
+- `app-action-btn` — ícone (`neutral` Editar; `danger` Remover/Excluir)
+- `app-action-dropdown` + `button[appActionDropdownItem]` — menu ⋮
+
+**Nunca** link/texto colorido como ação de linha (`Remover` em `text-rose-600` / underline).
+
+| Situação | Padrão |
+|----------|--------|
+| Só remover | `<app-action-btn icon="delete" title="Remover" variant="danger" />` |
+| Editar + outras | Editar `app-action-btn` + kebab para o resto |
+| Item no dropdown | **Sempre** SVG `action-dropdown__item-icon` — só texto proibido |
+
+## Ordem na linha
+
+1. Ação mais frequente (**Editar**) como botão direto (`variant="neutral"`)
+2. Demais no kebab (ativar/desativar, blacklist, etc.)
+3. **Excluir** por último, `[danger]="true"`, após `<hr class="action-dropdown__divider" />`
+4. Remoção isolada = `app-action-btn` delete + `danger`
+
+`title` / `aria-label` obrigatórios no botão só-ícone.
+
+## Ícone no dropdown (obrigatório)
+
+```html
+<svg
+  class="action-dropdown__item-icon"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.75"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  <!-- paths canônicos -->
+</svg>
+```
+
+| Ação | Paths |
+|------|--------|
+| Ativar / Desativar | power: `M18.36 6.64a9 9 0 1 1-12.73 0` + `M12 2v10` |
+| Excluir | trash: `M3 6h18` + corpo + `M10 11v6` + `M14 11v6` |
+| Blacklist | shield + X ou check |
+| Reenviar e-mail | envelope + `m22 6-10 7L2 6` |
+
+- Ativar/Desativar = **neutro** (sem `[danger]`)
+- Só Excluir usa `[danger]="true"`
+- Stroke 1.75 / viewBox 24 — não misturar Heroicons/Material neste menu
+
+```html
+<app-action-menu>
+  <app-action-btn icon="edit" title="Editar" variant="neutral" (action)="editar(item)" />
+  <app-action-dropdown>
+    <button appActionDropdownItem type="button" (click)="toggleAtivo(item)">
+      <svg class="action-dropdown__item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+        <path d="M12 2v10" />
+      </svg>
+      {{ item.ativo ? 'Desativar' : 'Ativar' }}
+    </button>
+    <hr class="action-dropdown__divider" />
+    <button appActionDropdownItem type="button" [danger]="true" (click)="excluir(item)">
+      <svg class="action-dropdown__item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6h18" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
+      </svg>
+      Excluir
+    </button>
+  </app-action-dropdown>
+</app-action-menu>
+```
+
+Referência: `collaborator-list.component.ts`. Exceção: listas simples **dentro de modais** podem manter botões visíveis sem kebab.
+
+A11y: `aria-haspopup="menu"`, `aria-expanded`, `role="menu"`/`menuitem`, Esc e clique fora.
+
+**Anti-patterns:** item sem ícone; texto na coluna Ações; Ativar com `[danger]`; `variant="success"`; múltiplos action-btn coloridos.

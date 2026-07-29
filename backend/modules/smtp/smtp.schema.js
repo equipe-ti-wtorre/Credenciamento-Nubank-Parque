@@ -1,10 +1,10 @@
 const Joi = require("joi");
 
 const smtpSettingsSchema = Joi.object({
-  provider: Joi.string().valid("smtp", "acs").optional(),
+  provider: Joi.string().valid("smtp", "acs", "sendgrid").optional(),
   // SMTP
   host: Joi.string().max(255).when("provider", {
-    is: "acs",
+    is: Joi.valid("acs", "sendgrid"),
     then: Joi.optional().allow("", null),
     otherwise: Joi.optional(),
   }),
@@ -18,6 +18,10 @@ const smtpSettingsSchema = Joi.object({
   // Provider / ACS
   acs_connection_string: Joi.string().max(2000).optional().allow(""),
   acs_sender: Joi.string().email().max(255).optional().allow("", null),
+  // SendGrid
+  sendgrid_api_key: Joi.string().max(500).optional().allow(""),
+  sendgrid_from_email: Joi.string().email().max(255).optional().allow("", null),
+  sendgrid_from_name: Joi.string().max(100).optional().allow("", null),
   ocultar_para: Joi.boolean().optional(),
   email_ativo: Joi.boolean().optional(),
   ativo_email: Joi.boolean().optional(),
@@ -38,6 +42,11 @@ const smtpSettingsSchema = Joi.object({
       // connection string write-only — may be omitted if already saved
       if (value.acs_sender !== undefined && value.acs_sender === "") {
         return helpers.message("acs_sender é obrigatório para Azure ACS.");
+      }
+    }
+    if (provider === "sendgrid") {
+      if (value.sendgrid_from_email !== undefined && value.sendgrid_from_email === "") {
+        return helpers.message("sendgrid_from_email é obrigatório para SendGrid.");
       }
     }
     return value;

@@ -2,12 +2,17 @@ const AppError = require("../../utils/AppError");
 const { encrypt, decrypt } = require("../../config/cryptoSecrets");
 const repo = require("./email-provider-config.repository");
 
+const VALID_PROVIDERS = ["smtp", "acs", "sendgrid"];
+
 function mapPublic(row) {
   if (!row) {
     return {
       provider: "smtp",
       acs_sender: null,
       has_acs_connection_string: false,
+      sendgrid_from_email: null,
+      sendgrid_from_name: null,
+      has_sendgrid_api_key: false,
       ocultar_para: false,
       ativo: true,
     };
@@ -16,6 +21,9 @@ function mapPublic(row) {
     provider: row.provider || "smtp",
     acs_sender: row.acs_sender || null,
     has_acs_connection_string: !!row.acs_connection_string_ciphertext,
+    sendgrid_from_email: row.sendgrid_from_email || null,
+    sendgrid_from_name: row.sendgrid_from_name || null,
+    has_sendgrid_api_key: !!row.sendgrid_api_key_ciphertext,
     ocultar_para: !!row.ocultar_para,
     ativo: !!row.ativo,
   };
@@ -27,7 +35,7 @@ async function getPublicConfig() {
 }
 
 /**
- * Full config for sending (includes decrypted ACS connection string when present).
+ * Full config for sending (includes decrypted secrets when present).
  */
 async function getConfigForSend() {
   const row = await repo.ensureRow();
@@ -38,9 +46,12 @@ async function getConfigForSend() {
   const base = {
     provider: row.provider || "smtp",
     acs_sender: row.acs_sender || null,
+    sendgrid_from_email: row.sendgrid_from_email || null,
+    sendgrid_from_name: row.sendgrid_from_name || null,
     ocultar_para: !!row.ocultar_para,
     ativo: !!row.ativo,
     acs_connection_string: null,
+    sendgrid_api_key: null,
   };
 
   if (row.acs_connection_string_ciphertext) {
@@ -51,18 +62,26 @@ async function getConfigForSend() {
     }
   }
 
+  if (row.sendgrid_api_key_ciphertext) {
+    try {
+      base.sendgrid_api_key = decrypt(row.sendgrid_api_key_ciphertext);
+    } catch {
+      base.sendgrid_api_key = null;
+    }
+  }
+
   return base;
 }
 
 /**
- * Persist provider config. ACS connection string is write-only:
+ * Persist provider config. Secrets are write-only:
  * omit or empty string keeps existing ciphertext.
  */
 async function saveProviderConfig(data) {
   const fields = {};
 
   if (data.provider !== undefined) {
-    if (!["smtp", "acs"].includes(data.provider)) {
+    if (!VALID_PROVIDERS.includes(data.provider)) {
       throw new AppError("Provedor de e-mail inválido.", 400);
     }
     fields.provider = data.provider;
@@ -70,6 +89,14 @@ async function saveProviderConfig(data) {
 
   if (data.acs_sender !== undefined) {
     fields.acs_sender = data.acs_sender || null;
+  }
+
+  if (data.sendgrid_from_email !== undefined) {
+    fields.sendgrid_from_email = data.sendgrid_from_email || null;
+  }
+
+  if (data.sendgrid_from_name !== undefined) {
+    fields.sendgrid_from_name = data.sendgrid_from_name || null;
   }
 
   if (data.ocultar_para !== undefined) {
@@ -87,6 +114,16 @@ async function saveProviderConfig(data) {
   ) {
     fields.acs_connection_string_ciphertext = encrypt(
       String(data.acs_connection_string).trim(),
+    );
+  }
+
+  if (
+    data.sendgrid_api_key !== undefined &&
+    data.sendgrid_api_key !== null &&
+    String(data.sendgrid_api_key).trim() !== ""
+  ) {
+    fields.sendgrid_api_key_ciphertext = encrypt(
+      String(data.sendgrid_api_key).trim(),
     );
   }
 
@@ -113,6 +150,15 @@ async function assertCanSend() {
     }
   }
 
+  if (config.provider === "sendgrid") {
+    if (!config.sendgrid_api_key || !config.sendgrid_from_email) {
+      throw new AppError(
+        "Provedor de e-mail SendGrid incompleto (API key e remetente são obrigatórios).",
+        400,
+      );
+    }
+  }
+
   return config;
 }
 
@@ -122,4 +168,5 @@ module.exports = {
   saveProviderConfig,
   assertCanSend,
   mapPublic,
+  VALID_PROVIDERS,
 };

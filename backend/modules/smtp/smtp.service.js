@@ -65,6 +65,9 @@ async function getSettings() {
     provider: provider.provider,
     acs_sender: provider.acs_sender,
     has_acs_connection_string: provider.has_acs_connection_string,
+    sendgrid_from_email: provider.sendgrid_from_email,
+    sendgrid_from_name: provider.sendgrid_from_name,
+    has_sendgrid_api_key: provider.has_sendgrid_api_key,
     ocultar_para: provider.ocultar_para,
     email_ativo: provider.ativo,
   };
@@ -144,6 +147,9 @@ async function upsertSettings(data) {
     provider: data.provider,
     acs_connection_string: data.acs_connection_string,
     acs_sender: data.acs_sender,
+    sendgrid_api_key: data.sendgrid_api_key,
+    sendgrid_from_email: data.sendgrid_from_email,
+    sendgrid_from_name: data.sendgrid_from_name,
     ocultar_para: data.ocultar_para,
     ativo: data.email_ativo !== undefined ? data.email_ativo : data.ativo_email,
   };
@@ -168,6 +174,9 @@ async function upsertSettings(data) {
     data.provider !== undefined ||
     data.acs_connection_string !== undefined ||
     data.acs_sender !== undefined ||
+    data.sendgrid_api_key !== undefined ||
+    data.sendgrid_from_email !== undefined ||
+    data.sendgrid_from_name !== undefined ||
     data.ocultar_para !== undefined ||
     data.email_ativo !== undefined ||
     data.ativo_email !== undefined;
@@ -182,7 +191,6 @@ async function upsertSettings(data) {
     }
   }
 
-  // Validate ACS readiness when selecting ACS as active provider
   const after = await getSettings();
   if (after.provider === "acs" && after.email_ativo) {
     if (!after.acs_sender) {
@@ -191,6 +199,18 @@ async function upsertSettings(data) {
     if (!after.has_acs_connection_string) {
       throw new AppError(
         "Connection string ACS é obrigatória na primeira configuração.",
+        400,
+      );
+    }
+  }
+
+  if (after.provider === "sendgrid" && after.email_ativo) {
+    if (!after.sendgrid_from_email) {
+      throw new AppError("Remetente SendGrid (sendgrid_from_email) é obrigatório.", 400);
+    }
+    if (!after.has_sendgrid_api_key) {
+      throw new AppError(
+        "API key SendGrid é obrigatória na primeira configuração.",
         400,
       );
     }

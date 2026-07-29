@@ -3,7 +3,7 @@ import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
-export type EmailProvider = 'smtp' | 'acs';
+export type EmailProvider = 'smtp' | 'acs' | 'sendgrid';
 export type EmailLogStatus = 'sent' | 'failed' | 'entregue' | 'bounce';
 
 export interface SmtpSettings {
@@ -22,6 +22,10 @@ export interface SmtpSettings {
   acs_sender?: string | null;
   acs_connection_string?: string;
   has_acs_connection_string?: boolean;
+  sendgrid_api_key?: string;
+  sendgrid_from_email?: string | null;
+  sendgrid_from_name?: string | null;
+  has_sendgrid_api_key?: boolean;
   ocultar_para?: boolean;
   /** Envio habilitado no provedor (email_provider_config.ativo) */
   email_ativo?: boolean;

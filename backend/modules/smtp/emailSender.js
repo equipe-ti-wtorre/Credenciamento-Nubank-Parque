@@ -1,5 +1,6 @@
 const { EmailClient } = require("@azure/communication-email");
 const nodemailer = require("nodemailer");
+const sgMail = require("@sendgrid/mail");
 const db = require("../../config/db");
 const { child } = require("../../config/logger");
 const AppError = require("../../utils/AppError");
@@ -180,8 +181,58 @@ async function sendViaAcs(opts, providerConfig) {
   };
 }
 
+async function sendViaSendgrid(opts, providerConfig) {
+  sgMail.setApiKey(providerConfig.sendgrid_api_key);
+
+  const fromEmail = providerConfig.sendgrid_from_email;
+  const from = providerConfig.sendgrid_from_name
+    ? { email: fromEmail, name: providerConfig.sendgrid_from_name }
+    : fromEmail;
+
+  const { to, bcc } = applyOcultarPara({
+    to: opts.to,
+    from: fromEmail,
+    ocultarPara: providerConfig.ocultar_para,
+  });
+
+  const msg = {
+    to,
+    from,
+    subject: opts.subject,
+    text: opts.text || htmlToPlainText(opts.html) || opts.subject || "",
+    ...(opts.html ? { html: opts.html } : {}),
+  };
+
+  if (bcc) {
+    msg.bcc = bcc;
+  }
+
+  if (opts.attachments?.length) {
+    msg.attachments = opts.attachments.map((a) => ({
+      filename: a.filename || a.name || "attachment",
+      type: a.contentType || a.content_type || "application/octet-stream",
+      content: Buffer.isBuffer(a.content)
+        ? a.content.toString("base64")
+        : a.contentInBase64 || a.content,
+      disposition: "attachment",
+    }));
+  }
+
+  const [response] = await sgMail.send(msg);
+  const messageId =
+    response?.headers?.["x-message-id"] ||
+    response?.headers?.["X-Message-Id"] ||
+    null;
+
+  return {
+    provider: "sendgrid",
+    messageId,
+    raw: response,
+  };
+}
+
 /**
- * Unified email send. Chooses SMTP or Azure ACS from email_provider_config.
+ * Unified email send. Chooses SMTP, Azure ACS or SendGrid from email_provider_config.
  *
  * @param {object} opts
  * @param {string|string[]} opts.to
@@ -200,6 +251,8 @@ async function sendEmail(opts) {
   try {
     if (providerConfig.provider === "acs") {
       result = await sendViaAcs(opts, providerConfig);
+    } else if (providerConfig.provider === "sendgrid") {
+      result = await sendViaSendgrid(opts, providerConfig);
     } else {
       const smtpReady = await getSmtpSettingsForSend();
       if (!smtpReady) {
@@ -266,6 +319,7 @@ async function getMailSender() {
   const config = await emailConfigService.getConfigForSend();
   if (!config) return null;
   if (config.provider === "acs") return config.acs_sender;
+  if (config.provider === "sendgrid") return config.sendgrid_from_email;
   const smtp = await getSmtpSettingsForSend();
   return smtp?.from_email || null;
 }

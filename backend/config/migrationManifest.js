@@ -314,6 +314,27 @@ const migrations = [
     filename: "045_material_movement_photo.sql",
     validate: (conn) => tableExists(conn, "material_movement_photo"),
   },
+  {
+    filename: "046_sendgrid_provider.sql",
+    validate: (conn) =>
+      columnExists(conn, "email_provider_config", "sendgrid_api_key_ciphertext") &&
+      columnExists(conn, "email_provider_config", "sendgrid_from_email") &&
+      columnExists(conn, "email_provider_config", "sendgrid_from_name"),
+  },
+  {
+    filename: "047_sendgrid_provider_check.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT CHECK_CLAUSE AS clause
+         FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS
+         WHERE CONSTRAINT_SCHEMA = DATABASE()
+           AND CONSTRAINT_NAME = 'chk_email_provider'
+         LIMIT 1`,
+      );
+      const clause = String(rows[0]?.clause || "").toLowerCase();
+      return clause.includes("sendgrid");
+    },
+  },
 ];
 
 module.exports = migrations;

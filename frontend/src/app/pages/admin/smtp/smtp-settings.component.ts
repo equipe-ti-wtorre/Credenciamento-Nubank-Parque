@@ -22,7 +22,7 @@ import Swal from 'sweetalert2';
         <div>
           <h2 class="page-section-title">Envios de e-mail</h2>
           <p class="page-section-subtitle">
-            Configure SMTP ou Azure Communication Services e consulte o histórico de envios.
+            Configure SMTP, Azure Communication Services ou SendGrid e consulte o histórico de envios.
           </p>
         </div>
         <div class="flex flex-wrap gap-2 shrink-0">
@@ -52,6 +52,10 @@ import Swal from 'sweetalert2';
             <input type="radio" name="provider" [(ngModel)]="form.provider" value="acs" />
             Azure ACS
           </label>
+          <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <input type="radio" name="provider" [(ngModel)]="form.provider" value="sendgrid" />
+            SendGrid
+          </label>
         </div>
 
         <div class="flex flex-wrap gap-6 mb-5">
@@ -65,7 +69,7 @@ import Swal from 'sweetalert2';
           </label>
         </div>
 
-        <ng-container *ngIf="form.provider === 'smtp'; else acsForm">
+        <ng-container *ngIf="form.provider === 'smtp'">
           <h3 class="text-sm font-bold text-slate-500 uppercase mb-4">Configuração SMTP</h3>
           <form class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" (ngSubmit)="salvar()">
             <div>
@@ -140,7 +144,7 @@ import Swal from 'sweetalert2';
           </form>
         </ng-container>
 
-        <ng-template #acsForm>
+        <ng-container *ngIf="form.provider === 'acs'">
           <h3 class="text-sm font-bold text-slate-500 uppercase mb-4">Azure Communication Services</h3>
           <form class="grid grid-cols-1 md:grid-cols-2 gap-4" (ngSubmit)="salvar()">
             <div class="md:col-span-2">
@@ -170,7 +174,46 @@ import Swal from 'sweetalert2';
               />
             </div>
           </form>
-        </ng-template>
+        </ng-container>
+
+        <ng-container *ngIf="form.provider === 'sendgrid'">
+          <h3 class="text-sm font-bold text-slate-500 uppercase mb-4">SendGrid</h3>
+          <form class="grid grid-cols-1 md:grid-cols-2 gap-4" (ngSubmit)="salvar()">
+            <div class="md:col-span-2">
+              <label class="text-xs font-bold text-slate-500 uppercase">
+                API key
+                {{ hasSendgridApiKey ? '(deixe vazio para manter)' : '' }}
+              </label>
+              <input
+                type="password"
+                [(ngModel)]="sendgridApiKeyInput"
+                name="sendgrid_api_key"
+                [placeholder]="hasSendgridApiKey ? '•••••••• (já configurada)' : 'SG....'"
+                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] font-mono text-sm"
+              />
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-500 uppercase">E-mail remetente (verificado)</label>
+              <input
+                type="email"
+                [(ngModel)]="form.sendgrid_from_email"
+                name="sendgrid_from_email"
+                required
+                placeholder="no-reply@seudominio.com"
+                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              />
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-500 uppercase">Nome remetente</label>
+              <input
+                [(ngModel)]="form.sendgrid_from_name"
+                name="sendgrid_from_name"
+                placeholder="Credenciamento"
+                class="w-full mt-1 border border-[var(--app-border)] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+              />
+            </div>
+          </form>
+        </ng-container>
       </div>
 
       <div class="card-surface overflow-hidden">
@@ -274,13 +317,17 @@ export class SmtpSettingsComponent implements SettingsReloadable {
     from_name: 'Credenciamento',
     ativo: true,
     acs_sender: '',
+    sendgrid_from_email: '',
+    sendgrid_from_name: 'Credenciamento',
     ocultar_para: false,
     email_ativo: true,
   };
 
   acsConnectionInput = '';
+  sendgridApiKeyInput = '';
   hasPassword = false;
   hasAcsConnectionString = false;
+  hasSendgridApiKey = false;
   saving = false;
   loadingLogs = true;
   logs: SmtpSendLog[] = [];
@@ -333,13 +380,17 @@ export class SmtpSettingsComponent implements SettingsReloadable {
             from_name: res.settings.from_name || 'Credenciamento',
             ativo: res.settings.ativo !== false,
             acs_sender: res.settings.acs_sender || '',
+            sendgrid_from_email: res.settings.sendgrid_from_email || '',
+            sendgrid_from_name: res.settings.sendgrid_from_name || 'Credenciamento',
             ocultar_para: !!res.settings.ocultar_para,
             email_ativo: res.settings.email_ativo !== false,
             id: res.settings.id,
           };
           this.hasPassword = !!res.settings.hasPassword;
           this.hasAcsConnectionString = !!res.settings.has_acs_connection_string;
+          this.hasSendgridApiKey = !!res.settings.has_sendgrid_api_key;
           this.acsConnectionInput = '';
+          this.sendgridApiKeyInput = '';
         }
         this.cdr.markForCheck();
       },
@@ -387,10 +438,16 @@ export class SmtpSettingsComponent implements SettingsReloadable {
       payload.from_name = this.form.from_name;
       payload.ativo = this.form.ativo;
       if (this.form.password) payload.password = this.form.password;
-    } else {
+    } else if (this.form.provider === 'acs') {
       payload.acs_sender = this.form.acs_sender || '';
       if (this.acsConnectionInput.trim()) {
         payload.acs_connection_string = this.acsConnectionInput.trim();
+      }
+    } else if (this.form.provider === 'sendgrid') {
+      payload.sendgrid_from_email = this.form.sendgrid_from_email || '';
+      payload.sendgrid_from_name = this.form.sendgrid_from_name || null;
+      if (this.sendgridApiKeyInput.trim()) {
+        payload.sendgrid_api_key = this.sendgridApiKeyInput.trim();
       }
     }
 
@@ -407,7 +464,9 @@ export class SmtpSettingsComponent implements SettingsReloadable {
         };
         this.hasPassword = !!s.hasPassword;
         this.hasAcsConnectionString = !!s.has_acs_connection_string;
+        this.hasSendgridApiKey = !!s.has_sendgrid_api_key;
         this.acsConnectionInput = '';
+        this.sendgridApiKeyInput = '';
         this.notification.success('Configuração de e-mail salva.');
         this.cdr.markForCheck();
       },

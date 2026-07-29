@@ -1,0 +1,64 @@
+---
+description: Upload dropzone banner obrigatório — upload-dropzone--banner
+globs: frontend/src/**/*.{ts,scss,html}
+alwaysApply: false
+---
+
+# Upload de arquivo (dropzone banner)
+
+**Padrão obrigatório para uploads novos.** Classes em `frontend/src/styles/_components.scss`: `upload-dropzone upload-dropzone--banner`.
+
+```html
+<label class="form-label">Logo</label>
+<input #fileInput type="file" accept="..." class="hidden" (change)="onFileSelected($event)" />
+<div
+  class="upload-dropzone upload-dropzone--banner"
+  [class.upload-dropzone--dragover]="dragOver()"
+  [class.upload-dropzone--selected]="!!previewUrl()"
+  tabindex="0"
+  role="button"
+  (click)="fileInput.click()"
+  (keydown.enter)="fileInput.click()"
+  (keydown.space)="$event.preventDefault(); fileInput.click()"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <div class="upload-dropzone__main">
+    <span class="upload-dropzone__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4M6 10l6-6 6 6" />
+        <path d="M4 20h16" />
+      </svg>
+    </span>
+    <!-- ou preview: upload-dropzone__preview + img -->
+    <span class="upload-dropzone__text">
+      <span class="upload-dropzone__title">
+        Arraste o arquivo aqui ou
+        <span class="upload-dropzone__link">clique para procurar</span>
+      </span>
+      <span class="upload-dropzone__hint">Formato .png, .jpg — máx. 2 MB</span>
+    </span>
+  </div>
+  <!-- Opcional: só download de modelo -->
+  <!--
+  <button type="button" class="upload-dropzone__action" (click)="$event.stopPropagation(); downloadTemplate()">
+    Baixar modelo
+  </button>
+  -->
+</div>
+```
+
+## Regras
+
+- Copy: “Arraste … aqui ou **clique para procurar**” — link com `upload-dropzone__link` (`--wtorre`)
+- Hint: formatos + tamanho; com arquivo, pode mostrar o nome
+- Ícone 40×40 fundo `--wtorre`; preview substitui o ícone
+- Ação à direita (`upload-dropzone__action`, pill) **somente** baixar modelo
+- `input[type=file]` hidden + drag-and-drop + teclado (Enter/Space)
+- Tokens `--brand` / `--wtorre*` / `--wtorre-focus-ring` — sem hex
+- Estados: `--dragover`, `--selected`; desabilitado `aria-disabled="true"`
+
+Referências: logo em `company-list`; foto colaborador/mercadoria; bulk-import. **Não** copiar `wimp-dropzone*` / `collab-dropzone*`.
+
+**Anti-patterns:** botão “Escolher arquivo” solto; dropzone vertical (sem `--banner`); ação à direita que não seja template.

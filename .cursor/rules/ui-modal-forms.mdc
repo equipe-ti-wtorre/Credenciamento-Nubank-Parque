@@ -1,0 +1,71 @@
+---
+description: Modal app-modal, form-* e filtros live com debounce 500ms
+globs: frontend/src/**/*.{ts,scss,html}
+alwaysApply: false
+---
+
+# Modal, formulários e filtros
+
+## Modal base
+
+Usar `<app-modal>` (`frontend/src/app/shared/modal/modal.component.ts`). **Não** overlays inline `fixed inset-0`.
+
+```html
+<app-modal
+  [open]="showModal()"
+  title="Editar colaborador"
+  subtitle="Opcional: descrição"
+  size="md"
+  (close)="fecharModal()"
+>
+  <!-- corpo -->
+  <div modal-footer class="modal-footer">
+    <button type="button" class="btn-action-secondary" (click)="fecharModal()">Cancelar</button>
+    <button type="submit" class="btn-action-primary" [disabled]="form.invalid">Salvar colaborador</button>
+  </div>
+</app-modal>
+```
+
+- Footer: secundária à esquerda da primária, grupo à direita (`modal-footer`).
+- Tamanhos: `sm` | `md` | `lg` | `xl`
+- A11y (já no componente): `role="dialog"`, `aria-modal`, `aria-labelledby`, foco no 1º campo, Esc, focus trap, `prefers-reduced-motion`
+- Confirmações destrutivas: SweetAlert2 via `NotificationService` — fora de `<app-modal>`
+
+## Campos de formulário
+
+Classes reutilizáveis (não Tailwind ad hoc):
+
+```html
+<label class="form-label">
+  Nome <span class="form-label__optional">(opcional)</span>
+</label>
+<input class="form-field" type="text" />
+<select class="form-select">...</select>
+<textarea class="form-field" rows="3"></textarea>
+```
+
+- Label: maiúsculas pequenas (`form-label`)
+- Altura: `--form-field-height`
+- Foco: borda `--wtorre` + halo `--wtorre-focus-ring`
+- Select: seta via `form-select`
+- Upload: rule `ui-upload.mdc`
+
+## Filtros de listagem (digitar já filtra)
+
+1. **Texto**: filtrar ao digitar com **debounce 500ms**.
+2. **Select / date / checkbox**: filtrar **imediatamente**.
+3. **Não** botão **Filtrar**. Manter só **Limpar** quando fizer sentido.
+
+Referência: `company-list.component.ts`, `collaborator-list.component.ts`.
+
+```ts
+private readonly filterDebounceMs = 500;
+private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+onTextFilterChange() {
+  if (this.filterDebounceTimer !== null) clearTimeout(this.filterDebounceTimer);
+  this.filterDebounceTimer = setTimeout(() => this.aplicarFiltros(), this.filterDebounceMs);
+}
+```
+
+**Anti-patterns:** botão “Filtrar”; texto só no Enter; debounce ausente com API.
