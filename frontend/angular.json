@@ -5,7 +5,8 @@
     "packageManager": "npm",
     "cache": {
       "enabled": false
-    }
+    },
+    "analytics": false
   },
   "projects": {
     "frontend": {
@@ -64,7 +65,7 @@
             "development": { "buildTarget": "frontend:build:development" }
           },
           "options": {
-            "allowedHosts": ["cred.allianzparque.intra"]
+            "allowedHosts": ["cred.nbpdev.com.br"]
           },
           "defaultConfiguration": "development"
         }

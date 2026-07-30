@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PORT=4207
-NODE_BIN=/www/server/nodejs/v24.11.1/bin
+NODE_BIN=/www/server/nodejs/v26.5.1/bin
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 export PATH="${NODE_BIN}:${PATH}"

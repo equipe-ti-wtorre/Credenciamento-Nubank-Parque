@@ -1,42 +1,19 @@
 #!/bin/bash
-# Script de start do aaPanel — CredenciamentoFrontend
-# Cópia de referência: manter sincronizado com
-# /www/server/nodejs/vhost/scripts/CredenciamentoFrontend.sh
+# Produção: SPA estática via Nginx (frontend/dist). Este script só valida o build.
 
-PATH=/www/server/Credenciamento/frontend/node_modules/.bin:/www/server/nodejs/v24.11.1/bin:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
-export PATH
-
-export NODE_PROJECT_NAME="CredenciamentoFrontend"
-PORT=4207
-PROJECT_DIR=/www/server/Credenciamento/frontend
+PROJECT_DIR=/www/wwwroot/Credenciamento/frontend
+DIST_DIR=${PROJECT_DIR}/dist/frontend/browser
 LOG=/www/wwwlogs/nodejs/CredenciamentoFrontend.log
 PID_FILE=/www/server/nodejs/vhost/pids/CredenciamentoFrontend.pid
 
-mkdir -p "$(dirname "$PID_FILE")"
-cd "$PROJECT_DIR"
+mkdir -p "$(dirname "$LOG")" "$(dirname "$PID_FILE")" 2>/dev/null || true
 
-# Mata processo registrado no PID (wrapper npm) e qualquer ng serve órfão na porta
-if [ -f "$PID_FILE" ]; then
-  OLD_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
-  if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-    kill "$OLD_PID" 2>/dev/null || true
-    sleep 1
-    kill -9 "$OLD_PID" 2>/dev/null || true
-  fi
+if [ ! -f "${DIST_DIR}/index.html" ]; then
+  echo "Erro: build de produção ausente em ${DIST_DIR}. Rode: npm run build:prod" | tee -a "$LOG" 2>/dev/null
+  exit 1
 fi
 
-bash "$PROJECT_DIR/scripts/free-port.sh" "$PORT"
-
-nohup /www/server/nodejs/v24.11.1/bin/npm run start >> "$LOG" 2>&1 &
-
-for _ in $(seq 1 90); do
-  NG_PID=$(ss -tlnp 2>/dev/null | awk '/:4207/ { match($0, /pid=([0-9]+)/, a); if (a[1]) print a[1]; exit }')
-  if [ -n "$NG_PID" ]; then
-    echo "$NG_PID" > "$PID_FILE"
-    exit 0
-  fi
-  sleep 1
-done
-
-echo "Erro: ng serve não subiu na porta ${PORT} em 90s." >> "$LOG"
-exit 1
+msg="OK: dist presente — Nginx serve ${DIST_DIR} (ng serve desabilitado em produção)."
+echo "$msg" >> "$LOG" 2>/dev/null || echo "$msg"
+echo "0" > "$PID_FILE" 2>/dev/null || true
+exit 0

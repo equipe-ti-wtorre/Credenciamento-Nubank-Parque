@@ -20,7 +20,7 @@ function resolveAppBaseUrl(row) {
     resolveActivityWebUrl(row) ||
     normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
     normalizeHttpsAppUrl(env.msalRedirectUriWeb) ||
-    "https://cred.allianzparque.intra"
+    "https://cred.nbpdev.com.br"
   );
 }
 
@@ -479,7 +479,7 @@ function buildUserDeepLink(path) {
   const base =
     normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
     normalizeHttpsAppUrl(env.msalRedirectUriWeb) ||
-    "https://cred.allianzparque.intra";
+    "https://cred.nbpdev.com.br";
   const appUrl = buildAppPathUrl(base, path);
   if (!appUrl) return null;
   return buildTeamsActivityWebUrl(appUrl, { manifestAppId: env.teamsAppExternalId });

@@ -140,7 +140,7 @@ Build de produção:
 npm run build:prod
 ```
 
-> No servidor WTorre, os scripts `npm` do frontend já incluem o Node 24 em `/www/server/nodejs/v24.11.1/bin`. Em outra máquina, use Node 20.19+ no PATH.
+> No servidor WTorre, os scripts `npm` do frontend já incluem o Node 26 em `/www/server/nodejs/v26.5.1/bin`. Em outra máquina, use Node 20.19+ no PATH.
 
 ---
 

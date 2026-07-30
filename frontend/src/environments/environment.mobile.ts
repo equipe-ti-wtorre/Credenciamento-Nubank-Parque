@@ -1,6 +1,6 @@
 export const environment = {
   production: true,
-  apiBaseUrl: 'https://cred.allianzparque.intra/api/v1',
+  apiBaseUrl: 'https://cred.nbpdev.com.br/api/v1',
   msalConfig: {
     auth: {
       clientId: '',

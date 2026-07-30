@@ -56,6 +56,8 @@
   },
   "allowScripts": {
     "@tensorflow/tfjs-node@4.22.0": true,
-    "canvas@3.2.3": true
+    "canvas@3.2.3": true,
+    "core-js@3.29.1": true,
+    "tesseract.js@7.0.0": true
   }
 }

@@ -16,8 +16,8 @@ Use o **mesmo App Registration** já usado pelo Credenciamento (Client ID abaixo
 | Item | Valor neste projeto |
 |------|---------------------|
 | Application (client) ID | `90ac8301-8401-4287-9e69-287a4cdcbc2b` |
-| Messaging endpoint | `https://cred.allianzparque.intra/api/v1/teams/bot/messages` |
-| URI da API (SSO) | `api://cred.allianzparque.intra/90ac8301-8401-4287-9e69-287a4cdcbc2b` |
+| Messaging endpoint | `https://cred.nbpdev.com.br/api/v1/teams/bot/messages` |
+| URI da API (SSO) | `api://cred.nbpdev.com.br/90ac8301-8401-4287-9e69-287a4cdcbc2b` |
 | Manifest externalId | `c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c` |
 
 ### 1. Abrir o App Registration existente
@@ -66,7 +66,7 @@ Client ID/secret do tenant **não** criam sozinhos o recurso Azure Bot. Ainda é
 3. Em **Messaging endpoint**, cole:
 
    ```text
-   https://cred.allianzparque.intra/api/v1/teams/bot/messages
+   https://cred.nbpdev.com.br/api/v1/teams/bot/messages
    ```
 
 4. Salve.
@@ -74,7 +74,7 @@ Client ID/secret do tenant **não** criam sozinhos o recurso Azure Bot. Ainda é
 
    ```bash
    curl -s -o /dev/null -w "%{http_code}" \
-     -X POST https://cred.allianzparque.intra/api/v1/teams/bot/messages
+     -X POST https://cred.nbpdev.com.br/api/v1/teams/bot/messages
    ```
 
    Sem o secret/JWT do Bot Framework a resposta pode ser `401`/`403`/`503` — o importante é **não** ser timeout/DNS. Com Bot configurado no `.env`, o endpoint existe.
@@ -93,7 +93,7 @@ Ainda no **App Registration** (`90ac8301-…`):
 1. **Expor uma API** → **Definir** URI do aplicativo (**deve incluir o hostname da aba**, senão `getAuthToken` falha com *App resource defined in manifest and iframe origin do not match*):
 
    ```text
-   api://cred.allianzparque.intra/90ac8301-8401-4287-9e69-287a4cdcbc2b
+   api://cred.nbpdev.com.br/90ac8301-8401-4287-9e69-287a4cdcbc2b
    ```
 
    Esse valor precisa bater com `webApplicationInfo.resource` do `manifest.json`.
@@ -112,8 +112,8 @@ Sem o passo 3, o Teams mostra “Não foi possível autenticar automaticamente�
 No App Registration → **Autenticação** → plataforma **SPA**, cadastre **obrigatoriamente**:
 
 ```text
-https://cred.allianzparque.intra
-https://cred.allianzparque.intra/auth/teams.html
+https://cred.nbpdev.com.br
+https://cred.nbpdev.com.br/auth/teams.html
 ```
 
 - A primeira serve o login no navegador.
@@ -152,7 +152,7 @@ Opcional — override no `.env` (só se quiser um App/Bot separado do tenant cad
 # TEAMS_BOT_APP_PASSWORD=...
 # TEAMS_BOT_TENANT_ID=...
 # TEAMS_BOT_SERVICE_URL=https://smba.trafficmanager.net/br/
-TEAMS_ACTIVITY_WEB_URL=https://cred.allianzparque.intra
+TEAMS_ACTIVITY_WEB_URL=https://cred.nbpdev.com.br
 TEAMS_APP_EXTERNAL_ID=c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c
 # TEAMS_APP_ID=<id do catálogo Graph após publicar o zip>
 ```
@@ -185,7 +185,7 @@ Exemplo de resposta:
 cd teams-app
 node build-package.mjs \
   --client-id 90ac8301-8401-4287-9e69-287a4cdcbc2b \
-  --base-url https://cred.allianzparque.intra
+  --base-url https://cred.nbpdev.com.br
 ```
 
 1. Abra [admin.teams.microsoft.com](https://admin.teams.microsoft.com) → **Gerenciar aplicativos**.
@@ -219,8 +219,8 @@ node query-teams-app-id.mjs --tenant-ref-id 1
 | “Bot não autorizado” / 401 no endpoint | Secret do tenant desatualizado (renove na tela Tenants Azure) |
 | Clique no sino abre login | SSO (passo 6). Em `/aprovacoes/:id` o Teams faz SSO automático (TeamsAwareAuthGuard); login só se falhar |
 | Clique no sino não abre o detalhe | Novas notificações usam `/aprovacoes/{id}`; no app a página focada (sem sidebar) lê `subEntityId` |
-| `App resource … iframe origin do not match` | Application ID URI = `api://cred.allianzparque.intra/{clientId}` + mesmo valor no manifest; republicar zip |
-| **AADSTS50011** (redirect mismatch) | Em Autenticação SPA cadastre `https://cred.allianzparque.intra` **e** `https://cred.allianzparque.intra/auth/teams.html` |
+| `App resource … iframe origin do not match` | Application ID URI = `api://cred.nbpdev.com.br/{clientId}` + mesmo valor no manifest; republicar zip |
+| **AADSTS50011** (redirect mismatch) | Em Autenticação SPA cadastre `https://cred.nbpdev.com.br` **e** `https://cred.nbpdev.com.br/auth/teams.html` |
 | Feed “app not installed” | Pacote 1.1.2 republished + instalado para o usuário |
 | Mensagem proativa não chega | Canal Teams ativo no Azure Bot + tenant com `azure_tenant_id` correto |
 
@@ -232,7 +232,7 @@ node query-teams-app-id.mjs --tenant-ref-id 1
 cd teams-app
 node build-package.mjs \
   --client-id 90ac8301-8401-4287-9e69-287a4cdcbc2b \
-  --base-url https://cred.allianzparque.intra
+  --base-url https://cred.nbpdev.com.br
 ```
 
 Gera `../credenciamento-teams.zip`.

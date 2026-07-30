@@ -164,11 +164,11 @@ export class TeamsContextService {
   private ssoResources(): string[] {
     const clientId = getMsalClientId();
     const host =
-      typeof window !== 'undefined' ? window.location.hostname : 'cred.allianzparque.intra';
+      typeof window !== 'undefined' ? window.location.hostname : 'cred.nbpdev.com.br';
     const resources = new Set<string>();
     // Ordem: Application ID URI do manifest (prioridade Teams)
     resources.add(`api://${host}/${clientId || '90ac8301-8401-4287-9e69-287a4cdcbc2b'}`);
-    resources.add('api://cred.allianzparque.intra/90ac8301-8401-4287-9e69-287a4cdcbc2b');
+    resources.add('api://cred.nbpdev.com.br/90ac8301-8401-4287-9e69-287a4cdcbc2b');
     if (clientId && clientId !== '00000000-0000-0000-0000-000000000000') {
       resources.add(`api://${clientId}`);
       resources.add(clientId);

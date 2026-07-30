@@ -98,7 +98,7 @@ async function validateMicrosoftToken(req, res, next) {
     const hostHint =
       (typeof req.get === "function" && (req.get("x-forwarded-host") || req.get("host"))) ||
       process.env.PUBLIC_HOST ||
-      "cred.allianzparque.intra";
+      "cred.nbpdev.com.br";
     const hostname = String(hostHint).split(":")[0].toLowerCase();
     if (hostname && tenant.client_id) {
       allowedAudiences.add(`api://${hostname}/${tenant.client_id}`);

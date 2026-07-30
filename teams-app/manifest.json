@@ -1,14 +1,14 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   "manifestVersion": "1.16",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "id": "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c",
   "packageName": "com.credenciamento.app",
   "developer": {
     "name": "Credenciamento",
-    "websiteUrl": "https://cred.allianzparque.intra",
-    "privacyUrl": "https://cred.allianzparque.intra/",
-    "termsOfUseUrl": "https://cred.allianzparque.intra/"
+    "websiteUrl": "https://cred.nbpdev.com.br",
+    "privacyUrl": "https://cred.nbpdev.com.br/",
+    "termsOfUseUrl": "https://cred.nbpdev.com.br/"
   },
   "name": {
     "short": "Credenciamento",
@@ -27,8 +27,8 @@
     {
       "entityId": "home",
       "name": "Início",
-      "contentUrl": "https://cred.allianzparque.intra",
-      "websiteUrl": "https://cred.allianzparque.intra",
+      "contentUrl": "https://cred.nbpdev.com.br",
+      "websiteUrl": "https://cred.nbpdev.com.br",
       "scopes": [
         "personal"
       ]
@@ -59,11 +59,11 @@
     }
   },
   "validDomains": [
-    "cred.allianzparque.intra"
+    "cred.nbpdev.com.br"
   ],
   "webApplicationInfo": {
     "id": "cab3a38d-3f58-4388-b745-1511c22f86a1",
-    "resource": "api://cred.allianzparque.intra/cab3a38d-3f58-4388-b745-1511c22f86a1"
+    "resource": "api://cred.nbpdev.com.br/cab3a38d-3f58-4388-b745-1511c22f86a1"
   },
   "activities": {
     "activityTypes": [

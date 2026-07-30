@@ -16,7 +16,7 @@ import {
 /**
  * Rota pública `/auth/teams` — sem AuthGuard / sem sessão Credenciamento.
  * Aberta pelo popup do Teams; redirect MSAL volta para a mesma URL
- * (cadastrar no Azure SPA: https://cred.allianzparque.intra/auth/teams).
+ * (cadastrar no Azure SPA: https://cred.nbpdev.com.br/auth/teams).
  */
 @Component({
   selector: 'app-teams-login-popup',

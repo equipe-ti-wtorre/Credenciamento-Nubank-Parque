@@ -4,7 +4,7 @@
  *
  * Uso:
  *   node build-package.mjs
- *   node build-package.mjs --client-id 90ac8301-... --base-url https://cred.allianzparque.intra
+ *   node build-package.mjs --client-id 90ac8301-... --base-url https://cred.nbpdev.com.br
  */
 
 import fs from "fs";
@@ -24,7 +24,7 @@ const clientId =
   "90ac8301-8401-4287-9e69-287a4cdcbc2b";
 const baseUrl =
   arg("--base-url", process.env.TEAMS_APP_BASE_URL) ||
-  "https://cred.allianzparque.intra";
+  "https://cred.nbpdev.com.br";
 const packageExternalId =
   arg("--external-id", process.env.TEAMS_APP_EXTERNAL_ID) ||
   "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c";
@@ -42,7 +42,7 @@ const manifest = {
   $schema:
     "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   manifestVersion: "1.16",
-  version: "1.1.4",
+  version: "1.1.5",
   id: packageExternalId,
   packageName: "com.credenciamento.app",
   developer: {

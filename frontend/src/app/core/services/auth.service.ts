@@ -244,11 +244,11 @@ export class AuthService {
       const detail = this.teamsContext.getLastAuthError();
       const friendly =
         detail === 'CancelledByUser'
-          ? 'Login cancelado. Conclua a escolha da conta no popup (não feche antes). Cadastre no Azure SPA: https://cred.allianzparque.intra/auth/teams.html'
+          ? 'Login cancelado. Conclua a escolha da conta no popup (não feche antes). Cadastre no Azure SPA: https://cred.nbpdev.com.br/auth/teams.html'
           : detail;
       throw new Error(
         friendly ||
-          'Teams não liberou o token. No Azure: Application ID URI com hostname (api://cred.allianzparque.intra/{clientId}) e SPA https://cred.allianzparque.intra/auth/teams.html',
+          'Teams não liberou o token. No Azure: Application ID URI com hostname (api://cred.nbpdev.com.br/{clientId}) e SPA https://cred.nbpdev.com.br/auth/teams.html',
       );
     }
 
