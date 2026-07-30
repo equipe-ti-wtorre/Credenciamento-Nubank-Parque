@@ -335,6 +335,10 @@ const migrations = [
       return clause.includes("sendgrid");
     },
   },
+  {
+    filename: "048_email_templates.sql",
+    validate: (conn) => tableExists(conn, "email_templates"),
+  },
 ];
 
 module.exports = migrations;

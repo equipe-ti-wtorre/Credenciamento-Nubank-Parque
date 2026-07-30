@@ -6,6 +6,7 @@ import { LoginComponent } from './pages/login/login.component';
 import { DashboardComponent } from './pages/dashboard/dashboard.component';
 import { TenantListComponent } from './pages/admin/tenants/tenant-list.component';
 import { SmtpSettingsComponent } from './pages/admin/smtp/smtp-settings.component';
+import { EmailTemplatesComponent } from './pages/admin/email-templates/email-templates.component';
 import { SessionSettingsComponent } from './pages/admin/session/session-settings.component';
 import { AppearanceSettingsComponent } from './pages/admin/appearance/appearance-settings.component';
 import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
@@ -295,6 +296,16 @@ export const routes: Routes = [
             canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
             data: { permission: { module: 'settings_smtp', action: 'view' }, title: 'Envios SMTP' },
+          },
+          {
+            path: 'templates-email',
+            component: EmailTemplatesComponent,
+            canActivate: [PermissionGuard],
+            runGuardsAndResolvers: 'always',
+            data: {
+              permission: { module: 'settings_email_templates', action: 'view' },
+              title: 'Templates de e-mail',
+            },
           },
           {
             path: 'sessao',

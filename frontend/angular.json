@@ -23,7 +23,12 @@
             "assets": [
               { "glob": "**/*", "input": "public" },
               { "glob": "favicon.ico", "input": "src/assets", "output": "/" },
-              "src/assets"
+              "src/assets",
+              {
+                "glob": "**/*",
+                "input": "node_modules/tinymce",
+                "output": "tinymce"
+              }
             ],
             "styles": ["src/styles.scss"]
           },

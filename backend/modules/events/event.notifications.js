@@ -2,6 +2,7 @@ const db = require("../../config/db");
 const env = require("../../config/env");
 const logger = require("../../config/logger");
 const smtpService = require("../smtp/smtp.service");
+const emailTemplatesService = require("../email-templates/email-templates.service");
 
 function resolveAppBaseUrl() {
   if (env.appPublicUrl) return env.appPublicUrl;
@@ -21,6 +22,10 @@ function escapeHtml(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function eventUrlLine(link) {
+  return link ? `Acesse: ${link}` : "";
 }
 
 async function resolveCompanyEmails(idCompany) {
@@ -108,27 +113,39 @@ function notifyEventCreated({
 }) {
   schedule(async () => {
     const org = env.organizationName || "Credenciamento";
-    const link = buildEventUrl(event.id_event);
+    const link = buildEventUrl(event.id_event) || "";
+    const vars = {
+      event_name: event.name,
+      organization_name: org,
+      event_url: link,
+      event_url_line: eventUrlLine(link),
+    };
+
+    const rendered = await emailTemplatesService.renderActive("event_created", vars);
     const name = escapeHtml(event.name);
-    const subject = `Novo evento — ${event.name}`;
-    const text = [
-      `Olá,`,
-      "",
-      `A empresa foi definida como responsável pelo evento "${event.name}" no sistema ${org}.`,
-      link ? `Acesse: ${link}` : "",
-      "",
-      "Próximo passo: vincular empresas parceiras e acompanhar o cadastro de colaboradores.",
-    ]
-      .filter(Boolean)
-      .join("\n");
-    const html = [
-      `<h2>Novo evento</h2>`,
-      `<p>A empresa foi definida como responsável pelo evento <strong>${name}</strong>.</p>`,
-      `<p>Próximo passo: vincular empresas parceiras e acompanhar o cadastro de colaboradores.</p>`,
-      link
-        ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
-        : "",
-    ].join("");
+    const subject = rendered?.subject || `Novo evento — ${event.name}`;
+    const text =
+      rendered?.text ||
+      [
+        `Olá,`,
+        "",
+        `A empresa foi definida como responsável pelo evento "${event.name}" no sistema ${org}.`,
+        link ? `Acesse: ${link}` : "",
+        "",
+        "Próximo passo: vincular empresas parceiras e acompanhar o cadastro de colaboradores.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    const html =
+      rendered?.html ||
+      [
+        `<h2>Novo evento</h2>`,
+        `<p>A empresa foi definida como responsável pelo evento <strong>${name}</strong>.</p>`,
+        `<p>Próximo passo: vincular empresas parceiras e acompanhar o cadastro de colaboradores.</p>`,
+        link
+          ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
+          : "",
+      ].join("");
 
     await sendCompanyEmails({
       idCompany: idCompanyResponsavel,
@@ -151,27 +168,44 @@ function notifyPartnerLinked({
 }) {
   schedule(async () => {
     const org = env.organizationName || "Credenciamento";
-    const link = buildEventUrl(event.id_event);
+    const link = buildEventUrl(event.id_event) || "";
+    const vars = {
+      event_name: event.name,
+      organization_name: org,
+      partner_name: partnerName || "sua empresa",
+      event_url: link,
+      event_url_line: eventUrlLine(link),
+    };
+
+    const rendered = await emailTemplatesService.renderActive(
+      "event_partner_linked",
+      vars,
+    );
     const name = escapeHtml(event.name);
     const partner = escapeHtml(partnerName || "sua empresa");
-    const subject = `Empresa vinculada ao evento — ${event.name}`;
-    const text = [
-      `Olá,`,
-      "",
-      `${partnerName || "Sua empresa"} foi vinculada ao evento "${event.name}" no sistema ${org}.`,
-      "Cadastre os colaboradores e, ao concluir, use Notificar término.",
-      link ? `Acesse: ${link}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-    const html = [
-      `<h2>Empresa vinculada ao evento</h2>`,
-      `<p><strong>${partner}</strong> foi vinculada ao evento <strong>${name}</strong>.</p>`,
-      `<p>Cadastre os colaboradores e, ao concluir, use <strong>Notificar término</strong>.</p>`,
-      link
-        ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
-        : "",
-    ].join("");
+    const subject =
+      rendered?.subject || `Empresa vinculada ao evento — ${event.name}`;
+    const text =
+      rendered?.text ||
+      [
+        `Olá,`,
+        "",
+        `${partnerName || "Sua empresa"} foi vinculada ao evento "${event.name}" no sistema ${org}.`,
+        "Cadastre os colaboradores e, ao concluir, use Notificar término.",
+        link ? `Acesse: ${link}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    const html =
+      rendered?.html ||
+      [
+        `<h2>Empresa vinculada ao evento</h2>`,
+        `<p><strong>${partner}</strong> foi vinculada ao evento <strong>${name}</strong>.</p>`,
+        `<p>Cadastre os colaboradores e, ao concluir, use <strong>Notificar término</strong>.</p>`,
+        link
+          ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
+          : "",
+      ].join("");
 
     await sendCompanyEmails({
       idCompany: idCompanyPartner,
@@ -193,27 +227,44 @@ function notifyPartnerComplete({
   requestId = null,
 }) {
   schedule(async () => {
-    const link = buildEventUrl(event.id_event);
+    const link = buildEventUrl(event.id_event) || "";
+    const vars = {
+      event_name: event.name,
+      partner_name: partnerName || "Empresa parceira",
+      event_url: link,
+      event_url_line: eventUrlLine(link),
+    };
+
+    const rendered = await emailTemplatesService.renderActive(
+      "event_partner_complete",
+      vars,
+    );
     const name = escapeHtml(event.name);
     const partner = escapeHtml(partnerName || "Empresa parceira");
-    const subject = `Cadastro concluído — ${partnerName || "parceira"} — ${event.name}`;
-    const text = [
-      `Olá,`,
-      "",
-      `A empresa parceira "${partnerName || "Empresa parceira"}" notificou o término do cadastro de colaboradores no evento "${event.name}".`,
-      "Quando estiver pronto, use Notificar para enviar o evento ao setor de aprovação.",
-      link ? `Acesse: ${link}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-    const html = [
-      `<h2>Cadastro de colaboradores concluído</h2>`,
-      `<p>A empresa parceira <strong>${partner}</strong> notificou o término do cadastro no evento <strong>${name}</strong>.</p>`,
-      `<p>Quando estiver pronto, use <strong>Notificar</strong> para enviar o evento ao setor de aprovação.</p>`,
-      link
-        ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
-        : "",
-    ].join("");
+    const subject =
+      rendered?.subject ||
+      `Cadastro concluído — ${partnerName || "parceira"} — ${event.name}`;
+    const text =
+      rendered?.text ||
+      [
+        `Olá,`,
+        "",
+        `A empresa parceira "${partnerName || "Empresa parceira"}" notificou o término do cadastro de colaboradores no evento "${event.name}".`,
+        "Quando estiver pronto, use Notificar para enviar o evento ao setor de aprovação.",
+        link ? `Acesse: ${link}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    const html =
+      rendered?.html ||
+      [
+        `<h2>Cadastro de colaboradores concluído</h2>`,
+        `<p>A empresa parceira <strong>${partner}</strong> notificou o término do cadastro no evento <strong>${name}</strong>.</p>`,
+        `<p>Quando estiver pronto, use <strong>Notificar</strong> para enviar o evento ao setor de aprovação.</p>`,
+        link
+          ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
+          : "",
+      ].join("");
 
     await sendCompanyEmails({
       idCompany: idCompanyResponsavel,

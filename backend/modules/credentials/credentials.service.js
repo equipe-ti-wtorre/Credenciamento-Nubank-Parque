@@ -7,6 +7,7 @@ const collaboratorService = require("../collaborators/collaborator.service");
 const companyService = require("../companies/company.service");
 const teamsService = require("../teams/teams.service");
 const smtpService = require("../smtp/smtp.service");
+const emailTemplatesService = require("../email-templates/email-templates.service");
 const alertsService = require("../alerts/alerts.service");
 const { parseBulkFile } = require("../collaborators/collaborator.bulk");
 const {
@@ -713,18 +714,32 @@ function scheduleApprovalEmail(credential, { usuarioId, requestId }) {
         return;
       }
 
-      const html = [
-        "<h2>Credencial aprovada</h2>",
-        `<p>Evento: <strong>${credential.event.name}</strong></p>`,
-        `<p>Dia: ${credential.event_day.date}</p>`,
-        `<p>Colaborador: ${credential.collaborator.name}</p>`,
-        `<p>Código de acesso (QR): <strong>${credential.access_id}</strong></p>`,
-      ].join("");
+      const vars = {
+        event_name: credential.event.name,
+        event_day: credential.event_day.date,
+        collaborator_name: credential.collaborator.name,
+        access_id: credential.access_id,
+      };
+      const rendered = await emailTemplatesService.renderActive(
+        "credential_approved",
+        vars,
+      );
+      const html =
+        rendered?.html ||
+        [
+          "<h2>Credencial aprovada</h2>",
+          `<p>Evento: <strong>${credential.event.name}</strong></p>`,
+          `<p>Dia: ${credential.event_day.date}</p>`,
+          `<p>Colaborador: ${credential.collaborator.name}</p>`,
+          `<p>Código de acesso (QR): <strong>${credential.access_id}</strong></p>`,
+        ].join("");
 
       await smtpService.sendMail({
         to,
-        subject: `Credencial aprovada — ${credential.event.name}`,
+        subject:
+          rendered?.subject || `Credencial aprovada — ${credential.event.name}`,
         html,
+        text: rendered?.text || undefined,
         usuarioId,
         requestId,
       });

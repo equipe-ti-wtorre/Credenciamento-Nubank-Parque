@@ -30,6 +30,7 @@ const MODULES = [
   { key: "merchandise_reports", label: "Relatórios de mercadorias", group: "Administração" },
   { key: "settings_tenants", label: "Tenants Azure", group: "Configurações" },
   { key: "settings_smtp", label: "Envios SMTP", group: "Configurações" },
+  { key: "settings_email_templates", label: "Templates de e-mail", group: "Configurações" },
   { key: "settings_session", label: "Sessão", group: "Configurações" },
   { key: "settings_appearance", label: "Aparência", group: "Configurações" },
   { key: "settings_teams", label: "Integração Teams", group: "Configurações" },

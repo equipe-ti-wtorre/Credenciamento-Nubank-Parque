@@ -4,6 +4,7 @@ const db = require("../../config/db");
 const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
 const smtpService = require("../smtp/smtp.service");
+const emailTemplatesService = require("../email-templates/email-templates.service");
 const profilesService = require("../profiles/profiles.service");
 const { createTokenPair } = require("./token.service");
 
@@ -103,25 +104,41 @@ async function sendInviteEmail({
 }) {
   const inviteUrl = buildInviteUrl(rawToken);
   const org = env.organizationName || "Credenciamento";
-  const subject = `Cadastro de acesso — ${companyName || org}`;
-  const text = [
-    `Olá${nome ? ` ${nome}` : ""},`,
-    "",
-    `Você foi convidado(a) para acessar o sistema ${org} como ${perfilLabel || "usuário da empresa"}${companyName ? ` da empresa ${companyName}` : ""}.`,
-    "",
-    `Acesse o link abaixo para definir sua senha (válido por ${INVITE_TTL_HOURS} horas):`,
-    inviteUrl,
-    "",
-    "Se você não esperava este e-mail, ignore esta mensagem.",
-  ].join("\n");
+  const companySuffix = companyName ? ` da empresa ${companyName}` : "";
+  const vars = {
+    nome: nome || "",
+    organization_name: org,
+    company_name: companyName || org,
+    company_suffix: companySuffix,
+    perfil_label: perfilLabel || "usuário da empresa",
+    invite_url: inviteUrl,
+    invite_ttl_hours: String(INVITE_TTL_HOURS),
+  };
 
-  const html = [
-    `<h2>Cadastro de acesso</h2>`,
-    `<p>Olá${nome ? ` <strong>${nome}</strong>` : ""},</p>`,
-    `<p>Você foi convidado(a) para acessar o sistema <strong>${org}</strong> como <strong>${perfilLabel || "usuário da empresa"}</strong>${companyName ? ` da empresa <strong>${companyName}</strong>` : ""}.</p>`,
-    `<p><a href="${inviteUrl}" style="display:inline-block;padding:10px 16px;background:#0f766e;color:#fff;text-decoration:none;border-radius:8px;">Definir senha e acessar</a></p>`,
-    `<p style="font-size:12px;color:#64748b;">Link válido por ${INVITE_TTL_HOURS} horas.<br/>Se o botão não funcionar, copie e cole: ${inviteUrl}</p>`,
-  ].join("");
+  const rendered = await emailTemplatesService.renderActive("invite_access", vars);
+  const subject =
+    rendered?.subject || `Cadastro de acesso — ${companyName || org}`;
+  const text =
+    rendered?.text ||
+    [
+      `Olá${nome ? ` ${nome}` : ""},`,
+      "",
+      `Você foi convidado(a) para acessar o sistema ${org} como ${perfilLabel || "usuário da empresa"}${companySuffix}.`,
+      "",
+      `Acesse o link abaixo para definir sua senha (válido por ${INVITE_TTL_HOURS} horas):`,
+      inviteUrl,
+      "",
+      "Se você não esperava este e-mail, ignore esta mensagem.",
+    ].join("\n");
+  const html =
+    rendered?.html ||
+    [
+      `<h2>Cadastro de acesso</h2>`,
+      `<p>Olá${nome ? ` <strong>${nome}</strong>` : ""},</p>`,
+      `<p>Você foi convidado(a) para acessar o sistema <strong>${org}</strong> como <strong>${perfilLabel || "usuário da empresa"}</strong>${companyName ? ` da empresa <strong>${companyName}</strong>` : ""}.</p>`,
+      `<p><a href="${inviteUrl}" style="display:inline-block;padding:10px 16px;background:#0f766e;color:#fff;text-decoration:none;border-radius:8px;">Definir senha e acessar</a></p>`,
+      `<p style="font-size:12px;color:#64748b;">Link válido por ${INVITE_TTL_HOURS} horas.<br/>Se o botão não funcionar, copie e cole: ${inviteUrl}</p>`,
+    ].join("");
 
   await smtpService.sendMail({
     to,

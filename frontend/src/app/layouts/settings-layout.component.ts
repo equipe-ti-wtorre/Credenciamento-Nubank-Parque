@@ -5,14 +5,14 @@ import {
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { SETTINGS_NAV_ITEMS } from '../config/admin-menu.config';
 import { isSettingsReloadable } from '../pages/admin/settings-reloadable';
 
 @Component({
   selector: 'app-settings-layout',
   standalone: true,
-  imports: [CommonModule, RouterOutlet],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <div class="settings-page-shell">
       <header class="settings-page-header">
@@ -25,10 +25,11 @@ import { isSettingsReloadable } from '../pages/admin/settings-reloadable';
           <nav class="space-y-1">
             <a
               *ngFor="let item of navItems"
-              href="#"
+              [routerLink]="['/admin/configuracoes', item.path]"
+              routerLinkActive="settings-nav-active"
+              [routerLinkActiveOptions]="{ exact: true }"
               class="settings-nav-link"
-              [class.settings-nav-active]="isActive(item.path)"
-              (click)="goToSection(item.path, $event)"
+              (click)="onNavClick(item.path, $event)"
             >
               <span class="settings-nav-icon" aria-hidden="true">{{ item.icon }}</span>
               <span class="min-w-0">
@@ -56,27 +57,20 @@ export class SettingsLayoutComponent {
   private readonly router = inject(Router);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  isActive(path: string): boolean {
-    return this.router.isActive(
-      this.router.createUrlTree(['/admin/configuracoes', path]),
-      {
+  /** Clique no item já ativo: só recarrega a página (sem navegar de novo). */
+  onNavClick(path: string, event: Event) {
+    const urlTree = this.router.createUrlTree(['/admin/configuracoes', path]);
+    if (
+      this.router.isActive(urlTree, {
         paths: 'exact',
         queryParams: 'exact',
         fragment: 'ignored',
         matrixParams: 'ignored',
-      },
-    );
-  }
-
-  goToSection(path: string, event: Event) {
-    event.preventDefault();
-
-    if (this.isActive(path)) {
+      })
+    ) {
+      event.preventDefault();
       this.reloadActivePage();
-      return;
     }
-
-    void this.router.navigate(['/admin/configuracoes', path]);
   }
 
   onOutletActivate(component: unknown) {
