@@ -370,30 +370,12 @@ async function deliverAdaptiveCard({
     return { ok: false, message: "Sem token Graph para Adaptive Card." };
   }
 
-  // Graph: se ainda houver Action.Submit, reconstrói com OpenUrl + deep link Teams.
-  const { buildApprovalDecisionCard } = require("./adaptiveCards");
+  // Graph: se ainda houver Action.Submit, converte para OpenUrl preservando o body.
+  const { toOpenUrlDecisionCard } = require("./adaptiveCards");
   let cardForGraph = cardForTeams;
   if (adaptiveCard?.actions?.some((a) => a.type === "Action.Submit")) {
-    const facts = (adaptiveCard.body || []).find((b) => b.type === "FactSet")?.facts || [];
-    const fact = (title) => facts.find((f) => f.title === title)?.value || null;
     cardForGraph = rewriteAdaptiveCardDetailUrls(
-      buildApprovalDecisionCard(
-        {
-          titulo: adaptiveCard.body?.[0]?.text,
-          mensagem: adaptiveCard.body?.[1]?.text,
-          detailUrl: spaUrl,
-          idAprovacao: adaptiveCard.actions.find((a) => a.data?.idAprovacao)?.data
-            ?.idAprovacao,
-          tipoLabel: fact("Tipo"),
-          idEntidade: fact("Nº"),
-          setorNome: fact("Setor"),
-          solicitanteNome: fact("Solicitante"),
-          periodo: fact("Período"),
-          finalidade: fact("Finalidade"),
-          colaboradores: fact("Colaboradores"),
-        },
-        { interactive: false },
-      ),
+      toOpenUrlDecisionCard(cardForTeams, spaUrl),
       { teamsAppId, spaUrl },
     );
   }

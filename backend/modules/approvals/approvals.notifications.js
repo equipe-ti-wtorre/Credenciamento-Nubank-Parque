@@ -8,6 +8,7 @@ const alertsService = require("../alerts/alerts.service");
 const {
   buildApprovalDecisionCard,
   buildInfoCard,
+  formatPeriodoBr,
 } = require("../teams/adaptiveCards");
 const { isBotInteractiveEnabled } = require("../teams/bot/credentials");
 const env = require("../../config/env");
@@ -40,14 +41,15 @@ async function loadEntityExtras(aprovacao) {
   let periodo = null;
   let finalidade = null;
   let colaboradores = null;
-  let colaboradoresCount = 0;
+  let colaboradoresNomes = [];
+  let colaboradoresCount = null;
   if (aprovacao.tipo_entidade === "ACESSO_SERVICO") {
     const [rows] = await db.query(
       `SELECT start_date, end_date, finalidade FROM service_access WHERE id_service_access = ? LIMIT 1`,
       [aprovacao.id_entidade],
     );
     if (rows[0]) {
-      periodo = `${String(rows[0].start_date).slice(0, 10)} → ${String(rows[0].end_date).slice(0, 10)}`;
+      periodo = formatPeriodoBr(rows[0].start_date, rows[0].end_date);
       finalidade = rows[0].finalidade || null;
     }
     const [collabRows] = await db.query(
@@ -59,6 +61,7 @@ async function loadEntityExtras(aprovacao) {
       [aprovacao.id_entidade],
     );
     const names = (collabRows || []).map((r) => r.nome).filter(Boolean);
+    colaboradoresNomes = names;
     colaboradoresCount = names.length;
     colaboradores = formatCollaboratorsLabel(names);
   } else if (aprovacao.tipo_entidade === "EVENTO") {
@@ -68,11 +71,27 @@ async function loadEntityExtras(aprovacao) {
     );
     if (rows[0]?.name) finalidade = rows[0].name;
   }
-  return { periodo, finalidade, colaboradores, colaboradoresCount };
+  return { periodo, finalidade, colaboradores, colaboradoresNomes, colaboradoresCount };
+}
+
+function tipoLabelOf(aprovacao) {
+  return aprovacao.tipo_entidade === "EVENTO" ? "Evento" : "Acesso de serviço";
+}
+
+function colaboradorWord(count) {
+  return Number(count) === 1 ? "colaborador" : "colaboradores";
+}
+
+/** Summary curto para toast/preview do Teams (sem nomes). */
+function buildPendingSummary(aprovacao, extras = {}) {
+  const tipo = tipoLabelOf(aprovacao);
+  const count = Number(extras.colaboradoresCount);
+  const qtd = Number.isFinite(count) ? count : 0;
+  return `Aprovação pendente: ${tipo} #${aprovacao.id_entidade} (${aprovacao.setor_nome}) — ${qtd} ${colaboradorWord(qtd)}`;
 }
 
 function buildMessage(aprovacao, extra = "", extras = {}) {
-  const tipo = aprovacao.tipo_entidade === "EVENTO" ? "Evento" : "Acesso de serviço";
+  const tipo = tipoLabelOf(aprovacao);
   let msg = `${tipo} #${aprovacao.id_entidade} — setor ${aprovacao.setor_nome}. ${extra}`.trim();
   const count = Number(extras.colaboradoresCount) || 0;
   if (count > 0 && extras.colaboradores) {
@@ -94,7 +113,7 @@ function appDetailUrl(idAprovacao) {
 }
 
 function cardPayloadBase(aprovacao, extras = {}) {
-  const tipoLabel = aprovacao.tipo_entidade === "EVENTO" ? "Evento" : "Acesso de serviço";
+  const tipoLabel = tipoLabelOf(aprovacao);
   // Base SPA https; na entrega o Teams service reescreve OpenUrl para deep link da aba (sem navegador).
   const detailUrl =
     appDetailUrl(aprovacao.id) ||
@@ -105,9 +124,12 @@ function cardPayloadBase(aprovacao, extras = {}) {
     idEntidade: aprovacao.id_entidade,
     setorNome: aprovacao.setor_nome,
     solicitanteNome: aprovacao.solicitante_nome,
+    nivel: aprovacao.nivel_atual,
     periodo: extras.periodo || null,
     finalidade: extras.finalidade || null,
     colaboradores: extras.colaboradores || null,
+    colaboradoresNomes: extras.colaboradoresNomes || [],
+    colaboradoresCount: extras.colaboradoresCount,
     detailUrl,
   };
 }
@@ -182,11 +204,12 @@ async function notifyApprovalCreated({ idAprovacao, idSetor, idSolicitante }) {
       return { notified: 0, reason: "missing_context" };
     }
     const extras = await loadEntityExtras(ctx);
-    const mensagem = buildMessage(ctx, "Nova solicitação aguardando sua aprovação (nível 1).", extras);
+    const mensagem = buildPendingSummary(ctx, extras);
     const card = buildApprovalDecisionCard(
       {
         ...cardPayloadBase(ctx, extras),
         titulo: "Nova aprovação pendente",
+        summary: mensagem,
         mensagem,
       },
       { interactive: await isBotInteractiveEnabled() },
@@ -226,15 +249,13 @@ async function notifyApprovalAdvanced(result, decidedByUserId) {
     const approvers = await approvalsService.listEligibleApprovers(ctx.id_setor, result.nivelAtual, {
       excludeUserIds: [ctx.id_solicitante, decidedByUserId],
     });
-    const mensagem = buildMessage(
-      ctx,
-      `Solicitação avançou para o nível ${result.nivelAtual}. Aguardando sua decisão.`,
-      extras,
-    );
+    const mensagem = buildPendingSummary(ctx, extras);
     const card = buildApprovalDecisionCard(
       {
         ...cardPayloadBase(ctx, extras),
+        nivel: result.nivelAtual ?? ctx.nivel_atual,
         titulo: "Aprovação avançou de nível",
+        summary: mensagem,
         mensagem,
       },
       { interactive: await isBotInteractiveEnabled() },
