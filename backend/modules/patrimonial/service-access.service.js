@@ -650,36 +650,14 @@ async function updateServiceAccess(req, id, data) {
     await assertCollaboratorsNoDateOverlap(id, startDate, endDate);
   }
 
-  if (prevStatus === STATUS_APROVADO) {
-    if (otherChanged) {
-      throw new AppError(
-        "Acesso aprovado: para alterar a finalidade/setor use a reabertura após ajustar o período, ou cancele o fluxo atual.",
-        400,
-      );
-    }
-    if (!datesChanged) {
-      if (flagChanged) {
-        await db.execute(
-          `UPDATE service_access
-           SET notificar_entrada = ?,
-               notificar_entrada_colaborador = ?,
-               notificar_entrada_veiculo = ?
-           WHERE id_service_access = ?`,
-          [
-            notifyFlags.notificar_entrada,
-            notifyFlags.notificar_entrada_colaborador,
-            notifyFlags.notificar_entrada_veiculo,
-            id,
-          ],
-        );
-        const detail = await getServiceAccessById(req, id);
-        return { ...detail, approvalNotify: false, contentChanged: false };
-      }
-      return { ...existing, approvalNotify: false, contentChanged: false };
-    }
-  }
+  const isFinalizedStatus =
+    prevStatus === STATUS_APROVADO ||
+    prevStatus === STATUS_NEGADO ||
+    prevStatus === STATUS_EXPIRADO;
 
-  if (!contentChanged) {
+  // Em rascunho/aguardando: sem mudança de conteúdo, só atualiza flags (se houver) e sai.
+  // Em aprovado/negado/expirado: salvar via Editar sempre reabre aprovação (como o antigo Ajustar período).
+  if (!contentChanged && !isFinalizedStatus) {
     if (flagChanged) {
       await db.execute(
         `UPDATE service_access
@@ -700,27 +678,29 @@ async function updateServiceAccess(req, id, data) {
     return { ...existing, approvalNotify: false, contentChanged: false };
   }
 
-  await db.execute(
-    `UPDATE service_access
-     SET start_date = ?, end_date = ?, finalidade = ?, service_type = ?,
-         requesting_department = ?, observacao = ?, description = ?,
-         notificar_entrada = ?, notificar_entrada_colaborador = ?,
-         notificar_entrada_veiculo = ?
-     WHERE id_service_access = ?`,
-    [
-      startDate,
-      endDate,
-      finalidade,
-      finalidade,
-      requestingDepartment,
-      observacao,
-      observacao,
-      notifyFlags.notificar_entrada,
-      notifyFlags.notificar_entrada_colaborador,
-      notifyFlags.notificar_entrada_veiculo,
-      id,
-    ],
-  );
+  if (contentChanged || flagChanged) {
+    await db.execute(
+      `UPDATE service_access
+       SET start_date = ?, end_date = ?, finalidade = ?, service_type = ?,
+           requesting_department = ?, observacao = ?, description = ?,
+           notificar_entrada = ?, notificar_entrada_colaborador = ?,
+           notificar_entrada_veiculo = ?
+       WHERE id_service_access = ?`,
+      [
+        startDate,
+        endDate,
+        finalidade,
+        finalidade,
+        requestingDepartment,
+        observacao,
+        observacao,
+        notifyFlags.notificar_entrada,
+        notifyFlags.notificar_entrada_colaborador,
+        notifyFlags.notificar_entrada_veiculo,
+        id,
+      ],
+    );
+  }
 
   let idSetor = data.id_setor != null ? Number(data.id_setor) : existing.id_setor || null;
   if (data.id_setor != null) {
@@ -761,9 +741,7 @@ async function updateServiceAccess(req, id, data) {
   const serviceRow = await getServiceAccessRow(id);
   const mustReopen =
     datesChanged ||
-    prevStatus === STATUS_APROVADO ||
-    prevStatus === STATUS_NEGADO ||
-    prevStatus === STATUS_EXPIRADO;
+    isFinalizedStatus;
 
   let reopenResult = { reopened: false, created: false, idAprovacao: null };
   if (mustReopen || prevStatus === STATUS_AGUARDANDO_APROVACAO) {
@@ -771,11 +749,7 @@ async function updateServiceAccess(req, id, data) {
     try {
       await conn.beginTransaction();
       reopenResult = await reopenServiceAccessForApproval(conn, serviceRow, {
-        force:
-          datesChanged ||
-          prevStatus === STATUS_APROVADO ||
-          prevStatus === STATUS_NEGADO ||
-          prevStatus === STATUS_EXPIRADO,
+        force: mustReopen,
         idSetor: idSetor || undefined,
         idSolicitante: req.user?.id || serviceRow.id_usuario || null,
       });
@@ -798,7 +772,7 @@ async function updateServiceAccess(req, id, data) {
 
   const detail = await getServiceAccessById(req, id);
   const approvalNotify = !!(
-    contentChanged &&
+    (contentChanged || isFinalizedStatus) &&
     (detail.id_aprovacao || reopenResult.idAprovacao) &&
     (detail.aprovacao_status === "PENDENTE" ||
       reopenResult.reopened ||
@@ -807,7 +781,7 @@ async function updateServiceAccess(req, id, data) {
   return {
     ...detail,
     approvalNotify,
-    contentChanged: true,
+    contentChanged: contentChanged || isFinalizedStatus,
     id_aprovacao: detail.id_aprovacao || reopenResult.idAprovacao || null,
   };
 }

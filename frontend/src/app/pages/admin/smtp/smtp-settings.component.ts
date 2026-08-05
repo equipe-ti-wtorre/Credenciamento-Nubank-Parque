@@ -121,7 +121,7 @@ import Swal from 'sweetalert2';
           </label>
           <label class="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" [(ngModel)]="form.ocultar_para" name="ocultar_para" />
-            Ocultar e-mail do destinatário no campo Para
+            Ocultar e-mail do destinatário no campo Para (envia só em Cco)
           </label>
         </div>
 

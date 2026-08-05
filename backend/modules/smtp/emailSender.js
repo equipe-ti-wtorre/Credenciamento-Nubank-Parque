@@ -10,6 +10,7 @@ const {
   applyOcultarPara,
   htmlToPlainText,
   sendMailBatched: batchHelper,
+  UNDISCLOSED_TO,
 } = require("./email-sender.helpers");
 
 const logger = child({ module: "emailSender" });
@@ -112,13 +113,13 @@ async function sendViaSmtp(opts, providerConfig) {
 
   const { to, bcc } = applyOcultarPara({
     to: opts.to,
-    from: config.from_email,
     ocultarPara: providerConfig.ocultar_para,
   });
 
   const info = await transporter.sendMail({
     from,
-    to,
+    // SMTP: grupo vazio evita entregar cópia na caixa do remetente
+    to: to ?? UNDISCLOSED_TO,
     bcc,
     subject: opts.subject,
     text: opts.text || undefined,
@@ -141,14 +142,15 @@ async function sendViaAcs(opts, providerConfig) {
 
   const { to, bcc } = applyOcultarPara({
     to: opts.to,
-    from: sender,
     ocultarPara: providerConfig.ocultar_para,
   });
 
-  const toList = Array.isArray(to) ? to : [to];
-  const recipients = {
-    to: toList.map((address) => ({ address })),
-  };
+  // ACS aceita destinatários só em BCC (não exige To)
+  const recipients = {};
+  if (to) {
+    const toList = Array.isArray(to) ? to : [to];
+    recipients.to = toList.map((address) => ({ address }));
+  }
   if (bcc) {
     const bccList = Array.isArray(bcc) ? bcc : [bcc];
     recipients.bcc = bccList.map((address) => ({ address }));
@@ -197,19 +199,20 @@ async function sendViaSendgrid(opts, providerConfig) {
 
   const { to, bcc } = applyOcultarPara({
     to: opts.to,
-    from: fromEmail,
     ocultarPara: providerConfig.ocultar_para,
   });
 
+  // SendGrid exige `to` com e-mail válido — com ocultar_para usa o destinatário
+  // real em `to` (não o remetente), evitando cópia na caixa donotreply.
   const msg = {
-    to,
+    to: to ?? bcc,
     from,
     subject: opts.subject,
     text: opts.text || htmlToPlainText(opts.html) || opts.subject || "",
     ...(opts.html ? { html: opts.html } : {}),
   };
 
-  if (bcc) {
+  if (to && bcc) {
     msg.bcc = bcc;
   }
 

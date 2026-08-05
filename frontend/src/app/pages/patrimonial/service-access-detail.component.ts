@@ -82,51 +82,6 @@ type ModalMode = 'search' | 'create';
         --cred-field-h: 40px;
       }
 
-      .period-modal-form {
-        width: 100%;
-        max-width: none;
-        margin: 0;
-      }
-      .period-modal-form ::ng-deep .prp-trigger {
-        min-height: 2.25rem;
-        padding: 0 10px;
-        font-size: 0.8125rem;
-        width: 100%;
-      }
-      .period-modal-form ::ng-deep .prp-panel {
-        padding: 10px 10px 8px;
-        border-radius: 12px;
-        width: 100%;
-      }
-      .period-modal-form ::ng-deep .prp-nav {
-        margin-bottom: 8px;
-      }
-      .period-modal-form ::ng-deep .prp-nav__title {
-        font-size: 0.8125rem;
-      }
-      .period-modal-form ::ng-deep .prp-nav__btn {
-        width: 28px;
-        height: 28px;
-      }
-      .period-modal-form ::ng-deep .prp-weekdays span {
-        font-size: 0.6875rem;
-        padding: 2px 0;
-      }
-      .period-modal-form ::ng-deep .prp-day {
-        aspect-ratio: auto;
-        height: 34px;
-        font-size: 0.8125rem;
-        border-radius: 8px;
-      }
-      .period-modal-form ::ng-deep .prp-foot {
-        margin-top: 8px;
-        padding-top: 8px;
-      }
-      .period-modal-form ::ng-deep .prp-foot__label,
-      .period-modal-form ::ng-deep .prp-clear {
-        font-size: 0.75rem;
-      }
-
       .edit-access-form ::ng-deep app-periodo-range-picker,
       .edit-access-form ::ng-deep .prp {
         display: block;
@@ -545,24 +500,11 @@ type ModalMode = 'search' | 'create';
 
               <div class="cred-btn-row">
                 <button
-                  *ngIf="service()!.id_access_status !== 3 && service()!.id_access_status !== 4"
                   type="button"
                   class="cred-btn cred-btn--ghost"
                   (click)="abrirModalEditar()"
                 >
                   Editar
-                </button>
-                <button
-                  *ngIf="
-                    service()!.id_access_status === 3 ||
-                    service()!.id_access_status === 4 ||
-                    service()!.id_access_status === 5
-                  "
-                  type="button"
-                  class="cred-btn cred-btn--ghost"
-                  (click)="abrirModalPeriodo()"
-                >
-                  Ajustar período
                 </button>
                 <button type="button" class="cred-btn cred-btn--ghost" (click)="carregar()">
                   Atualizar
@@ -1462,35 +1404,6 @@ type ModalMode = 'search' | 'create';
         </button>
       </div>
     </app-modal>
-    <app-modal
-      [open]="showPeriodModal()"
-      title="Ajustar período"
-      size="sm"
-      (close)="fecharModalPeriodo()"
-    >
-      <form id="period-access-form" class="period-modal-form" (ngSubmit)="salvarPeriodo()">
-        <app-periodo-range-picker
-          [(ngModel)]="periodRange"
-          name="periodRange"
-          label="Período do acesso"
-          inputId="period-access-range"
-          [inline]="true"
-          [controlInvalid]="periodTouched() && !periodRange?.inicio"
-          [controlTouched]="periodTouched()"
-        />
-      </form>
-      <div modal-footer class="modal-footer">
-        <button type="button" class="btn-action-secondary" (click)="fecharModalPeriodo()">Cancelar</button>
-        <button
-          type="submit"
-          form="period-access-form"
-          class="btn-action-primary"
-          [disabled]="periodSaving()"
-        >
-          {{ periodSaving() ? 'Salvando...' : 'Salvar e reenviar' }}
-        </button>
-      </div>
-    </app-modal>
   `,
 })
 export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
@@ -1506,10 +1419,6 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   editSaving = signal(false);
   editPeriodTouched = signal(false);
   editPeriodRange: PeriodoRangeValue | null = null;
-  showPeriodModal = signal(false);
-  periodSaving = signal(false);
-  periodTouched = signal(false);
-  periodRange: PeriodoRangeValue | null = null;
   sectors = signal<EligibleSector[]>([]);
   editForm = {
     start_date: '',
@@ -2175,12 +2084,6 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   abrirModalEditar() {
     const svc = this.service();
     if (!svc) return;
-    if (svc.id_access_status === 3 || svc.id_access_status === 4 || svc.id_access_status === 5) {
-      this.notification.error(
-        'Para alterar datas de acesso aprovado, negado ou com autorização expirada, use Ajustar período.',
-      );
-      return;
-    }
     this.carregarSetores();
     const start = this.toDateInput(svc.start_date);
     const end = this.toDateInput(svc.end_date);
@@ -2200,97 +2103,6 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
 
   fecharModalEditar() {
     this.showEditModal.set(false);
-  }
-
-  abrirModalPeriodo() {
-    const svc = this.service();
-    if (!svc || (svc.id_access_status !== 3 && svc.id_access_status !== 4)) return;
-    const start = this.toDateInput(svc.start_date);
-    const end = this.toDateInput(svc.end_date);
-    this.periodRange = start && end ? { inicio: start, fim: end } : null;
-    this.periodTouched.set(false);
-    this.showPeriodModal.set(true);
-  }
-
-  fecharModalPeriodo() {
-    this.showPeriodModal.set(false);
-  }
-
-  salvarPeriodo() {
-    const svc = this.service();
-    if (!svc) return;
-    this.periodTouched.set(true);
-    const inicio = this.periodRange?.inicio || '';
-    const fim = this.periodRange?.fim || '';
-    if (!inicio || !fim) {
-      this.notification.error('Informe o período do acesso.');
-      return;
-    }
-    if (fim < inicio) {
-      this.notification.error('Data fim deve ser igual ou posterior à data início.');
-      return;
-    }
-    this.periodSaving.set(true);
-    this.patrimonialService
-      .updatePeriod(svc.id_service_access, {
-        start_date: inicio,
-        end_date: fim,
-      })
-      .subscribe({
-        next: (res) => {
-          this.periodSaving.set(false);
-          this.service.set(res.service);
-          this.syncDraftFromService(res.service);
-          this.fecharModalPeriodo();
-          this.notification.success('Período atualizado. Aguardando nova aprovação.');
-        },
-        error: (err) => {
-          this.periodSaving.set(false);
-          void this.notification.notifyHttpError(err, 'Falha ao ajustar período.').then((result) => {
-            if (result && 'isDenied' in result && result.isDenied) {
-              this.removeOverlapCollaboratorAndRetryPeriod(err);
-            }
-          });
-        },
-      });
-  }
-
-  /** Remove o colaborador em conflito deste acesso e tenta ajustar o período de novo. */
-  private removeOverlapCollaboratorAndRetryPeriod(err: unknown): void {
-    const details = this.notification.getServiceOverlapDetails(err);
-    const idCollaborator = Number(details?.id_collaborator);
-    if (!Number.isFinite(idCollaborator) || idCollaborator <= 0) {
-      this.notification.error('Não foi possível identificar o colaborador para remover.');
-      return;
-    }
-
-    const link = this.draftCollaborators().find((c) => c.id_collaborator === idCollaborator);
-    const name = details?.collaborator_name || link?.collaborator_name || 'Colaborador';
-
-    const remainingCollab = this.draftCollaborators()
-      .filter((c) => c.id_collaborator !== idCollaborator)
-      .map((c) => ({
-        id_collaborator: c.id_collaborator,
-        id_collaborator_role: c.id_collaborator_role,
-      }));
-    const vehicles = this.draftVehicles().map((v) => ({ id_vehicle: v.id_vehicle }));
-
-    this.periodSaving.set(true);
-    this.patrimonialService.syncRelations(this.serviceId, {
-      collaborators: remainingCollab,
-      vehicles,
-    }).subscribe({
-      next: (res) => {
-        this.service.set(res.service);
-        this.syncDraftFromService(res.service);
-        this.notification.success(`${name} removido deste acesso.`);
-        this.salvarPeriodo();
-      },
-      error: (syncErr) => {
-        this.periodSaving.set(false);
-        this.notification.notifyHttpError(syncErr, 'Falha ao remover colaborador.');
-      },
-    });
   }
 
   private removeOverlapCollaboratorFromDraft(err: unknown): void {

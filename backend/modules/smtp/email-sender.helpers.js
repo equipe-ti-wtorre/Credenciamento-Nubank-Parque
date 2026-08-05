@@ -84,15 +84,21 @@ async function acsRateLimit(onAcsWait) {
   }
 }
 
+/** RFC 5322 empty group — To header without a deliverable address. */
+const UNDISCLOSED_TO = "undisclosed-recipients:;";
+
 /**
- * Apply ocultar_para: real recipient in BCC, To = sender.
+ * Apply ocultar_para: real recipient(s) only in BCC.
+ * Does not put the sender in To (that would deliver a copy to the from mailbox).
+ * When ocultarPara is on, `to` is null — callers must omit To or use UNDISCLOSED_TO
+ * if the transport requires a To header.
  */
-function applyOcultarPara({ to, from, ocultarPara }) {
+function applyOcultarPara({ to, ocultarPara }) {
   if (!ocultarPara) {
     return { to, bcc: undefined };
   }
   return {
-    to: from,
+    to: null,
     bcc: to,
   };
 }
@@ -147,6 +153,7 @@ async function sendMailBatched(items, sendFn, opts = {}) {
 module.exports = {
   LIMITS,
   ACS_BATCH,
+  UNDISCLOSED_TO,
   acsRateLimit,
   applyOcultarPara,
   htmlToPlainText,
