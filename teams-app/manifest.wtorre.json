@@ -1,0 +1,77 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.1.8",
+  "id": "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c",
+  "packageName": "com.credenciamento.app",
+  "developer": {
+    "name": "Credenciamento",
+    "websiteUrl": "https://cred.nbpdev.com.br",
+    "privacyUrl": "https://cred.nbpdev.com.br/",
+    "termsOfUseUrl": "https://cred.nbpdev.com.br/"
+  },
+  "name": {
+    "short": "Credenciamento",
+    "full": "Credenciamento Credenciamento"
+  },
+  "description": {
+    "short": "Aprova\u00e7\u00f5es e alertas do credenciamento",
+    "full": "Notifica\u00e7\u00f5es interativas (Adaptive Cards) e feed de atividades do sistema de credenciamento no Teams."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#13253A",
+  "staticTabs": [
+    {
+      "entityId": "home",
+      "name": "In\u00edcio",
+      "contentUrl": "https://cred.nbpdev.com.br",
+      "websiteUrl": "https://cred.nbpdev.com.br",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "bots": [
+    {
+      "botId": "cab3a38d-3f58-4388-b745-1511c22f86a1",
+      "scopes": [
+        "personal"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "TeamsActivity.Send.User",
+          "type": "Application"
+        }
+      ]
+    }
+  },
+  "validDomains": [
+    "cred.nbpdev.com.br"
+  ],
+  "webApplicationInfo": {
+    "id": "cab3a38d-3f58-4388-b745-1511c22f86a1",
+    "resource": "api://cred.nbpdev.com.br/cab3a38d-3f58-4388-b745-1511c22f86a1"
+  },
+  "activities": {
+    "activityTypes": [
+      {
+        "type": "credenciamentoAlert",
+        "description": "Alerta do credenciamento",
+        "templateText": "{actor}: {message}"
+      }
+    ]
+  }
+}

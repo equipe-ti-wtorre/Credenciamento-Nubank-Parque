@@ -14,6 +14,9 @@ function detailFacts(payload = {}) {
   }
   if (payload.periodo) facts.push({ title: "Período", value: String(payload.periodo) });
   if (payload.finalidade) facts.push({ title: "Finalidade", value: String(payload.finalidade) });
+  if (payload.colaboradores) {
+    facts.push({ title: "Colaboradores", value: String(payload.colaboradores) });
+  }
   return facts;
 }
 
@@ -23,8 +26,14 @@ function detailFacts(payload = {}) {
  * @param {{ interactive?: boolean }} options interactive=true usa Action.Submit (bot);
  *   false usa apenas Action.OpenUrl (abre o app).
  */
+function withQueryAction(url, action) {
+  if (!url) return "";
+  const sep = String(url).includes("?") ? "&" : "?";
+  return `${url}${sep}action=${action}`;
+}
+
 function buildApprovalDecisionCard(payload, options = {}) {
-  const interactive = options.interactive !== false;
+  const interactive = options.interactive === true;
   const detailUrl = payload.detailUrl || "";
   const idAprovacao = Number(payload.idAprovacao);
   const facts = detailFacts(payload);
@@ -51,16 +60,22 @@ function buildApprovalDecisionCard(payload, options = {}) {
         },
       },
     );
-  } else {
-    if (detailUrl) {
-      actions.push({
+  } else if (detailUrl) {
+    // OpenUrl: funciona sem messaging endpoint do Azure Bot (evita 502 / Unable to reach app).
+    actions.push(
+      {
         type: "Action.OpenUrl",
-        title: "Aprovar / Bloquear no app",
-        url: detailUrl.includes("?")
-          ? `${detailUrl}&action=decide`
-          : `${detailUrl}?action=decide`,
-      });
-    }
+        title: "Aprovar",
+        style: "positive",
+        url: withQueryAction(detailUrl, "approve"),
+      },
+      {
+        type: "Action.OpenUrl",
+        title: "Bloquear",
+        style: "destructive",
+        url: withQueryAction(detailUrl, "reject"),
+      },
+    );
   }
   if (detailUrl) {
     actions.push({

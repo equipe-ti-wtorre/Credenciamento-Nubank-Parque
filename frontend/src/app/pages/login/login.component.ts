@@ -269,9 +269,15 @@ export class LoginComponent implements OnInit {
         const ok = await this.authService.tryTeamsSsoLogin({ silent: true });
         if (ok) return;
         const detail = this.teamsContext.getLastAuthError() || ssoErr;
-        this.teamsHint = detail
-          ? `SSO automático falhou (${detail}). Use o botão Entrar com Microsoft.`
-          : 'Não foi possível autenticar automaticamente. Use Entrar com Microsoft.';
+        if (detail && /audience|não autorizada|nao autorizada/i.test(detail)) {
+          this.teamsHint =
+            'SSO automático falhou: o app Teams deste tenant está com Client ID de outro Azure. ' +
+            'Use o botão Entrar com Microsoft (abre popup) ou republicar o zip Nubank no admin.teams.';
+        } else {
+          this.teamsHint = detail
+            ? `SSO automático falhou (${detail}). Use o botão Entrar com Microsoft.`
+            : 'Não foi possível autenticar automaticamente. Use Entrar com Microsoft.';
+        }
       } catch (err) {
         this.teamsHint = this.notification.extractErrorMessage(
           err,

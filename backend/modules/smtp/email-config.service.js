@@ -13,6 +13,7 @@ function mapPublic(row) {
       sendgrid_from_email: null,
       sendgrid_from_name: null,
       has_sendgrid_api_key: false,
+      has_sendgrid_webhook_verification_key: false,
       ocultar_para: false,
       ativo: true,
     };
@@ -24,6 +25,8 @@ function mapPublic(row) {
     sendgrid_from_email: row.sendgrid_from_email || null,
     sendgrid_from_name: row.sendgrid_from_name || null,
     has_sendgrid_api_key: !!row.sendgrid_api_key_ciphertext,
+    has_sendgrid_webhook_verification_key:
+      !!row.sendgrid_webhook_verification_key_ciphertext,
     ocultar_para: !!row.ocultar_para,
     ativo: !!row.ativo,
   };
@@ -127,8 +130,31 @@ async function saveProviderConfig(data) {
     );
   }
 
+  if (
+    data.sendgrid_webhook_verification_key !== undefined &&
+    data.sendgrid_webhook_verification_key !== null &&
+    String(data.sendgrid_webhook_verification_key).trim() !== ""
+  ) {
+    fields.sendgrid_webhook_verification_key_ciphertext = encrypt(
+      String(data.sendgrid_webhook_verification_key).trim(),
+    );
+  }
+
   const row = await repo.update(fields);
   return mapPublic(row);
+}
+
+/**
+ * Decrypted SendGrid Signed Event Webhook verification key, or null.
+ */
+async function getSendgridWebhookVerificationKey() {
+  const row = await repo.ensureRow();
+  if (!row?.sendgrid_webhook_verification_key_ciphertext) return null;
+  try {
+    return decrypt(row.sendgrid_webhook_verification_key_ciphertext);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -165,6 +191,7 @@ async function assertCanSend() {
 module.exports = {
   getPublicConfig,
   getConfigForSend,
+  getSendgridWebhookVerificationKey,
   saveProviderConfig,
   assertCanSend,
   mapPublic,

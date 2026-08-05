@@ -222,6 +222,7 @@ node query-teams-app-id.mjs --tenant-ref-id 1
 | `App resource … iframe origin do not match` | Application ID URI = `api://cred.nbpdev.com.br/{clientId}` + mesmo valor no manifest; republicar zip |
 | **AADSTS50011** (redirect mismatch) | Em Autenticação SPA cadastre `https://cred.nbpdev.com.br` **e** `https://cred.nbpdev.com.br/auth/teams.html` |
 | Feed “app not installed” | Pacote 1.1.2 republished + instalado para o usuário |
+| Feed “not authorized” / Client ID divergente | Cada tenant precisa do zip com **seu** `webApplicationInfo.id` (= Client ID do App Registration desse tenant). Nubank: `90ac8301-…`; Wtorre: `cab3a38d-…`. Não publique o zip da Wtorre no admin Teams da Nubank. Ex.: `node build-package.mjs --client-id 90ac8301-… --version 1.1.6 --out credenciamento-teams-nubank.zip` |
 | Mensagem proativa não chega | Canal Teams ativo no Azure Bot + tenant com `azure_tenant_id` correto |
 
 ---

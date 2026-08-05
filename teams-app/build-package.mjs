@@ -28,6 +28,10 @@ const baseUrl =
 const packageExternalId =
   arg("--external-id", process.env.TEAMS_APP_EXTERNAL_ID) ||
   "c8f4a2b1-6d3e-4f5a-9b0c-1e2d3f4a5b6c";
+const packageVersion =
+  arg("--version", process.env.TEAMS_APP_VERSION) || "1.1.7";
+const zipName =
+  arg("--out", process.env.TEAMS_APP_ZIP_NAME) || "credenciamento-teams.zip";
 const orgName = process.env.ORGANIZATION_NAME || "Credenciamento";
 
 let hostname;
@@ -42,7 +46,7 @@ const manifest = {
   $schema:
     "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   manifestVersion: "1.16",
-  version: "1.1.5",
+  version: packageVersion,
   id: packageExternalId,
   packageName: "com.credenciamento.app",
   developer: {
@@ -109,12 +113,24 @@ const manifest = {
   },
 };
 
-execSync("python3 generate-icons.py", { cwd: __dirname, stdio: "inherit" });
+const colorPng = path.join(__dirname, "color.png");
+const outlinePng = path.join(__dirname, "outline.png");
+if (!fs.existsSync(colorPng) || !fs.existsSync(outlinePng)) {
+  execSync("python3 generate-icons.py", { cwd: __dirname, stdio: "inherit" });
+} else {
+  try {
+    execSync("python3 generate-icons.py", { cwd: __dirname, stdio: "inherit" });
+  } catch {
+    console.warn("generate-icons.py falhou (Pillow ausente?); reutilizando color.png/outline.png existentes.");
+  }
+}
 
 const manifestPath = path.join(__dirname, "manifest.json");
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-const zipPath = path.join(__dirname, "..", "credenciamento-teams.zip");
+const zipPath = path.isAbsolute(zipName)
+  ? zipName
+  : path.join(__dirname, "..", zipName);
 if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
 
 execSync(
@@ -126,6 +142,7 @@ const info = {
   clientId,
   baseUrl,
   packageExternalId,
+  version: packageVersion,
   zipPath,
   azureAppIdUri: `api://${hostname}/${clientId}`,
 };

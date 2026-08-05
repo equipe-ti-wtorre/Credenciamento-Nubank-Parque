@@ -68,6 +68,8 @@ async function getSettings() {
     sendgrid_from_email: provider.sendgrid_from_email,
     sendgrid_from_name: provider.sendgrid_from_name,
     has_sendgrid_api_key: provider.has_sendgrid_api_key,
+    has_sendgrid_webhook_verification_key:
+      provider.has_sendgrid_webhook_verification_key,
     ocultar_para: provider.ocultar_para,
     email_ativo: provider.ativo,
   };
@@ -150,6 +152,7 @@ async function upsertSettings(data) {
     sendgrid_api_key: data.sendgrid_api_key,
     sendgrid_from_email: data.sendgrid_from_email,
     sendgrid_from_name: data.sendgrid_from_name,
+    sendgrid_webhook_verification_key: data.sendgrid_webhook_verification_key,
     ocultar_para: data.ocultar_para,
     ativo: data.email_ativo !== undefined ? data.email_ativo : data.ativo_email,
   };
@@ -177,6 +180,7 @@ async function upsertSettings(data) {
     data.sendgrid_api_key !== undefined ||
     data.sendgrid_from_email !== undefined ||
     data.sendgrid_from_name !== undefined ||
+    data.sendgrid_webhook_verification_key !== undefined ||
     data.ocultar_para !== undefined ||
     data.email_ativo !== undefined ||
     data.ativo_email !== undefined;
@@ -236,15 +240,47 @@ async function verifyConnection() {
   return emailSender.verifySmtpConnection();
 }
 
-async function listLogs({ page = 1, limit = 20 }) {
+async function listLogs({ page = 1, limit = 20, q, status, provider } = {}) {
   const offset = (page - 1) * limit;
+  const where = [];
+  const params = [];
+
+  const search = typeof q === "string" ? q.trim() : "";
+  if (search) {
+    const like = `%${search}%`;
+    where.push(
+      `(destinatario LIKE ? OR assunto LIKE ? OR IFNULL(message_id, '') LIKE ? OR IFNULL(erro_mensagem, '') LIKE ?)`,
+    );
+    params.push(like, like, like, like);
+  }
+
+  const validStatuses = ["sent", "failed", "entregue", "bounce"];
+  if (status && validStatuses.includes(String(status))) {
+    where.push("status = ?");
+    params.push(String(status));
+  }
+
+  const validProviders = ["smtp", "acs", "sendgrid"];
+  if (provider && validProviders.includes(String(provider))) {
+    where.push("provider = ?");
+    params.push(String(provider));
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
   const [rows] = await db.execute(
     `SELECT id, destinatario, assunto, corpo_resumo, status, erro_mensagem, usuario_id, request_id,
             message_id, provider, criado_em
-     FROM smtp_send_logs ORDER BY criado_em DESC LIMIT ? OFFSET ?`,
-    [limit, offset],
+     FROM smtp_send_logs
+     ${whereSql}
+     ORDER BY criado_em DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
   );
-  const [[{ total }]] = await db.execute(`SELECT COUNT(*) AS total FROM smtp_send_logs`);
+  const [[{ total }]] = await db.execute(
+    `SELECT COUNT(*) AS total FROM smtp_send_logs ${whereSql}`,
+    params,
+  );
   return {
     logs: rows,
     pagination: {

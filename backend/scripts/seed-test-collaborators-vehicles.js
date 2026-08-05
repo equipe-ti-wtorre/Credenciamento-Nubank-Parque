@@ -1,6 +1,8 @@
 /**
- * Gera 100 colaboradores e 100 veículos de teste.
+ * Gera 100 colaboradores de teste (distribuídos entre empresas ativas).
+ * Veículos: só com --with-vehicles.
  * Uso: node scripts/seed-test-collaborators-vehicles.js
+ *      node scripts/seed-test-collaborators-vehicles.js --with-vehicles
  */
 require("dotenv").config();
 const db = require("../config/db");
@@ -8,8 +10,8 @@ const { isValidCpf } = require("../utils/cpf");
 const { isValidPlate, normalizePlate } = require("../utils/plate");
 
 const COUNT = 100;
-const COMPANY_ID = 1;
 const DOC_TYPE_CPF = 1;
+const withVehicles = process.argv.includes("--with-vehicles");
 
 const FIRST_NAMES = [
   "Ana", "Bruno", "Carla", "Diego", "Elena", "Felipe", "Gabriela", "Hugo",
@@ -80,11 +82,10 @@ function phoneFor(index) {
 
 async function main() {
   const [companies] = await db.execute(
-    "SELECT id_company FROM company WHERE id_company = ? AND status = 1 LIMIT 1",
-    [COMPANY_ID],
+    "SELECT id_company FROM company WHERE status = 1 ORDER BY id_company",
   );
   if (!companies.length) {
-    throw new Error(`Empresa id_company=${COMPANY_ID} não encontrada ou inativa.`);
+    throw new Error("Nenhuma empresa ativa encontrada. Execute seed-test-companies.js antes.");
   }
 
   const [roles] = await db.execute(
@@ -96,10 +97,15 @@ async function main() {
 
   let collaboratorsInserted = 0;
   let collaboratorsSkipped = 0;
+  let linksInserted = 0;
   let vehiclesInserted = 0;
   let vehiclesSkipped = 0;
 
-  console.log(`Inserindo até ${COUNT} colaboradores e ${COUNT} veículos...`);
+  console.log(
+    withVehicles
+      ? `Inserindo até ${COUNT} colaboradores e ${COUNT} veículos...`
+      : `Inserindo até ${COUNT} colaboradores (sem veículos)...`,
+  );
 
   for (let i = 1; i <= COUNT; i += 1) {
     const cpf = generateValidCpf(i);
@@ -111,67 +117,97 @@ async function main() {
     const last = LAST_NAMES[(i - 1) % LAST_NAMES.length];
     const name = `${first} ${last} Teste ${String(i).padStart(3, "0")}`;
     const roleId = roles[(i - 1) % roles.length].id_collaborator_role;
+    const companyId = companies[(i - 1) % companies.length].id_company;
     const rg = `MG${String(1000000 + i)}`;
     const phone = phoneFor(i);
 
+    const conn = await db.getConnection();
     try {
-      await db.execute(
+      await conn.beginTransaction();
+
+      const [result] = await conn.execute(
         `INSERT INTO collaborator (
            id_collaborator_document_type, id_collaborator_role,
            document, name, rg, phone, status
          ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
         [DOC_TYPE_CPF, roleId, cpf, name, rg, phone],
       );
+
+      const collaboratorId = result.insertId;
+      await conn.execute(
+        `INSERT IGNORE INTO company_collaborator (id_company, id_collaborator)
+         VALUES (?, ?)`,
+        [companyId, collaboratorId],
+      );
+
+      await conn.commit();
       collaboratorsInserted += 1;
+      linksInserted += 1;
     } catch (err) {
+      await conn.rollback();
       if (err.code === "ER_DUP_ENTRY") {
         collaboratorsSkipped += 1;
       } else {
         throw err;
       }
+    } finally {
+      conn.release();
     }
   }
 
-  for (let i = 1; i <= COUNT; i += 1) {
-    const plate = generatePlate(i);
-    if (!isValidPlate(plate)) {
-      throw new Error(`Placa gerada inválida para seed ${i}: ${plate}`);
-    }
+  if (withVehicles) {
+    for (let i = 1; i <= COUNT; i += 1) {
+      const plate = generatePlate(i);
+      if (!isValidPlate(plate)) {
+        throw new Error(`Placa gerada inválida para seed ${i}: ${plate}`);
+      }
 
-    const brandInfo = BRANDS[(i - 1) % BRANDS.length];
-    const model = brandInfo.models[(i - 1) % brandInfo.models.length];
-    const color = COLORS[(i - 1) % COLORS.length];
-    const type = TYPES[(i - 1) % TYPES.length];
-    const description = `Veículo de teste ${String(i).padStart(3, "0")}`;
+      const brandInfo = BRANDS[(i - 1) % BRANDS.length];
+      const model = brandInfo.models[(i - 1) % brandInfo.models.length];
+      const color = COLORS[(i - 1) % COLORS.length];
+      const type = TYPES[(i - 1) % TYPES.length];
+      const description = `Veículo de teste ${String(i).padStart(3, "0")}`;
+      const companyId = companies[(i - 1) % companies.length].id_company;
 
-    try {
-      await db.execute(
-        `INSERT INTO vehicle (
-           id_company, plate, brand, model, color, type, description, status
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        [COMPANY_ID, plate, brandInfo.brand, model, color, type, description],
-      );
-      vehiclesInserted += 1;
-    } catch (err) {
-      if (err.code === "ER_DUP_ENTRY") {
-        vehiclesSkipped += 1;
-      } else {
-        throw err;
+      try {
+        await db.execute(
+          `INSERT INTO vehicle (
+             id_company, plate, brand, model, color, type, description, status
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+          [companyId, plate, brandInfo.brand, model, color, type, description],
+        );
+        vehiclesInserted += 1;
+      } catch (err) {
+        if (err.code === "ER_DUP_ENTRY") {
+          vehiclesSkipped += 1;
+        } else {
+          throw err;
+        }
       }
     }
   }
 
   const [[{ colCount }]] = await db.execute("SELECT COUNT(*) AS colCount FROM collaborator");
+  const [[{ linkCount }]] = await db.execute(
+    "SELECT COUNT(*) AS linkCount FROM company_collaborator",
+  );
   const [[{ vehCount }]] = await db.execute("SELECT COUNT(*) AS vehCount FROM vehicle");
 
   console.log(
     JSON.stringify(
       {
+        withVehicles,
+        companiesUsed: companies.length,
         collaboratorsInserted,
         collaboratorsSkipped,
+        linksInserted,
         vehiclesInserted,
         vehiclesSkipped,
-        totals: { collaborators: colCount, vehicles: vehCount },
+        totals: {
+          collaborators: colCount,
+          company_collaborator: linkCount,
+          vehicles: vehCount,
+        },
       },
       null,
       2,

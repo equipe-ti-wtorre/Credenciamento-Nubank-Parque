@@ -65,6 +65,13 @@ const env = {
   teamsBotAppTenantId: (process.env.TEAMS_BOT_TENANT_ID || "").trim() || null,
   /** Service URL regional do Bot Connector (ex.: https://smba.trafficmanager.net/amer/). */
   teamsBotServiceUrl: (process.env.TEAMS_BOT_SERVICE_URL || "https://smba.trafficmanager.net/amer/").trim(),
+  /**
+   * Action.Submit (Aprovar/Bloquear no card) exige messaging endpoint do Azure Bot.
+   * Default false: usa Action.OpenUrl para o SPA (evita 502 / "Unable to reach app").
+   * Só ative após configurar https://cred.nbpdev.com.br/api/v1/teams/bot/messages no Azure Bot.
+   */
+  teamsBotInteractive:
+    String(process.env.TEAMS_BOT_INTERACTIVE || "false").toLowerCase() === "true",
   /** Secret da subscription Event Grid (webhook ACS email delivery). */
   eventGridWebhookSecret: (process.env.EVENT_GRID_WEBHOOK_SECRET || "").trim() || null,
   /** Desativa rate limit (apenas dev/teste local). */

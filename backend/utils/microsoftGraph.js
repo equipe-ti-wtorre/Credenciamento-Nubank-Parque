@@ -303,9 +303,18 @@ function buildTeamsActivityWebUrl(url, options = {}) {
 
   const params = new URLSearchParams({ label });
   if (subEntityId) {
-    params.set("context", JSON.stringify({ subEntityId }));
+    params.set(
+      "context",
+      JSON.stringify({
+        subEntityId,
+        // Alguns clientes leem subPageId no context da deep link
+        subPageId: subEntityId,
+      }),
+    );
   }
-  if (appUrl && subEntityId) {
+  // webUrl https costuma abrir o navegador no Action.OpenUrl do card.
+  // Feed (sino) mantém webUrl; cards usam includeWebUrl:false para abrir a aba no Teams.
+  if (appUrl && options.includeWebUrl !== false) {
     params.set("webUrl", appUrl);
   }
 
@@ -331,6 +340,7 @@ async function getTeamsCatalogAppStatus(accessToken, catalogAppId) {
 
   const def = response.data?.appDefinitions?.[0];
   const version = def?.version || "?";
+  const clientAppId = def?.authorization?.clientAppId || null;
   const rsc =
     def?.authorization?.requiredPermissionSet?.resourceSpecificPermissions || [];
   const hasSendUser = rsc.some(
@@ -343,6 +353,7 @@ async function getTeamsCatalogAppStatus(accessToken, catalogAppId) {
     ok: true,
     version,
     publishingState: def?.publishingState,
+    clientAppId,
     hasSendUserRsc: hasSendUser,
     rscCount: rsc.length,
   };
@@ -380,22 +391,8 @@ function buildActivityNotificationBody(content, safeWebUrl, catalogAppId, opts =
     opts.activityActor || env.organizationName || "Credenciamento",
   ).slice(0, 50);
 
-  if (catalogAppId) {
-    return {
-      topic: {
-        source: "entityUrl",
-        value: `https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/${catalogAppId}`,
-        webUrl: safeWebUrl,
-      },
-      teamsAppId: catalogAppId,
-      activityType: TEAMS_ACTIVITY_TYPE,
-      previewText: { content: activityMessage },
-      templateParameters: [
-        { name: "message", value: activityMessage },
-      ],
-    };
-  }
-
+  // systemDefault SEM teamsAppId: o clique segue topic.webUrl (deep link /l/entity/...).
+  // Com teamsAppId + activity custom o Teams só abre a contentUrl ("/") e ignora o path.
   return {
     topic: {
       source: "text",
@@ -404,6 +401,9 @@ function buildActivityNotificationBody(content, safeWebUrl, catalogAppId, opts =
     },
     activityType: "systemDefault",
     previewText: { content: activityMessage },
+    templateParameters: [
+      { name: "systemDefaultText", value: activityMessage },
+    ],
   };
 }
 
@@ -446,7 +446,30 @@ async function installTeamsAppForUser(accessToken, userId, catalogAppId) {
   return { ok: false, message: msg, status: response.status, permHint };
 }
 
-function teamsActivityErrorHint(msg, { azureClientId, hasCatalogAppId, installAttempted }) {
+function teamsActivityErrorHint(msg, {
+  azureClientId,
+  catalogClientAppId,
+  hasCatalogAppId,
+  installAttempted,
+  alreadyInstalled,
+}) {
+  const aadInMsg = (msg.match(/AAD App Id '([0-9a-f-]{36})'/i) || [])[1];
+  const senderId = (azureClientId || aadInMsg || "").toLowerCase();
+  const boundId = (catalogClientAppId || "").toLowerCase();
+  if (
+    senderId &&
+    boundId &&
+    senderId !== boundId &&
+    /not authorized/i.test(msg)
+  ) {
+    return (
+      ` O app Teams no catálogo está vinculado ao Client ID ${catalogClientAppId}, ` +
+      `mas o envio usa o tenant Azure ${azureClientId || aadInMsg}. ` +
+      "Gere o zip com o Client ID deste tenant (`node teams-app/build-package.mjs --client-id …`), " +
+      "faça Upload file no admin.teams.microsoft.com desse tenant e reinstale o app. Veja teams-app/README.md."
+    );
+  }
+
   const needsInstall =
     /not authorized|not installed|expected Teams app/i.test(msg) ||
     (!hasCatalogAppId && /custom text/i.test(msg));
@@ -455,9 +478,17 @@ function teamsActivityErrorHint(msg, { azureClientId, hasCatalogAppId, installAt
     const clientHint = azureClientId
       ? ` Client ID do Azure: ${azureClientId}.`
       : "";
-    const installSteps = installAttempted
-      ? " A instalação automática falhou — no Centro de administração do Teams abra Credenciamento e clique em Install for everyone, ou peça ao destinatário: Teams → Apps → Credenciamento → Adicionar."
-      : " Instale o app: admin.teams.microsoft.com → Teams apps → Credenciamento → Install for everyone (ou escopo pessoal do destinatário em Teams → Apps).";
+    let installSteps;
+    if (alreadyInstalled) {
+      installSteps =
+        " O app já está instalado para o usuário, mas o Graph ainda rejeitou o envio — confira se o webApplicationInfo.id do pacote publicado é o Client ID deste tenant Azure; se mudou o Client ID, faça Upload file + reinstale.";
+    } else if (installAttempted) {
+      installSteps =
+        " A instalação automática falhou — no Centro de administração do Teams abra Credenciamento e clique em Install for everyone, ou peça ao destinatário: Teams → Apps → Credenciamento → Adicionar.";
+    } else {
+      installSteps =
+        " Instale o app: admin.teams.microsoft.com → Teams apps → Credenciamento → Install for everyone (ou escopo pessoal do destinatário em Teams → Apps).";
+    }
     return `${clientHint}${installSteps} Veja teams-app/README.md.`;
   }
 
@@ -486,24 +517,44 @@ async function sendUserActivityNotification(
   const resolved = await resolveUserByEmail(accessToken, email);
   if (!resolved.ok) return resolved;
 
-  const safeWebUrl = buildTeamsActivityWebUrl(webUrl, {
-    manifestAppId: options.teamsAppExternalId,
-  });
+  // Preferir ID do catálogo Graph (por tenant). externalId do manifest falha em alguns tenants.
   const catalogAppId = await resolveTeamsCatalogAppId(accessToken, {
     teamsAppId: options.teamsAppId,
     externalId: options.teamsAppExternalId,
   });
+  // Deep link Teams (obrigatório pelo Graph: deve começar com teams.microsoft.com/l/).
+  // Inclui subEntityId + webUrl=SPA para o cliente carregar /aprovacoes/:id.
+  const safeWebUrl = buildTeamsActivityWebUrl(webUrl, {
+    manifestAppId:
+      catalogAppId || options.teamsAppId || options.teamsAppExternalId,
+  });
 
+  let catalogClientAppId = null;
   if (catalogAppId) {
     const catalogStatus = await getTeamsCatalogAppStatus(accessToken, catalogAppId);
-    if (catalogStatus.ok && !catalogStatus.hasSendUserRsc) {
-      return {
-        ok: false,
-        message:
-          `Catálogo do tenant: versão ${catalogStatus.version} publicada sem RSC TeamsActivity.Send.User. ` +
-          "Faça upload de credenciamento-teams.zip (1.1.0+) em admin.teams.microsoft.com → Credenciamento → Upload file, " +
-          "remova a instalação do destinatário e instale de novo (aba Permissions deve mostrar TeamsActivity.Send.User).",
-      };
+    if (catalogStatus.ok) {
+      catalogClientAppId = catalogStatus.clientAppId || null;
+      if (!catalogStatus.hasSendUserRsc) {
+        return {
+          ok: false,
+          message:
+            `Catálogo do tenant: versão ${catalogStatus.version} publicada sem RSC TeamsActivity.Send.User. ` +
+            "Faça upload de credenciamento-teams.zip (1.1.0+) em admin.teams.microsoft.com → Credenciamento → Upload file, " +
+            "remova a instalação do destinatário e instale de novo (aba Permissions deve mostrar TeamsActivity.Send.User).",
+        };
+      }
+      const senderId = (options.azureClientId || "").toLowerCase();
+      const boundId = (catalogClientAppId || "").toLowerCase();
+      if (senderId && boundId && senderId !== boundId) {
+        return {
+          ok: false,
+          message:
+            `Feed de atividades: o app Teams no catálogo (v${catalogStatus.version}) está vinculado ao Client ID ${catalogClientAppId}, ` +
+            `mas esta integração usa o tenant Azure ${options.azureClientId}. ` +
+            "Gere o zip com o Client ID deste tenant (`node teams-app/build-package.mjs --client-id …`), " +
+            "faça Upload file no admin.teams.microsoft.com desse tenant e reinstale o app para o destinatário. Veja teams-app/README.md.",
+        };
+      }
     }
   }
 
@@ -523,6 +574,7 @@ async function sendUserActivityNotification(
     });
 
   let installAttempted = false;
+  let alreadyInstalled = false;
   let response = await postNotification();
 
   const needsInstallRetry = (res) => {
@@ -541,6 +593,7 @@ async function sendUserActivityNotification(
       catalogAppId,
     );
     installAttempted = true;
+    alreadyInstalled = !!installed.already;
     if (installed.ok) {
       await new Promise((r) => setTimeout(r, 2000));
       response = await postNotification();
@@ -558,8 +611,10 @@ async function sendUserActivityNotification(
   const msg = graphErrorMessage(response);
   const hint = teamsActivityErrorHint(msg, {
     azureClientId: options.azureClientId,
+    catalogClientAppId,
     hasCatalogAppId: !!catalogAppId,
     installAttempted,
+    alreadyInstalled,
   });
 
   return { ok: false, message: `Feed de atividades: ${msg}.${hint}` };

@@ -105,7 +105,10 @@ exports.listLogs = async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-    const result = await smtpService.listLogs({ page, limit });
+    const q = typeof req.query.q === "string" ? req.query.q : "";
+    const status = typeof req.query.status === "string" ? req.query.status : "";
+    const provider = typeof req.query.provider === "string" ? req.query.provider : "";
+    const result = await smtpService.listLogs({ page, limit, q, status, provider });
     res.json(result);
   } catch (err) {
     next(err);

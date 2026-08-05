@@ -5,6 +5,7 @@
  * Prioridade:
  * 1. TEAMS_BOT_APP_ID + TEAMS_BOT_APP_PASSWORD (+ TEAMS_BOT_TENANT_ID opcional) no .env
  * 2. Tenant principal (ou primeiro ativo) em Configurações → Tenants Azure
+ * 3. Por App ID (JWT inbound) ou azureTenantRefId (envio proativo)
  */
 
 const db = require("../../../config/db");
@@ -16,6 +17,8 @@ const log = child({ module: "teams.bot.credentials" });
 
 let cache = null;
 let cacheAt = 0;
+let allCache = null;
+let allCacheAt = 0;
 const CACHE_MS = 60_000;
 
 function credentialsFromEnv() {
@@ -77,18 +80,63 @@ async function credentialsFromAzureTenantById(azureTenantRefId) {
   return mapTenantRow(rows[0]);
 }
 
+/** Todos os tenants ativos com secret (+ override .env se existir). */
+async function listBotCredentials({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && allCache && now - allCacheAt < CACHE_MS) {
+    return allCache;
+  }
+
+  const list = [];
+  const fromEnv = credentialsFromEnv();
+  if (fromEnv) list.push(fromEnv);
+
+  try {
+    const [rows] = await db.execute(
+      `SELECT id, nome, azure_tenant_id, client_id, client_secret_ciphertext
+         FROM azure_tenants
+        WHERE ativo = 1 AND client_secret_ciphertext IS NOT NULL
+        ORDER BY eh_principal DESC, id ASC`,
+    );
+    const seen = new Set(list.map((c) => c.appId.toLowerCase()));
+    for (const row of rows) {
+      const creds = mapTenantRow(row);
+      if (!creds) continue;
+      const key = creds.appId.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push(creds);
+    }
+  } catch (err) {
+    log.warn({ err }, "Falha ao listar credenciais Bot dos tenants Azure");
+  }
+
+  allCache = list;
+  allCacheAt = now;
+  return list;
+}
+
+async function credentialsFromAppId(appId) {
+  if (!appId) return null;
+  const needle = String(appId).trim().toLowerCase();
+  if (!/^[0-9a-f-]{36}$/.test(needle)) return null;
+  const all = await listBotCredentials();
+  return all.find((c) => c.appId.toLowerCase() === needle) || null;
+}
+
 /**
- * @param {{ force?: boolean, azureTenantRefId?: number }} [options]
- * @returns {Promise<null | {
- *   appId: string,
- *   appPassword: string,
- *   tenantId: string | null,
- *   source: 'env' | 'azure_tenant',
- *   label: string,
- *   azureTenantRefId?: number
- * }>}
+ * @param {{ force?: boolean, azureTenantRefId?: number, appId?: string }} [options]
  */
-async function getBotCredentials({ force = false, azureTenantRefId } = {}) {
+async function getBotCredentials({ force = false, azureTenantRefId, appId } = {}) {
+  if (appId) {
+    try {
+      const byApp = await credentialsFromAppId(appId);
+      if (byApp) return byApp;
+    } catch (err) {
+      log.warn({ err, appId }, "Falha ao resolver credenciais Bot por App ID");
+    }
+  }
+
   // Por integração: não usa cache global do principal (cada tenant tem App ID próprio).
   if (azureTenantRefId != null) {
     try {
@@ -127,15 +175,26 @@ async function isBotConfigured(options = {}) {
   return !!(creds?.appId && creds?.appPassword);
 }
 
+/** Action.Submit no card — só com TEAMS_BOT_INTERACTIVE=true (messaging endpoint Azure OK). */
+async function isBotInteractiveEnabled(options = {}) {
+  if (!env.teamsBotInteractive) return false;
+  return isBotConfigured(options);
+}
+
 function clearBotCredentialsCache() {
   cache = null;
   cacheAt = 0;
+  allCache = null;
+  allCacheAt = 0;
 }
 
 module.exports = {
   getBotCredentials,
   isBotConfigured,
+  isBotInteractiveEnabled,
   clearBotCredentialsCache,
   credentialsFromEnv,
   credentialsFromAzureTenantById,
+  credentialsFromAppId,
+  listBotCredentials,
 };

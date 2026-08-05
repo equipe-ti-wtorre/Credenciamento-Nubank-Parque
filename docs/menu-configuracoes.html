@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="wtorre">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Menu Configurações — Exemplo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    /* Fonte: SettingsLayoutComponent + styles.scss (.settings-*) + _tokens.scss (--app-nav-*) */
+    :root,
+    [data-theme='wtorre'] {
+      --brand: #1d54e6;
+      --brand-hover: #1442ba;
+      --font-display: 'Sora', system-ui, sans-serif;
+      --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+      --text-muted: #64748b;
+      --text-primary: #1e293b;
+      --color-bg-primary: #f1f5f9;
+      --color-border-primary: #e2e8f0;
+      --app-bg: var(--color-bg-primary);
+      --app-text: var(--text-primary);
+      --app-text-muted: var(--text-muted);
+      --app-border: var(--color-border-primary);
+      --app-nav-hover-bg: #f1f5f9;
+      --app-nav-active-bg: color-mix(in srgb, var(--brand) 12%, white);
+      --app-nav-active-text: var(--brand);
+    }
+
+    [data-theme='nubank-parque'] {
+      --brand: #8d0de3;
+      --brand-hover: #7209bd;
+      --color-bg-primary: #f4f1f8;
+      --color-border-primary: #e6e2ec;
+      --app-nav-hover-bg: #f4f1f8;
+      --app-nav-active-bg: color-mix(in srgb, var(--brand) 12%, white);
+      --app-nav-active-text: var(--brand);
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--app-bg);
+      font-family: var(--font-body);
+      color: var(--app-text);
+    }
+
+    .demo-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1.25rem;
+      background: #fff;
+      border-bottom: 1px solid var(--app-border);
+    }
+
+    .demo-toolbar label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--app-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .demo-toolbar select {
+      height: 2.25rem;
+      padding: 0 0.75rem;
+      border: 1px solid var(--app-border);
+      border-radius: 0.75rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      background: #fff;
+      color: var(--app-text);
+    }
+
+    .demo-toolbar code {
+      font-size: 0.75rem;
+      color: var(--app-text-muted);
+    }
+
+    .demo-frame {
+      padding: 1.5rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* —— SettingsLayoutComponent —— */
+    .settings-page-shell {
+      width: 100%;
+    }
+
+    .settings-page-header {
+      margin-bottom: 1rem;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1e293b;
+      font-family: var(--font-display);
+      line-height: 1.25;
+    }
+
+    .page-subtitle {
+      margin: 0.25rem 0 0;
+      font-size: 0.875rem;
+      color: #64748b;
+    }
+
+    .settings-panel {
+      display: flex;
+      background: #fff;
+      border-radius: 1rem;
+      border: 1px solid var(--app-border);
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+      overflow: hidden;
+      min-height: calc(100vh - 12rem);
+    }
+
+    .settings-panel-nav {
+      width: 16rem;
+      flex-shrink: 0;
+      border-right: 1px solid var(--app-border);
+      padding: 1rem;
+      background: #fff;
+    }
+
+    .settings-panel-nav nav {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .settings-panel-content {
+      flex: 1;
+      padding: 1.25rem;
+      min-width: 0;
+      background: #fff;
+      overflow: auto;
+    }
+
+    .settings-nav-link {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.625rem;
+      padding: 0.625rem 0.75rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #334155;
+      text-decoration: none;
+      transition: background-color 0.15s ease, color 0.15s ease;
+      cursor: pointer;
+    }
+
+    .settings-nav-link:hover {
+      background: var(--app-nav-hover-bg);
+    }
+
+    .settings-nav-link.settings-nav-active {
+      background: var(--app-nav-active-bg);
+      color: var(--app-nav-active-text);
+      font-weight: 600;
+    }
+
+    .settings-nav-icon {
+      font-size: 1rem;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-top: 0.125rem;
+    }
+
+    .settings-nav-link .min-w-0 {
+      min-width: 0;
+    }
+
+    .settings-nav-link .block {
+      display: block;
+    }
+
+    .settings-nav-link .truncate {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .settings-nav-link .subtitle {
+      display: block;
+      font-size: 10px;
+      font-weight: 400;
+      color: var(--app-text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .settings-nav-active .subtitle {
+      color: color-mix(in srgb, var(--app-nav-active-text) 70%, var(--app-text-muted));
+    }
+
+    .settings-empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 280px;
+      border-radius: 0.75rem;
+      border: 1px dashed #e2e8f0;
+      background: #f8fafc;
+      color: var(--app-text-muted);
+      font-size: 0.875rem;
+      text-align: center;
+      padding: 1.5rem;
+    }
+
+    .settings-empty-state strong {
+      display: block;
+      color: var(--app-text);
+      font-size: 1rem;
+      margin-bottom: 0.35rem;
+    }
+
+    @media (max-width: 720px) {
+      .settings-panel {
+        flex-direction: column;
+        min-height: auto;
+      }
+
+      .settings-panel-nav {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--app-border);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-toolbar">
+    <label for="theme">Paleta</label>
+    <select id="theme" aria-label="Paleta de cores">
+      <option value="wtorre" selected>WTorre</option>
+      <option value="nubank-parque">Nubank Parque</option>
+    </select>
+    <code>SettingsLayoutComponent · SETTINGS_NAV_ITEMS · --app-nav-*</code>
+  </div>
+
+  <div class="demo-frame">
+    <!-- Espelho do template em settings-layout.component.ts -->
+    <div class="settings-page-shell">
+      <header class="settings-page-header">
+        <h1 class="page-title">Configurações do Sistema</h1>
+        <p class="page-subtitle">Gerencie automações, regras de negócio e integrações.</p>
+      </header>
+
+      <div class="settings-panel">
+        <aside class="settings-panel-nav">
+          <nav class="space-y-1" id="settings-nav" aria-label="Menu de configurações">
+            <a href="#tenants-azure" class="settings-nav-link settings-nav-active" data-path="tenants-azure">
+              <span class="settings-nav-icon" aria-hidden="true">🔗</span>
+              <span class="min-w-0">
+                <span class="block truncate">Tenants Azure</span>
+                <span class="subtitle">Autenticação AD</span>
+              </span>
+            </a>
+            <a href="#smtp" class="settings-nav-link" data-path="smtp">
+              <span class="settings-nav-icon" aria-hidden="true">📧</span>
+              <span class="min-w-0">
+                <span class="block truncate">Envios de e-mail</span>
+                <span class="subtitle">SMTP / Azure ACS</span>
+              </span>
+            </a>
+            <a href="#templates-email" class="settings-nav-link" data-path="templates-email">
+              <span class="settings-nav-icon" aria-hidden="true">✉️</span>
+              <span class="min-w-0">
+                <span class="block truncate">Templates de e-mail</span>
+                <span class="subtitle">HTML e assuntos</span>
+              </span>
+            </a>
+            <a href="#sessao" class="settings-nav-link" data-path="sessao">
+              <span class="settings-nav-icon" aria-hidden="true">🔒</span>
+              <span class="min-w-0">
+                <span class="block truncate">Sessão</span>
+                <span class="subtitle">Inatividade e login</span>
+              </span>
+            </a>
+            <a href="#aparencia" class="settings-nav-link" data-path="aparencia">
+              <span class="settings-nav-icon" aria-hidden="true">🎨</span>
+              <span class="min-w-0">
+                <span class="block truncate">Aparência</span>
+                <span class="subtitle">Paleta de cores</span>
+              </span>
+            </a>
+            <a href="#teams" class="settings-nav-link" data-path="teams">
+              <span class="settings-nav-icon" aria-hidden="true">💬</span>
+              <span class="min-w-0">
+                <span class="block truncate">Integração Teams</span>
+                <span class="subtitle">Microsoft Graph</span>
+              </span>
+            </a>
+            <a href="#relatorios-sistema" class="settings-nav-link" data-path="relatorios-sistema">
+              <span class="settings-nav-icon" aria-hidden="true">📋</span>
+              <span class="min-w-0">
+                <span class="block truncate">Relatórios do sistema</span>
+                <span class="subtitle">Auditoria e erros</span>
+              </span>
+            </a>
+            <a href="#sobre" class="settings-nav-link" data-path="sobre">
+              <span class="settings-nav-icon" aria-hidden="true">ℹ️</span>
+              <span class="min-w-0">
+                <span class="block truncate">Sobre</span>
+                <span class="subtitle">Versão do sistema</span>
+              </span>
+            </a>
+          </nav>
+        </aside>
+
+        <div class="settings-panel-content">
+          <div class="settings-empty-state" id="panel-placeholder">
+            <strong id="panel-title">Tenants Azure</strong>
+            <span>Área do <code>router-outlet</code> — rota <code id="panel-route">/admin/configuracoes/tenants-azure</code></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const labels = {
+      'tenants-azure': 'Tenants Azure',
+      smtp: 'Envios de e-mail',
+      'templates-email': 'Templates de e-mail',
+      sessao: 'Sessão',
+      aparencia: 'Aparência',
+      teams: 'Integração Teams',
+      'relatorios-sistema': 'Relatórios do sistema',
+      sobre: 'Sobre',
+    };
+
+    document.getElementById('theme').addEventListener('change', (e) => {
+      document.documentElement.setAttribute('data-theme', e.target.value);
+    });
+
+    document.getElementById('settings-nav').addEventListener('click', (e) => {
+      const link = e.target.closest('.settings-nav-link');
+      if (!link) return;
+      e.preventDefault();
+      document.querySelectorAll('.settings-nav-link').forEach((el) => {
+        el.classList.toggle('settings-nav-active', el === link);
+      });
+      const path = link.dataset.path;
+      document.getElementById('panel-title').textContent = labels[path] || path;
+      document.getElementById('panel-route').textContent = '/admin/configuracoes/' + path;
+    });
+  </script>
+</body>
+</html>

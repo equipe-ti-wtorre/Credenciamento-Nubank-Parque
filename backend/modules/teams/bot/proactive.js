@@ -51,9 +51,16 @@ async function sendProactiveAdaptiveCard(microsoftUserId, adaptiveCard, options 
     const conversationParameters = {
       isGroup: false,
       bot: { id: creds.appId },
-      members: [{ id: microsoftUserId }],
+      members: [
+        {
+          id: microsoftUserId,
+          aadObjectId: microsoftUserId,
+        },
+      ],
       tenantId,
-      channelData: { tenant: { id: tenantId } },
+      channelData: {
+        tenant: { id: tenantId },
+      },
     };
 
     const conversation = await client.conversations.createConversation(conversationParameters);
@@ -64,10 +71,17 @@ async function sendProactiveAdaptiveCard(microsoftUserId, adaptiveCard, options 
 
     await client.conversations.sendToConversation(conversationId, {
       type: "message",
+      channelId: "msteams",
       from: { id: creds.appId },
+      conversation: { id: conversationId, tenantId },
+      recipient: { id: microsoftUserId, aadObjectId: microsoftUserId },
       attachments: [CardFactory.adaptiveCard(adaptiveCard)],
     });
 
+    log.info(
+      { microsoftUserId, conversationId, appId: creds.appId, label: creds.label },
+      "Adaptive Card proativa enviada via Bot Connector",
+    );
     return { ok: true, conversationId, message: "Adaptive Card enviada via Bot." };
   } catch (err) {
     log.warn({ err, microsoftUserId }, "Falha ao enviar Adaptive Card proativa");

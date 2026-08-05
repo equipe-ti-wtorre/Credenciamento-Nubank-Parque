@@ -286,13 +286,14 @@ async function sendNotification(
   const azureClientId = tenantRows[0]?.client_id || null;
   const tenantId = tenantRows[0]?.azure_tenant_id || env.teamsBotAppTenantId;
 
+  const catalogAppId = resolveTeamsAppId(row);
   const feedResult = await sendUserActivityNotification(
     auth.token,
     targetEmail,
     content,
     appUrl,
     {
-      teamsAppId: resolveTeamsAppId(row),
+      teamsAppId: catalogAppId,
       teamsAppExternalId: env.teamsAppExternalId,
       azureClientId,
       activityActor,
@@ -309,6 +310,8 @@ async function sendNotification(
       tenantId,
       microsoftUserId: feedResult.user?.id || null,
       azureTenantRefId: row.azure_tenant_ref_id,
+      teamsAppId: catalogAppId,
+      spaUrl: appUrl,
     });
   }
 
@@ -341,23 +344,21 @@ async function deliverAdaptiveCard({
   tenantId,
   microsoftUserId,
   azureTenantRefId,
+  teamsAppId,
+  spaUrl,
 }) {
-  let aadId = microsoftUserId;
-  if (!aadId && email) {
-    try {
-      const [rows] = await db.execute(
-        `SELECT microsoft_id FROM usuarios WHERE LOWER(email) = LOWER(?) AND ativo = 1 LIMIT 1`,
-        [email],
-      );
-      aadId = rows[0]?.microsoft_id || null;
-    } catch {
-      /* ignore */
-    }
-  }
+  // Só usa AAD id resolvido pelo Graph deste tenant.
+  const aadId = microsoftUserId || null;
+
+  // OpenUrl → deep link da aba Teams (sem webUrl https, para não abrir o navegador).
+  const cardForTeams = rewriteAdaptiveCardDetailUrls(adaptiveCard, {
+    teamsAppId,
+    spaUrl,
+  });
 
   const botOpts = { azureTenantRefId };
   if ((await isBotConfigured(botOpts)) && aadId) {
-    const proactive = await sendProactiveAdaptiveCard(aadId, adaptiveCard, {
+    const proactive = await sendProactiveAdaptiveCard(aadId, cardForTeams, {
       tenantId,
       azureTenantRefId,
     });
@@ -369,22 +370,31 @@ async function deliverAdaptiveCard({
     return { ok: false, message: "Sem token Graph para Adaptive Card." };
   }
 
-  // Graph não estabelece conversa do Bot — Action.Submit aparece como "bot disabled".
-  // No fallback, reenvia o card só com OpenUrl (sem Aprovar/Bloquear).
-  const { buildApprovalDecisionCard, buildInfoCard } = require("./adaptiveCards");
-  let cardForGraph = adaptiveCard;
+  // Graph: se ainda houver Action.Submit, reconstrói com OpenUrl + deep link Teams.
+  const { buildApprovalDecisionCard } = require("./adaptiveCards");
+  let cardForGraph = cardForTeams;
   if (adaptiveCard?.actions?.some((a) => a.type === "Action.Submit")) {
-    const detail =
-      adaptiveCard.actions.find((a) => a.type === "Action.OpenUrl")?.url || null;
-    cardForGraph = buildApprovalDecisionCard(
-      {
-        titulo: adaptiveCard.body?.[0]?.text,
-        mensagem: adaptiveCard.body?.[1]?.text,
-        detailUrl: detail,
-        idAprovacao: adaptiveCard.actions.find((a) => a.data?.idAprovacao)?.data
-          ?.idAprovacao,
-      },
-      { interactive: false },
+    const facts = (adaptiveCard.body || []).find((b) => b.type === "FactSet")?.facts || [];
+    const fact = (title) => facts.find((f) => f.title === title)?.value || null;
+    cardForGraph = rewriteAdaptiveCardDetailUrls(
+      buildApprovalDecisionCard(
+        {
+          titulo: adaptiveCard.body?.[0]?.text,
+          mensagem: adaptiveCard.body?.[1]?.text,
+          detailUrl: spaUrl,
+          idAprovacao: adaptiveCard.actions.find((a) => a.data?.idAprovacao)?.data
+            ?.idAprovacao,
+          tipoLabel: fact("Tipo"),
+          idEntidade: fact("Nº"),
+          setorNome: fact("Setor"),
+          solicitanteNome: fact("Solicitante"),
+          periodo: fact("Período"),
+          finalidade: fact("Finalidade"),
+          colaboradores: fact("Colaboradores"),
+        },
+        { interactive: false },
+      ),
+      { teamsAppId, spaUrl },
     );
   }
 
@@ -474,15 +484,71 @@ async function notifyUser(email, mensagem, options = {}) {
   };
 }
 
-/** Deep link Teams (entity) apontando para path do app. */
-function buildUserDeepLink(path) {
+
+/** Ajusta Action.OpenUrl do card para deep link com Teams App ID do catálogo deste tenant. */
+function rewriteAdaptiveCardDetailUrls(adaptiveCard, { teamsAppId, spaUrl } = {}) {
+  if (!adaptiveCard || typeof adaptiveCard !== "object") return adaptiveCard;
+  const clone = JSON.parse(JSON.stringify(adaptiveCard));
+  const manifestAppId = teamsAppId || env.teamsAppExternalId;
+  for (const action of clone.actions || []) {
+    if (action?.type !== "Action.OpenUrl" || !action.url) continue;
+    const raw = String(action.url);
+    // Preserva ?action=approve|reject de cada botão (não colapsar tudo num único deep link).
+    let target = null;
+    if (/^https:\/\/cred\.nbpdev\.com\.br\//i.test(raw)) {
+      target = raw;
+    } else if (/teams\.microsoft\.com\/l\/entity\//i.test(raw) && spaUrl) {
+      try {
+        const u = new URL(raw);
+        const ctx = u.searchParams.get("context");
+        let actionQ = null;
+        if (ctx) {
+          const parsed = JSON.parse(ctx);
+          const sub = String(parsed?.subEntityId || "");
+          const qm = sub.match(/[?&]action=([a-z]+)/i);
+          if (qm) actionQ = qm[1];
+        }
+        target = actionQ
+          ? `${spaUrl}${spaUrl.includes("?") ? "&" : "?"}action=${actionQ}`
+          : spaUrl;
+      } catch {
+        target = spaUrl;
+      }
+    }
+    if (!target) continue;
+    action.url =
+      buildTeamsActivityWebUrl(target, {
+        manifestAppId,
+        includeWebUrl: false,
+      }) || target;
+  }
+  return clone;
+}
+
+/** URL https do SPA (fallback confiável no OpenUrl do card). */
+function buildSpaPathUrl(path) {
   const base =
     normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
     normalizeHttpsAppUrl(env.msalRedirectUriWeb) ||
     "https://cred.nbpdev.com.br";
-  const appUrl = buildAppPathUrl(base, path);
+  return buildAppPathUrl(base, path);
+}
+
+/**
+ * Deep link Teams (entity) apontando para path do app.
+ * @param {string} path
+ * @param {{ teamsAppId?: string|null, teamsAppExternalId?: string|null }} [options]
+ * Preferir teamsAppId do catálogo Graph do tenant (não só o externalId do manifest).
+ */
+function buildUserDeepLink(path, options = {}) {
+  const appUrl = buildSpaPathUrl(path);
   if (!appUrl) return null;
-  return buildTeamsActivityWebUrl(appUrl, { manifestAppId: env.teamsAppExternalId });
+  const manifestAppId =
+    options.teamsAppId ||
+    options.teamsAppExternalId ||
+    env.teamsAppExternalId ||
+    null;
+  return buildTeamsActivityWebUrl(appUrl, { manifestAppId });
 }
 
 module.exports = {
@@ -497,6 +563,7 @@ module.exports = {
   notifyOperationsChannel,
   notifyUser,
   buildAppPathUrl,
+  buildSpaPathUrl,
   buildUserDeepLink,
   deliverAdaptiveCard,
   isBotConfigured,

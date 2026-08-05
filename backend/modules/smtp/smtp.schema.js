@@ -22,6 +22,7 @@ const smtpSettingsSchema = Joi.object({
   sendgrid_api_key: Joi.string().max(500).optional().allow(""),
   sendgrid_from_email: Joi.string().email().max(255).optional().allow("", null),
   sendgrid_from_name: Joi.string().max(100).optional().allow("", null),
+  sendgrid_webhook_verification_key: Joi.string().max(4000).optional().allow(""),
   ocultar_para: Joi.boolean().optional(),
   email_ativo: Joi.boolean().optional(),
   ativo_email: Joi.boolean().optional(),

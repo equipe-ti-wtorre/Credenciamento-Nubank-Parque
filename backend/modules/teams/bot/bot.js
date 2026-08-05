@@ -1,6 +1,6 @@
 "use strict";
 
-const { ActivityHandler, CardFactory } = require("botbuilder");
+const { ActivityHandler, CardFactory, TurnContext } = require("botbuilder");
 const db = require("../../../config/db");
 const { child } = require("../../../config/logger");
 const approvalsService = require("../../approvals/approvals.service");
@@ -58,6 +58,16 @@ function extractActionData(activity) {
   return { action, idAprovacao };
 }
 
+function formatCollaboratorsLabel(names) {
+  if (!Array.isArray(names) || names.length === 0) return null;
+  const max = 8;
+  const shown = names.slice(0, max);
+  const extra = names.length - shown.length;
+  let label = shown.join(", ");
+  if (extra > 0) label += ` e mais ${extra}`;
+  return label;
+}
+
 async function loadApprovalFacts(idAprovacao) {
   const [rows] = await db.query(
     `SELECT a.*, s.nome AS setor_nome, u.nome_completo AS solicitante_nome
@@ -72,6 +82,7 @@ async function loadApprovalFacts(idAprovacao) {
   const tipoLabel = a.tipo_entidade === "EVENTO" ? "Evento" : "Acesso de serviço";
   let periodo = null;
   let finalidade = null;
+  let colaboradores = null;
   if (a.tipo_entidade === "ACESSO_SERVICO") {
     const [sa] = await db.query(
       `SELECT start_date, end_date, finalidade FROM service_access WHERE id_service_access = ? LIMIT 1`,
@@ -81,6 +92,16 @@ async function loadApprovalFacts(idAprovacao) {
       periodo = `${String(sa[0].start_date).slice(0, 10)} → ${String(sa[0].end_date).slice(0, 10)}`;
       finalidade = sa[0].finalidade || null;
     }
+    const [collabRows] = await db.query(
+      `SELECT c.name AS nome
+         FROM service_access_collaborator sac
+         INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
+        WHERE sac.id_service_access = ?
+        ORDER BY c.name ASC`,
+      [a.id_entidade],
+    );
+    const names = (collabRows || []).map((r) => r.nome).filter(Boolean);
+    colaboradores = formatCollaboratorsLabel(names);
   }
   return {
     tipoLabel,
@@ -89,6 +110,7 @@ async function loadApprovalFacts(idAprovacao) {
     solicitanteNome: a.solicitante_nome,
     periodo,
     finalidade,
+    colaboradores,
   };
 }
 
@@ -194,12 +216,46 @@ class CredenciamentoBot extends ActivityHandler {
 
 const bot = new CredenciamentoBot();
 
+/**
+ * Extrai App ID do JWT Bot Framework (Authorization: Bearer …).
+ */
+function extractBotAppIdFromRequest(req) {
+  try {
+    const auth = req.headers?.authorization || req.headers?.Authorization || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!token) return null;
+    const payloadPart = token.split(".")[1];
+    if (!payloadPart) return null;
+    const json = Buffer.from(payloadPart, "base64url").toString("utf8");
+    const payload = JSON.parse(json);
+    const aud = payload.aud;
+    if (typeof aud === "string" && /^[0-9a-f-]{36}$/i.test(aud)) return aud.toLowerCase();
+    if (Array.isArray(aud)) {
+      const id = aud.find((a) => typeof a === "string" && /^[0-9a-f-]{36}$/i.test(a));
+      if (id) return String(id).toLowerCase();
+    }
+    if (payload.appid && /^[0-9a-f-]{36}$/i.test(payload.appid)) {
+      return String(payload.appid).toLowerCase();
+    }
+    if (payload.azp && /^[0-9a-f-]{36}$/i.test(payload.azp)) {
+      return String(payload.azp).toLowerCase();
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 async function processActivity(req, res) {
-  const adapter = await require("./adapter").getAdapter();
+  const appIdHint = extractBotAppIdFromRequest(req);
+  const { getAdapter, getBotCredentials } = require("./adapter");
+  const adapter = await getAdapter({ appId: appIdHint });
   if (!adapter) {
     res.status(503).json({ error: "Bot Teams não configurado." });
     return;
   }
+  const creds = await getBotCredentials({ appId: appIdHint || undefined });
+  const botAppId = creds?.appId || appIdHint;
 
   await adapter.process(req, res, async (context) => {
     if (
@@ -207,9 +263,53 @@ async function processActivity(req, res) {
       (context.activity.name === "adaptiveCard/action" ||
         context.activity.name === "composeExtension/submitAction")
     ) {
-      await bot.processDecision(context);
+      // Ack do invoke antes de processar — o CloudAdapter só fecha o HTTP ao fim do turn.
       if (context.activity.name === "adaptiveCard/action") {
         await context.sendActivity({ type: "invokeResponse", value: { status: 200 } });
+        const reference = TurnContext.getConversationReference(context.activity);
+        const value = context.activity.value;
+        const from = context.activity.from;
+
+        setImmediate(() => {
+          if (!botAppId) {
+            log.error("Sem App ID para continueConversation após adaptiveCard/action");
+            return;
+          }
+          void adapter
+            .continueConversationAsync(botAppId, reference, async (ctx) => {
+              ctx.activity.value = value;
+              if (from) ctx.activity.from = from;
+              try {
+                await bot.processDecision(ctx);
+              } catch (err) {
+                log.error({ err }, "processDecision falhou após invokeResponse");
+                try {
+                  await ctx.sendActivity(
+                    "Não foi possível concluir a decisão. Tente pelo app Credenciamento.",
+                  );
+                } catch {
+                  /* ignore */
+                }
+              }
+            })
+            .catch((err) => {
+              log.error({ err }, "continueConversation após adaptiveCard/action falhou");
+            });
+        });
+        return;
+      }
+
+      try {
+        await bot.processDecision(context);
+      } catch (err) {
+        log.error({ err }, "processDecision falhou no invoke");
+        try {
+          await context.sendActivity(
+            "Não foi possível concluir a decisão. Tente pelo app Credenciamento.",
+          );
+        } catch {
+          /* ignore */
+        }
       }
       return;
     }
@@ -227,4 +327,5 @@ module.exports = {
   CredenciamentoBot,
   processActivity,
   buildDetailUrl,
+  extractBotAppIdFromRequest,
 };

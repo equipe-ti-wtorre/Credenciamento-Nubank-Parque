@@ -339,6 +339,15 @@ const migrations = [
     filename: "048_email_templates.sql",
     validate: (conn) => tableExists(conn, "email_templates"),
   },
+  {
+    filename: "049_sendgrid_webhook_verification.sql",
+    validate: (conn) =>
+      columnExists(
+        conn,
+        "email_provider_config",
+        "sendgrid_webhook_verification_key_ciphertext",
+      ),
+  },
 ];
 
 module.exports = migrations;

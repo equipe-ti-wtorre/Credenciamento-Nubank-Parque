@@ -13,6 +13,7 @@ export class TeamsContextService {
   static readonly AUTH_PATH = '/auth/teams.html';
   static readonly AUTH_POPUP_FLAG = 'teams.auth.popup';
   static readonly SSO_ERROR_KEY = 'teams.sso.lastError';
+  static readonly PENDING_DEEP_LINK_KEY = 'teams.pendingDeepLink';
 
   /** URI do popup Teams (cadastrar no Azure SPA). */
   static teamsAuthRedirectUri(): string {
@@ -24,6 +25,9 @@ export class TeamsContextService {
     this.initPromise = this.initializeWithRetry();
     return this.initPromise;
   }
+
+  private deepLinkWatchStarted = false;
+  private deepLinkListeners = new Set<(path: string) => void>();
 
   private async initializeWithRetry(): Promise<boolean> {
     const attempts = 4;
@@ -73,21 +77,133 @@ export class TeamsContextService {
     try {
       const context = await microsoftTeams.app.getContext();
       this.lastContext = context;
-      const candidates = [
-        context?.page?.subPageId,
-        (context as { page?: { subEntityId?: string } })?.page?.subEntityId,
-        (context as { subEntityId?: string })?.subEntityId,
-      ];
-      for (const raw of candidates) {
-        const path = this.normalizeDeepLinkPath(raw);
-        if (path) return path;
-      }
+      const fromCtx = this.extractPathFromContext(context);
+      if (fromCtx) return fromCtx;
     } catch {
       /* ignore */
     }
     if (typeof window !== 'undefined') {
       const loc = `${window.location.pathname}${window.location.search}`;
-      if (/^\/aprovacoes(\/\d+|\?id=)/.test(loc)) return loc;
+      if (/^\/aprovacoes(\/\d+|\?id=)/.test(loc) || /^\/acessos-servico\/\d+/.test(loc)) {
+        return loc;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Escuta mudanças de contexto (clique no sino com o app já aberto) e notifica listeners.
+   * Também revalida ao voltar o foco/visibilidade da aba.
+   */
+  async startDeepLinkWatch(onPath: (path: string) => void): Promise<() => void> {
+    this.deepLinkListeners.add(onPath);
+    const ok = await this.ensureInitialized();
+
+    const emitPath = (path: string | null | undefined) => {
+      const normalized = path ? this.normalizeDeepLinkPath(path) : null;
+      if (!normalized) return;
+      try {
+        sessionStorage.setItem(TeamsContextService.PENDING_DEEP_LINK_KEY, normalized);
+      } catch {
+        /* ignore */
+      }
+      for (const listener of this.deepLinkListeners) {
+        try {
+          listener(normalized);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    const emitFromContext = (context: microsoftTeams.app.Context | null | undefined) => {
+      if (context) this.lastContext = context;
+      emitPath(this.extractPathFromContext(context || this.lastContext));
+    };
+
+    // Path já na barra de endereço (webUrl https do Graph) ou pendente do boot
+    if (typeof window !== 'undefined') {
+      const loc = `${window.location.pathname}${window.location.search}`;
+      if (/^\/(aprovacoes|acessos-servico)(\/|\?)/.test(loc)) {
+        emitPath(loc);
+      }
+      try {
+        const pending = sessionStorage.getItem(TeamsContextService.PENDING_DEEP_LINK_KEY);
+        if (pending) emitPath(pending);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (ok && !this.deepLinkWatchStarted) {
+      this.deepLinkWatchStarted = true;
+      try {
+        emitFromContext(this.lastContext);
+      } catch {
+        /* ignore */
+      }
+
+      try {
+        microsoftTeams.app.registerOnContextChangeHandler((context) => {
+          emitFromContext(context);
+        });
+      } catch {
+        /* ignore */
+      }
+
+      const refresh = () => {
+        void microsoftTeams.app
+          .getContext()
+          .then((ctx) => emitFromContext(ctx))
+          .catch(() => undefined);
+      };
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') refresh();
+        });
+      }
+      if (typeof window !== 'undefined') {
+        window.addEventListener('focus', refresh);
+      }
+
+      // Alguns clientes Teams só injetam subPageId alguns ms após o load
+      void (async () => {
+        for (let i = 0; i < 12; i++) {
+          await this.delay(350);
+          try {
+            const ctx = await microsoftTeams.app.getContext();
+            emitFromContext(ctx);
+            if (this.extractPathFromContext(ctx)) break;
+          } catch {
+            /* ignore */
+          }
+        }
+      })();
+    } else if (ok) {
+      const path = await this.getDeepLinkPath();
+      if (path) onPath(path);
+    }
+
+    return () => {
+      this.deepLinkListeners.delete(onPath);
+    };
+  }
+
+  private extractPathFromContext(
+    context: microsoftTeams.app.Context | null | undefined,
+  ): string | null {
+    if (!context) return null;
+    const page = context.page as
+      | { subPageId?: string; subEntityId?: string }
+      | undefined;
+    const candidates = [
+      page?.subPageId,
+      page?.subEntityId,
+      (context as { subEntityId?: string }).subEntityId,
+    ];
+    for (const raw of candidates) {
+      const path = this.normalizeDeepLinkPath(raw);
+      if (path) return path;
     }
     return null;
   }
@@ -96,6 +212,12 @@ export class TeamsContextService {
     if (typeof raw !== 'string') return null;
     let value = raw.trim();
     if (!value) return null;
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      /* keep raw */
+    }
+    value = value.trim();
     if (/^https?:\/\//i.test(value)) {
       try {
         const u = new URL(value);
@@ -103,6 +225,10 @@ export class TeamsContextService {
       } catch {
         return null;
       }
+    }
+    // Teams às vezes envia sem barra inicial
+    if (/^(aprovacoes|acessos-servico|admin)\b/i.test(value)) {
+      value = `/${value}`;
     }
     if (!value.startsWith('/') || value.startsWith('//')) return null;
     if (value.startsWith('/login') || value.startsWith('/auth/')) return null;

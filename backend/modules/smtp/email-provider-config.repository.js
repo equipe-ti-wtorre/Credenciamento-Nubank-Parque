@@ -31,6 +31,7 @@ async function ensureRow() {
  * @param {string|null|undefined} [fields.sendgrid_api_key_ciphertext] — undefined = keep; null = clear
  * @param {string|null} [fields.sendgrid_from_email]
  * @param {string|null} [fields.sendgrid_from_name]
+ * @param {string|null|undefined} [fields.sendgrid_webhook_verification_key_ciphertext] — undefined = keep; null = clear
  * @param {boolean} [fields.ocultar_para]
  * @param {boolean} [fields.ativo]
  */
@@ -68,10 +69,18 @@ async function update(fields) {
     sendgridCiphertext = fields.sendgrid_api_key_ciphertext;
   }
 
+  let sendgridWebhookKeyCiphertext =
+    current.sendgrid_webhook_verification_key_ciphertext;
+  if (fields.sendgrid_webhook_verification_key_ciphertext !== undefined) {
+    sendgridWebhookKeyCiphertext =
+      fields.sendgrid_webhook_verification_key_ciphertext;
+  }
+
   await db.execute(
     `UPDATE email_provider_config
      SET provider = ?, acs_connection_string_ciphertext = ?, acs_sender = ?,
          sendgrid_api_key_ciphertext = ?, sendgrid_from_email = ?, sendgrid_from_name = ?,
+         sendgrid_webhook_verification_key_ciphertext = ?,
          ocultar_para = ?, ativo = ?
      WHERE id = ?`,
     [
@@ -81,6 +90,7 @@ async function update(fields) {
       sendgridCiphertext,
       sendgridFromEmail || null,
       sendgridFromName || null,
+      sendgridWebhookKeyCiphertext,
       ocultarPara,
       ativo,
       SINGLETON_ID,

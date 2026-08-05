@@ -221,10 +221,12 @@ export class AuthService {
     }
 
     let token: string | null = null;
+    let usedNativeSso = false;
 
     if (options.interactive) {
       // Gesto do usuário: SSO nativo do Teams (consentimento na máquina fria)
       token = await this.teamsContext.getAuthToken({ silent: false });
+      usedNativeSso = !!token;
       if (!token) {
         const ssoErr = this.teamsContext.getLastAuthError();
         if (ssoErr === 'CancelledByUser') {
@@ -235,10 +237,12 @@ export class AuthService {
       }
     } else if (!options.skipSilent) {
       token = await this.teamsContext.getAuthToken({ silent: true });
+      usedNativeSso = !!token;
     }
 
     if (!token) {
       token = await this.teamsContext.authenticateWithPopup();
+      usedNativeSso = false;
     }
     if (!token) {
       const detail = this.teamsContext.getLastAuthError();
@@ -252,16 +256,58 @@ export class AuthService {
       );
     }
 
-    const res = await firstValueFrom(
-      this.api.post<AuthSession>(
-        '/auth/login-microsoft',
-        {},
-        { Authorization: `Bearer ${token}` },
-      ),
-    );
-    await this.saveSession(res);
-    if (options.navigate !== false) {
-      this.navigateAfterLogin();
+    try {
+      const res = await firstValueFrom(
+        this.api.post<AuthSession>(
+          '/auth/login-microsoft',
+          {},
+          { Authorization: `Bearer ${token}` },
+        ),
+      );
+      await this.saveSession(res);
+      if (options.navigate !== false) {
+        this.navigateAfterLogin();
+      }
+      return;
+    } catch (err) {
+      const msg =
+        err instanceof HttpErrorResponse
+          ? (typeof err.error === 'object' &&
+            err.error &&
+            'message' in err.error
+              ? String((err.error as { message?: string }).message)
+              : null) || err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+
+      // Pacote Teams com webApplicationInfo de outro tenant: getAuthToken vem com aud errado.
+      // Cai no popup MSAL (client ID principal / Nubank) para não travar o login.
+      const audienceMismatch = /audience|não autorizada|nao autorizada/i.test(msg);
+      if (usedNativeSso && audienceMismatch) {
+        this.logger.warn('SSO Teams com audience inválida; tentando popup MSAL', { msg });
+        this.teamsContext.rememberSsoError(msg);
+        const popupToken = await this.teamsContext.authenticateWithPopup();
+        if (!popupToken) {
+          throw new Error(
+            this.teamsContext.getLastAuthError() ||
+              `${msg} Abra o popup Microsoft ou republicar o app Teams com o Client ID deste tenant.`,
+          );
+        }
+        const res = await firstValueFrom(
+          this.api.post<AuthSession>(
+            '/auth/login-microsoft',
+            {},
+            { Authorization: `Bearer ${popupToken}` },
+          ),
+        );
+        await this.saveSession(res);
+        if (options.navigate !== false) {
+          this.navigateAfterLogin();
+        }
+        return;
+      }
+      throw err instanceof Error ? err : new Error(msg);
     }
   }
 

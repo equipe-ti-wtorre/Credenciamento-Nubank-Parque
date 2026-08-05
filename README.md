@@ -165,7 +165,7 @@ Copie `backend/.env.example` para `backend/.env`.
 | `MSAL_REDIRECT_URI_IOS` | Mobile | URI iOS |
 | `LOG_LEVEL` | Não | `info`, `debug`, etc. |
 
-**Não use no `.env`:** `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` — cadastre em **Tenants Azure**. Connection string ACS, senha SMTP e API key SendGrid também **não** vão no `.env` — configure em **Envios de e-mail**.
+**Não use no `.env`:** `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` — cadastre em **Tenants Azure**. Connection string ACS, senha SMTP, API key SendGrid e Verification Key do Event Webhook também **não** vão no `.env` — configure em **Envios de e-mail**.
 
 Gerar chave de criptografia:
 
@@ -234,6 +234,7 @@ Rotas legadas em `/api` respondem igualmente, com header de depreciação.
 | POST | `/api/v1/smtp/test` | Enviar e-mail de teste pelo provedor ativo |
 | GET | `/api/v1/smtp/logs` | Histórico (`sent` / `failed` / `entregue` / `bounce`) |
 | POST | `/api/v1/webhooks/acs-email` | Webhook Event Grid (delivery reports; sem JWT) |
+| POST | `/api/v1/webhooks/sendgrid-email` | Webhook SendGrid Event (delivery/bounce; sem JWT) |
 
 ### Microsoft Teams (ADMIN)
 
@@ -316,15 +317,22 @@ Configure em **Configurações → Envios de e-mail**:
 1. Escolha o provedor **SMTP**, **Azure ACS** ou **SendGrid**.
 2. **SMTP:** host, porta, TLS, usuário, senha e remetente. Use **Verificar SMTP** e **Testar envio**.
 3. **Azure ACS:** connection string (cifrada com `ENCRYPTION_KEY`) e remetente do domínio verificado. Ative o envio e teste.
-4. **SendGrid:** API key (cifrada com `ENCRYPTION_KEY`) e e-mail/nome do remetente verificado no SendGrid. Ative o envio e teste.
+4. **SendGrid:** API key (cifrada com `ENCRYPTION_KEY`) e e-mail/nome do remetente verificado no SendGrid. Ative o envio e teste. Para delivery reports, cole também a **Verification Key** do Signed Event Webhook (salva cifrada no banco).
 5. Opcional: **Ocultar e-mail do destinatário no campo Para** (destinatário real em BCC).
 
-Envios (sucesso ou falha) vão para `smtp_send_logs`. Com ACS, o `message_id` permite atualizar status via webhook:
+Envios (sucesso ou falha) vão para `smtp_send_logs`. O `message_id` permite atualizar status via webhook:
 
+**Azure ACS**
 1. No Azure, subscription Event Grid no Communication Services — evento **Email Delivery Report Received**.
 2. Endpoint: `https://<host-da-api>/api/v1/webhooks/acs-email`
 3. Defina `EVENT_GRID_WEBHOOK_SECRET` no `.env` e use o mesmo secret na subscription.
 4. Status ACS `Delivered` → `entregue`; demais terminais → `bounce`.
+
+**SendGrid**
+1. No SendGrid → Mail Settings → Event Webhook: URL `https://<host-da-api>/api/v1/webhooks/sendgrid-email`.
+2. Ative **Signed Event Webhook** e copie a Verification Key.
+3. Em **Envios de e-mail → SendGrid**, cole a Verification Key (não vai no `.env`).
+4. Eventos: `delivered` → `entregue`; `bounce` / `dropped` → `bounce`.
 
 Rate limit ACS (em memória): 30/min, 100/h, 2400/dia.
 
@@ -628,6 +636,7 @@ Crie em `frontend/src/app/features/<nome>/` ou `pages/<nome>/`:
 | ACS falha no teste | Domínio verificado (SPF/DKIM), connection string e remetente no painel; `ENCRYPTION_KEY` válida |
 | SendGrid falha no teste | API key com permissão Mail Send, remetente/domínio verificado no SendGrid; `ENCRYPTION_KEY` válida |
 | Webhook ACS sem update | `EVENT_GRID_WEBHOOK_SECRET`, assinatura `aeg-signature` e `message_id` no log |
+| Webhook SendGrid sem update | Verification Key em Envios de e-mail, headers Twilio Signature/Timestamp e `message_id` no log |
 | Teams teste falha | Confirme `ChannelMessage.Send` + admin consent e IDs corretos de team/canal |
 | Angular CLI exige Node 20.19+ | Use Node 24 do servidor ou atualize o Node local |
 | Aviso `lmdb` no build | Opcional: `npm install lmdb --save-dev` no frontend |

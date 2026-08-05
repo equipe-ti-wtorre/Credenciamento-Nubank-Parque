@@ -83,9 +83,15 @@ async function insertSendLog({
 
 async function updateDeliveryStatus(messageId, status) {
   if (!messageId) return 0;
+  // SendGrid Event Webhook uses sg_message_id like "{x-message-id}.filter...";
+  // we store the x-message-id from the send response.
+  const fullId = String(messageId);
+  const baseId = fullId.split(".")[0];
   const [result] = await db.execute(
-    `UPDATE smtp_send_logs SET status = ? WHERE message_id = ? AND status IN ('sent', 'entregue', 'bounce')`,
-    [status, messageId],
+    `UPDATE smtp_send_logs SET status = ?
+     WHERE status IN ('sent', 'entregue', 'bounce')
+       AND (message_id = ? OR message_id = ? OR ? LIKE CONCAT(message_id, '.%'))`,
+    [status, fullId, baseId, fullId],
   );
   return result.affectedRows || 0;
 }

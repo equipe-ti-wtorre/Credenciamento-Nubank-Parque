@@ -183,11 +183,13 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     void this.sessionIdle.startMonitoring();
 
     // Sino / card do Teams: contentUrl é "/" — navegar para /aprovacoes/:id via subEntityId
+    // (App também registra registerOnContextChangeHandler para clique com app já aberto.)
     try {
       const teamsPath = await this.teamsContext.getDeepLinkPath();
       if (teamsPath) {
         const pathOnly = teamsPath.split('?')[0];
-        if (!this.router.url.startsWith(pathOnly)) {
+        const current = this.router.url.split('?')[0];
+        if (current !== pathOnly && !current.startsWith(pathOnly + '/')) {
           void this.router.navigateByUrl(teamsPath);
         }
       }

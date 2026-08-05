@@ -26,6 +26,8 @@ export interface SmtpSettings {
   sendgrid_from_email?: string | null;
   sendgrid_from_name?: string | null;
   has_sendgrid_api_key?: boolean;
+  sendgrid_webhook_verification_key?: string;
+  has_sendgrid_webhook_verification_key?: boolean;
   ocultar_para?: boolean;
   /** Envio habilitado no provedor (email_provider_config.ativo) */
   email_ativo?: boolean;
@@ -53,6 +55,14 @@ export interface SmtpLogsResponse {
   };
 }
 
+export interface SmtpLogsQuery {
+  page?: number;
+  limit?: number;
+  q?: string;
+  status?: EmailLogStatus | '';
+  provider?: EmailProvider | '';
+}
+
 @Injectable({ providedIn: 'root' })
 export class SmtpService {
   constructor(private api: ApiService) {}
@@ -77,8 +87,13 @@ export class SmtpService {
     return this.api.post('/smtp/test', { destinatario, assunto, corpo });
   }
 
-  listLogs(page = 1, limit = 20): Observable<SmtpLogsResponse> {
-    const params = new HttpParams().set('page', String(page)).set('limit', String(limit));
+  listLogs(query: SmtpLogsQuery = {}): Observable<SmtpLogsResponse> {
+    let params = new HttpParams()
+      .set('page', String(query.page ?? 1))
+      .set('limit', String(query.limit ?? 20));
+    if (query.q?.trim()) params = params.set('q', query.q.trim());
+    if (query.status) params = params.set('status', query.status);
+    if (query.provider) params = params.set('provider', query.provider);
     return this.api.get<SmtpLogsResponse>('/smtp/logs', params);
   }
 }
