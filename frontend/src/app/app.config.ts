@@ -1,4 +1,4 @@
-import { ApplicationConfig, APP_INITIALIZER, importProvidersFrom } from '@angular/core';
+import { ApplicationConfig, APP_INITIALIZER, importProvidersFrom, provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import {
   provideHttpClient,
@@ -40,9 +40,13 @@ export function msalConfigInitializer(msalConfigService: MsalConfigService) {
   return () => msalConfigService.load();
 }
 
-/** Processa retorno Azure / popup Teams antes do router (evita CancelledByUser por corrida). */
-export function teamsAuthRedirectInitializer(authService: AuthService) {
-  return () => authService.handleRedirect();
+/** Processa retorno Azure / popup Teams antes do router (após MSAL carregado). */
+export function teamsAuthRedirectInitializer(
+  authService: AuthService,
+  msalConfigService: MsalConfigService,
+) {
+  return () =>
+    msalConfigService.load().then(() => authService.handleRedirect());
 }
 
 export function authTokensInitializer(authService: AuthService) {
@@ -63,6 +67,7 @@ export function MSALGuardConfigFactory(): MsalGuardConfiguration {
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    provideZonelessChangeDetection(),
     { provide: API_BASE_URL, useValue: environment.apiBaseUrl },
     provideRouter(routes),
     provideHttpClient(withInterceptorsFromDi()),
@@ -93,7 +98,7 @@ export const appConfig: ApplicationConfig = {
     {
       provide: APP_INITIALIZER,
       useFactory: teamsAuthRedirectInitializer,
-      deps: [AuthService],
+      deps: [AuthService, MsalConfigService],
       multi: true,
     },
     {

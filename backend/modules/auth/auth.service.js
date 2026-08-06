@@ -63,11 +63,14 @@ async function loginLocal(username, password, req) {
     [username, username],
   );
   const user = users[0];
-  if (!user) throw new AppError("Usuário não encontrado.", 401);
+  const credentialsError = () =>
+    new AppError("Usuário ou senha inválidos.", 401);
+
+  if (!user) throw credentialsError();
   if (user.is_ad_user === 1 && !user.senha_hash) {
     throw new AppError('Use "Entrar com Microsoft".', 400);
   }
-  if (!user.senha_hash) throw new AppError("Senha não definida.", 401);
+  if (!user.senha_hash) throw credentialsError();
 
   const senhaValida = await bcrypt.compare(password, user.senha_hash);
   if (!senhaValida) {
@@ -76,7 +79,7 @@ async function loginLocal(username, password, req) {
       userId: user.id,
       loginHint: username,
     });
-    throw new AppError("Senha incorreta.", 401);
+    throw credentialsError();
   }
 
   try {

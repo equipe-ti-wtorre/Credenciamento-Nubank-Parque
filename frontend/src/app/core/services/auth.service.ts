@@ -320,7 +320,7 @@ export class AuthService {
     try {
       const teamsPath = await this.teamsContext.getDeepLinkPath();
       if (teamsPath) {
-        void this.router.navigateByUrl(teamsPath);
+        await this.router.navigateByUrl(teamsPath);
         return;
       }
     } catch {
@@ -334,24 +334,25 @@ export class AuthService {
         try {
           const teamsPath = await this.teamsContext.getDeepLinkPath();
           if (teamsPath) {
-            void this.router.navigateByUrl(teamsPath);
+            await this.router.navigateByUrl(teamsPath);
             return;
           }
         } catch {
           /* ignore */
         }
       }
-      void this.router.navigateByUrl(returnUrl);
+      await this.router.navigateByUrl(returnUrl);
       return;
     }
-    void this.router.navigate(['/dashboard']);
+    await this.router.navigate(['/dashboard']);
   }
 
   async loginMicrosoft(): Promise<void> {
     this.msalHandlingPaused = false;
     this.clearStuckMsalInteraction();
     this.clearRedirectProcessedMarker();
-    await this.ensureMsalReady();
+    // Só carrega MSAL — não chamar processRedirect aqui (pode consumir resultado em cache).
+    await this.msalConfigService.load();
 
     if (!this.msalConfigService.hasClientId()) {
       this.notification.warning(
@@ -403,9 +404,7 @@ export class AuthService {
     try {
       const result = await this.msalConfigService.getInstance().handleRedirectPromise();
       if (!result) {
-        if (this.hasAzureRedirectInUrl()) {
-          this.clearAuthHashFromUrl();
-        }
+        // Mantém code/state na URL para retry (AuthGuard / login) se MSAL ainda não consumiu.
         return;
       }
 
@@ -438,7 +437,14 @@ export class AuthService {
       }
 
       const fingerprint = this.getRedirectFingerprint(result);
-      if (!fingerprint || this.isRedirectAlreadyProcessed(fingerprint)) return;
+      if (!fingerprint) return;
+
+      // Se já processou mas não há sessão (falha parcial / marker antigo), tenta de novo.
+      if (this.isRedirectAlreadyProcessed(fingerprint)) {
+        const existingToken = await this.storage.get('token');
+        if (existingToken) return;
+        this.clearRedirectProcessedMarker();
+      }
 
       if (this.backendValidationInFlight) {
         await this.backendValidationInFlight;
@@ -460,15 +466,18 @@ export class AuthService {
     }
   }
 
-  private getRedirectFingerprint(azureResult: {
-    account?: { homeAccountId?: string };
-    uniqueId?: string;
-    idToken?: string;
-  }): string {
+  private getRedirectFingerprint(azureResult: AuthenticationResult): string {
+    const claims = azureResult.idTokenClaims as
+      | { oid?: string; sub?: string; iat?: number }
+      | undefined;
+    const oid = claims?.oid || claims?.sub;
+    const iat = claims?.iat;
+    // Por login (não por conta): evita bloquear novo login da mesma conta.
+    if (oid != null && iat != null) return `${oid}:${iat}`;
     return (
-      azureResult.account?.homeAccountId ||
       azureResult.uniqueId ||
-      azureResult.idToken?.slice(0, 48) ||
+      azureResult.idToken?.slice(0, 64) ||
+      azureResult.account?.homeAccountId ||
       ''
     );
   }
@@ -519,10 +528,11 @@ export class AuthService {
       this.markRedirectProcessed(fingerprint);
       this.clearAuthHashFromUrl();
       await this.saveSession(res);
+      await this.navigateAfterLoginAsync();
+      // Foto fora do caminho crítico (evita 401/logout no meio do login).
       if (res.user?.is_ad_user) {
-        await this.attachMicrosoftPhoto(azureResult.account);
+        void this.attachMicrosoftPhoto(azureResult.account);
       }
-      this.navigateAfterLogin();
     } catch (err: unknown) {
       if (err instanceof HttpErrorResponse && err.status === 429) {
         this.notification.error(
@@ -693,9 +703,6 @@ export class AuthService {
 
     const loginUrl = this.logoutReason === 'idle' ? '/login?reason=idle' : '/login';
     this.logoutReason = null;
-    await this.router.navigateByUrl(loginUrl, { replaceUrl: true });
-    // Libera o handler MSAL para a próxima tentativa na tela de login.
-    this.msalHandlingPaused = false;
 
     if (refreshToken) {
       void firstValueFrom(this.api.post('/auth/logout', { refreshToken })).catch(() => {
@@ -704,8 +711,16 @@ export class AuthService {
     }
 
     if (isMicrosoftUser && this.msalConfigService.hasClientId()) {
-      void this.clearMicrosoftSession();
+      await this.clearMicrosoftSession();
     }
+
+    // Full reload zera o cache em memória do handleRedirectPromise (evita re-login SPA).
+    if (typeof window !== 'undefined') {
+      window.location.href = loginUrl;
+      return;
+    }
+    await this.router.navigateByUrl(loginUrl, { replaceUrl: true });
+    this.msalHandlingPaused = false;
   }
 
   /** Limpa contas MSAL no browser sem depender de redirect externo do Azure. */
@@ -713,7 +728,6 @@ export class AuthService {
     try {
       const msal = this.msalConfigService.getInstance();
       this.clearStuckMsalInteraction();
-      await msal.handleRedirectPromise();
       await this.clearMsalCache(msal);
     } catch (error) {
       this.logger.error('Erro ao limpar sessão Microsoft', { error });

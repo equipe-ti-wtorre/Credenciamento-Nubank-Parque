@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
@@ -37,7 +37,7 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
                 required
                 [(ngModel)]="credentials.username"
                 name="username"
-                [disabled]="loading"
+                [disabled]="loading()"
                 placeholder="admin@exemplo.com"
                 class="login-nubank__input"
               />
@@ -49,12 +49,12 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
                 required
                 [(ngModel)]="credentials.password"
                 name="password"
-                [disabled]="loading"
+                [disabled]="loading()"
                 class="login-nubank__input"
               />
             </div>
-            <button type="submit" [disabled]="loading" class="login-nubank__submit">
-              {{ loading ? 'Processando...' : 'Entrar' }}
+            <button type="submit" [disabled]="loading()" class="login-nubank__submit">
+              {{ loading() ? 'Processando...' : 'Entrar' }}
             </button>
           </form>
         </ng-container>
@@ -62,7 +62,7 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
         <button
           type="button"
           (click)="loginMicrosoft()"
-          [disabled]="loading || msalBusy"
+          [disabled]="loading() || msalBusy()"
           class="login-nubank__ms"
         >
           <span class="login-nubank__chip" aria-hidden="true">
@@ -132,7 +132,7 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
                 required
                 [(ngModel)]="credentials.username"
                 name="username"
-                [disabled]="loading"
+                [disabled]="loading()"
                 placeholder="admin@exemplo.com"
                 class="block w-full rounded-lg border-0 bg-gray-700/80 px-4 py-3 text-gray-200"
               />
@@ -146,16 +146,16 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
                 required
                 [(ngModel)]="credentials.password"
                 name="password"
-                [disabled]="loading"
+                [disabled]="loading()"
                 class="block w-full rounded-lg border-0 bg-gray-700/80 px-4 py-3 text-gray-200"
               />
             </div>
             <button
               type="submit"
-              [disabled]="loading"
+              [disabled]="loading()"
               class="w-full py-3 rounded-lg text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
             >
-              {{ loading ? 'Processando...' : 'Entrar' }}
+              {{ loading() ? 'Processando...' : 'Entrar' }}
             </button>
           </form>
         </ng-container>
@@ -163,7 +163,7 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
         <button
           type="button"
           (click)="loginMicrosoft()"
-          [disabled]="loading || msalBusy"
+          [disabled]="loading() || msalBusy()"
           class="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg border border-gray-600 bg-gray-700/60 text-white hover:bg-gray-600 disabled:opacity-50"
         >
           <img
@@ -189,8 +189,8 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
 })
 export class LoginComponent implements OnInit {
   credentials = { username: '', password: '' };
-  loading = false;
-  msalBusy = false;
+  loading = signal(false);
+  msalBusy = signal(false);
   readonly theme = inject(ThemeService);
 
   showAdminLogin = false;
@@ -226,13 +226,13 @@ export class LoginComponent implements OnInit {
         );
       const inTeams = await this.teamsContext.ensureInitialized();
       if (hasAzureReturn && inTeams) {
-        this.loading = true;
+        this.loading.set(true);
         this.teamsHint = 'Concluindo autenticação Microsoft…';
         try {
           await this.msalConfigService.load();
           await this.authService.handleRedirect();
         } finally {
-          this.loading = false;
+          this.loading.set(false);
           this.teamsContext.clearAuthPopupPending();
         }
         return;
@@ -262,7 +262,7 @@ export class LoginComponent implements OnInit {
       } else {
         this.teamsHint = 'Abrindo com sua conta Microsoft do Teams…';
       }
-      this.loading = true;
+      this.loading.set(true);
       try {
         await this.msalConfigService.load();
         // Só silent automático — interativo/consent fica no botão (evita CancelledByUser)
@@ -284,7 +284,7 @@ export class LoginComponent implements OnInit {
           'Não foi possível autenticar automaticamente. Use Entrar com Microsoft.',
         );
       } finally {
-        this.loading = false;
+        this.loading.set(false);
       }
     } else {
       const ssoErr = this.teamsContext.consumeSsoError();
@@ -293,20 +293,27 @@ export class LoginComponent implements OnInit {
 
     await this.msalConfigService.load();
     this.msalWarning = this.msalConfigService.getLoadError();
-    this.msalBusy = true;
-    await this.authService.handleRedirect();
-    this.msalBusy = false;
+    this.msalBusy.set(true);
+    try {
+      await this.authService.handleRedirect();
+      if (await this.authService.isLoggedIn()) {
+        this.authService.navigateAfterLogin();
+      }
+    } finally {
+      this.msalBusy.set(false);
+    }
   }
 
   login() {
-    this.loading = true;
+    if (this.loading()) return;
+    this.loading.set(true);
     this.authService.loginManual(this.credentials).subscribe({
       next: () => {
-        this.loading = false;
+        this.loading.set(false);
         this.authService.navigateAfterLogin();
       },
       error: (err) => {
-        this.loading = false;
+        this.loading.set(false);
         this.notification.error(
           this.notification.extractErrorMessage(err, 'Falha na autenticação'),
         );
@@ -315,8 +322,8 @@ export class LoginComponent implements OnInit {
   }
 
   async loginMicrosoft() {
-    if (this.loading || this.msalBusy) return;
-    this.loading = true;
+    if (this.loading() || this.msalBusy()) return;
+    this.loading.set(true);
     try {
       await this.msalConfigService.load();
       this.msalWarning = this.msalConfigService.getLoadError();
@@ -326,7 +333,7 @@ export class LoginComponent implements OnInit {
         this.notification.extractErrorMessage(err, 'Não foi possível iniciar o login Microsoft.'),
       );
     } finally {
-      this.loading = false;
+      this.loading.set(false);
     }
   }
 }
