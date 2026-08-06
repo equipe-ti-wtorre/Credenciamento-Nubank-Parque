@@ -75,14 +75,14 @@
             *ngFor="let s of partySuggestions()"
             type="button"
             class="driver-suggestion"
-            [class.is-blocked]="s.is_blacklisted"
+            [class.is-blocked]="s.is_blocklisted"
             role="option"
             (mousedown)="$event.preventDefault()"
             (click)="addToParty(s)"
           >
             <span class="driver-suggestion__name">{{ s.name }}</span>
             <span class="driver-suggestion__meta">{{ s.document }}</span>
-            <span *ngIf="s.is_blacklisted" class="driver-suggestion__warn">Lista negra</span>
+            <span *ngIf="s.is_blocklisted" class="driver-suggestion__warn">Blocklist</span>
           </button>
         </div>
       </div>

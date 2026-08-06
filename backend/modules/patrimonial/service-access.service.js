@@ -820,17 +820,17 @@ async function generateAccessIds(conn, idServiceAccess, {
   if (filterCollaborators) {
     if (approvedCollaboratorIds.length) {
       const placeholders = approvedCollaboratorIds.map(() => '?').join(',');
-      const [blacklisted] = await conn.execute(
+      const [blocklisted] = await conn.execute(
         `SELECT c.name
            FROM service_access_collaborator sac
            INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
-           INNER JOIN collaborator_black_list bl ON bl.id_collaborator = sac.id_collaborator
+           INNER JOIN collaborator_block_list bl ON bl.id_collaborator = sac.id_collaborator
           WHERE sac.id_service_access = ?
             AND sac.id_service_access_collaborator IN (${placeholders})`,
         [idServiceAccess, ...approvedCollaboratorIds],
       );
-      if (blacklisted.length) {
-        const names = blacklisted.map((r) => r.name).join(", ");
+      if (blocklisted.length) {
+        const names = blocklisted.map((r) => r.name).join(", ");
         throw new AppError(
           `Colaborador(es) na lista de restrição não podem ser aprovados: ${names}`,
           403,
@@ -842,7 +842,7 @@ async function generateAccessIds(conn, idServiceAccess, {
           WHERE id_service_access = ? AND access_id IS NULL
             AND id_service_access_collaborator IN (${placeholders})
             AND NOT EXISTS (
-              SELECT 1 FROM collaborator_black_list bl
+              SELECT 1 FROM collaborator_block_list bl
                WHERE bl.id_collaborator = service_access_collaborator.id_collaborator
             )`,
         [idServiceAccess, ...approvedCollaboratorIds],
@@ -859,7 +859,7 @@ async function generateAccessIds(conn, idServiceAccess, {
       `SELECT id_service_access_collaborator FROM service_access_collaborator
        WHERE id_service_access = ? AND access_id IS NULL
          AND NOT EXISTS (
-           SELECT 1 FROM collaborator_black_list bl
+           SELECT 1 FROM collaborator_block_list bl
             WHERE bl.id_collaborator = service_access_collaborator.id_collaborator
          )`,
       [idServiceAccess],
@@ -963,8 +963,8 @@ async function assertCollaboratorForService(serviceRow, collaborator) {
   if (!collaborator.status) {
     throw new AppError("Colaborador está inativo.", 400);
   }
-  const isBlacklisted = await collaboratorService.checkBlacklist(collaborator.id_collaborator);
-  if (isBlacklisted) {
+  const isBlocklisted = await collaboratorService.checkBlocklist(collaborator.id_collaborator);
+  if (isBlocklisted) {
     throw new AppError("Colaborador consta na lista de bloqueio.", 400);
   }
 }
@@ -1173,7 +1173,7 @@ async function assertVehicleForService(serviceRow, vehicle) {
   if (!vehicle.status) {
     throw new AppError(`Veículo ${vehicle.plate} está inativo.`, 400);
   }
-  if (vehicle.blacklist_reason) {
+  if (vehicle.blocklist_reason) {
     throw new AppError(`Veículo ${vehicle.plate} consta na lista de restrição.`, 400);
   }
 }
@@ -1216,18 +1216,18 @@ async function findDocumentTypeByDescription(description) {
 async function findVehicleByPlate(idCompany, plate) {
   const normalized = normalizePlate(plate);
   const [rows] = await db.execute(
-    `SELECT v.*, vbl.reason AS blacklist_reason
+    `SELECT v.*, vbl.reason AS blocklist_reason
      FROM vehicle v
-     LEFT JOIN vehicle_black_list vbl ON vbl.id_vehicle = v.id_vehicle
+     LEFT JOIN vehicle_block_list vbl ON vbl.id_vehicle = v.id_vehicle
      WHERE v.id_company = ? AND v.plate = ? LIMIT 1`,
     [idCompany, normalized],
   );
   if (rows[0]) return rows[0];
 
   const [anyRows] = await db.execute(
-    `SELECT v.*, vbl.reason AS blacklist_reason
+    `SELECT v.*, vbl.reason AS blocklist_reason
      FROM vehicle v
-     LEFT JOIN vehicle_black_list vbl ON vbl.id_vehicle = v.id_vehicle
+     LEFT JOIN vehicle_block_list vbl ON vbl.id_vehicle = v.id_vehicle
      WHERE v.plate = ? LIMIT 1`,
     [normalized],
   );

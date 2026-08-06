@@ -174,16 +174,16 @@ async function addCompanyVehicle(req, idEvent, idCompany, idVehicle, selectedLin
   if (!vehicleId) throw new AppError("Veículo inválido.", 400);
 
   const [vRows] = await db.execute(
-    `SELECT v.*, vbl.reason AS blacklist_reason
+    `SELECT v.*, vbl.reason AS blocklist_reason
        FROM vehicle v
-       LEFT JOIN vehicle_black_list vbl ON vbl.id_vehicle = v.id_vehicle
+       LEFT JOIN vehicle_block_list vbl ON vbl.id_vehicle = v.id_vehicle
       WHERE v.id_vehicle = ? LIMIT 1`,
     [vehicleId],
   );
   const vehicle = vRows[0];
   if (!vehicle) throw new AppError("Veículo não encontrado.", 404);
   if (!vehicle.status) throw new AppError("Veículo inativo.", 400);
-  if (vehicle.blacklist_reason) {
+  if (vehicle.blocklist_reason) {
     throw new AppError("Veículo está na lista de restrição.", 403);
   }
   if (Number(vehicle.id_company) !== Number(idCompany)) {

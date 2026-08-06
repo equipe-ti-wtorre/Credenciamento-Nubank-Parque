@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS vehicle_black_list (
+CREATE TABLE IF NOT EXISTS vehicle_block_list (
   id_vehicle INT NOT NULL PRIMARY KEY,
   reason VARCHAR(500) NOT NULL,
   id_usuario INT NULL,

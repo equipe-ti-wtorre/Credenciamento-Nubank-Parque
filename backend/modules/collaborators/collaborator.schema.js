@@ -90,7 +90,7 @@ const collaboratorSearchSchema = Joi.object({
   id_collaborator_document_type: Joi.number().integer().positive().required(),
 });
 
-const blacklistSchema = Joi.object({
+const blocklistSchema = Joi.object({
   reason: Joi.string().min(10).max(500).required(),
 });
 
@@ -161,7 +161,7 @@ module.exports = {
   collaboratorUpdateSchema,
   collaboratorStatusSchema,
   collaboratorSearchSchema,
-  blacklistSchema,
+  blocklistSchema,
   roleCreateSchema,
   roleUpdateSchema,
   validateAndNormalizeCollaboratorPayload,

@@ -32,7 +32,7 @@ interface VehicleFormState {
   type: string;
   description: string;
   status: boolean;
-  isBlacklisted: boolean;
+  isBlocklisted: boolean;
   id_company: number | null;
 }
 
@@ -132,8 +132,8 @@ interface VehicleFormState {
             </svg>
           </div>
           <div>
-            <p class="stat-card__label">Na blacklist</p>
-            <p class="stat-card__value text-rose-700">{{ stats().blacklist }}</p>
+            <p class="stat-card__label">Na blocklist</p>
+            <p class="stat-card__value text-rose-700">{{ stats().blocklist }}</p>
           </div>
         </div>
       </div>
@@ -218,7 +218,7 @@ interface VehicleFormState {
               <th class="px-4 py-3 text-left">Empresa</th>
               <th class="px-4 py-3 text-left">Descrição</th>
               <th class="px-4 py-3 text-left">Status</th>
-              <th class="px-4 py-3 text-left">Blacklist</th>
+              <th class="px-4 py-3 text-left">Blocklist</th>
               <th class="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
@@ -245,13 +245,13 @@ interface VehicleFormState {
               </td>
               <td class="px-4 py-3">
                 <span
-                  *ngIf="v.is_blacklisted"
+                  *ngIf="v.is_blocklisted"
                   class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800"
-                  [title]="v.blacklist_reason || ''"
+                  [title]="v.blocklist_reason || ''"
                 >
-                  Blacklist
+                  Blocklist
                 </span>
-                <span *ngIf="!v.is_blacklisted" class="text-slate-400 text-xs">—</span>
+                <span *ngIf="!v.is_blocklisted" class="text-slate-400 text-xs">—</span>
               </td>
               <td class="px-4 py-3 text-right">
                 <div class="flex justify-end">
@@ -281,7 +281,7 @@ interface VehicleFormState {
                       <button
                         appActionDropdownItem
                         type="button"
-                        (click)="v.is_blacklisted ? removerBlacklist(v) : incluirBlacklist(v)"
+                        (click)="v.is_blocklisted ? removerBlocklist(v) : incluirBlocklist(v)"
                       >
                         <svg
                           class="action-dropdown__item-icon"
@@ -294,14 +294,14 @@ interface VehicleFormState {
                           aria-hidden="true"
                         >
                           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                          @if (v.is_blacklisted) {
+                          @if (v.is_blocklisted) {
                             <path d="M9 12l2 2 4-4" />
                           } @else {
                             <path d="m9 9 6 6" />
                             <path d="m15 9-6 6" />
                           }
                         </svg>
-                        {{ v.is_blacklisted ? 'Remover da blacklist' : 'Adicionar à blacklist' }}
+                        {{ v.is_blocklisted ? 'Remover da blocklist' : 'Adicionar à blocklist' }}
                       </button>
                       @if (v.can_delete) {
                         <hr class="action-dropdown__divider" />
@@ -508,24 +508,24 @@ interface VehicleFormState {
             </div>
             <div class="flex items-center justify-between gap-4">
               <div>
-                <p class="text-sm font-medium text-slate-800">Blacklist frota</p>
+                <p class="text-sm font-medium text-slate-800">Blocklist frota</p>
                 <p class="text-xs text-slate-500">Bloqueia o veículo em credenciamento e portaria.</p>
-                <p *ngIf="form.isBlacklisted && blacklistReason()" class="text-xs text-rose-600 mt-1">
-                  Motivo: {{ blacklistReason() }}
+                <p *ngIf="form.isBlocklisted && blocklistReason()" class="text-xs text-rose-600 mt-1">
+                  Motivo: {{ blocklistReason() }}
                 </p>
               </div>
               <button
                 type="button"
-                (click)="onBlacklistToggleClick()"
+                (click)="onBlocklistToggleClick()"
                 class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
-                [class.border-rose-200]="form.isBlacklisted"
-                [class.bg-rose-50]="form.isBlacklisted"
-                [class.text-rose-700]="form.isBlacklisted"
-                [class.border-slate-200]="!form.isBlacklisted"
-                [class.bg-white]="!form.isBlacklisted"
-                [class.text-slate-400]="!form.isBlacklisted"
-                [attr.aria-pressed]="form.isBlacklisted"
-                [attr.title]="form.isBlacklisted ? 'Remover da blacklist' : 'Adicionar à blacklist'"
+                [class.border-rose-200]="form.isBlocklisted"
+                [class.bg-rose-50]="form.isBlocklisted"
+                [class.text-rose-700]="form.isBlocklisted"
+                [class.border-slate-200]="!form.isBlocklisted"
+                [class.bg-white]="!form.isBlocklisted"
+                [class.text-slate-400]="!form.isBlocklisted"
+                [attr.aria-pressed]="form.isBlocklisted"
+                [attr.title]="form.isBlocklisted ? 'Remover da blocklist' : 'Adicionar à blocklist'"
               >
                 <svg
                   class="h-5 w-5"
@@ -587,7 +587,7 @@ export class VehicleListComponent implements OnInit {
   showModal = signal(false);
   showBulkModal = signal(false);
   editingId = signal<number | null>(null);
-  blacklistReason = signal<string | null>(null);
+  blocklistReason = signal<string | null>(null);
   isAdmin = false;
   form: VehicleFormState = this.emptyForm();
 
@@ -631,7 +631,7 @@ export class VehicleListComponent implements OnInit {
       total: list.length,
       ativos: list.filter((v) => v.status).length,
       inativos: list.filter((v) => !v.status).length,
-      blacklist: list.filter((v) => v.is_blacklisted).length,
+      blocklist: list.filter((v) => v.is_blocklisted).length,
     };
   });
 
@@ -665,7 +665,7 @@ export class VehicleListComponent implements OnInit {
       type: '',
       description: '',
       status: true,
-      isBlacklisted: false,
+      isBlocklisted: false,
       id_company: null,
     };
   }
@@ -757,7 +757,7 @@ export class VehicleListComponent implements OnInit {
 
   abrirModal() {
     this.editingId.set(null);
-    this.blacklistReason.set(null);
+    this.blocklistReason.set(null);
     this.form = this.emptyForm();
     if (this.isAdmin) {
       this.carregarEmpresas();
@@ -780,7 +780,7 @@ export class VehicleListComponent implements OnInit {
 
   editar(v: VehicleItem) {
     this.editingId.set(v.id_vehicle);
-    this.blacklistReason.set(v.blacklist_reason || null);
+    this.blocklistReason.set(v.blocklist_reason || null);
     this.form = {
       plate: v.plate,
       brand: v.brand || '',
@@ -789,7 +789,7 @@ export class VehicleListComponent implements OnInit {
       type: v.type || '',
       description: v.description || '',
       status: v.status,
-      isBlacklisted: v.is_blacklisted,
+      isBlocklisted: v.is_blocklisted,
       id_company: v.id_company,
     };
     this.showModal.set(true);
@@ -799,12 +799,12 @@ export class VehicleListComponent implements OnInit {
     Swal.close();
     this.showModal.set(false);
     this.editingId.set(null);
-    this.blacklistReason.set(null);
+    this.blocklistReason.set(null);
     this.form = this.emptyForm();
   }
 
-  onBlacklistToggleClick() {
-    this.onBlacklistToggle(!this.form.isBlacklisted);
+  onBlocklistToggleClick() {
+    this.onBlocklistToggle(!this.form.isBlocklisted);
   }
 
   salvar() {
@@ -849,20 +849,20 @@ export class VehicleListComponent implements OnInit {
     });
   }
 
-  onBlacklistToggle(checked: boolean) {
+  onBlocklistToggle(checked: boolean) {
     const id = this.editingId();
     if (!id) return;
 
     if (checked) {
       Swal.fire({
-        title: 'Adicionar à blacklist?',
+        title: 'Adicionar à blocklist?',
         html: `<p class="text-sm text-slate-600 mb-3">A placa <strong class="font-mono">${this.form.plate}</strong> será bloqueada em credenciamento e portaria.</p>`,
         input: 'textarea',
         inputLabel: 'Motivo (mín. 10 caracteres)',
         inputPlaceholder: 'Descreva o motivo da restrição...',
         inputAttributes: { maxlength: '500' },
         showCancelButton: true,
-        confirmButtonText: 'Adicionar à blacklist',
+        confirmButtonText: 'Adicionar à blocklist',
         cancelButtonText: 'Cancelar',
         confirmButtonColor: '#dc2626',
         inputValidator: (value) => {
@@ -873,18 +873,18 @@ export class VehicleListComponent implements OnInit {
         },
       }).then((result) => {
         if (!result.isConfirmed || !result.value) {
-          this.form.isBlacklisted = false;
+          this.form.isBlocklisted = false;
           return;
         }
-        this.vehicleService.addBlacklist(id, result.value.trim()).subscribe({
+        this.vehicleService.addBlocklist(id, result.value.trim()).subscribe({
           next: () => {
-            this.form.isBlacklisted = true;
-            this.blacklistReason.set(result.value.trim());
-            this.notification.success('Veículo adicionado à blacklist.');
+            this.form.isBlocklisted = true;
+            this.blocklistReason.set(result.value.trim());
+            this.notification.success('Veículo adicionado à blocklist.');
             this.carregar();
           },
           error: (err) => {
-            this.notification.notifyHttpError(err, 'Falha ao adicionar à blacklist.');
+            this.notification.notifyHttpError(err, 'Falha ao adicionar à blocklist.');
           },
         });
       });
@@ -892,27 +892,27 @@ export class VehicleListComponent implements OnInit {
     }
 
     Swal.fire({
-      title: 'Remover da blacklist?',
+      title: 'Remover da blocklist?',
       text: `A placa ${this.form.plate} voltará a poder acessar a arena.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: 'Remover da blacklist',
+      confirmButtonText: 'Remover da blocklist',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#059669',
     }).then((result) => {
       if (!result.isConfirmed) {
-        this.form.isBlacklisted = true;
+        this.form.isBlocklisted = true;
         return;
       }
-      this.vehicleService.removeBlacklist(id).subscribe({
+      this.vehicleService.removeBlocklist(id).subscribe({
         next: () => {
-          this.form.isBlacklisted = false;
-          this.blacklistReason.set(null);
-          this.notification.success('Veículo removido da blacklist.');
+          this.form.isBlocklisted = false;
+          this.blocklistReason.set(null);
+          this.notification.success('Veículo removido da blocklist.');
           this.carregar();
         },
         error: (err) => {
-          this.notification.notifyHttpError(err, 'Falha ao remover da blacklist.');
+          this.notification.notifyHttpError(err, 'Falha ao remover da blocklist.');
         },
       });
     });
@@ -946,16 +946,16 @@ export class VehicleListComponent implements OnInit {
     });
   }
 
-  incluirBlacklist(v: VehicleItem) {
+  incluirBlocklist(v: VehicleItem) {
     Swal.fire({
-      title: 'Adicionar à blacklist?',
+      title: 'Adicionar à blocklist?',
       html: `<p class="text-sm text-slate-600 mb-3">A placa <strong class="font-mono">${v.plate}</strong> será bloqueada em credenciamento e portaria.</p>`,
       input: 'textarea',
       inputLabel: 'Motivo (mín. 10 caracteres)',
       inputPlaceholder: 'Descreva o motivo da restrição...',
       inputAttributes: { maxlength: '500' },
       showCancelButton: true,
-      confirmButtonText: 'Adicionar à blacklist',
+      confirmButtonText: 'Adicionar à blocklist',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#dc2626',
       inputValidator: (value) => {
@@ -966,36 +966,36 @@ export class VehicleListComponent implements OnInit {
       },
     }).then((result) => {
       if (!result.isConfirmed || !result.value) return;
-      this.vehicleService.addBlacklist(v.id_vehicle, result.value.trim()).subscribe({
+      this.vehicleService.addBlocklist(v.id_vehicle, result.value.trim()).subscribe({
         next: () => {
-          this.notification.success('Veículo adicionado à blacklist.');
+          this.notification.success('Veículo adicionado à blocklist.');
           this.carregar();
         },
         error: (err) => {
-          this.notification.notifyHttpError(err, 'Falha ao adicionar à blacklist.');
+          this.notification.notifyHttpError(err, 'Falha ao adicionar à blocklist.');
         },
       });
     });
   }
 
-  removerBlacklist(v: VehicleItem) {
+  removerBlocklist(v: VehicleItem) {
     Swal.fire({
-      title: 'Remover da blacklist?',
+      title: 'Remover da blocklist?',
       text: `A placa ${v.plate} voltará a poder acessar a arena.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: 'Remover da blacklist',
+      confirmButtonText: 'Remover da blocklist',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#059669',
     }).then((result) => {
       if (!result.isConfirmed) return;
-      this.vehicleService.removeBlacklist(v.id_vehicle).subscribe({
+      this.vehicleService.removeBlocklist(v.id_vehicle).subscribe({
         next: () => {
-          this.notification.success('Veículo removido da blacklist.');
+          this.notification.success('Veículo removido da blocklist.');
           this.carregar();
         },
         error: (err) => {
-          this.notification.notifyHttpError(err, 'Falha ao remover da blacklist.');
+          this.notification.notifyHttpError(err, 'Falha ao remover da blocklist.');
         },
       });
     });

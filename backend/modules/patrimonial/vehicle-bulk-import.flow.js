@@ -268,7 +268,7 @@ async function previewUnifiedFleetBulk(ctx) {
       continue;
     }
 
-    if (existing.blacklist_reason) {
+    if (existing.blocklist_reason) {
       const row = {
         linha: line,
         cadastro: "erro",
@@ -277,7 +277,7 @@ async function previewUnifiedFleetBulk(ctx) {
         dados,
         motorista: null,
         divergencias: [],
-        erros: ["Veículo está na blacklist frota."],
+        erros: ["Veículo está na blocklist frota."],
       };
       veiculos.push(row);
       sessionVehicles.push({

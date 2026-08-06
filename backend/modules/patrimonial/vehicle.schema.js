@@ -21,8 +21,8 @@ const vehicleUpdateSchema = Joi.object({
   status: Joi.boolean().optional(),
 }).min(1);
 
-const vehicleBlacklistSchema = Joi.object({
+const vehicleBlocklistSchema = Joi.object({
   reason: Joi.string().min(10).max(500).required(),
 });
 
-module.exports = { vehicleCreateSchema, vehicleUpdateSchema, vehicleBlacklistSchema };
+module.exports = { vehicleCreateSchema, vehicleUpdateSchema, vehicleBlocklistSchema };

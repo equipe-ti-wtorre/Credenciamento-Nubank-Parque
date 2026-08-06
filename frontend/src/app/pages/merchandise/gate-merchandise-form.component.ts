@@ -159,8 +159,8 @@ export class GateMerchandiseFormComponent implements OnInit, OnDestroy {
     this.partySuggestions.set([]);
     this.partySearching.set(false);
 
-    if (candidate.is_blacklisted) {
-      this.partyError.set('Colaborador está na lista negra.');
+    if (candidate.is_blocklisted) {
+      this.partyError.set('Colaborador está na blocklist.');
       return;
     }
 

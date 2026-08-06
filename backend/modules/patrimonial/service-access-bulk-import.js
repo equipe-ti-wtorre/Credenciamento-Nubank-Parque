@@ -254,9 +254,9 @@ async function isVehicleLinked(serviceId, vehicleId) {
 async function findVehicleByPlateCompany(idCompany, plate) {
   const normalized = normalizePlate(plate);
   const [rows] = await db.execute(
-    `SELECT v.*, vbl.reason AS blacklist_reason
+    `SELECT v.*, vbl.reason AS blocklist_reason
      FROM vehicle v
-     LEFT JOIN vehicle_black_list vbl ON vbl.id_vehicle = v.id_vehicle
+     LEFT JOIN vehicle_block_list vbl ON vbl.id_vehicle = v.id_vehicle
      WHERE v.id_company = ? AND v.plate = ? LIMIT 1`,
     [idCompany, normalized],
   );

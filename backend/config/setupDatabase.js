@@ -281,14 +281,25 @@ async function migrateCollaborators(connection) {
     logger.info("Migration: tabela collaborator criada");
   }
 
-  const [blacklistTables] = await connection.query(
-    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'collaborator_black_list' LIMIT 1`,
+  const [collaboratorBlocklistTables] = await connection.query(
+    `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('collaborator_block_list', 'collaborator_black_list')`,
     [env.db.name],
   );
-  if (blacklistTables.length === 0) {
+  const hasCollaboratorBlocklist = collaboratorBlocklistTables.some(
+    (r) => r.TABLE_NAME === "collaborator_block_list",
+  );
+  const hasCollaboratorBlacklist = collaboratorBlocklistTables.some(
+    (r) => r.TABLE_NAME === "collaborator_black_list",
+  );
+  if (hasCollaboratorBlacklist && !hasCollaboratorBlocklist) {
+    await connection.query(
+      "RENAME TABLE collaborator_black_list TO collaborator_block_list",
+    );
+    logger.info("Migration: collaborator_black_list renomeada para collaborator_block_list");
+  } else if (!hasCollaboratorBlocklist) {
     await connection.query(`
-      CREATE TABLE collaborator_black_list (
+      CREATE TABLE collaborator_block_list (
         id_collaborator INT NOT NULL PRIMARY KEY,
         reason VARCHAR(500) NOT NULL,
         id_usuario INT NULL,
@@ -297,7 +308,7 @@ async function migrateCollaborators(connection) {
         FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE SET NULL
       )
     `);
-    logger.info("Migration: tabela collaborator_black_list criada");
+    logger.info("Migration: tabela collaborator_block_list criada");
   }
 }
 
@@ -614,14 +625,23 @@ async function migratePhase2(connection) {
     logger.info("Migration: tabela vehicle criada");
   }
 
-  const [vehicleBlacklistTables] = await connection.query(
-    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'vehicle_black_list' LIMIT 1`,
+  const [vehicleBlocklistTables] = await connection.query(
+    `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('vehicle_block_list', 'vehicle_black_list')`,
     [env.db.name],
   );
-  if (vehicleBlacklistTables.length === 0) {
+  const hasVehicleBlocklist = vehicleBlocklistTables.some(
+    (r) => r.TABLE_NAME === "vehicle_block_list",
+  );
+  const hasVehicleBlacklist = vehicleBlocklistTables.some(
+    (r) => r.TABLE_NAME === "vehicle_black_list",
+  );
+  if (hasVehicleBlacklist && !hasVehicleBlocklist) {
+    await connection.query("RENAME TABLE vehicle_black_list TO vehicle_block_list");
+    logger.info("Migration: vehicle_black_list renomeada para vehicle_block_list");
+  } else if (!hasVehicleBlocklist) {
     await connection.query(`
-      CREATE TABLE vehicle_black_list (
+      CREATE TABLE vehicle_block_list (
         id_vehicle INT NOT NULL PRIMARY KEY,
         reason VARCHAR(500) NOT NULL,
         id_usuario INT NULL,
@@ -630,7 +650,7 @@ async function migratePhase2(connection) {
         FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE SET NULL
       )
     `);
-    logger.info("Migration: tabela vehicle_black_list criada");
+    logger.info("Migration: tabela vehicle_block_list criada");
   }
 
   const vehicleFieldColumns = [

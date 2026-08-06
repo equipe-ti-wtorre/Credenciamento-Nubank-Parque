@@ -1744,7 +1744,7 @@ export class EventDetailComponent implements OnInit {
     this.collaboratorService.list(1, 15, { q: term, status: true }).subscribe({
       next: (res) => {
         this.colabSearching.set(false);
-        this.colabResults.set(res.collaborators.filter((c) => !c.is_blacklisted));
+        this.colabResults.set(res.collaborators.filter((c) => !c.is_blocklisted));
         this.cdr.markForCheck();
       },
       error: (err) => {
@@ -1757,8 +1757,8 @@ export class EventDetailComponent implements OnInit {
   }
 
   selecionarColaboradorBusca(item: CollaboratorItem) {
-    if (item.is_blacklisted) {
-      this.notification.error('Colaborador está na blacklist.');
+    if (item.is_blocklisted) {
+      this.notification.error('Colaborador está na blocklist.');
       return;
     }
     this.selectedColab.set(item);
@@ -1864,7 +1864,7 @@ export class EventDetailComponent implements OnInit {
       .subscribe({
         next: (res) => {
           this.veicSearching.set(false);
-          this.veicResults.set(res.vehicles.filter((v) => !v.is_blacklisted));
+          this.veicResults.set(res.vehicles.filter((v) => !v.is_blocklisted));
           this.cdr.markForCheck();
         },
         error: (err) => {
@@ -1881,8 +1881,8 @@ export class EventDetailComponent implements OnInit {
     const companyId = this.drawerCompanyId();
     const linkIds = this.requireSelectedLinkIds();
     if (!ev || companyId == null || !linkIds) return;
-    if (item.is_blacklisted) {
-      this.notification.error('Veículo está na blacklist.');
+    if (item.is_blocklisted) {
+      this.notification.error('Veículo está na blocklist.');
       return;
     }
     this.veicResults.set([]);

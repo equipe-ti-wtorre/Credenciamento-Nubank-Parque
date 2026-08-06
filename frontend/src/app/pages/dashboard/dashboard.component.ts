@@ -408,16 +408,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
     const masters = m.masters || {
       activeCollaborators: 0,
       activeVehicles: 0,
-      blacklistedCollaborators: 0,
-      blacklistedVehicles: 0,
+      blocklistedCollaborators: 0,
+      blocklistedVehicles: 0,
       pendingDocumentChanges: 0,
       companiesByType: [],
     };
     return [
       { label: 'Colaboradores ativos', value: masters.activeCollaborators, color: 'var(--db-blue)' },
       { label: 'Veículos ativos', value: masters.activeVehicles, color: 'var(--db-core)' },
-      { label: 'Blacklist PF', value: masters.blacklistedCollaborators, color: 'var(--db-rose)' },
-      { label: 'Blacklist veículos', value: masters.blacklistedVehicles, color: 'var(--db-rose)' },
+      { label: 'Blocklist PF', value: masters.blocklistedCollaborators, color: 'var(--db-rose)' },
+      { label: 'Blocklist veículos', value: masters.blocklistedVehicles, color: 'var(--db-rose)' },
       { label: 'Docs pendentes', value: masters.pendingDocumentChanges, color: 'var(--db-amber)' },
       { label: 'Eventos ativos', value: m.kpis.activeEvents || 0, color: 'var(--db-green)' },
     ];

@@ -49,8 +49,8 @@ export interface CollaboratorItem {
   phone: string | null;
   picture?: string | null;
   status: boolean;
-  is_blacklisted: boolean;
-  blacklist_reason?: string | null;
+  is_blocklisted: boolean;
+  blocklist_reason?: string | null;
   can_delete?: boolean;
   criado_em: string;
   atualizado_em: string;
@@ -86,7 +86,7 @@ export interface CollaboratorListFilters {
   name?: string;
   document?: string;
   status?: boolean;
-  is_blacklisted?: boolean;
+  is_blocklisted?: boolean;
   id_collaborator_role?: number;
   id_collaborator_document_type?: number;
 }
@@ -198,15 +198,15 @@ export class CollaboratorService {
     );
   }
 
-  addBlacklist(id: number, reason: string): Observable<{ collaborator: CollaboratorItem }> {
+  addBlocklist(id: number, reason: string): Observable<{ collaborator: CollaboratorItem }> {
     return this.api.post<{ collaborator: CollaboratorItem }>(
-      `/collaborators/${id}/blacklist`,
+      `/collaborators/${id}/blocklist`,
       { reason },
     );
   }
 
-  removeBlacklist(id: number): Observable<{ collaborator: CollaboratorItem }> {
-    return this.api.delete<{ collaborator: CollaboratorItem }>(`/collaborators/${id}/blacklist`);
+  removeBlocklist(id: number): Observable<{ collaborator: CollaboratorItem }> {
+    return this.api.delete<{ collaborator: CollaboratorItem }>(`/collaborators/${id}/blocklist`);
   }
 
   delete(id: number): Observable<{ success: boolean; unlinked?: boolean }> {
@@ -269,8 +269,8 @@ export class CollaboratorService {
     if (filters.name?.trim()) params = params.set('name', filters.name.trim());
     if (filters.document?.trim()) params = params.set('document', filters.document.trim());
     if (filters.status !== undefined) params = params.set('status', String(filters.status));
-    if (filters.is_blacklisted !== undefined) {
-      params = params.set('is_blacklisted', String(filters.is_blacklisted));
+    if (filters.is_blocklisted !== undefined) {
+      params = params.set('is_blocklisted', String(filters.is_blocklisted));
     }
     if (filters.id_collaborator_role != null && filters.id_collaborator_role > 0) {
       params = params.set('id_collaborator_role', String(filters.id_collaborator_role));

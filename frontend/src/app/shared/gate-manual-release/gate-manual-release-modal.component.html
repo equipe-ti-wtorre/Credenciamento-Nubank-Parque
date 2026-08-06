@@ -121,7 +121,7 @@
               *ngFor="let r of searchResults()"
               type="button"
               class="gmr-result"
-              [class.gmr-result--blocked]="r.is_blacklisted"
+              [class.gmr-result--blocked]="r.is_blocklisted"
               role="option"
               (click)="selectCandidate(r)"
             >
@@ -130,7 +130,7 @@
                 {{ r.document }}
                 <ng-container *ngIf="r.role?.description"> · {{ r.role?.description }}</ng-container>
               </span>
-              <span *ngIf="r.is_blacklisted" class="gmr-result__warn">Lista de restrição</span>
+              <span *ngIf="r.is_blocklisted" class="gmr-result__warn">Lista de restrição</span>
             </button>
           </div>
         </div>
@@ -221,7 +221,7 @@
         <div
           *ngFor="let c of selected()"
           class="gmr-candidate"
-          [class.gmr-candidate--blocked]="c.is_blacklisted"
+          [class.gmr-candidate--blocked]="c.is_blocklisted"
         >
           <div class="min-w-0">
             <p class="gmr-candidate__name">{{ c.name }}</p>

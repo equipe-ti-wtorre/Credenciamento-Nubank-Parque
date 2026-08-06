@@ -66,7 +66,7 @@ function getUserRole(req) {
   return getProfileCodigo(req.user);
 }
 
-function mapCollaboratorRow(row, { isBlacklisted = false, canDelete = false } = {}) {
+function mapCollaboratorRow(row, { isBlocklisted = false, canDelete = false } = {}) {
   return {
     id_collaborator: row.id_collaborator,
     id_collaborator_document_type: row.id_collaborator_document_type,
@@ -78,7 +78,7 @@ function mapCollaboratorRow(row, { isBlacklisted = false, canDelete = false } = 
     phone: row.phone || null,
     picture: row.picture || null,
     status: !!row.status,
-    is_blacklisted: !!isBlacklisted,
+    is_blocklisted: !!isBlocklisted,
     can_delete: !!canDelete,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
@@ -159,35 +159,35 @@ function parseListFilters(query) {
       10,
     );
   }
-  if (query.is_blacklisted !== undefined && query.is_blacklisted !== "") {
-    filters.is_blacklisted =
-      String(query.is_blacklisted).toLowerCase() === "true" ||
-      query.is_blacklisted === "1";
+  if (query.is_blocklisted !== undefined && query.is_blocklisted !== "") {
+    filters.is_blocklisted =
+      String(query.is_blocklisted).toLowerCase() === "true" ||
+      query.is_blocklisted === "1";
   }
   return filters;
 }
 
-async function checkBlacklist(idCollaborator) {
+async function checkBlocklist(idCollaborator) {
   const [rows] = await db.execute(
-    "SELECT 1 FROM collaborator_black_list WHERE id_collaborator = ? LIMIT 1",
+    "SELECT 1 FROM collaborator_block_list WHERE id_collaborator = ? LIMIT 1",
     [idCollaborator],
   );
   return rows.length > 0;
 }
 
-async function getBlacklistInfo(idCollaborator) {
+async function getBlocklistInfo(idCollaborator) {
   const [rows] = await db.execute(
-    `SELECT reason FROM collaborator_black_list
+    `SELECT reason FROM collaborator_block_list
       WHERE id_collaborator = ? LIMIT 1`,
     [idCollaborator],
   );
   if (!rows.length) {
-    return { is_blacklisted: false, blacklist_reason: null };
+    return { is_blocklisted: false, blocklist_reason: null };
   }
   const reason = rows[0].reason;
   return {
-    is_blacklisted: true,
-    blacklist_reason:
+    is_blocklisted: true,
+    blocklist_reason:
       reason != null && String(reason).trim() ? String(reason).trim() : null,
   };
 }
@@ -390,10 +390,10 @@ function buildListWhere(filters, companyId = null) {
     conditions.push("c.id_collaborator_document_type = ?");
     params.push(filters.id_collaborator_document_type);
   }
-  if (filters.is_blacklisted !== undefined) {
+  if (filters.is_blocklisted !== undefined) {
     const existsSql =
-      "EXISTS (SELECT 1 FROM collaborator_black_list bl WHERE bl.id_collaborator = c.id_collaborator)";
-    conditions.push(filters.is_blacklisted ? existsSql : `NOT ${existsSql}`);
+      "EXISTS (SELECT 1 FROM collaborator_block_list bl WHERE bl.id_collaborator = c.id_collaborator)";
+    conditions.push(filters.is_blocklisted ? existsSql : `NOT ${existsSql}`);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -420,14 +420,14 @@ async function listCollaborators(req, { page, limit, filters }) {
 
   const collaborators = await Promise.all(
     rows.map(async (row) => {
-      const isBlacklisted = await checkBlacklist(row.id_collaborator);
+      const isBlocklisted = await checkBlocklist(row.id_collaborator);
       let canDelete = true;
       if (companyId == null) {
         const usageCount = await countCollaboratorUsage(row.id_collaborator);
         canDelete = usageCount === 0;
       }
       return mapCollaboratorRow(row, {
-        isBlacklisted,
+        isBlocklisted,
         canDelete,
       });
     }),
@@ -451,10 +451,10 @@ async function searchByDocument(req, { document, id_collaborator_document_type }
     throw new AppError("Colaborador não encontrado.", 404);
   }
   await assertCollaboratorInCompanyScope(req, row);
-  const isBlacklisted = await checkBlacklist(row.id_collaborator);
+  const isBlocklisted = await checkBlocklist(row.id_collaborator);
   return {
     found: true,
-    collaborator: toMaskedCollaborator(row, { isBlacklisted }),
+    collaborator: toMaskedCollaborator(row, { isBlocklisted }),
   };
 }
 
@@ -492,16 +492,16 @@ async function searchCollaboratorsByTerm(req, { q, limit = 8 }) {
 
   const ids = rows.map((r) => r.id_collaborator);
   const [blRows] = await db.execute(
-    `SELECT id_collaborator FROM collaborator_black_list
+    `SELECT id_collaborator FROM collaborator_block_list
      WHERE id_collaborator IN (${ids.map(() => "?").join(",")})`,
     ids,
   );
-  const blacklisted = new Set(blRows.map((r) => Number(r.id_collaborator)));
+  const blocklisted = new Set(blRows.map((r) => Number(r.id_collaborator)));
 
   return {
     results: rows.map((row) =>
       toMaskedCollaborator(row, {
-        isBlacklisted: blacklisted.has(Number(row.id_collaborator)),
+        isBlocklisted: blocklisted.has(Number(row.id_collaborator)),
       }),
     ),
   };
@@ -512,14 +512,14 @@ async function getCollaboratorById(req, id) {
   if (!row) throw new AppError("Colaborador não encontrado.", 404);
   await assertCollaboratorInCompanyScope(req, row);
 
-  const isBlacklisted = await checkBlacklist(row.id_collaborator);
+  const isBlocklisted = await checkBlocklist(row.id_collaborator);
 
   if (isAdmin(req) || hasPermission(req.user, "collaborators", "edit")) {
-    return mapCollaboratorRow(row, { isBlacklisted });
+    return mapCollaboratorRow(row, { isBlocklisted });
   }
 
   if (req.user?.requires_company) {
-    return toMaskedCollaborator(row, { isBlacklisted });
+    return toMaskedCollaborator(row, { isBlocklisted });
   }
 
   throw new AppError("Perfil sem permissão para consultar colaboradores.", 403);
@@ -528,8 +528,8 @@ async function getCollaboratorById(req, id) {
 async function getCollaboratorDetailById(id) {
   const row = await findCollaboratorById(id);
   if (!row) throw new AppError("Colaborador não encontrado.", 404);
-  const isBlacklisted = await checkBlacklist(row.id_collaborator);
-  return mapCollaboratorRow(row, { isBlacklisted });
+  const isBlocklisted = await checkBlocklist(row.id_collaborator);
+  return mapCollaboratorRow(row, { isBlocklisted });
 }
 
 function toIsoDateTime(value) {
@@ -545,16 +545,16 @@ async function getCollaboratorAccessDetails(req, id) {
   if (!row) throw new AppError("Colaborador não encontrado.", 404);
   await assertCollaboratorInCompanyScope(req, row);
 
-  const blacklist = await getBlacklistInfo(row.id_collaborator);
+  const blocklist = await getBlocklistInfo(row.id_collaborator);
   let collaborator;
   if (isAdmin(req) || hasPermission(req.user, "collaborators", "edit")) {
-    collaborator = mapCollaboratorRow(row, { isBlacklisted: blacklist.is_blacklisted });
+    collaborator = mapCollaboratorRow(row, { isBlocklisted: blocklist.is_blocklisted });
   } else if (req.user?.requires_company) {
-    collaborator = toMaskedCollaborator(row, { isBlacklisted: blacklist.is_blacklisted });
+    collaborator = toMaskedCollaborator(row, { isBlocklisted: blocklist.is_blocklisted });
   } else {
     throw new AppError("Perfil sem permissão para consultar colaboradores.", 403);
   }
-  collaborator.blacklist_reason = blacklist.blacklist_reason;
+  collaborator.blocklist_reason = blocklist.blocklist_reason;
 
   const companyId = getActorCompanyId(req);
   const companyParams = [row.id_collaborator];
@@ -954,7 +954,7 @@ async function updateCollaboratorStatus(id, status) {
   };
 }
 
-async function revokeAccessesOnBlacklist(conn, collaboratorId, reason) {
+async function revokeAccessesOnBlocklist(conn, collaboratorId, reason) {
   const {
     STATUS_AGUARDANDO_PRODUTORA,
     STATUS_AGUARDANDO_APROVACAO,
@@ -1019,11 +1019,11 @@ async function revokeAccessesOnBlacklist(conn, collaboratorId, reason) {
   );
 }
 
-async function addToBlacklist(id, reason, userId) {
+async function addToBlocklist(id, reason, userId) {
   const existing = await findCollaboratorById(id);
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
 
-  const already = await checkBlacklist(id);
+  const already = await checkBlocklist(id);
   if (already) {
     throw new AppError("Colaborador já está na lista de restrição.", 409);
   }
@@ -1034,13 +1034,13 @@ async function addToBlacklist(id, reason, userId) {
     await conn.beginTransaction();
 
     await conn.execute(
-      `INSERT INTO collaborator_black_list (id_collaborator, reason, id_usuario)
+      `INSERT INTO collaborator_block_list (id_collaborator, reason, id_usuario)
        VALUES (?, ?, ?)`,
       [collaboratorId, reason, userId || null],
     );
 
-    // Blacklist não altera status (Ativo/Inativo); apenas restringe credenciamento/portaria.
-    await revokeAccessesOnBlacklist(conn, collaboratorId, reason);
+    // Blocklist não altera status (Ativo/Inativo); apenas restringe credenciamento/portaria.
+    await revokeAccessesOnBlocklist(conn, collaboratorId, reason);
 
     await conn.commit();
   } catch (err) {
@@ -1053,12 +1053,12 @@ async function addToBlacklist(id, reason, userId) {
   return getCollaboratorDetailById(id);
 }
 
-async function removeFromBlacklist(id) {
+async function removeFromBlocklist(id) {
   const existing = await findCollaboratorById(id);
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
 
   const [result] = await db.execute(
-    "DELETE FROM collaborator_black_list WHERE id_collaborator = ?",
+    "DELETE FROM collaborator_block_list WHERE id_collaborator = ?",
     [id],
   );
 
@@ -1164,11 +1164,11 @@ module.exports = {
   updateCollaborator,
   applyCollaboratorFieldPatch,
   updateCollaboratorStatus,
-  addToBlacklist,
-  removeFromBlacklist,
+  addToBlocklist,
+  removeFromBlocklist,
   countCollaboratorUsage,
   deleteCollaborator,
-  checkBlacklist,
+  checkBlocklist,
   maskDocumentForAudit,
   findCollaboratorById,
 };

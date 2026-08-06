@@ -30,8 +30,8 @@ router.post(
 router.get("/:id", ...canView, vehicleController.getById);
 router.post("/", ...canCreate, vehicleController.create);
 router.put("/:id", ...canEdit, vehicleController.update);
-router.post("/:id/blacklist", ...canEdit, vehicleController.addBlacklist);
-router.delete("/:id/blacklist", ...canEdit, vehicleController.removeBlacklist);
+router.post("/:id/blocklist", ...canEdit, vehicleController.addBlocklist);
+router.delete("/:id/blocklist", ...canEdit, vehicleController.removeBlocklist);
 router.delete("/:id", ...canDelete, vehicleController.deleteVehicle);
 
 module.exports = router;

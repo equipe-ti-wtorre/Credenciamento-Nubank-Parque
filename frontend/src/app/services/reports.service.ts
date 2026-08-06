@@ -52,8 +52,8 @@ export interface DashboardMetrics {
   masters: {
     activeCollaborators: number;
     activeVehicles: number;
-    blacklistedCollaborators: number;
-    blacklistedVehicles: number;
+    blocklistedCollaborators: number;
+    blocklistedVehicles: number;
     pendingDocumentChanges: number;
     companiesByType: { label: string; total: number }[];
   };

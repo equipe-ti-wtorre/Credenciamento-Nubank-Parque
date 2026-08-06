@@ -53,13 +53,14 @@ const migrations = [
   {
     filename: "008_collaborators.sql",
     referenceOnly: true,
-    validate: (conn) =>
-      allTablesExist(conn, [
+    validate: async (conn) =>
+      (await allTablesExist(conn, [
         "collaborator_document_type",
         "collaborator_role",
         "collaborator",
-        "collaborator_black_list",
-      ]),
+      ])) &&
+      ((await tableExists(conn, "collaborator_block_list")) ||
+        (await tableExists(conn, "collaborator_black_list"))),
   },
   {
     filename: "009_events.sql",
@@ -126,7 +127,9 @@ const migrations = [
   },
   {
     filename: "016_vehicle_blacklist.sql",
-    validate: (conn) => tableExists(conn, "vehicle_black_list"),
+    validate: async (conn) =>
+      (await tableExists(conn, "vehicle_block_list")) ||
+      (await tableExists(conn, "vehicle_black_list")),
   },
   {
     filename: "017_service_access_evolution.sql",
@@ -347,6 +350,11 @@ const migrations = [
         "email_provider_config",
         "sendgrid_webhook_verification_key_ciphertext",
       ),
+  },
+  {
+    filename: "050_rename_blacklist_to_blocklist.sql",
+    validate: (conn) =>
+      allTablesExist(conn, ["collaborator_block_list", "vehicle_block_list"]),
   },
 ];
 

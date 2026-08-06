@@ -36,7 +36,7 @@ const GATE_CREDENTIAL_SELECT = `
          e.id_event,
          e.name AS event_name,
          e.ativo AS event_ativo,
-         bl.id_collaborator AS blacklisted_id
+         bl.id_collaborator AS blocklisted_id
   FROM event_day_company_collaborator edcc
   INNER JOIN access_status ast ON ast.id_access_status = edcc.id_access_status
   INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
@@ -50,7 +50,7 @@ const GATE_CREDENTIAL_SELECT = `
   INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
   INNER JOIN event e ON e.id_event = ed.id_event
   INNER JOIN company co ON co.id_company = edc.id_company
-  LEFT JOIN collaborator_black_list bl
+  LEFT JOIN collaborator_block_list bl
     ON bl.id_collaborator = COALESCE(edcc.id_substitute, edcc.id_collaborator)
   WHERE edcc.access_id = ?
   LIMIT 1
@@ -61,7 +61,7 @@ const DENIAL_MESSAGES = {
   CREDENTIAL_NOT_APPROVED: "Credencial não aprovada.",
   EVENT_INACTIVE: "Evento desativado.",
   INVALID_DATE_WINDOW: "Data incorreta para este credenciamento.",
-  BLACK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
+  BLOCK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
   ACCESS_ALREADY_COMPLETED: "Entrada e saída já registradas para esta credencial.",
 };
 
@@ -162,9 +162,9 @@ function validateCredentialRow(row) {
   if (!isWithinEventDayWindow(row.event_day_date)) {
     return buildDenial("INVALID_DATE_WINDOW");
   }
-  if (row.blacklisted_id != null) {
+  if (row.blocklisted_id != null) {
     return {
-      ...buildDenial("BLACK_LIST_BLOCKED"),
+      ...buildDenial("BLOCK_LIST_BLOCKED"),
       critical: true,
       id_collaborator: row.id_substitute || row.id_collaborator,
       credentialId: row.id_event_day_company_collaborator,
@@ -186,8 +186,8 @@ function resolveNextActionLabel(row) {
 
 function mapTodayCredentialRow(row) {
   const effective = resolveEffectiveCollaborator(row);
-  const blacklisted = row.blacklisted_id != null;
-  const nextAction = blacklisted ? "BLOCKED_BLACKLIST" : resolveNextActionLabel(row);
+  const blocklisted = row.blocklisted_id != null;
+  const nextAction = blocklisted ? "BLOCKED_BLOCKLIST" : resolveNextActionLabel(row);
   return {
     id: row.id_event_day_company_collaborator,
     access_id: row.access_id,
@@ -207,9 +207,9 @@ function mapTodayCredentialRow(row) {
     access_check_in: row.access_check_in || null,
     access_check_out: row.access_check_out || null,
     next_action: nextAction,
-    is_blacklisted: blacklisted,
-    block_reason: blacklisted
-      ? row.blacklist_reason || DENIAL_MESSAGES.BLACK_LIST_BLOCKED
+    is_blocklisted: blocklisted,
+    block_reason: blocklisted
+      ? row.blocklist_reason || DENIAL_MESSAGES.BLOCK_LIST_BLOCKED
       : null,
   };
 }
@@ -232,8 +232,8 @@ const GATE_TODAY_LIST_SELECT = `
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
          e.name AS event_name,
-         bl.id_collaborator AS blacklisted_id,
-         bl.reason AS blacklist_reason
+         bl.id_collaborator AS blocklisted_id,
+         bl.reason AS blocklist_reason
   FROM event_day_company_collaborator edcc
   INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
   INNER JOIN collaborator_document_type cdt
@@ -246,7 +246,7 @@ const GATE_TODAY_LIST_SELECT = `
   INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
   INNER JOIN event e ON e.id_event = ed.id_event
   INNER JOIN company co ON co.id_company = edc.id_company
-  LEFT JOIN collaborator_black_list bl
+  LEFT JOIN collaborator_block_list bl
     ON bl.id_collaborator = COALESCE(edcc.id_substitute, edcc.id_collaborator)
   WHERE e.id_access_status = ?
     AND ${EVENT_DAY_WINDOW_SQL.trim()}
@@ -318,8 +318,8 @@ async function substituteEventCollaborator(accessId, idSubstituteCollaborator) {
   if (!substituteRow.status) {
     throw new AppError("Colaborador substituto está inativo.", 400);
   }
-  const isBlacklisted = await collaboratorService.checkBlacklist(idSubstituteCollaborator);
-  if (isBlacklisted) {
+  const isBlocklisted = await collaboratorService.checkBlocklist(idSubstituteCollaborator);
+  if (isBlocklisted) {
     throw new AppError("Colaborador substituto consta na lista de bloqueio.", 400);
   }
 
@@ -372,16 +372,16 @@ const SERVICE_VEHICLE_SELECT = `
          v.description AS vehicle_description,
          sub.plate AS substitute_plate,
          co.fancy_name AS company_fancy_name,
-         bl_main.id_vehicle AS main_blacklisted_id,
-         bl_sub.id_vehicle AS sub_blacklisted_id
+         bl_main.id_vehicle AS main_blocklisted_id,
+         bl_sub.id_vehicle AS sub_blocklisted_id
   FROM service_access_vehicle sav
   INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
   INNER JOIN access_status ast ON ast.id_access_status = sa.id_access_status
   INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
-  LEFT JOIN vehicle_black_list bl_main ON bl_main.id_vehicle = v.id_vehicle
-  LEFT JOIN vehicle_black_list bl_sub ON bl_sub.id_vehicle = sav.id_substitute_vehicle
+  LEFT JOIN vehicle_block_list bl_main ON bl_main.id_vehicle = v.id_vehicle
+  LEFT JOIN vehicle_block_list bl_sub ON bl_sub.id_vehicle = sav.id_substitute_vehicle
   WHERE sav.access_id = ?
   LIMIT 1
 `;
@@ -406,8 +406,8 @@ const SERVICE_COLLABORATOR_SELECT = `
          sub.picture AS substitute_picture,
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
-         bl_main.id_collaborator AS main_blacklisted_id,
-         bl_sub.id_collaborator AS sub_blacklisted_id
+         bl_main.id_collaborator AS main_blocklisted_id,
+         bl_sub.id_collaborator AS sub_blocklisted_id
   FROM service_access_collaborator sac
   INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
   INNER JOIN access_status ast ON ast.id_access_status = sa.id_access_status
@@ -419,8 +419,8 @@ const SERVICE_COLLABORATOR_SELECT = `
   LEFT JOIN collaborator_document_type sub_cdt
     ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
   INNER JOIN company co ON co.id_company = sa.id_company
-  LEFT JOIN collaborator_black_list bl_main ON bl_main.id_collaborator = c.id_collaborator
-  LEFT JOIN collaborator_black_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
+  LEFT JOIN collaborator_block_list bl_main ON bl_main.id_collaborator = c.id_collaborator
+  LEFT JOIN collaborator_block_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
   WHERE sac.access_id = ?
   LIMIT 1
 `;
@@ -433,8 +433,8 @@ const SERVICE_DENIAL_MESSAGES = {
   SERVICE_ACCESS_COMPLETED: "Entrada e saída já registradas.",
   OPEN_STAY_PENDING:
     "Há entrada sem saída registrada. Registre a saída antes de uma nova entrada.",
-  VEHICLE_BLACK_LIST_BLOCKED: "Veículo consta na lista de bloqueio de segurança da arena.",
-  COLLABORATOR_BLACK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
+  VEHICLE_BLOCK_LIST_BLOCKED: "Veículo consta na lista de bloqueio de segurança da arena.",
+  COLLABORATOR_BLOCK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
 };
 
 function buildServiceDenial(errorCode, statusCode = 403) {
@@ -680,15 +680,15 @@ function buildWeekDays(row, weekDates, todayKey, accessedDates, lastCheckIn) {
 function mapTodayServiceVehicleRow(row, todayKey, ctx) {
   const rejected = Number(row.id_access_status) === STATUS_NEGADO;
   const pending = Number(row.id_access_status) === STATUS_AGUARDANDO_APROVACAO;
-  const blacklisted = row.id_substitute_vehicle
-    ? row.sub_blacklisted_id != null
-    : row.main_blacklisted_id != null;
-  const blacklistReason = row.id_substitute_vehicle
-    ? row.sub_blacklist_reason
-    : row.main_blacklist_reason;
+  const blocklisted = row.id_substitute_vehicle
+    ? row.sub_blocklisted_id != null
+    : row.main_blocklisted_id != null;
+  const blocklistReason = row.id_substitute_vehicle
+    ? row.sub_blocklist_reason
+    : row.main_blocklist_reason;
   const effective = resolveEffectiveVehicle(row);
-  const next = blacklisted
-    ? "BLOCKED_BLACKLIST"
+  const next = blocklisted
+    ? "BLOCKED_BLOCKLIST"
     : rejected
       ? "REJECTED"
       : pending
@@ -712,15 +712,15 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
     check_in: checkInDisplay,
     check_out: checkOutDisplay,
     next_action: next,
-    is_blacklisted: blacklisted,
-    block_reason: blacklisted
-      ? blacklistReason || SERVICE_DENIAL_MESSAGES.VEHICLE_BLACK_LIST_BLOCKED
+    is_blocklisted: blocklisted,
+    block_reason: blocklisted
+      ? blocklistReason || SERVICE_DENIAL_MESSAGES.VEHICLE_BLOCK_LIST_BLOCKED
       : null,
     start_date: toDateKey(row.start_date),
     end_date: toDateKey(row.end_date),
     week_days: buildWeekDays(row, ctx.weekDates, todayKey, accessedDates, row.check_in),
     approved_by:
-      pending || rejected || blacklisted
+      pending || rejected || blocklisted
         ? null
         : ctx.approvers.get(Number(row.id_service_access)) || null,
     rejected_by: rejected
@@ -742,15 +742,15 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
 function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
   const rejected = Number(row.id_access_status) === STATUS_NEGADO;
   const pending = Number(row.id_access_status) === STATUS_AGUARDANDO_APROVACAO;
-  const blacklisted = row.id_substitute
-    ? row.sub_blacklisted_id != null
-    : row.main_blacklisted_id != null;
-  const blacklistReason = row.id_substitute
-    ? row.sub_blacklist_reason
-    : row.main_blacklist_reason;
+  const blocklisted = row.id_substitute
+    ? row.sub_blocklisted_id != null
+    : row.main_blocklisted_id != null;
+  const blocklistReason = row.id_substitute
+    ? row.sub_blocklist_reason
+    : row.main_blocklist_reason;
   const effective = resolveEffectiveServiceCollaborator(row);
-  const next = blacklisted
-    ? "BLOCKED_BLACKLIST"
+  const next = blocklisted
+    ? "BLOCKED_BLOCKLIST"
     : rejected
       ? "REJECTED"
       : pending
@@ -785,15 +785,15 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
     check_in: checkInDisplay,
     check_out: checkOutDisplay,
     next_action: next,
-    is_blacklisted: blacklisted,
-    block_reason: blacklisted
-      ? blacklistReason || SERVICE_DENIAL_MESSAGES.COLLABORATOR_BLACK_LIST_BLOCKED
+    is_blocklisted: blocklisted,
+    block_reason: blocklisted
+      ? blocklistReason || SERVICE_DENIAL_MESSAGES.COLLABORATOR_BLOCK_LIST_BLOCKED
       : null,
     start_date: toDateKey(row.start_date),
     end_date: toDateKey(row.end_date),
     week_days: buildWeekDays(row, ctx.weekDates, todayKey, accessedDates, row.access_check_in),
     approved_by:
-      pending || rejected || blacklisted
+      pending || rejected || blocklisted
         ? null
         : ctx.approvers.get(Number(row.id_service_access)) || null,
     rejected_by: rejected
@@ -821,17 +821,17 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
          v.description AS vehicle_description,
          sub.plate AS substitute_plate,
          co.fancy_name AS company_fancy_name,
-         bl_main.id_vehicle AS main_blacklisted_id,
-         bl_main.reason AS main_blacklist_reason,
-         bl_sub.id_vehicle AS sub_blacklisted_id,
-         bl_sub.reason AS sub_blacklist_reason
+         bl_main.id_vehicle AS main_blocklisted_id,
+         bl_main.reason AS main_blocklist_reason,
+         bl_sub.id_vehicle AS sub_blocklisted_id,
+         bl_sub.reason AS sub_blocklist_reason
   FROM service_access_vehicle sav
   INNER JOIN service_access sa ON sa.id_service_access = sav.id_service_access
   INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN vehicle sub ON sub.id_vehicle = sav.id_substitute_vehicle
-  LEFT JOIN vehicle_black_list bl_main ON bl_main.id_vehicle = v.id_vehicle
-  LEFT JOIN vehicle_black_list bl_sub ON bl_sub.id_vehicle = sav.id_substitute_vehicle
+  LEFT JOIN vehicle_block_list bl_main ON bl_main.id_vehicle = v.id_vehicle
+  LEFT JOIN vehicle_block_list bl_sub ON bl_sub.id_vehicle = sav.id_substitute_vehicle
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND (
@@ -884,10 +884,10 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
          sub.picture AS substitute_picture,
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
-         bl_main.id_collaborator AS main_blacklisted_id,
-         bl_main.reason AS main_blacklist_reason,
-         bl_sub.id_collaborator AS sub_blacklisted_id,
-         bl_sub.reason AS sub_blacklist_reason
+         bl_main.id_collaborator AS main_blocklisted_id,
+         bl_main.reason AS main_blocklist_reason,
+         bl_sub.id_collaborator AS sub_blocklisted_id,
+         bl_sub.reason AS sub_blocklist_reason
   FROM service_access_collaborator sac
   INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
   INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
@@ -898,8 +898,8 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
   LEFT JOIN collaborator_document_type sub_cdt
     ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
   INNER JOIN company co ON co.id_company = sa.id_company
-  LEFT JOIN collaborator_black_list bl_main ON bl_main.id_collaborator = c.id_collaborator
-  LEFT JOIN collaborator_black_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
+  LEFT JOIN collaborator_block_list bl_main ON bl_main.id_collaborator = c.id_collaborator
+  LEFT JOIN collaborator_block_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND (
@@ -1157,7 +1157,7 @@ function sortTodayServicesByAccessPriority(list) {
     PENDING_APPROVAL: 1,
     CHECK_OUT: 2,
     COMPLETED: 3,
-    BLOCKED_BLACKLIST: 4,
+    BLOCKED_BLOCKLIST: 4,
     REJECTED: 5,
   };
   return list.sort((a, b) => {
@@ -1249,12 +1249,12 @@ async function validateServiceVehicleAccess(accessId) {
     return buildServiceDenial("INVALID_SERVICE_DATE");
   }
 
-  const blacklisted = row.id_substitute_vehicle
-    ? row.sub_blacklisted_id != null
-    : row.main_blacklisted_id != null;
-  if (blacklisted) {
+  const blocklisted = row.id_substitute_vehicle
+    ? row.sub_blocklisted_id != null
+    : row.main_blocklisted_id != null;
+  if (blocklisted) {
     return {
-      ...buildServiceDenial("VEHICLE_BLACK_LIST_BLOCKED"),
+      ...buildServiceDenial("VEHICLE_BLOCK_LIST_BLOCKED"),
       critical: true,
     };
   }
@@ -1298,12 +1298,12 @@ async function validateServiceCollaboratorAccess(accessId) {
   const denial = validateServiceAccessBase(row);
   if (denial) return denial;
 
-  const blacklisted = row.id_substitute
-    ? row.sub_blacklisted_id != null
-    : row.main_blacklisted_id != null;
-  if (blacklisted) {
+  const blocklisted = row.id_substitute
+    ? row.sub_blocklisted_id != null
+    : row.main_blocklisted_id != null;
+  if (blocklisted) {
     return {
-      ...buildServiceDenial("COLLABORATOR_BLACK_LIST_BLOCKED"),
+      ...buildServiceDenial("COLLABORATOR_BLOCK_LIST_BLOCKED"),
       critical: true,
       id_collaborator: row.id_substitute || row.id_collaborator,
     };
@@ -1387,7 +1387,7 @@ async function substituteServiceVehicle(accessId, idSubstituteVehicle) {
   if (Number(idSubstituteVehicle) === Number(row.id_vehicle)) {
     throw new AppError("Selecione um veículo diferente do titular.", 400);
   }
-  if (await vehicleService.checkVehicleBlacklist(idSubstituteVehicle)) {
+  if (await vehicleService.checkVehicleBlocklist(idSubstituteVehicle)) {
     throw new AppError("Veículo substituto consta na lista de restrição.", 400);
   }
 
@@ -1426,7 +1426,7 @@ async function substituteServiceCollaborator(accessId, idSubstituteCollaborator)
   if (!substituteRow.status) {
     throw new AppError("Colaborador substituto está inativo.", 400);
   }
-  if (await collaboratorService.checkBlacklist(idSubstituteCollaborator)) {
+  if (await collaboratorService.checkBlocklist(idSubstituteCollaborator)) {
     throw new AppError("Colaborador substituto consta na lista de bloqueio.", 400);
   }
   if (Number(idSubstituteCollaborator) === Number(row.id_collaborator)) {
@@ -1530,8 +1530,8 @@ async function resolveManualReleasePeople(data) {
     const existing = await collaboratorService.findCollaboratorById(id);
     if (!existing) throw new AppError(`Colaborador #${id} não encontrado.`, 404);
     if (!existing.status) throw new AppError(`Colaborador ${existing.name} está inativo.`, 400);
-    const isBlacklisted = await collaboratorService.checkBlacklist(id);
-    if (isBlacklisted) {
+    const isBlocklisted = await collaboratorService.checkBlocklist(id);
+    if (isBlocklisted) {
       throw new AppError(
         `Colaborador ${existing.name} consta na lista de restrição. Sem possibilidade de liberar.`,
         422,
@@ -1556,8 +1556,8 @@ async function resolveManualReleasePeople(data) {
     const created = await collaboratorService.insertCollaboratorRecord(validated.value);
     const id = Number(created.id_collaborator);
     if (seen.has(id)) continue;
-    const isBlacklisted = await collaboratorService.checkBlacklist(id);
-    if (isBlacklisted) {
+    const isBlocklisted = await collaboratorService.checkBlocklist(id);
+    if (isBlocklisted) {
       throw new AppError(
         `Colaborador ${created.name} consta na lista de restrição. Sem possibilidade de liberar.`,
         422,

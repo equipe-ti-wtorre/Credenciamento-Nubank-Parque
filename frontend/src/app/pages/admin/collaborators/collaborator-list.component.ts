@@ -35,7 +35,7 @@ interface CollaboratorFormState {
   rg: string;
   phone: string;
   status: boolean;
-  isBlacklisted: boolean;
+  isBlocklisted: boolean;
 }
 
 @Component({
@@ -147,8 +147,8 @@ interface CollaboratorFormState {
             </svg>
           </div>
           <div>
-            <p class="stat-card__label">Na blacklist</p>
-            <p class="stat-card__value text-rose-700">{{ stats().blacklist }}</p>
+            <p class="stat-card__label">Na blocklist</p>
+            <p class="stat-card__value text-rose-700">{{ stats().blocklist }}</p>
           </div>
         </div>
       </div>
@@ -212,7 +212,7 @@ interface CollaboratorFormState {
               <option value="">Todos</option>
               <option value="true">Ativo</option>
               <option value="false">Inativo</option>
-              <option value="blacklist">Blacklist</option>
+              <option value="blocklist">Blocklist</option>
             </select>
           </div>
           <div>
@@ -233,7 +233,7 @@ interface CollaboratorFormState {
               <th class="px-4 py-3 text-left">Tipo</th>
               <th class="px-4 py-3 text-left">Função</th>
               <th class="px-4 py-3 text-left">Status</th>
-              <th class="px-4 py-3 text-left">Blacklist</th>
+              <th class="px-4 py-3 text-left">Blocklist</th>
               <th class="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
@@ -272,12 +272,12 @@ interface CollaboratorFormState {
                 </td>
                 <td class="px-4 py-3">
                   <span
-                    *ngIf="c.is_blacklisted"
+                    *ngIf="c.is_blocklisted"
                     class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800"
                   >
-                    Blacklist
+                    Blocklist
                   </span>
-                  <span *ngIf="!c.is_blacklisted" class="text-slate-400 text-xs">—</span>
+                  <span *ngIf="!c.is_blocklisted" class="text-slate-400 text-xs">—</span>
                 </td>
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end">
@@ -313,7 +313,7 @@ interface CollaboratorFormState {
                         <button
                           appActionDropdownItem
                           type="button"
-                          (click)="c.is_blacklisted ? removerBlacklist(c) : incluirBlacklist(c)"
+                          (click)="c.is_blocklisted ? removerBlocklist(c) : incluirBlocklist(c)"
                         >
                           <svg
                             class="action-dropdown__item-icon"
@@ -326,14 +326,14 @@ interface CollaboratorFormState {
                             aria-hidden="true"
                           >
                             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                            @if (c.is_blacklisted) {
+                            @if (c.is_blocklisted) {
                               <path d="M9 12l2 2 4-4" />
                             } @else {
                               <path d="m9 9 6 6" />
                               <path d="m15 9-6 6" />
                             }
                           </svg>
-                          {{ c.is_blacklisted ? 'Remover da blacklist' : 'Adicionar à blacklist' }}
+                          {{ c.is_blocklisted ? 'Remover da blocklist' : 'Adicionar à blocklist' }}
                         </button>
                         @if (c.can_delete) {
                           <hr class="action-dropdown__divider" />
@@ -529,10 +529,10 @@ interface CollaboratorFormState {
             </div>
           </div>
 
-          <div class="cdet-blacklist" *ngIf="d.collaborator.is_blacklisted">
-            <div class="cdet-blacklist__lbl">Motivo da blacklist</div>
-            <div class="cdet-blacklist__val">
-              {{ d.collaborator.blacklist_reason || 'Motivo não informado.' }}
+          <div class="cdet-blocklist" *ngIf="d.collaborator.is_blocklisted">
+            <div class="cdet-blocklist__lbl">Motivo da blocklist</div>
+            <div class="cdet-blocklist__val">
+              {{ d.collaborator.blocklist_reason || 'Motivo não informado.' }}
             </div>
           </div>
 
@@ -808,7 +808,7 @@ interface CollaboratorFormState {
             </span>
             <span class="collab-status__text">
               <span class="collab-status__title">Colaborador ativo</span>
-              <span class="collab-status__desc">Cadastro ativo no sistema (independente da blacklist).</span>
+              <span class="collab-status__desc">Cadastro ativo no sistema (independente da blocklist).</span>
             </span>
             <button
               type="button"
@@ -831,20 +831,20 @@ interface CollaboratorFormState {
               </svg>
             </span>
             <span class="collab-status__text">
-              <span class="collab-status__title">Blacklist</span>
+              <span class="collab-status__title">Blocklist</span>
               <span class="collab-status__desc">Bloqueia o colaborador em credenciamento e portaria.</span>
-              <span *ngIf="form.isBlacklisted && blacklistReason()" class="collab-status__reason">
-                Motivo: {{ blacklistReason() }}
+              <span *ngIf="form.isBlocklisted && blocklistReason()" class="collab-status__reason">
+                Motivo: {{ blocklistReason() }}
               </span>
             </span>
             <button
               type="button"
               class="collab-switch collab-switch--danger"
-              [class.is-on]="form.isBlacklisted"
+              [class.is-on]="form.isBlocklisted"
               role="switch"
-              [attr.aria-checked]="form.isBlacklisted"
-              [attr.aria-label]="form.isBlacklisted ? 'Remover da blacklist' : 'Adicionar à blacklist'"
-              (click)="onBlacklistToggleClick()"
+              [attr.aria-checked]="form.isBlocklisted"
+              [attr.aria-label]="form.isBlocklisted ? 'Remover da blocklist' : 'Adicionar à blocklist'"
+              (click)="onBlocklistToggleClick()"
             ></button>
           </div>
         </div>
@@ -1032,7 +1032,7 @@ export class CollaboratorListComponent implements OnDestroy {
   pictureValidationOk = signal(false);
   thumbnailUrls = signal<Record<number, string>>({});
   editingId = signal<number | null>(null);
-  blacklistReason = signal<string | null>(null);
+  blocklistReason = signal<string | null>(null);
   inlineEditingRoleId = signal<number | null>(null);
   inlineEditingRoleName = '';
   rolesSaving = signal(false);
@@ -1056,7 +1056,7 @@ export class CollaboratorListComponent implements OnDestroy {
   appliedDocTypeId: number | null = null;
   appliedRoleId: number | null = null;
   appliedStatus: boolean | undefined = undefined;
-  appliedBlacklisted: boolean | undefined = undefined;
+  appliedBlocklisted: boolean | undefined = undefined;
 
   form: CollaboratorFormState = this.emptyForm();
 
@@ -1078,7 +1078,7 @@ export class CollaboratorListComponent implements OnDestroy {
     confirmLabel: 'Importar colaboradores',
   };
 
-  stats = signal({ total: 0, ativos: 0, inativos: 0, blacklist: 0 });
+  stats = signal({ total: 0, ativos: 0, inativos: 0, blocklist: 0 });
   isCompanyScoped = signal(false);
 
   private readonly authService = inject(AuthService);
@@ -1113,7 +1113,7 @@ export class CollaboratorListComponent implements OnDestroy {
       rg: '',
       phone: '',
       status: true,
-      isBlacklisted: false,
+      isBlocklisted: false,
     };
   }
 
@@ -1250,14 +1250,14 @@ export class CollaboratorListComponent implements OnDestroy {
       total: this.collaboratorService.list(1, 1, {}),
       ativos: this.collaboratorService.list(1, 1, { status: true }),
       inativos: this.collaboratorService.list(1, 1, { status: false }),
-      blacklist: this.collaboratorService.list(1, 1, { is_blacklisted: true }),
+      blocklist: this.collaboratorService.list(1, 1, { is_blocklisted: true }),
     }).subscribe({
       next: (res) => {
         this.stats.set({
           total: res.total.pagination.total,
           ativos: res.ativos.pagination.total,
           inativos: res.inativos.pagination.total,
-          blacklist: res.blacklist.pagination.total,
+          blocklist: res.blocklist.pagination.total,
         });
         this.cdr.markForCheck();
       },
@@ -1274,7 +1274,7 @@ export class CollaboratorListComponent implements OnDestroy {
         id_collaborator_document_type: this.appliedDocTypeId ?? undefined,
         id_collaborator_role: this.appliedRoleId ?? undefined,
         status: this.appliedStatus,
-        is_blacklisted: this.appliedBlacklisted,
+        is_blocklisted: this.appliedBlocklisted,
       })
       .subscribe({
         next: (res) => {
@@ -1354,16 +1354,16 @@ export class CollaboratorListComponent implements OnDestroy {
     this.appliedRoleId = this.filterRoleId;
     if (this.filterStatus === 'true') {
       this.appliedStatus = true;
-      this.appliedBlacklisted = undefined;
+      this.appliedBlocklisted = undefined;
     } else if (this.filterStatus === 'false') {
       this.appliedStatus = false;
-      this.appliedBlacklisted = undefined;
-    } else if (this.filterStatus === 'blacklist') {
+      this.appliedBlocklisted = undefined;
+    } else if (this.filterStatus === 'blocklist') {
       this.appliedStatus = undefined;
-      this.appliedBlacklisted = true;
+      this.appliedBlocklisted = true;
     } else {
       this.appliedStatus = undefined;
-      this.appliedBlacklisted = undefined;
+      this.appliedBlocklisted = undefined;
     }
     this.carregar(1);
   }
@@ -1380,7 +1380,7 @@ export class CollaboratorListComponent implements OnDestroy {
     this.appliedDocTypeId = null;
     this.appliedRoleId = null;
     this.appliedStatus = undefined;
-    this.appliedBlacklisted = undefined;
+    this.appliedBlocklisted = undefined;
     this.carregar(1);
   }
 
@@ -1417,7 +1417,7 @@ export class CollaboratorListComponent implements OnDestroy {
 
   novoColaborador() {
     this.editingId.set(null);
-    this.blacklistReason.set(null);
+    this.blocklistReason.set(null);
     this.form = this.emptyForm();
     this.revokePicturePreview();
     this.pendingPictureFile.set(null);
@@ -1579,12 +1579,12 @@ export class CollaboratorListComponent implements OnDestroy {
   }
 
   detailStatusLabel(c: CollaboratorItem): string {
-    if (c.is_blacklisted) return 'Blacklist';
+    if (c.is_blocklisted) return 'Blocklist';
     return c.status ? 'Ativo' : 'Inativo';
   }
 
   detailStatusClass(c: CollaboratorItem): string {
-    if (c.is_blacklisted) return 'cdet-status--blacklist';
+    if (c.is_blocklisted) return 'cdet-status--blocklist';
     return c.status ? 'cdet-status--active' : 'cdet-status--inactive';
   }
 
@@ -1681,9 +1681,9 @@ export class CollaboratorListComponent implements OnDestroy {
           rg: col.rg || '',
           phone: col.phone || '',
           status: col.status,
-          isBlacklisted: col.is_blacklisted,
+          isBlocklisted: col.is_blocklisted,
         };
-        this.blacklistReason.set(null);
+        this.blocklistReason.set(null);
         this.loading.set(false);
         this.revokePicturePreview();
         this.pendingPictureFile.set(null);
@@ -1708,7 +1708,7 @@ export class CollaboratorListComponent implements OnDestroy {
   fecharModal() {
     this.showModal.set(false);
     this.editingId.set(null);
-    this.blacklistReason.set(null);
+    this.blocklistReason.set(null);
     this.pictureDragOver.set(false);
     this.pictureValidating.set(false);
     this.pictureValidationOk.set(false);
@@ -1947,11 +1947,11 @@ export class CollaboratorListComponent implements OnDestroy {
     }
 
     const id = this.editingId();
-    const applyBlacklistOnCreate = !id && this.form.isBlacklisted;
-    const blacklistReasonPending = this.blacklistReason()?.trim() || '';
+    const applyBlocklistOnCreate = !id && this.form.isBlocklisted;
+    const blocklistReasonPending = this.blocklistReason()?.trim() || '';
 
-    if (applyBlacklistOnCreate && blacklistReasonPending.length < 10) {
-      this.notification.error('Informe um motivo de blacklist com pelo menos 10 caracteres.');
+    if (applyBlocklistOnCreate && blocklistReasonPending.length < 10) {
+      this.notification.error('Informe um motivo de blocklist com pelo menos 10 caracteres.');
       return;
     }
 
@@ -1987,17 +1987,17 @@ export class CollaboratorListComponent implements OnDestroy {
         };
 
         const afterPicture = () => {
-          if (!applyBlacklistOnCreate) {
+          if (!applyBlocklistOnCreate) {
             finish();
             return;
           }
-          this.collaboratorService.addBlacklist(savedId, blacklistReasonPending).subscribe({
+          this.collaboratorService.addBlocklist(savedId, blocklistReasonPending).subscribe({
             next: () => finish(),
             error: (err) => {
               this.saving.set(false);
               this.notification.error(
                 this.extractError(err) ||
-                  'Colaborador criado, mas falhou ao aplicar a blacklist.',
+                  'Colaborador criado, mas falhou ao aplicar a blocklist.',
               );
               this.fecharModal();
               this.carregar(1);
@@ -2042,23 +2042,23 @@ export class CollaboratorListComponent implements OnDestroy {
     });
   }
 
-  onBlacklistToggleClick() {
-    this.onBlacklistToggle(!this.form.isBlacklisted);
+  onBlocklistToggleClick() {
+    this.onBlocklistToggle(!this.form.isBlocklisted);
   }
 
-  onBlacklistToggle(checked: boolean) {
+  onBlocklistToggle(checked: boolean) {
     const id = this.editingId();
 
     if (checked) {
       Swal.fire({
-        title: 'Adicionar à blacklist?',
+        title: 'Adicionar à blocklist?',
         html: `<p class="text-sm text-slate-600 mb-3">O colaborador <strong>${this.form.name || 'novo'}</strong> será bloqueado em credenciamento e portaria.</p>`,
         input: 'textarea',
         inputLabel: 'Motivo (mín. 10 caracteres)',
         inputPlaceholder: 'Descreva o motivo da restrição...',
         inputAttributes: { maxlength: '500' },
         showCancelButton: true,
-        confirmButtonText: 'Adicionar à blacklist',
+        confirmButtonText: 'Adicionar à blocklist',
         cancelButtonText: 'Cancelar',
         confirmButtonColor: '#dc2626',
         inputValidator: (value) => {
@@ -2069,79 +2069,79 @@ export class CollaboratorListComponent implements OnDestroy {
         },
       }).then((result) => {
         if (!result.isConfirmed || !result.value) {
-          this.form.isBlacklisted = false;
+          this.form.isBlocklisted = false;
           return;
         }
         const reason = result.value.trim();
 
-        // No cadastro, a blacklist só é persistida após salvar.
+        // No cadastro, a blocklist só é persistida após salvar.
         if (!id) {
-          this.form.isBlacklisted = true;
-          this.blacklistReason.set(reason);
+          this.form.isBlocklisted = true;
+          this.blocklistReason.set(reason);
           return;
         }
 
-        this.collaboratorService.addBlacklist(id, reason).subscribe({
+        this.collaboratorService.addBlocklist(id, reason).subscribe({
           next: () => {
-            this.form.isBlacklisted = true;
-            this.blacklistReason.set(reason);
-            this.notification.success('Colaborador adicionado à blacklist.');
+            this.form.isBlocklisted = true;
+            this.blocklistReason.set(reason);
+            this.notification.success('Colaborador adicionado à blocklist.');
             this.carregar();
           },
           error: (err) => {
-            this.form.isBlacklisted = false;
-            this.notification.error(this.extractError(err) || 'Falha ao adicionar à blacklist.');
+            this.form.isBlocklisted = false;
+            this.notification.error(this.extractError(err) || 'Falha ao adicionar à blocklist.');
           },
         });
       });
       return;
     }
 
-    // Remover blacklist ainda não persistida (novo cadastro).
+    // Remover blocklist ainda não persistida (novo cadastro).
     if (!id) {
-      this.form.isBlacklisted = false;
-      this.blacklistReason.set(null);
+      this.form.isBlocklisted = false;
+      this.blocklistReason.set(null);
       return;
     }
 
     Swal.fire({
-      title: 'Remover da blacklist?',
+      title: 'Remover da blocklist?',
       text: `"${this.form.name}" voltará a poder ser credenciado.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: 'Remover da blacklist',
+      confirmButtonText: 'Remover da blocklist',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#059669',
     }).then((result) => {
       if (!result.isConfirmed) {
-        this.form.isBlacklisted = true;
+        this.form.isBlocklisted = true;
         return;
       }
-      this.collaboratorService.removeBlacklist(id).subscribe({
+      this.collaboratorService.removeBlocklist(id).subscribe({
         next: () => {
-          this.form.isBlacklisted = false;
-          this.blacklistReason.set(null);
-          this.notification.success('Colaborador removido da blacklist.');
+          this.form.isBlocklisted = false;
+          this.blocklistReason.set(null);
+          this.notification.success('Colaborador removido da blocklist.');
           this.carregar();
         },
         error: (err) => {
-          this.form.isBlacklisted = true;
-          this.notification.error(this.extractError(err) || 'Falha ao remover da blacklist.');
+          this.form.isBlocklisted = true;
+          this.notification.error(this.extractError(err) || 'Falha ao remover da blocklist.');
         },
       });
     });
   }
 
-  incluirBlacklist(c: CollaboratorItem) {
+  incluirBlocklist(c: CollaboratorItem) {
     Swal.fire({
-      title: 'Adicionar à blacklist?',
+      title: 'Adicionar à blocklist?',
       html: `<p class="text-sm text-slate-600 mb-3">O colaborador <strong>${c.name}</strong> será bloqueado em credenciamento e portaria.</p>`,
       input: 'textarea',
       inputLabel: 'Motivo (mín. 10 caracteres)',
       inputPlaceholder: 'Descreva o motivo da restrição...',
       inputAttributes: { maxlength: '500' },
       showCancelButton: true,
-      confirmButtonText: 'Adicionar à blacklist',
+      confirmButtonText: 'Adicionar à blocklist',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#dc2626',
       inputValidator: (value) => {
@@ -2152,36 +2152,36 @@ export class CollaboratorListComponent implements OnDestroy {
       },
     }).then((result) => {
       if (!result.isConfirmed || !result.value) return;
-      this.collaboratorService.addBlacklist(c.id_collaborator, result.value.trim()).subscribe({
+      this.collaboratorService.addBlocklist(c.id_collaborator, result.value.trim()).subscribe({
         next: () => {
-          this.notification.success('Colaborador adicionado à blacklist.');
+          this.notification.success('Colaborador adicionado à blocklist.');
           this.carregar();
         },
         error: (err) => {
-          this.notification.error(this.extractError(err) || 'Falha ao adicionar à blacklist.');
+          this.notification.error(this.extractError(err) || 'Falha ao adicionar à blocklist.');
         },
       });
     });
   }
 
-  removerBlacklist(c: CollaboratorItem) {
+  removerBlocklist(c: CollaboratorItem) {
     Swal.fire({
-      title: 'Remover da blacklist?',
+      title: 'Remover da blocklist?',
       text: `"${c.name}" voltará a poder ser credenciado.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: 'Remover da blacklist',
+      confirmButtonText: 'Remover da blocklist',
       cancelButtonText: 'Cancelar',
       confirmButtonColor: '#059669',
     }).then((result) => {
       if (!result.isConfirmed) return;
-      this.collaboratorService.removeBlacklist(c.id_collaborator).subscribe({
+      this.collaboratorService.removeBlocklist(c.id_collaborator).subscribe({
         next: () => {
-          this.notification.success('Colaborador removido da blacklist.');
+          this.notification.success('Colaborador removido da blocklist.');
           this.carregar();
         },
         error: (err) => {
-          this.notification.error(this.extractError(err) || 'Falha ao remover da blacklist.');
+          this.notification.error(this.extractError(err) || 'Falha ao remover da blocklist.');
         },
       });
     });

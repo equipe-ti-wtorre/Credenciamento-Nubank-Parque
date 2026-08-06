@@ -414,11 +414,11 @@ async function previewUnifiedBulkImport(ctx) {
       continue;
     }
 
-    const [blacklist] = await db.execute(
-      `SELECT 1 FROM collaborator_black_list WHERE id_collaborator = ? LIMIT 1`,
+    const [blocklist] = await db.execute(
+      `SELECT 1 FROM collaborator_block_list WHERE id_collaborator = ? LIMIT 1`,
       [existing.id_collaborator],
     );
-    if (blacklist.length) {
+    if (blocklist.length) {
       const row = {
         linha: line,
         cadastro: "erro",
@@ -624,7 +624,7 @@ async function previewUnifiedBulkImport(ctx) {
       });
       continue;
     }
-    if (existing?.blacklist_reason) {
+    if (existing?.blocklist_reason) {
       veiculos.push({
         linha: line,
         cadastro: "erro",
@@ -633,7 +633,7 @@ async function previewUnifiedBulkImport(ctx) {
         dados: buildVehiclePreviewDados(incoming),
         motorista: driverInfo,
         divergencias: [],
-        erros: [`Veículo na lista de restrição: ${existing.blacklist_reason}`],
+        erros: [`Veículo na lista de restrição: ${existing.blocklist_reason}`],
       });
       sessionVehicles.push({
         linha: line,
@@ -643,7 +643,7 @@ async function previewUnifiedBulkImport(ctx) {
         driverDocument: incoming.motorista_documento || null,
         validated: null,
         linkRecord: null,
-        erros: [`Veículo na lista de restrição: ${existing.blacklist_reason}`],
+        erros: [`Veículo na lista de restrição: ${existing.blocklist_reason}`],
       });
       continue;
     }

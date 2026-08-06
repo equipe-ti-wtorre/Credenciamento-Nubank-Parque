@@ -1,4 +1,4 @@
--- Módulo de colaboradores: tipos de documento, funções, pessoas e blacklist
+-- Módulo de colaboradores: tipos de documento, funções, pessoas e blocklist
 
 CREATE TABLE IF NOT EXISTS collaborator_document_type (
   id_collaborator_document_type INT AUTO_INCREMENT PRIMARY KEY,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS collaborator (
   FOREIGN KEY (id_collaborator_role) REFERENCES collaborator_role(id_collaborator_role) ON DELETE RESTRICT
 );
 
-CREATE TABLE IF NOT EXISTS collaborator_black_list (
+CREATE TABLE IF NOT EXISTS collaborator_block_list (
   id_collaborator INT NOT NULL PRIMARY KEY,
   reason VARCHAR(500) NOT NULL,
   id_usuario INT NULL,

@@ -492,8 +492,8 @@ async function listCredentials(req, { page, limit, filters }) {
 async function createCredential(req, data) {
   assertCanCreate(req);
 
-  const isBlacklisted = await collaboratorService.checkBlacklist(data.id_collaborator);
-  if (isBlacklisted) {
+  const isBlocklisted = await collaboratorService.checkBlocklist(data.id_collaborator);
+  if (isBlocklisted) {
     throw new AppError("Colaborador está na lista de restrição e não pode ser credenciado.", 403);
   }
 
@@ -600,18 +600,18 @@ async function assertFinalApprovalAllowed(req, row, targetStatus) {
   }
 
   if (targetStatus === STATUS_APROVADO) {
-    const isBlacklisted = await collaboratorService.checkBlacklist(row.id_collaborator);
-    if (isBlacklisted) {
+    const isBlocklisted = await collaboratorService.checkBlocklist(row.id_collaborator);
+    if (isBlocklisted) {
       throw new AppError(
         "Colaborador está na lista de restrição e não pode ser aprovado.",
         403,
       );
     }
     if (row.id_substitute) {
-      const substituteBlacklisted = await collaboratorService.checkBlacklist(
+      const substituteBlocklisted = await collaboratorService.checkBlocklist(
         row.id_substitute,
       );
-      if (substituteBlacklisted) {
+      if (substituteBlocklisted) {
         throw new AppError(
           "Substituto está na lista de restrição e a credencial não pode ser aprovada.",
           403,

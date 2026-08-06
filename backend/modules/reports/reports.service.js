@@ -364,12 +364,12 @@ async function getDashboardMetrics(req) {
           WHERE c.status = 1 ${colabScope.sql}) AS active_collaborators,
          (SELECT COUNT(*) FROM vehicle v
           WHERE v.status = 1 ${vehScope.sql}) AS active_vehicles,
-         (SELECT COUNT(*) FROM collaborator_black_list bl
+         (SELECT COUNT(*) FROM collaborator_block_list bl
           INNER JOIN collaborator c ON c.id_collaborator = bl.id_collaborator
-          WHERE 1=1 ${colabScope.sql}) AS blacklisted_collaborators,
-         (SELECT COUNT(*) FROM vehicle_black_list vbl
+          WHERE 1=1 ${colabScope.sql}) AS blocklisted_collaborators,
+         (SELECT COUNT(*) FROM vehicle_block_list vbl
           INNER JOIN vehicle v ON v.id_vehicle = vbl.id_vehicle
-          WHERE 1=1 ${vehScope.sql}) AS blacklisted_vehicles,
+          WHERE 1=1 ${vehScope.sql}) AS blocklisted_vehicles,
          (SELECT COUNT(*) FROM document_change_request dcr
           INNER JOIN collaborator c ON c.id_collaborator = dcr.id_collaborator
           WHERE dcr.status = 'PENDING' ${colabScope.sql}) AS pending_document_changes`,
@@ -492,8 +492,8 @@ async function getDashboardMetrics(req) {
     masters: {
       activeCollaborators: Number(mastersRow?.active_collaborators || 0),
       activeVehicles: Number(mastersRow?.active_vehicles || 0),
-      blacklistedCollaborators: Number(mastersRow?.blacklisted_collaborators || 0),
-      blacklistedVehicles: Number(mastersRow?.blacklisted_vehicles || 0),
+      blocklistedCollaborators: Number(mastersRow?.blocklisted_collaborators || 0),
+      blocklistedVehicles: Number(mastersRow?.blocklisted_vehicles || 0),
       pendingDocumentChanges: Number(mastersRow?.pending_document_changes || 0),
       companiesByType,
     },

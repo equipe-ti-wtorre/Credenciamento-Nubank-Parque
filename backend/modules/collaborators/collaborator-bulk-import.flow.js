@@ -41,10 +41,10 @@ function emptyVeiculosAxis() {
   };
 }
 
-async function checkBlacklisted(collaboratorId) {
+async function checkBlocklisted(collaboratorId) {
   const db = require("../../config/db");
   const [rows] = await db.execute(
-    "SELECT 1 FROM collaborator_black_list WHERE id_collaborator = ? LIMIT 1",
+    "SELECT 1 FROM collaborator_block_list WHERE id_collaborator = ? LIMIT 1",
     [collaboratorId],
   );
   return rows.length > 0;
@@ -334,7 +334,7 @@ async function previewUnifiedCollaboratorsBulk(ctx) {
       continue;
     }
 
-    if (await checkBlacklisted(existing.id_collaborator)) {
+    if (await checkBlocklisted(existing.id_collaborator)) {
       const row = {
         linha: line,
         cadastro: "erro",

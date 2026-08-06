@@ -374,15 +374,15 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                             <button
                               type="button"
                               class="wcrt-dropdown__btn"
-                              [disabled]="c.is_blacklisted"
-                              [class.is-disabled]="c.is_blacklisted"
+                              [disabled]="c.is_blocklisted"
+                              [class.is-disabled]="c.is_blocklisted"
                               (click)="addCollaborator(c)"
                             >
                               <span class="wcrt-dropdown__name">{{ c.name }}</span>
                               <span class="wcrt-dropdown__meta">
                                 {{ c.document }}
-                                @if (c.is_blacklisted) {
-                                  <span class="text-rose-600"> · blacklist</span>
+                                @if (c.is_blocklisted) {
+                                  <span class="text-rose-600"> · blocklist</span>
                                 }
                               </span>
                             </button>
@@ -2309,8 +2309,8 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   }
 
   addCollaborator(item: CollaboratorItem) {
-    if (item.is_blacklisted) {
-      this.notification.error('Colaborador está na blacklist.');
+    if (item.is_blocklisted) {
+      this.notification.error('Colaborador está na blocklist.');
       return;
     }
     if (this.draftCollaborators().some((c) => c.id_collaborator === item.id_collaborator)) {
@@ -2628,7 +2628,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
             const doc = norm(c.document) || String(c.document || '').toLowerCase();
             return doc === target || String(c.document) === q;
           });
-          if (found && !found.is_blacklisted) {
+          if (found && !found.is_blocklisted) {
             bindFound(row, found);
             finishOne();
             return;
@@ -2668,7 +2668,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
                           norm2(c.document) || String(c.document || '').toLowerCase();
                         return doc === target2 || String(c.document) === q;
                       });
-                      if (found2 && !found2.is_blacklisted) bindFound(row, found2);
+                      if (found2 && !found2.is_blocklisted) bindFound(row, found2);
                       finishOne();
                     },
                     error: () => finishOne(),
@@ -2779,7 +2779,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
           const doc = norm(c.document) || String(c.document || '').toLowerCase();
           return doc === target || String(c.document) === q;
         });
-        if (!found || found.is_blacklisted) return;
+        if (!found || found.is_blocklisted) return;
         const masterRoleId = found.id_collaborator_role || null;
         const masterDesc =
           found.role?.description ||
@@ -2831,8 +2831,8 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   }
 
   addVehicle(item: VehicleItem) {
-    if (item.is_blacklisted) {
-      this.notification.error('Veículo está na blacklist.');
+    if (item.is_blocklisted) {
+      this.notification.error('Veículo está na blocklist.');
       return;
     }
     if (this.draftVehicles().some((v) => v.id_vehicle === item.id_vehicle)) {
@@ -3015,7 +3015,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
     this.vehicleService.list(1, 15, { q: term, status: true }).subscribe({
       next: (res) => {
         this.veicSearching.set(false);
-        this.veicResults.set(res.vehicles.filter((v) => !v.is_blacklisted));
+        this.veicResults.set(res.vehicles.filter((v) => !v.is_blocklisted));
       },
       error: (err) => {
         this.veicSearching.set(false);

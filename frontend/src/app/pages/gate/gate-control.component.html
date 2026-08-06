@@ -253,7 +253,7 @@
         class="row events-row"
         [class.state-in]="row.next_action === 'CHECK_OUT'"
         [class.state-done]="row.next_action === 'COMPLETED'"
-        [class.state-blocked]="row.next_action === 'BLOCKED_BLACKLIST'"
+        [class.state-blocked]="row.next_action === 'BLOCKED_BLOCKLIST'"
       >
         <div class="c-type">
           <span class="type colaborador" title="Colaborador" aria-label="Colaborador">
@@ -291,7 +291,7 @@
         <div class="c-finalidade finalidade">{{ row.event_name }}</div>
         <div class="c-entrada">
           <ng-container [ngSwitch]="row.next_action">
-            <span *ngSwitchCase="'BLOCKED_BLACKLIST'" class="status-pill blocked" [title]="row.block_reason || ''"
+            <span *ngSwitchCase="'BLOCKED_BLOCKLIST'" class="status-pill blocked" [title]="row.block_reason || ''"
               ><span class="d"></span>Bloqueado</span
             >
             <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
@@ -311,7 +311,7 @@
           </ng-container>
         </div>
         <div class="actions">
-          <ng-container *ngIf="row.next_action === 'BLOCKED_BLACKLIST'; else eventActions">
+          <ng-container *ngIf="row.next_action === 'BLOCKED_BLOCKLIST'; else eventActions">
             <span
               class="btn-act finished blocked-label"
               [title]="row.block_reason || 'Colaborador na lista de bloqueio'"
@@ -403,7 +403,7 @@
         [class.state-done]="row.next_action === 'COMPLETED'"
         [class.state-pending]="row.next_action === 'PENDING_APPROVAL'"
         [class.state-rejected]="row.next_action === 'REJECTED'"
-        [class.state-blocked]="row.next_action === 'BLOCKED_BLACKLIST'"
+        [class.state-blocked]="row.next_action === 'BLOCKED_BLOCKLIST'"
       >
         <div class="c-type">
           <span
@@ -541,7 +541,7 @@
             <span *ngSwitchCase="'REJECTED'" class="status-pill rejected"
               ><span class="d"></span>Reprovado</span
             >
-            <span *ngSwitchCase="'BLOCKED_BLACKLIST'" class="status-pill blocked" [title]="row.block_reason || ''"
+            <span *ngSwitchCase="'BLOCKED_BLOCKLIST'" class="status-pill blocked" [title]="row.block_reason || ''"
               ><span class="d"></span>Bloqueado</span
             >
             <span *ngSwitchCase="'BLOCKED_OPEN_STAY'" class="status-pill wait"
@@ -590,7 +590,7 @@
               Bloqueado
             </span>
           </ng-container>
-          <ng-container *ngIf="row.next_action === 'BLOCKED_BLACKLIST'">
+          <ng-container *ngIf="row.next_action === 'BLOCKED_BLOCKLIST'">
             <span
               class="btn-act finished blocked-label"
               [title]="row.block_reason || 'Consta na lista de bloqueio'"
@@ -603,7 +603,7 @@
               row.next_action !== 'PENDING_APPROVAL' &&
               row.next_action !== 'REJECTED' &&
               row.next_action !== 'BLOCKED_OPEN_STAY' &&
-              row.next_action !== 'BLOCKED_BLACKLIST'
+              row.next_action !== 'BLOCKED_BLOCKLIST'
             "
           >
             <button
@@ -971,7 +971,7 @@
     >
       <p class="font-semibold">{{ substituteCandidate()!.name }}</p>
       <p class="text-slate-500">{{ substituteCandidate()!.document }}</p>
-      <p *ngIf="substituteCandidate()!.is_blacklisted" class="text-red-600 text-xs mt-1 font-bold">
+      <p *ngIf="substituteCandidate()!.is_blocklisted" class="text-red-600 text-xs mt-1 font-bold">
         Colaborador na lista de bloqueio
       </p>
     </div>
@@ -982,7 +982,7 @@
         type="button"
         class="btn-action-primary"
         (click)="confirmSubstitute()"
-        [disabled]="!substituteCandidate() || substituteCandidate()!.is_blacklisted || substituteSubmitting()"
+        [disabled]="!substituteCandidate() || substituteCandidate()!.is_blocklisted || substituteSubmitting()"
       >
         Confirmar substituição
       </button>

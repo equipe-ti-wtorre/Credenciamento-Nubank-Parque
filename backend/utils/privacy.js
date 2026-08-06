@@ -59,7 +59,7 @@ function mapRole(row) {
   };
 }
 
-function toMaskedCollaborator(row, { isBlacklisted = false } = {}) {
+function toMaskedCollaborator(row, { isBlocklisted = false } = {}) {
   const typeDesc = row.document_type_description ?? row.document_type?.description ?? "";
   return {
     id_collaborator: row.id_collaborator,
@@ -67,7 +67,7 @@ function toMaskedCollaborator(row, { isBlacklisted = false } = {}) {
     document: maskDocument(row.document, typeDesc),
     phone: maskPhone(row.phone),
     status: !!row.status,
-    is_blacklisted: !!isBlacklisted,
+    is_blocklisted: !!isBlocklisted,
     document_type: mapDocumentType(row),
     role: mapRole(row),
     criado_em: row.criado_em,

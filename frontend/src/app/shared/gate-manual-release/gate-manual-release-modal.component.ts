@@ -185,7 +185,7 @@ export class GateManualReleaseModalComponent implements OnChanges {
       this.notify.error('Selecione ao menos um colaborador.');
       return;
     }
-    if (this.selected().some((c) => c.is_blacklisted)) {
+    if (this.selected().some((c) => c.is_blocklisted)) {
       this.notify.error('Remova colaboradores da lista de restrição antes de continuar.');
       return;
     }
@@ -230,7 +230,7 @@ export class GateManualReleaseModalComponent implements OnChanges {
   }
 
   selectCandidate(found: GateManualReleaseCollaborator): void {
-    if (found.is_blacklisted) {
+    if (found.is_blocklisted) {
       this.notify.error('Colaborador na lista de restrição. Sem possibilidade de liberar.');
       return;
     }

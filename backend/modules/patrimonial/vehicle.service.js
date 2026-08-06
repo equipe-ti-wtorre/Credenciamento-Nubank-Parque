@@ -5,10 +5,10 @@ const { hasPermission } = require("../../utils/permissions");
 
 const VEHICLE_SELECT = `
   SELECT v.*, c.fancy_name AS company_fancy_name, c.company_name,
-         vbl.reason AS blacklist_reason
+         vbl.reason AS blocklist_reason
   FROM vehicle v
   INNER JOIN company c ON c.id_company = v.id_company
-  LEFT JOIN vehicle_black_list vbl ON vbl.id_vehicle = v.id_vehicle
+  LEFT JOIN vehicle_block_list vbl ON vbl.id_vehicle = v.id_vehicle
 `;
 
 const { buildCompanyScope, applyScopeToWhere } = require("../companies/company.service");
@@ -49,8 +49,8 @@ function mapVehicleRow(row, { canDelete = false } = {}) {
     type: row.type || null,
     description: row.description || null,
     status: !!row.status,
-    is_blacklisted: !!row.blacklist_reason,
-    blacklist_reason: row.blacklist_reason || null,
+    is_blocklisted: !!row.blocklist_reason,
+    blocklist_reason: row.blocklist_reason || null,
     can_delete: !!canDelete,
     company_fancy_name: row.company_fancy_name || row.company_name,
     criado_em: row.criado_em,
@@ -58,9 +58,9 @@ function mapVehicleRow(row, { canDelete = false } = {}) {
   };
 }
 
-async function checkVehicleBlacklist(idVehicle) {
+async function checkVehicleBlocklist(idVehicle) {
   const [rows] = await db.execute(
-    "SELECT 1 FROM vehicle_black_list WHERE id_vehicle = ? LIMIT 1",
+    "SELECT 1 FROM vehicle_block_list WHERE id_vehicle = ? LIMIT 1",
     [idVehicle],
   );
   return rows.length > 0;
@@ -228,33 +228,33 @@ async function findVehicleById(id) {
   return rows[0] || null;
 }
 
-async function addToBlacklist(req, id, reason) {
+async function addToBlocklist(req, id, reason) {
   assertCanManageVehicles(req);
   const [rows] = await db.execute(`${VEHICLE_SELECT} WHERE v.id_vehicle = ? LIMIT 1`, [id]);
   if (!rows[0]) throw new AppError("Veículo não encontrado.", 404);
   await assertVehicleInScope(req, rows[0]);
 
-  if (rows[0].blacklist_reason) {
-    throw new AppError("Veículo já está na blacklist frota.", 409);
+  if (rows[0].blocklist_reason) {
+    throw new AppError("Veículo já está na blocklist frota.", 409);
   }
 
   await db.execute(
-    `INSERT INTO vehicle_black_list (id_vehicle, reason, id_usuario) VALUES (?, ?, ?)`,
+    `INSERT INTO vehicle_block_list (id_vehicle, reason, id_usuario) VALUES (?, ?, ?)`,
     [id, reason, req.user?.id || null],
   );
 
   return getVehicleById(req, id);
 }
 
-async function removeFromBlacklist(req, id) {
+async function removeFromBlocklist(req, id) {
   assertCanManageVehicles(req);
   const [rows] = await db.execute(`${VEHICLE_SELECT} WHERE v.id_vehicle = ? LIMIT 1`, [id]);
   if (!rows[0]) throw new AppError("Veículo não encontrado.", 404);
   await assertVehicleInScope(req, rows[0]);
 
-  const [result] = await db.execute("DELETE FROM vehicle_black_list WHERE id_vehicle = ?", [id]);
+  const [result] = await db.execute("DELETE FROM vehicle_block_list WHERE id_vehicle = ?", [id]);
   if (result.affectedRows === 0) {
-    throw new AppError("Veículo não está na blacklist frota.", 404);
+    throw new AppError("Veículo não está na blocklist frota.", 404);
   }
 
   return getVehicleById(req, id);
@@ -373,9 +373,9 @@ module.exports = {
   findVehicleById,
   findVehicleByCompanyPlate,
   mapVehicleRow,
-  checkVehicleBlacklist,
-  addToBlacklist,
-  removeFromBlacklist,
+  checkVehicleBlocklist,
+  addToBlocklist,
+  removeFromBlocklist,
   countVehicleUsage,
   deleteVehicle,
   getFleetBulkTemplate,

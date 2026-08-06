@@ -339,7 +339,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const q = this.manualSearch().trim().toLowerCase();
     const status = this.statusFilter();
     const rank: Record<string, number> = {
-      BLOCKED_BLACKLIST: 0,
+      BLOCKED_BLOCKLIST: 0,
       CHECK_IN: 1,
       CHECK_OUT: 2,
       COMPLETED: 3,
@@ -390,7 +390,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       PENDING_APPROVAL: 1,
       CHECK_OUT: 2,
       COMPLETED: 3,
-      BLOCKED_BLACKLIST: 4,
+      BLOCKED_BLOCKLIST: 4,
       REJECTED: 5,
     };
     const entryTs = (row: GateTodayService): number => {
@@ -1055,9 +1055,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     if (
       this.processing() ||
       row.next_action === 'COMPLETED' ||
-      row.next_action === 'BLOCKED_BLACKLIST'
+      row.next_action === 'BLOCKED_BLOCKLIST'
     ) {
-      if (row.next_action === 'BLOCKED_BLACKLIST') {
+      if (row.next_action === 'BLOCKED_BLOCKLIST') {
         this.notify.warning(
           row.block_reason || 'Colaborador consta na lista de bloqueio.',
         );
@@ -1082,7 +1082,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       row.next_action === 'COMPLETED' ||
       row.next_action === 'PENDING_APPROVAL' ||
       row.next_action === 'BLOCKED_OPEN_STAY' ||
-      row.next_action === 'BLOCKED_BLACKLIST'
+      row.next_action === 'BLOCKED_BLOCKLIST'
     ) {
       if (row.next_action === 'BLOCKED_OPEN_STAY') {
         this.notify.warning(
@@ -1090,7 +1090,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
             'Há entrada sem saída registrada. Registre a saída antes de uma nova entrada.',
         );
       }
-      if (row.next_action === 'BLOCKED_BLACKLIST') {
+      if (row.next_action === 'BLOCKED_BLOCKLIST') {
         this.notify.warning(
           row.block_reason || 'Consta na lista de bloqueio.',
         );
@@ -1419,7 +1419,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   confirmSubstitute(): void {
     const target = this.substituteTarget();
     const candidate = this.substituteCandidate();
-    if (!target || !candidate || candidate.is_blacklisted) return;
+    if (!target || !candidate || candidate.is_blocklisted) return;
 
     this.substituteSubmitting.set(true);
     this.gateService

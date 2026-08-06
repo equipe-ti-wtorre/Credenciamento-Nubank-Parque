@@ -89,8 +89,8 @@ router.post(
 );
 router.put("/:id", ...canEdit, collaboratorController.update);
 router.patch("/:id/status", ...canEdit, collaboratorController.patchStatus);
-router.post("/:id/blacklist", ...canEdit, collaboratorController.addBlacklist);
-router.delete("/:id/blacklist", ...canEdit, collaboratorController.removeBlacklist);
+router.post("/:id/blocklist", ...canEdit, collaboratorController.addBlocklist);
+router.delete("/:id/blocklist", ...canEdit, collaboratorController.removeBlocklist);
 router.delete("/:id", ...canDelete, collaboratorController.deleteCollaborator);
 
 module.exports = router;

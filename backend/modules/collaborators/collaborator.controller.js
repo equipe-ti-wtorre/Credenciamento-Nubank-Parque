@@ -5,7 +5,7 @@ const {
   validateAndNormalizeCollaboratorPayload,
   validateSearchQuery,
   collaboratorStatusSchema,
-  blacklistSchema,
+  blocklistSchema,
   roleCreateSchema,
   roleUpdateSchema,
 } = require("./collaborator.schema");
@@ -385,12 +385,12 @@ exports.patchStatus = async (req, res, next) => {
   }
 };
 
-exports.addBlacklist = async (req, res, next) => {
+exports.addBlocklist = async (req, res, next) => {
   try {
-    const { error, value } = blacklistSchema.validate(req.body);
+    const { error, value } = blocklistSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const collaborator = await collaboratorService.addToBlacklist(
+    const collaborator = await collaboratorService.addToBlocklist(
       req.params.id,
       value.reason,
       req.user?.id,
@@ -399,7 +399,7 @@ exports.addBlacklist = async (req, res, next) => {
     attachAudit(req, {
       action: "CREATE",
       module: "collaborators",
-      event: "collaborator.blacklist.add",
+      event: "collaborator.blocklist.add",
       resource: {
         type: "collaborator",
         id: collaborator.id_collaborator,
@@ -415,14 +415,14 @@ exports.addBlacklist = async (req, res, next) => {
   }
 };
 
-exports.removeBlacklist = async (req, res, next) => {
+exports.removeBlocklist = async (req, res, next) => {
   try {
-    const collaborator = await collaboratorService.removeFromBlacklist(req.params.id);
+    const collaborator = await collaboratorService.removeFromBlocklist(req.params.id);
 
     attachAudit(req, {
       action: "DELETE",
       module: "collaborators",
-      event: "collaborator.blacklist.remove",
+      event: "collaborator.blocklist.remove",
       resource: {
         type: "collaborator",
         id: collaborator.id_collaborator,

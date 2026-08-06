@@ -23,7 +23,7 @@ Componentes: `frontend/src/app/shared/actions/`
 ## Ordem na linha
 
 1. Ação mais frequente (**Editar**) como botão direto (`variant="neutral"`)
-2. Demais no kebab (ativar/desativar, blacklist, etc.)
+2. Demais no kebab (ativar/desativar, blocklist, etc.)
 3. **Excluir** por último, `[danger]="true"`, após `<hr class="action-dropdown__divider" />`
 4. Remoção isolada = `app-action-btn` delete + `danger`
 
@@ -50,7 +50,7 @@ Componentes: `frontend/src/app/shared/actions/`
 |------|--------|
 | Ativar / Desativar | power: `M18.36 6.64a9 9 0 1 1-12.73 0` + `M12 2v10` |
 | Excluir | trash: `M3 6h18` + corpo + `M10 11v6` + `M14 11v6` |
-| Blacklist | shield + X ou check |
+| Blocklist | shield + X ou check |
 | Reenviar e-mail | envelope + `m22 6-10 7L2 6` |
 
 - Ativar/Desativar = **neutro** (sem `[danger]`)

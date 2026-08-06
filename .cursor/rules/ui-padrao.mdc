@@ -194,7 +194,7 @@ Componentes em [`frontend/src/app/shared/actions/`](../frontend/src/app/shared/a
 
 **Padrão em linha de tabela:**
 1. Ação mais frequente (**Editar**) como botão direto (`variant="neutral"`)
-2. Demais ações no kebab (ativar/desativar, blacklist, etc.)
+2. Demais ações no kebab (ativar/desativar, blocklist, etc.)
 3. **Excluir** sempre por último, vermelho (`[danger]="true"`), após `<hr class="action-dropdown__divider" />`
 4. Remoção isolada (sem kebab) = `app-action-btn` com `icon="delete"` e `variant="danger"`
 
@@ -223,7 +223,7 @@ Todo `button[appActionDropdownItem]` **deve** ter um SVG à esquerda do rótulo,
 |------|--------|
 | Ativar / Desativar / Habilitar / Desabilitar | `<path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><path d="M12 2v10" />` (power) |
 | Excluir / Desvincular | trash: `M3 6h18` + corpo da lixeira + `M10 11v6` + `M14 11v6` (ver referência) |
-| Blacklist | shield `M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z` + X (adicionar) ou check (remover) |
+| Blocklist | shield `M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z` + X (adicionar) ou check (remover) |
 | Reenviar convite / e-mail | envelope: `M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z` + `m22 6-10 7L2 6` |
 
 **Cor / danger:**

@@ -44,7 +44,7 @@ export type GateNextAction =
   | 'PENDING_APPROVAL'
   | 'REJECTED'
   | 'BLOCKED_OPEN_STAY'
-  | 'BLOCKED_BLACKLIST';
+  | 'BLOCKED_BLOCKLIST';
 
 export interface GateTodayCredential {
   id: number;
@@ -55,7 +55,7 @@ export interface GateTodayCredential {
   access_check_in: string | null;
   access_check_out: string | null;
   next_action: GateNextAction;
-  is_blacklisted?: boolean;
+  is_blocklisted?: boolean;
   block_reason?: string | null;
 }
 
@@ -205,7 +205,7 @@ export interface GateManualReleaseCollaborator {
   document: string;
   id_collaborator_document_type?: number;
   id_collaborator_role?: number;
-  is_blacklisted: boolean;
+  is_blocklisted: boolean;
   status?: boolean;
   document_type?: { id_collaborator_document_type: number; description: string } | null;
   role?: { id_collaborator_role: number; description: string } | null;
@@ -276,7 +276,7 @@ export interface GateTodayService {
   check_in: string | null;
   check_out: string | null;
   next_action: GateNextAction;
-  is_blacklisted?: boolean;
+  is_blocklisted?: boolean;
   block_reason?: string | null;
   start_date: string | null;
   end_date: string | null;

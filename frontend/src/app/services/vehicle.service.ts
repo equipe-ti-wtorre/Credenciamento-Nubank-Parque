@@ -13,9 +13,9 @@ export interface VehicleItem {
   type: string | null;
   description: string | null;
   status: boolean;
-  is_blacklisted: boolean;
+  is_blocklisted: boolean;
   can_delete?: boolean;
-  blacklist_reason?: string | null;
+  blocklist_reason?: string | null;
   company_fancy_name?: string;
 }
 
@@ -76,12 +76,12 @@ export class VehicleService {
     return this.api.put<{ vehicle: VehicleItem }>(`/vehicles/${id}`, data);
   }
 
-  addBlacklist(id: number, reason: string): Observable<{ vehicle: VehicleItem }> {
-    return this.api.post<{ vehicle: VehicleItem }>(`/vehicles/${id}/blacklist`, { reason });
+  addBlocklist(id: number, reason: string): Observable<{ vehicle: VehicleItem }> {
+    return this.api.post<{ vehicle: VehicleItem }>(`/vehicles/${id}/blocklist`, { reason });
   }
 
-  removeBlacklist(id: number): Observable<{ vehicle: VehicleItem }> {
-    return this.api.delete<{ vehicle: VehicleItem }>(`/vehicles/${id}/blacklist`);
+  removeBlocklist(id: number): Observable<{ vehicle: VehicleItem }> {
+    return this.api.delete<{ vehicle: VehicleItem }>(`/vehicles/${id}/blocklist`);
   }
 
   delete(id: number): Observable<{ success: boolean }> {

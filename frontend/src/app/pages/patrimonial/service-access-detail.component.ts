@@ -590,14 +590,14 @@ type ModalMode = 'search' | 'create';
                       <button
                         type="button"
                         class="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
-                        [disabled]="c.is_blacklisted"
-                        [class.opacity-50]="c.is_blacklisted"
+                        [disabled]="c.is_blocklisted"
+                        [class.opacity-50]="c.is_blocklisted"
                         (click)="selecionarHeaderColab(c)"
                       >
                         <p class="text-sm font-medium text-slate-800">{{ c.name }}</p>
                         <p class="text-xs text-slate-500 font-mono">
                           {{ c.document }}
-                          <span *ngIf="c.is_blacklisted" class="text-rose-600"> · blacklist</span>
+                          <span *ngIf="c.is_blocklisted" class="text-rose-600"> · blocklist</span>
                         </p>
                       </button>
                     </li>
@@ -913,7 +913,7 @@ type ModalMode = 'search' | 'create';
                 <div class="text-sm min-w-0">
                   <p class="font-medium text-slate-800">{{ found.name }}</p>
                   <p class="text-slate-500 font-mono text-xs">{{ found.document }}</p>
-                  <p *ngIf="found.is_blacklisted" class="text-xs text-rose-600 mt-1">Na blacklist</p>
+                  <p *ngIf="found.is_blocklisted" class="text-xs text-rose-600 mt-1">Na blocklist</p>
                 </div>
                 <button type="button" class="btn-secondary text-xs py-1 px-2 shrink-0" (click)="limparColabCandidate()">
                   Trocar
@@ -945,14 +945,14 @@ type ModalMode = 'search' | 'create';
                   <button
                     type="button"
                     class="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
-                    [class.opacity-50]="c.is_blacklisted"
-                    [disabled]="c.is_blacklisted"
+                    [class.opacity-50]="c.is_blocklisted"
+                    [disabled]="c.is_blocklisted"
                     (click)="selecionarColaborador(c)"
                   >
                     <p class="text-sm font-medium text-slate-800">{{ c.name }}</p>
                     <p class="text-xs text-slate-500 font-mono">
                       {{ c.document }}
-                      <span *ngIf="c.is_blacklisted" class="text-rose-600"> · blacklist</span>
+                      <span *ngIf="c.is_blocklisted" class="text-rose-600"> · blocklist</span>
                     </p>
                   </button>
                 </li>
@@ -1621,8 +1621,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   }
 
   selecionarHeaderColab(item: CollaboratorItem) {
-    if (item.is_blacklisted) {
-      this.notification.error('Colaborador está na blacklist.');
+    if (item.is_blocklisted) {
+      this.notification.error('Colaborador está na blocklist.');
       return;
     }
     const roleId = item.id_collaborator_role || this.colabRoleId;
@@ -1669,7 +1669,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     this.vehicleService.list(1, 15, { q: term, status: true }).subscribe({
       next: (res) => {
         this.veicHeaderSearching.set(false);
-        this.veicHeaderResults.set(res.vehicles.filter((v) => !v.is_blacklisted));
+        this.veicHeaderResults.set(res.vehicles.filter((v) => !v.is_blocklisted));
       },
       error: (err) => {
         this.veicHeaderSearching.set(false);
@@ -1680,8 +1680,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   }
 
   selecionarHeaderVeic(item: VehicleItem) {
-    if (item.is_blacklisted) {
-      this.notification.error('Veículo está na blacklist.');
+    if (item.is_blocklisted) {
+      this.notification.error('Veículo está na blocklist.');
       return;
     }
     this.veicHeaderResults.set([]);
@@ -2259,8 +2259,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   }
 
   selecionarColaborador(item: CollaboratorItem) {
-    if (item.is_blacklisted) {
-      this.notification.error('Colaborador está na blacklist.');
+    if (item.is_blocklisted) {
+      this.notification.error('Colaborador está na blocklist.');
       return;
     }
     this.colabCandidate.set(item);
@@ -2287,8 +2287,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       this.notification.error('Busque um colaborador e selecione a função.');
       return;
     }
-    if (candidate.is_blacklisted) {
-      this.notification.error('Colaborador está na blacklist.');
+    if (candidate.is_blocklisted) {
+      this.notification.error('Colaborador está na blocklist.');
       return;
     }
     this.addCollaboratorToDraft(candidate, this.colabRoleId);
@@ -2378,7 +2378,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     this.vehicleService.list(1, 15, { q: term, status: true }).subscribe({
       next: (res) => {
         this.veicSearching.set(false);
-        this.veicSearchResults.set(res.vehicles.filter((v) => !v.is_blacklisted));
+        this.veicSearchResults.set(res.vehicles.filter((v) => !v.is_blocklisted));
       },
       error: (err) => {
         this.veicSearching.set(false);
@@ -2389,8 +2389,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   }
 
   selecionarVeiculo(item: VehicleItem) {
-    if (item.is_blacklisted) {
-      this.notification.error('Veículo está na blacklist.');
+    if (item.is_blocklisted) {
+      this.notification.error('Veículo está na blocklist.');
       return;
     }
     this.veicCandidate.set(item);

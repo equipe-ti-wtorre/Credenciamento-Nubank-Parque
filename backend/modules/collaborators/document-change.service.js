@@ -15,7 +15,7 @@ async function hasCollaboratorHistory(idCollaborator) {
   );
   if (cred.length > 0) return true;
   const [bl] = await db.execute(
-    `SELECT 1 FROM collaborator_black_list WHERE id_collaborator = ? LIMIT 1`,
+    `SELECT 1 FROM collaborator_block_list WHERE id_collaborator = ? LIMIT 1`,
     [idCollaborator],
   );
   return bl.length > 0;

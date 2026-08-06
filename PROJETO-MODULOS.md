@@ -377,8 +377,8 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | POST | `/:id/document-change` | `create` | JWT |
 | PUT | `/:id` | `update` | ADMIN |
 | PATCH | `/:id/status` | `patchStatus` | ADMIN |
-| POST | `/:id/blacklist` | `addBlacklist` | ADMIN |
-| DELETE | `/:id/blacklist` | `removeBlacklist` | ADMIN |
+| POST | `/:id/blocklist` | `addBlocklist` | ADMIN |
+| DELETE | `/:id/blocklist` | `removeBlocklist` | ADMIN |
 
 **Service** (`collaborator.service.js`):
 
@@ -395,9 +395,9 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | `updateCollaboratorPicture()` | Atualiza foto |
 | `clearCollaboratorPicture()` | Remove foto |
 | `updateCollaboratorStatus()` | Ativa/desativa |
-| `addToBlacklist()` | Inclui na blacklist |
-| `removeFromBlacklist()` | Remove da blacklist |
-| `checkBlacklist()` | Verifica blacklist |
+| `addToBlocklist()` | Inclui na blocklist |
+| `removeFromBlocklist()` | Remove da blocklist |
+| `checkBlocklist()` | Verifica blocklist |
 | `maskDocumentForAudit()` | Mascara documento para auditoria |
 
 **Document Change** (`document-change.service.js`):
@@ -501,8 +501,8 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | GET | `/:id` | `getById` | ADMIN, PRODUTORA, PADRAO |
 | POST | `/` | `create` | ADMIN, PRODUTORA, PADRAO |
 | PUT | `/:id` | `update` | ADMIN, PRODUTORA, PADRAO |
-| POST | `/:id/blacklist` | `addBlacklist` | ADMIN |
-| DELETE | `/:id/blacklist` | `removeBlacklist` | ADMIN |
+| POST | `/:id/blocklist` | `addBlocklist` | ADMIN |
+| DELETE | `/:id/blocklist` | `removeBlocklist` | ADMIN |
 
 **Service** (`vehicle.service.js`):
 
@@ -512,9 +512,9 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | `getVehicleById()` | Detalhe |
 | `createVehicle()` | Cadastra veículo |
 | `updateVehicle()` | Atualiza veículo |
-| `addToBlacklist()` | Inclui na blacklist |
-| `removeFromBlacklist()` | Remove da blacklist |
-| `checkVehicleBlacklist()` | Verifica blacklist |
+| `addToBlocklist()` | Inclui na blocklist |
+| `removeFromBlocklist()` | Remove da blocklist |
+| `checkVehicleBlocklist()` | Verifica blocklist |
 | `findVehicleById()` | Busca por ID |
 | `mapVehicleRow()` | Mapeia linha |
 
@@ -768,10 +768,10 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | `GateControlComponent` | Validação e substituição na portaria |
 | `UserListComponent` | CRUD usuários, sync AD |
 | `CompanyListComponent` | `carregarTipos()`, `aplicarFiltros()`, `salvar()`, `alterarStatus()` |
-| `CollaboratorListComponent` | `carregarDominios()`, `bulkUpload()`, `incluirBlacklist()` |
+| `CollaboratorListComponent` | `carregarDominios()`, `bulkUpload()`, `incluirBlocklist()` |
 | `EventListComponent` | `novoEvento()`, `configurar()`, `salvar()` |
 | `EventDetailComponent` | `vincularEmpresa()`, `aprovarProdutora()`, `negarCredencial()` |
-| `VehicleListComponent` | CRUD frota e blacklist |
+| `VehicleListComponent` | CRUD frota e blocklist |
 | `ServiceRequestListComponent` | Lista acessos de serviço |
 | `ServiceAccessDetailComponent` | Detalhe, colaboradores, veículos |
 | `DocumentApprovalsComponent` | `aprovar()`, `rejeitar()` |
@@ -849,12 +849,12 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | **SystemReportsService** | `listAudit()`, `listErrors()`, `exportAudit()`, `exportErrors()` |
 | **UserService** | `list()`, `getById()`, `update()`, `syncDepartments()`, `syncAdUsers()`, `syncUserAd()` |
 | **CompanyService** | `listTypes()`, `list()`, `get()`, `create()`, `update()`, `patchStatus()` + `formatCnpj()`, `normalizeCnpjInput()` |
-| **CollaboratorService** | `listDocumentTypes()`, `listRoles()`, `list()`, `get()`, `searchByDocument()`, `create()`, `update()`, `patchStatus()`, `addBlacklist()`, `removeBlacklist()`, `bulkUpload()`, `uploadPicture()`, `getPictureBlob()` + `formatCpf()`, `normalizeCpfInput()`, `isCpfDocumentType()` |
+| **CollaboratorService** | `listDocumentTypes()`, `listRoles()`, `list()`, `get()`, `searchByDocument()`, `create()`, `update()`, `patchStatus()`, `addBlocklist()`, `removeBlocklist()`, `bulkUpload()`, `uploadPicture()`, `getPictureBlob()` + `formatCpf()`, `normalizeCpfInput()`, `isCpfDocumentType()` |
 | **DocumentChangeService** | `create()`, `listPending()`, `patchStatus()` |
 | **EventService** | `listTypes()`, `list()`, `get()`, `create()`, `addCompanyToDay()`, `removeCompanyFromDay()` + `formatDateBr()` |
 | **CredentialService** | `list()`, `get()`, `create()`, `updateStatus()` + `statusBadgeClass()` |
 | **GateService** | `validateEvent()`, `substituteEvent()`, `listToday()`, `listTodayServices()`, `validateService()`, `substituteService()` |
-| **VehicleService** | `list()`, `create()`, `update()`, `addBlacklist()`, `removeBlacklist()` |
+| **VehicleService** | `list()`, `create()`, `update()`, `addBlocklist()`, `removeBlocklist()` |
 | **PatrimonialService** | `list()`, `getById()`, `create()`, `update()`, `patchStatus()`, `patchEnabled()`, `addCollaborator()`, `removeCollaborator()`, `bulkCollaborators()`, `addVehicle()`, `removeVehicle()`, `bulkVehicles()` |
 | **ReportsService** | `getDashboard()`, `getDenials()` |
 | **MaterialsService** | `listLocations()`, `createLocation()`, `updateLocation()`, `inactivateLocation()`, `activateLocation()`, `listProducts()`, `createProduct()`, `updateProduct()`, `inactivateProduct()`, `activateProduct()`, `listCompaniesSelect()`, `listVehiclesSelect()`, `listLocationsSelect()`, `listProductsSelect()`, `registerIn()`, `registerOut()`, `getStock()`, `getHistory()`, `getDashboard()` |
@@ -897,7 +897,7 @@ Arquivos em `backend/migrations/`:
 | `014_merchandise.sql` | Mercadorias |
 | `015b_vehicle_fields.sql` | Campos adicionais de veículo |
 | `016_user_session_idle.sql` | Timeout de sessão |
-| `016_vehicle_blacklist.sql` | Blacklist de veículos |
+| `016_vehicle_blacklist.sql` | Blocklist de veículos |
 | `017_service_access_evolution.sql` | Evolução acessos de serviço |
 
 > O `setupDatabase.js` também executa migrações programáticas na inicialização da API.

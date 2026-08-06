@@ -280,23 +280,23 @@ function resolveCollaboratorsPolicy(method, path) {
     };
   }
 
-  const blacklistMatch = path.match(/\/collaborators\/(\d+)\/blacklist\/?$/);
-  if (method === "POST" && blacklistMatch) {
+  const blocklistMatch = path.match(/\/collaborators\/(\d+)\/blocklist\/?$/);
+  if (method === "POST" && blocklistMatch) {
     return {
       module: AUDIT_MODULES.COLLABORATORS,
       action: AUDIT_ACTIONS.CREATE,
-      event: "collaborators.blacklist.add",
-      resourceId: Number(blacklistMatch[1]),
+      event: "collaborators.blocklist.add",
+      resourceId: Number(blocklistMatch[1]),
       resourceType: "collaborator",
     };
   }
 
-  if (method === "DELETE" && blacklistMatch) {
+  if (method === "DELETE" && blocklistMatch) {
     return {
       module: AUDIT_MODULES.COLLABORATORS,
       action: AUDIT_ACTIONS.DEACTIVATE,
-      event: "collaborators.blacklist.remove",
-      resourceId: Number(blacklistMatch[1]),
+      event: "collaborators.blocklist.remove",
+      resourceId: Number(blocklistMatch[1]),
       resourceType: "collaborator",
     };
   }
