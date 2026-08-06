@@ -46,18 +46,30 @@ import { eachIsoInRange } from './novo-evento-modal/ui/calendar.util';
 type CredStatusSummary = 'aprovado' | 'aguardando' | 'rascunho';
 type DrawerSeg = 'lote' | 'ind';
 
+interface CompanyDayLink {
+  id_event_day_company: number;
+  date: string;
+  phase: string;
+}
+
 interface AggregatedCompany {
   id_company: number;
   company_name: string;
   company_type_description: string;
   phases: string[];
   linkIds: number[];
+  links: CompanyDayLink[];
   producerIds: number[];
   credentials: CredentialItem[];
   credStatus: CredStatusSummary;
   isResponsavel: boolean;
   collaboratorCount: number;
   vehicleCount: number;
+}
+
+interface PhaseDayGroup {
+  phase: string;
+  days: CompanyDayLink[];
 }
 
 function maskDocument(document: string): string {
@@ -696,6 +708,38 @@ function maskDocument(document: string): string {
             </button>
           </div>
 
+          <div class="card-box day-picker" *ngIf="canManageDrawerCompany() && drawerPhaseGroups().length > 0">
+            <p class="ind-label">Dias / fases para indicação</p>
+            <p class="day-picker__hint">Selecione a fase e os dias em que a equipe será vinculada.</p>
+            <div class="day-picker__phase" *ngFor="let group of drawerPhaseGroups()">
+              <label class="day-picker__phase-head">
+                <input
+                  type="checkbox"
+                  [checked]="isPhaseFullySelected(group)"
+                  [indeterminate]="isPhasePartiallySelected(group)"
+                  (change)="togglePhaseSelection(group, $any($event.target).checked)"
+                />
+                <span class="miniphase" [ngClass]="phaseClass(group.phase)">
+                  <span class="dot"></span>{{ group.phase }}
+                </span>
+                <span class="day-picker__count">{{ selectedCountInPhase(group) }}/{{ group.days.length }}</span>
+              </label>
+              <div class="day-picker__days">
+                <label class="day-picker__day" *ngFor="let day of group.days">
+                  <input
+                    type="checkbox"
+                    [checked]="isLinkSelected(day.id_event_day_company)"
+                    (change)="toggleLinkSelection(day.id_event_day_company, $any($event.target).checked)"
+                  />
+                  <span>{{ formatDateBr(day.date) }}</span>
+                </label>
+              </div>
+            </div>
+            <p class="day-picker__warn" *ngIf="selectedLinkIds().length === 0">
+              Selecione ao menos um dia para continuar.
+            </p>
+          </div>
+
           <!-- Lote unificado (padrão SA) -->
           <ng-container *ngIf="drawerSeg() === 'lote'">
             <ng-container *ngIf="canManageDrawerCompany(); else loteReadonly">
@@ -757,7 +801,7 @@ function maskDocument(document: string): string {
                   <button
                     type="button"
                     class="btn btn--primary w-full mt-3"
-                    [disabled]="individualSubmitting()"
+                    [disabled]="individualSubmitting() || selectedLinkIds().length === 0"
                     (click)="vincularColaboradorSelecionado()"
                   >
                     {{ individualSubmitting() ? 'Vinculando...' : 'Solicitar credencial' }}
@@ -809,7 +853,8 @@ function maskDocument(document: string): string {
               <div class="cli__body">
                 <div class="cli__name">{{ cred.collaborator.name }}</div>
                 <div class="cli__meta">
-                  {{ cred.role_description }} · {{ maskDocument(cred.collaborator.document) }}
+                  {{ credDayLabel(cred) }} · {{ cred.role_description }} ·
+                  {{ maskDocument(cred.collaborator.document) }}
                 </div>
               </div>
               <span class="cli__st" [ngClass]="statusBadgeClass(cred.id_access_status)">
@@ -1016,6 +1061,8 @@ export class EventDetailComponent implements OnInit {
   showDrawer = signal(false);
   drawerCompanyId = signal<number | null>(null);
   drawerSeg = signal<DrawerSeg>('lote');
+  /** Dias (id_event_day_company) selecionados para indicar colaboradores/veículos. */
+  selectedLinkIds = signal<number[]>([]);
 
   showEditModal = signal(false);
   editSaving = signal(false);
@@ -1094,8 +1141,19 @@ export class EventDetailComponent implements OnInit {
     confirm: (previewToken, decisoes) => {
       const ev = this.event();
       const companyId = this.drawerCompanyId();
+      const linkIds = this.selectedLinkIds();
       if (!ev || companyId == null) throw new Error('Contexto inválido');
-      return this.eventService.confirmCompanyBulkImport(ev.id_event, companyId, previewToken, decisoes);
+      if (!linkIds.length) {
+        this.notification.error('Selecione ao menos um dia para importar.');
+        throw new Error('Selecione ao menos um dia para importar.');
+      }
+      return this.eventService.confirmCompanyBulkImport(
+        ev.id_event,
+        companyId,
+        previewToken,
+        decisoes,
+        linkIds,
+      );
     },
     templateFilename: 'template-evento-colaboradores-veiculos.xlsx',
     confirmLabel: 'Importar para o evento',
@@ -1171,17 +1229,29 @@ export class EventDetailComponent implements OnInit {
     return this.aggregatedCompanies().find((c) => c.id_company === id) ?? null;
   });
 
+  drawerPhaseGroups = computed((): PhaseDayGroup[] => {
+    const agg = this.drawerAggregatedCompany();
+    if (!agg?.links.length) return [];
+    const byPhase = new Map<string, CompanyDayLink[]>();
+    for (const link of agg.links) {
+      const list = byPhase.get(link.phase) || [];
+      list.push(link);
+      byPhase.set(link.phase, list);
+    }
+    return [...byPhase.entries()].map(([phase, days]) => ({
+      phase,
+      days: [...days].sort((a, b) => a.date.localeCompare(b.date)),
+    }));
+  });
+
   drawerCredentials = computed(() => {
     const agg = this.drawerAggregatedCompany();
     if (!agg) return [];
-    const map = new Map<number, CredentialItem>();
-    for (const cred of agg.credentials) {
-      const existing = map.get(cred.id_collaborator);
-      if (!existing || cred.id_access_status === STATUS_APROVADO) {
-        map.set(cred.id_collaborator, cred);
-      }
-    }
-    return [...map.values()].sort((a, b) => a.collaborator.name.localeCompare(b.collaborator.name));
+    return [...agg.credentials].sort((a, b) => {
+      const byName = a.collaborator.name.localeCompare(b.collaborator.name);
+      if (byName !== 0) return byName;
+      return String(a.event_day?.date || '').localeCompare(String(b.event_day?.date || ''));
+    });
   });
 
   drawerPendingCount = computed(() => {
@@ -1339,8 +1409,8 @@ export class EventDetailComponent implements OnInit {
     if (this.isAdmin) return true;
     if (!this.canManageCompanies() && this.event()?.is_solicitante) return false;
     if (this.userCompanyId == null) return false;
-    const cid = this.userCompanyId;
-    return row.id_company === cid || row.producerIds.includes(cid);
+    // Só a própria empresa indica; responsável vê/aprova sem escrever pelas parceiras.
+    return row.id_company === this.userCompanyId;
   }
 
   canProdutoraAct(cred: CredentialItem): boolean {
@@ -1379,6 +1449,7 @@ export class EventDetailComponent implements OnInit {
             company_type_description: link.company.company_type_description || '',
             phases: [],
             linkIds: [],
+            links: [],
             producerIds: [],
             credentials: [],
             credStatus: 'rascunho',
@@ -1393,6 +1464,11 @@ export class EventDetailComponent implements OnInit {
         }
         if (!agg.linkIds.includes(link.id_event_day_company)) {
           agg.linkIds.push(link.id_event_day_company);
+          agg.links.push({
+            id_event_day_company: link.id_event_day_company,
+            date: day.date,
+            phase: phaseDesc || '—',
+          });
         }
         const prodId = link.producer?.id_company;
         if (prodId != null && !agg.producerIds.includes(prodId)) {
@@ -1531,6 +1607,7 @@ export class EventDetailComponent implements OnInit {
     this.drawerCompanyId.set(resolvedId);
     this.drawerSeg.set(seg ?? 'lote');
     this.resetIndividualState();
+    this.resetSelectedLinkIds(resolvedId);
     this.showDrawer.set(true);
     this.ensureRolesLoaded();
     if (resolvedId != null) this.carregarVeiculosEmpresa(resolvedId);
@@ -1539,6 +1616,7 @@ export class EventDetailComponent implements OnInit {
   fecharDrawer() {
     this.showDrawer.set(false);
     this.drawerCompanyId.set(null);
+    this.selectedLinkIds.set([]);
     this.resetIndividualState();
     this.drawerVehicles.set([]);
   }
@@ -1546,8 +1624,72 @@ export class EventDetailComponent implements OnInit {
   onDrawerCompanyChange(companyId: number | null) {
     this.drawerCompanyId.set(companyId);
     this.resetIndividualState();
+    this.resetSelectedLinkIds(companyId);
     if (companyId != null) this.carregarVeiculosEmpresa(companyId);
     else this.drawerVehicles.set([]);
+  }
+
+  private resetSelectedLinkIds(companyId: number | null) {
+    // Exige seleção explícita por dia/fase (não pré-marca todos).
+    this.selectedLinkIds.set([]);
+    void companyId;
+  }
+
+  isLinkSelected(linkId: number): boolean {
+    return this.selectedLinkIds().includes(linkId);
+  }
+
+  toggleLinkSelection(linkId: number, checked: boolean) {
+    const current = this.selectedLinkIds();
+    if (checked) {
+      if (!current.includes(linkId)) this.selectedLinkIds.set([...current, linkId]);
+      return;
+    }
+    this.selectedLinkIds.set(current.filter((id) => id !== linkId));
+  }
+
+  selectedCountInPhase(group: PhaseDayGroup): number {
+    const selected = new Set(this.selectedLinkIds());
+    return group.days.filter((d) => selected.has(d.id_event_day_company)).length;
+  }
+
+  isPhaseFullySelected(group: PhaseDayGroup): boolean {
+    return group.days.length > 0 && this.selectedCountInPhase(group) === group.days.length;
+  }
+
+  isPhasePartiallySelected(group: PhaseDayGroup): boolean {
+    const n = this.selectedCountInPhase(group);
+    return n > 0 && n < group.days.length;
+  }
+
+  togglePhaseSelection(group: PhaseDayGroup, checked: boolean) {
+    const ids = group.days.map((d) => d.id_event_day_company);
+    const current = new Set(this.selectedLinkIds());
+    if (checked) {
+      for (const id of ids) current.add(id);
+    } else {
+      for (const id of ids) current.delete(id);
+    }
+    this.selectedLinkIds.set([...current]);
+  }
+
+  credDayLabel(cred: CredentialItem): string {
+    const agg = this.drawerAggregatedCompany();
+    const link = agg?.links.find((l) => l.id_event_day_company === cred.id_event_day_company);
+    const phase = link?.phase || '';
+    const date = cred.event_day?.date || link?.date || '';
+    const dateBr = date ? formatDateBr(date) : '';
+    if (phase && dateBr) return `${phase} · ${dateBr}`;
+    return phase || dateBr || '—';
+  }
+
+  private requireSelectedLinkIds(): number[] | null {
+    const ids = this.selectedLinkIds();
+    if (!ids.length) {
+      this.notification.error('Selecione ao menos um dia.');
+      return null;
+    }
+    return ids;
   }
 
   setDrawerSeg(seg: DrawerSeg) {
@@ -1650,16 +1792,18 @@ export class EventDetailComponent implements OnInit {
     onSuccess?: () => void,
   ) {
     const agg = this.drawerAggregatedCompany();
-    if (!agg?.linkIds.length) {
+    const linkIds = this.requireSelectedLinkIds();
+    if (!agg?.links.length) {
       this.notification.error('Empresa sem vínculos de fase.');
       return;
     }
+    if (!linkIds) return;
     this.individualSubmitting.set(true);
     let done = 0;
     let ok = 0;
     const finish = () => {
       done += 1;
-      if (done >= agg.linkIds.length) {
+      if (done >= linkIds.length) {
         this.individualSubmitting.set(false);
         if (ok > 0) {
           this.notification.success('Credencial solicitada.');
@@ -1667,12 +1811,12 @@ export class EventDetailComponent implements OnInit {
           const eventId = this.event()?.id_event;
           if (eventId) this.carregarCredenciais(eventId);
         } else {
-          this.notification.error('Este colaborador já possui credencial para todas as fases.');
+          this.notification.error('Este colaborador já possui credencial nos dias selecionados.');
         }
         this.cdr.markForCheck();
       }
     };
-    for (const linkId of agg.linkIds) {
+    for (const linkId of linkIds) {
       this.credentialService
         .create({
           id_event_day_company: linkId,
@@ -1735,14 +1879,15 @@ export class EventDetailComponent implements OnInit {
   vincularVeiculoExistente(item: VehicleItem) {
     const ev = this.event();
     const companyId = this.drawerCompanyId();
-    if (!ev || companyId == null) return;
+    const linkIds = this.requireSelectedLinkIds();
+    if (!ev || companyId == null || !linkIds) return;
     if (item.is_blacklisted) {
       this.notification.error('Veículo está na blacklist.');
       return;
     }
     this.veicResults.set([]);
     this.veicSearchQuery = '';
-    this.eventService.addCompanyVehicle(ev.id_event, companyId, item.id_vehicle).subscribe({
+    this.eventService.addCompanyVehicle(ev.id_event, companyId, item.id_vehicle, linkIds).subscribe({
       next: () => {
         this.notification.success('Veículo vinculado ao evento.');
         this.carregarVeiculosEmpresa(companyId);
@@ -1910,16 +2055,20 @@ export class EventDetailComponent implements OnInit {
       .subscribe({
         next: (res) => {
           this.veicSaving.set(false);
+          const linkIds = this.requireSelectedLinkIds();
+          if (!linkIds) return;
           this.fecharModalNovoVeic();
-          this.eventService.addCompanyVehicle(ev.id_event, companyId, res.vehicle.id_vehicle).subscribe({
-            next: () => {
-              this.notification.success('Veículo cadastrado e vinculado.');
-              this.carregarVeiculosEmpresa(companyId);
-              this.refreshVehicleCounts(ev.id_event);
-            },
-            error: (err) =>
-              this.notification.notifyHttpError(err, 'Veículo criado, mas falhou o vínculo ao evento.'),
-          });
+          this.eventService
+            .addCompanyVehicle(ev.id_event, companyId, res.vehicle.id_vehicle, linkIds)
+            .subscribe({
+              next: () => {
+                this.notification.success('Veículo cadastrado e vinculado.');
+                this.carregarVeiculosEmpresa(companyId);
+                this.refreshVehicleCounts(ev.id_event);
+              },
+              error: (err) =>
+                this.notification.notifyHttpError(err, 'Veículo criado, mas falhou o vínculo ao evento.'),
+            });
         },
         error: (err) => {
           this.veicSaving.set(false);

@@ -572,6 +572,7 @@ exports.addCompanyVehicle = async (req, res, next) => {
       req.params.id,
       req.params.idCompany,
       value.id_vehicle,
+      value.id_event_day_company,
     );
 
     attachAudit(req, {
@@ -586,6 +587,7 @@ exports.addCompanyVehicle = async (req, res, next) => {
         id_event: Number(req.params.id),
         id_company: Number(req.params.idCompany),
         created: result.created,
+        id_event_day_company: value.id_event_day_company,
       },
     });
 

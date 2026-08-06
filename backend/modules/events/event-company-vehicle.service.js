@@ -60,6 +60,22 @@ async function assertCanManageCompanyVehicles(req, idEvent, idCompany) {
   return assertCompanyLinkedOnEvent(req, idEvent, idCompany, { requireCreate: true });
 }
 
+function filterLinksBySelectedIds(links, selectedIds) {
+  const raw = Array.isArray(selectedIds) ? selectedIds : [];
+  const selected = [...new Set(raw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!selected.length) {
+    throw new AppError("Selecione ao menos um dia.", 400);
+  }
+  const allowed = new Set(links.map((l) => Number(l.id_event_day_company)));
+  for (const id of selected) {
+    if (!allowed.has(id)) {
+      throw new AppError("Vínculo dia-empresa inválido para esta empresa.", 400);
+    }
+  }
+  const selectedSet = new Set(selected);
+  return links.filter((l) => selectedSet.has(Number(l.id_event_day_company)));
+}
+
 function mapVehicleLinkRow(row) {
   return {
     id_event_day_company_vehicle: row.id_event_day_company_vehicle,
@@ -151,8 +167,9 @@ async function listEventVehicleCounts(idEvent, { onlyCompanyId } = {}) {
   return map;
 }
 
-async function addCompanyVehicle(req, idEvent, idCompany, idVehicle) {
-  const links = await assertCanManageCompanyVehicles(req, idEvent, idCompany);
+async function addCompanyVehicle(req, idEvent, idCompany, idVehicle, selectedLinkIds) {
+  const allLinks = await assertCanManageCompanyVehicles(req, idEvent, idCompany);
+  const links = filterLinksBySelectedIds(allLinks, selectedLinkIds);
   const vehicleId = Number(idVehicle);
   if (!vehicleId) throw new AppError("Veículo inválido.", 400);
 
@@ -196,7 +213,7 @@ async function addCompanyVehicle(req, idEvent, idCompany, idVehicle) {
   }
 
   if (created === 0 && skipped > 0) {
-    throw new AppError("Veículo já vinculado a todas as fases desta empresa.", 409);
+    throw new AppError("Veículo já vinculado aos dias selecionados desta empresa.", 409);
   }
 
   const listed = await listCompanyVehicles(req, idEvent, idCompany);
@@ -261,4 +278,5 @@ module.exports = {
   removeCompanyVehicle,
   linkVehicleToAllCompanyDays,
   assertCanManageCompanyVehicles,
+  filterLinksBySelectedIds,
 };

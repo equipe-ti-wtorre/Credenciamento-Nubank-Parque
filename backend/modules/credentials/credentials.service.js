@@ -311,30 +311,17 @@ async function assertCanOperateOnLink(req, linkRow) {
   if (scope.mode === "admin") return;
 
   const companyId = Number(linkRow.id_company);
-  const producerId =
-    linkRow.id_producer != null ? Number(linkRow.id_producer) : null;
-  const responsavelId =
-    linkRow.id_company_responsavel != null
-      ? Number(linkRow.id_company_responsavel)
-      : null;
 
-  if (scope.mode === "padrao") {
+  // Escrita: só a própria empresa indica colaboradores/veículos.
+  // Responsável (produtora) continua vendo/aprovando via assertCredentialReadable.
+  if (scope.mode === "padrao" || scope.mode === "produtora") {
     if (companyId !== scope.companyId) {
       throw new AppError("Vínculo dia-empresa não encontrado.", 404);
     }
     return;
   }
 
-  if (scope.mode === "produtora") {
-    if (
-      companyId === scope.companyId ||
-      producerId === scope.companyId ||
-      responsavelId === scope.companyId
-    ) {
-      return;
-    }
-    throw new AppError("Vínculo dia-empresa não encontrado.", 404);
-  }
+  throw new AppError("Sem permissão para indicar colaboradores nesta empresa.", 403);
 }
 
 async function assertCredentialInScope(req, row) {

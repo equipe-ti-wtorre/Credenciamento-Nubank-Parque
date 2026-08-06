@@ -294,8 +294,12 @@ export class EventService {
     idEvent: number,
     idCompany: number,
     id_vehicle: number,
+    id_event_day_company: number[],
   ): Observable<{ vehicle: EventCompanyVehicleItem; created: number; skipped: number }> {
-    return this.api.post(`/events/${idEvent}/companies/${idCompany}/vehicles`, { id_vehicle });
+    return this.api.post(`/events/${idEvent}/companies/${idCompany}/vehicles`, {
+      id_vehicle,
+      id_event_day_company,
+    });
   }
 
   removeCompanyVehicle(
@@ -323,12 +327,14 @@ export class EventService {
     idCompany: number,
     previewToken: string,
     decisoes: import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmBody['decisoes'],
+    id_event_day_company: number[],
   ) {
     return this.api.post<
       import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmResult
     >(`/events/${idEvent}/companies/${idCompany}/bulk-import/confirm`, {
       previewToken,
       decisoes,
+      id_event_day_company,
     });
   }
 

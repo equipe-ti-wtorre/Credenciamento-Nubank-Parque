@@ -2263,12 +2263,13 @@ async function listCompanyVehicles(req, idEvent, idCompany) {
   );
 }
 
-async function addCompanyVehicle(req, idEvent, idCompany, idVehicle) {
+async function addCompanyVehicle(req, idEvent, idCompany, idVehicle, selectedLinkIds) {
   return require("./event-company-vehicle.service").addCompanyVehicle(
     req,
     idEvent,
     idCompany,
     idVehicle,
+    selectedLinkIds,
   );
 }
 
@@ -2317,7 +2318,8 @@ async function previewCompanyBulkImport(req, idEvent, idCompany, file) {
 
 async function confirmCompanyBulkImport(req, idEvent, idCompany, body) {
   const vehicleSvc = require("./event-company-vehicle.service");
-  const links = await vehicleSvc.assertCanManageCompanyVehicles(req, idEvent, idCompany);
+  const allLinks = await vehicleSvc.assertCanManageCompanyVehicles(req, idEvent, idCompany);
+  const links = vehicleSvc.filterLinksBySelectedIds(allLinks, body.id_event_day_company);
   const previewToken = body.previewToken || body.previewId;
   if (!previewToken) {
     throw new AppError("previewToken é obrigatório.", 400);

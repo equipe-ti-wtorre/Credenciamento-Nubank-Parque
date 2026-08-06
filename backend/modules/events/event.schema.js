@@ -123,6 +123,10 @@ const eventCredentialBulkCommitSchema = Joi.object({
 
 const eventCompanyVehicleSchema = Joi.object({
   id_vehicle: Joi.number().integer().positive().required(),
+  id_event_day_company: Joi.array()
+    .items(Joi.number().integer().positive())
+    .min(1)
+    .required(),
 });
 
 const eventCompanyBulkConfirmSchema = Joi.object({
@@ -131,6 +135,10 @@ const eventCompanyBulkConfirmSchema = Joi.object({
     colaboradores: Joi.array().items(Joi.object().unknown(true)).default([]),
     veiculos: Joi.array().items(Joi.object().unknown(true)).default([]),
   }).default({}),
+  id_event_day_company: Joi.array()
+    .items(Joi.number().integer().positive())
+    .min(1)
+    .required(),
 });
 
 module.exports = {
