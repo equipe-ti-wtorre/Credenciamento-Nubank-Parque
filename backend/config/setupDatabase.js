@@ -309,6 +309,17 @@ async function migrateCollaborators(connection) {
       )
     `);
     logger.info("Migration: tabela collaborator_block_list criada");
+  } else if (hasCollaboratorBlacklist && hasCollaboratorBlocklist) {
+    // Estado corrompido (ambas existem): mescla e remove a tabela legada.
+    await connection.query(`
+      INSERT IGNORE INTO collaborator_block_list (id_collaborator, reason, id_usuario, criado_em)
+      SELECT id_collaborator, reason, id_usuario, criado_em
+        FROM collaborator_black_list
+    `);
+    await connection.query("DROP TABLE collaborator_black_list");
+    logger.warn(
+      "Migration: collaborator_black_list mesclada em collaborator_block_list e removida",
+    );
   }
 }
 
@@ -651,6 +662,14 @@ async function migratePhase2(connection) {
       )
     `);
     logger.info("Migration: tabela vehicle_block_list criada");
+  } else if (hasVehicleBlacklist && hasVehicleBlocklist) {
+    await connection.query(`
+      INSERT IGNORE INTO vehicle_block_list (id_vehicle, reason, id_usuario, criado_em)
+      SELECT id_vehicle, reason, id_usuario, criado_em
+        FROM vehicle_black_list
+    `);
+    await connection.query("DROP TABLE vehicle_black_list");
+    logger.warn("Migration: vehicle_black_list mesclada em vehicle_block_list e removida");
   }
 
   const vehicleFieldColumns = [
@@ -1725,7 +1744,12 @@ async function initializeDatabase() {
         const [[adminPerfil]] = await connection.query(
           "SELECT id FROM perfis WHERE codigo = 'ADMIN' LIMIT 1",
         );
-        const adminPerfilId = adminPerfil?.id || null;
+        const adminPerfilId = adminPerfil?.id != null ? Number(adminPerfil.id) : null;
+        if (!adminPerfilId) {
+          throw new Error(
+            "Perfil ADMIN não encontrado em perfis — migratePerfisPermissoes deve rodar antes do seed do admin.",
+          );
+        }
         await connection.query(
           `INSERT INTO usuarios (username, nome_completo, email, departamento, senha_hash, id_perfil, ativo, is_ad_user)
            VALUES (?, 'Administrador', ?, 'Administração', ?, ?, 1, 0)`,

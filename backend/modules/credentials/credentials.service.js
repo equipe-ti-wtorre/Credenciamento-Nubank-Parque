@@ -288,6 +288,7 @@ async function findEventDayCompanyById(id) {
   const [rows] = await db.execute(
     `SELECT edc.*, ed.id_event_day, ed.id_event, ed.date,
             e.id_company_responsavel, e.ativo AS event_ativo,
+            e.id_access_status AS event_access_status,
             c.company_name, c.id_company_type, ct.description AS company_type_description
      FROM event_day_company edc
      INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
@@ -308,15 +309,32 @@ function assertLinkedEventActive(linkRow) {
 
 async function assertCanOperateOnLink(req, linkRow) {
   const scope = await buildCredentialScope(req);
-  if (scope.mode === "admin") return;
-
   const companyId = Number(linkRow.id_company);
+  const actorCompanyId =
+    scope.companyId != null
+      ? Number(scope.companyId)
+      : req.user?.id_company != null
+        ? Number(req.user.id_company)
+        : null;
 
   // Escrita: só a própria empresa indica colaboradores/veículos.
-  // Responsável (produtora) continua vendo/aprovando via assertCredentialReadable.
-  if (scope.mode === "padrao" || scope.mode === "produtora") {
-    if (companyId !== scope.companyId) {
-      throw new AppError("Vínculo dia-empresa não encontrado.", 404);
+  // Admin/responsável podem ver/aprovar (assertCredentialReadable), mas não importar pela parceira.
+  if (
+    scope.mode === "admin" ||
+    scope.mode === "padrao" ||
+    scope.mode === "produtora"
+  ) {
+    if (actorCompanyId == null) {
+      throw new AppError(
+        "Indicação de colaboradores exige usuário vinculado à empresa.",
+        403,
+      );
+    }
+    if (companyId !== actorCompanyId) {
+      throw new AppError(
+        "Sem permissão para indicar colaboradores nesta empresa.",
+        403,
+      );
     }
     return;
   }
@@ -523,13 +541,16 @@ async function createCredential(req, data) {
     throw new AppError("Função de colaborador inválida.", 400);
   }
 
-  const initialStatus = await resolveInitialStatus(req);
+  const { status: initialStatus, accessId } = await resolveIndicationStatus(
+    req,
+    link.event_access_status,
+  );
 
   const [result] = await db.execute(
     `INSERT INTO event_day_company_collaborator (
-       id_event_day_company, id_collaborator, id_access_status, id_collaborator_role
-     ) VALUES (?, ?, ?, ?)`,
-    [data.id_event_day_company, data.id_collaborator, initialStatus, idRole],
+       id_event_day_company, id_collaborator, id_access_status, id_collaborator_role, access_id
+     ) VALUES (?, ?, ?, ?, ?)`,
+    [data.id_event_day_company, data.id_collaborator, initialStatus, idRole, accessId],
   );
 
   if (link.id_company != null) {
@@ -866,6 +887,7 @@ async function listCompanyLinksOnEvent(idEvent, idCompany) {
   const [rows] = await db.execute(
     `SELECT edc.*, ed.id_event_day, ed.id_event, ed.date,
             e.id_company_responsavel, e.ativo AS event_ativo,
+            e.id_access_status AS event_access_status,
             c.company_name, c.id_company_type
        FROM event_day_company edc
        INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
@@ -876,6 +898,14 @@ async function listCompanyLinksOnEvent(idEvent, idCompany) {
     [idEvent, idCompany],
   );
   return rows;
+}
+
+/** Status inicial da indicação; se o evento já está aprovado, libera acesso na hora. */
+async function resolveIndicationStatus(req, eventAccessStatus) {
+  if (Number(eventAccessStatus) === STATUS_APROVADO) {
+    return { status: STATUS_APROVADO, accessId: crypto.randomUUID() };
+  }
+  return { status: await resolveInitialStatus(req), accessId: null };
 }
 
 async function assertCanBulkCredentialsForCompany(req, idEvent, idCompany) {
@@ -1095,5 +1125,6 @@ module.exports = {
   assertCanOperateOnLink,
   listCompanyLinksOnEvent,
   resolveInitialStatus,
+  resolveIndicationStatus,
   assertCanBulkCredentialsForCompany,
 };

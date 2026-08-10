@@ -796,7 +796,10 @@ async function confirmUnifiedBulkImport(ctx) {
     motoristas: 0,
   };
 
-  const initialStatus = await credentialsService.resolveInitialStatus(req);
+  const { status: initialStatus } = await credentialsService.resolveIndicationStatus(
+    req,
+    links[0]?.event_access_status,
+  );
   const createdDocToId = new Map();
 
   for (const decision of colDecisions) {

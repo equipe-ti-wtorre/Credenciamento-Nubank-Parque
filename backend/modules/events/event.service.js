@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const db = require("../../config/db");
 const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
@@ -807,11 +808,65 @@ async function createEvent(req, data) {
   }
 }
 
+/**
+ * Aprova o evento e cascateia liberação de colaboradores/veículos pendentes
+ * (AGUARDANDO_PRODUTORA / AGUARDANDO_APROVACAO → APROVADO + access_id).
+ * Ignora blocklist e não altera NEGADO/EXPIRADO.
+ */
 async function markApproved(conn, idEntidade) {
+  const idEvent = Number(idEntidade);
   await conn.execute(`UPDATE event SET id_access_status = ? WHERE id_event = ?`, [
     STATUS_APROVADO,
-    idEntidade,
+    idEvent,
   ]);
+
+  const pendingStatuses = [STATUS_AGUARDANDO_PRODUTORA, STATUS_AGUARDANDO_APROVACAO];
+
+  const [collaborators] = await conn.execute(
+    `SELECT edcc.id_event_day_company_collaborator
+       FROM event_day_company_collaborator edcc
+       INNER JOIN event_day_company edc
+         ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ?
+        AND edcc.id_access_status IN (?, ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM collaborator_block_list bl
+           WHERE bl.id_collaborator = edcc.id_collaborator
+        )`,
+    [idEvent, ...pendingStatuses],
+  );
+  for (const row of collaborators) {
+    await conn.execute(
+      `UPDATE event_day_company_collaborator
+          SET id_access_status = ?, access_id = ?
+        WHERE id_event_day_company_collaborator = ?`,
+      [STATUS_APROVADO, crypto.randomUUID(), row.id_event_day_company_collaborator],
+    );
+  }
+
+  const [vehicles] = await conn.execute(
+    `SELECT edcv.id_event_day_company_vehicle
+       FROM event_day_company_vehicle edcv
+       INNER JOIN event_day_company edc
+         ON edc.id_event_day_company = edcv.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ?
+        AND edcv.id_access_status IN (?, ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM vehicle_block_list vbl
+           WHERE vbl.id_vehicle = edcv.id_vehicle
+        )`,
+    [idEvent, ...pendingStatuses],
+  );
+  for (const row of vehicles) {
+    await conn.execute(
+      `UPDATE event_day_company_vehicle
+          SET id_access_status = ?, access_id = ?
+        WHERE id_event_day_company_vehicle = ?`,
+      [STATUS_APROVADO, crypto.randomUUID(), row.id_event_day_company_vehicle],
+    );
+  }
 }
 
 async function markRejected(conn, idEntidade) {

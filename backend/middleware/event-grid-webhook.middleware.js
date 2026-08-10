@@ -57,13 +57,15 @@ function eventGridWebhookMiddleware(req, res, next) {
     return next(new AppError("Assinatura Event Grid ausente.", 401));
   }
 
-  // Azure Event Grid webhook signature: Base64-encoded HMAC-SHA256 of the request body
-  const rawBody =
-    Buffer.isBuffer(req.rawBody)
-      ? req.rawBody
-      : typeof req.body === "string"
-        ? Buffer.from(req.body, "utf8")
-        : Buffer.from(JSON.stringify(req.body), "utf8");
+  // Assinatura HMAC exige o body bruto; JSON.stringify(req.body) altera bytes e falha a validação.
+  if (!Buffer.isBuffer(req.rawBody) || req.rawBody.length === 0) {
+    logger.warn(
+      { requestId: req.requestId, hasRawBody: Buffer.isBuffer(req.rawBody) },
+      "rawBody ausente para webhook Event Grid",
+    );
+    return next(new AppError("Corpo bruto do webhook indisponível para verificação.", 500));
+  }
+  const rawBody = req.rawBody;
 
   const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
 

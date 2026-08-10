@@ -46,8 +46,10 @@ app.use(
   express.json({
     limit: "10mb",
     verify: (req, _res, buf) => {
-      if (req.originalUrl && req.originalUrl.includes("/webhooks/")) {
-        req.rawBody = buf;
+      // originalUrl/url já existem no verify do body-parser; ignore querystring.
+      const pathOnly = String(req.originalUrl || req.url || "").split("?")[0];
+      if (pathOnly.includes("/webhooks/") || pathOnly.endsWith("/webhooks")) {
+        req.rawBody = Buffer.isBuffer(buf) ? buf : Buffer.from(buf || "");
       }
     },
   }),

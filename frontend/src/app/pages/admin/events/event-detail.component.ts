@@ -26,7 +26,6 @@ import {
   STATUS_AGUARDANDO_APROVACAO,
   STATUS_AGUARDANDO_PRODUTORA,
   STATUS_APROVADO,
-  STATUS_NEGADO,
   statusBadgeClass,
 } from '../../../services/credential.service';
 import { NotificationService } from '../../../core/services/notification.service';
@@ -324,9 +323,10 @@ function maskDocument(document: string): string {
                 </h2>
                 <div class="flex gap-2 flex-wrap">
                   <button
+                    *ngIf="canAddCollaborators()"
                     type="button"
                     class="btn btn--primary btn--sm"
-                    [disabled]="aggregatedCompanies().length === 0 || !event()!.ativo"
+                    [disabled]="writableCompanies().length === 0 || !event()!.ativo"
                     (click)="abrirDrawer()"
                   >
                     Adicionar colaboradores
@@ -447,8 +447,12 @@ function maskDocument(document: string): string {
                             <path d="M14 11v6" />
                           </svg>
                         </button>
-                        <button type="button" class="btn btn--ghost btn--sm" (click)="abrirDrawer(row.id_company)">
-                          Colaboradores
+                        <button
+                          type="button"
+                          class="btn btn--ghost btn--sm"
+                          (click)="abrirDrawer(row.id_company)"
+                        >
+                          {{ canRequestCredentialForCompany(row) ? 'Colaboradores' : 'Ver' }}
                         </button>
                         <button
                           *ngIf="canNotifyCompleteForCompany(row)"
@@ -681,7 +685,7 @@ function maskDocument(document: string): string {
             </div>
             <button type="button" class="iconbtn" (click)="fecharDrawer()" aria-label="Fechar">✕</button>
           </div>
-          <div class="field mt-3" *ngIf="!drawerCompanyId() && aggregatedCompanies().length > 0">
+          <div class="field mt-3" *ngIf="!drawerCompanyId() && writableCompanies().length > 0">
             <label class="label" for="drawer-company">Empresa</label>
             <select
               id="drawer-company"
@@ -691,7 +695,7 @@ function maskDocument(document: string): string {
               name="drawerCompany"
             >
               <option [ngValue]="null">Selecione</option>
-              <option *ngFor="let c of aggregatedCompanies()" [ngValue]="c.id_company">
+              <option *ngFor="let c of writableCompanies()" [ngValue]="c.id_company">
                 {{ c.company_name }}
               </option>
             </select>
@@ -699,7 +703,7 @@ function maskDocument(document: string): string {
         </div>
 
         <div class="drawer__body" *ngIf="drawerAggregatedCompany(); else drawerPickCompany">
-          <div class="seg">
+          <div class="seg" *ngIf="canManageDrawerCompany()">
             <button type="button" [class.on]="drawerSeg() === 'lote'" (click)="setDrawerSeg('lote')">
               Importar em lote
             </button>
@@ -707,6 +711,9 @@ function maskDocument(document: string): string {
               Adicionar individual
             </button>
           </div>
+          <p class="text-sm text-slate-500 mb-3" *ngIf="!canManageDrawerCompany()">
+            Somente visualização e aprovação — a inclusão de colaboradores é feita pela própria empresa.
+          </p>
 
           <div class="card-box day-picker" *ngIf="canManageDrawerCompany() && drawerPhaseGroups().length > 0">
             <p class="ind-label">Dias / fases para indicação</p>
@@ -740,110 +747,100 @@ function maskDocument(document: string): string {
             </p>
           </div>
 
-          <!-- Lote unificado (padrão SA) -->
-          <ng-container *ngIf="drawerSeg() === 'lote'">
-            <ng-container *ngIf="canManageDrawerCompany(); else loteReadonly">
-              <app-service-access-bulk-import-wizard
-                [open]="true"
-                [embedded]="true"
-                [apiAdapter]="eventBulkAdapter"
-                [accessName]="event()?.name || 'Evento'"
-                [companyName]="drawerAggregatedCompany()?.company_name || ''"
-                (completed)="onEventBulkCompleted()"
-                (closed)="setDrawerSeg('ind')"
-              />
-            </ng-container>
-            <ng-template #loteReadonly>
-              <p class="text-sm text-slate-500">Somente visualização — sem permissão para importar.</p>
-            </ng-template>
+          <!-- Lote unificado (padrão SA) — só quem pode indicar na empresa -->
+          <ng-container *ngIf="canManageDrawerCompany() && drawerSeg() === 'lote'">
+            <app-service-access-bulk-import-wizard
+              [open]="true"
+              [embedded]="true"
+              [apiAdapter]="eventBulkAdapter"
+              [accessName]="event()?.name || 'Evento'"
+              [companyName]="drawerAggregatedCompany()?.company_name || ''"
+              (completed)="onEventBulkCompleted()"
+              (closed)="setDrawerSeg('ind')"
+            />
           </ng-container>
 
-          <!-- Individual: busca tipada + cadastro -->
-          <ng-container *ngIf="drawerSeg() === 'ind'">
-            <ng-container *ngIf="canManageDrawerCompany(); else indReadonly">
-              <div class="card-box">
-                <p class="ind-label">Colaborador</p>
-                <div class="field relative">
-                  <label class="label" for="ind-colab-q">Buscar por nome ou documento</label>
-                  <input
-                    id="ind-colab-q"
-                    class="input"
-                    type="text"
-                    autocomplete="off"
-                    [ngModel]="colabSearchQuery"
-                    (ngModelChange)="onColabSearch($event)"
-                    name="colabSearchQuery"
-                    placeholder="Digite ao menos 2 caracteres..."
-                  />
-                  <div *ngIf="colabSearching()" class="search-dd muted">Buscando...</div>
-                  <ul *ngIf="!colabSearching() && colabResults().length > 0" class="search-dd">
-                    <li *ngFor="let c of colabResults()">
-                      <button type="button" class="search-dd__btn" (click)="selecionarColaboradorBusca(c)">
-                        <span class="font-medium">{{ c.name }}</span>
-                        <span class="meta">{{ maskDocument(c.document) }}</span>
-                      </button>
-                    </li>
-                  </ul>
-                </div>
-                <div class="field" *ngIf="selectedColab() as col">
-                  <div class="picked">
-                    <div>
-                      <p class="font-semibold">{{ col.name }}</p>
-                      <p class="text-slate-500 text-sm">{{ maskDocument(col.document) }}</p>
-                    </div>
-                    <button type="button" class="btn--link" (click)="limparColabSelecionado()">Trocar</button>
+          <!-- Individual: busca tipada + cadastro — só quem pode indicar na empresa -->
+          <ng-container *ngIf="canManageDrawerCompany() && drawerSeg() === 'ind'">
+            <div class="card-box">
+              <p class="ind-label">Colaborador</p>
+              <div class="field relative">
+                <label class="label" for="ind-colab-q">Buscar por nome ou documento</label>
+                <input
+                  id="ind-colab-q"
+                  class="input"
+                  type="text"
+                  autocomplete="off"
+                  [ngModel]="colabSearchQuery"
+                  (ngModelChange)="onColabSearch($event)"
+                  name="colabSearchQuery"
+                  placeholder="Digite ao menos 2 caracteres..."
+                />
+                <div *ngIf="colabSearching()" class="search-dd muted">Buscando...</div>
+                <ul *ngIf="!colabSearching() && colabResults().length > 0" class="search-dd">
+                  <li *ngFor="let c of colabResults()">
+                    <button type="button" class="search-dd__btn" (click)="selecionarColaboradorBusca(c)">
+                      <span class="font-medium">{{ c.name }}</span>
+                      <span class="meta">{{ maskDocument(c.document) }}</span>
+                    </button>
+                  </li>
+                </ul>
+              </div>
+              <div class="field" *ngIf="selectedColab() as col">
+                <div class="picked">
+                  <div>
+                    <p class="font-semibold">{{ col.name }}</p>
+                    <p class="text-slate-500 text-sm">{{ maskDocument(col.document) }}</p>
                   </div>
-                  <label class="label" for="ind-role-pick">Função no evento</label>
-                  <select id="ind-role-pick" class="select" [(ngModel)]="selectedColabRoleId" name="selectedColabRoleId">
-                    <option [ngValue]="null">Selecione</option>
-                    <option *ngFor="let r of roles()" [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
-                  </select>
-                  <button
-                    type="button"
-                    class="btn btn--primary w-full mt-3"
-                    [disabled]="individualSubmitting() || selectedLinkIds().length === 0"
-                    (click)="vincularColaboradorSelecionado()"
-                  >
-                    {{ individualSubmitting() ? 'Vinculando...' : 'Solicitar credencial' }}
-                  </button>
+                  <button type="button" class="btn--link" (click)="limparColabSelecionado()">Trocar</button>
                 </div>
-                <button type="button" class="btn btn--ghost w-full mt-2" (click)="abrirModalNovoColab()">
-                  Novo colaborador
+                <label class="label" for="ind-role-pick">Função no evento</label>
+                <select id="ind-role-pick" class="select" [(ngModel)]="selectedColabRoleId" name="selectedColabRoleId">
+                  <option [ngValue]="null">Selecione</option>
+                  <option *ngFor="let r of roles()" [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
+                </select>
+                <button
+                  type="button"
+                  class="btn btn--primary w-full mt-3"
+                  [disabled]="individualSubmitting() || selectedLinkIds().length === 0"
+                  (click)="vincularColaboradorSelecionado()"
+                >
+                  {{ individualSubmitting() ? 'Vinculando...' : 'Solicitar credencial' }}
                 </button>
               </div>
+              <button type="button" class="btn btn--ghost w-full mt-2" (click)="abrirModalNovoColab()">
+                Novo colaborador
+              </button>
+            </div>
 
-              <div class="card-box mt-3">
-                <p class="ind-label">Veículo</p>
-                <div class="field relative">
-                  <label class="label" for="ind-veic-q">Buscar por placa, marca ou modelo</label>
-                  <input
-                    id="ind-veic-q"
-                    class="input"
-                    type="text"
-                    autocomplete="off"
-                    [ngModel]="veicSearchQuery"
-                    (ngModelChange)="onVeicSearch($event)"
-                    name="veicSearchQuery"
-                    placeholder="Digite ao menos 2 caracteres..."
-                  />
-                  <div *ngIf="veicSearching()" class="search-dd muted">Buscando...</div>
-                  <ul *ngIf="!veicSearching() && veicResults().length > 0" class="search-dd">
-                    <li *ngFor="let v of veicResults()">
-                      <button type="button" class="search-dd__btn" (click)="vincularVeiculoExistente(v)">
-                        <span class="font-medium font-mono">{{ v.plate }}</span>
-                        <span class="meta">{{ v.brand || '—' }} {{ v.model || '' }}</span>
-                      </button>
-                    </li>
-                  </ul>
-                </div>
-                <button type="button" class="btn btn--ghost w-full mt-2" (click)="abrirModalNovoVeic()">
-                  Novo veículo
-                </button>
+            <div class="card-box mt-3">
+              <p class="ind-label">Veículo</p>
+              <div class="field relative">
+                <label class="label" for="ind-veic-q">Buscar por placa, marca ou modelo</label>
+                <input
+                  id="ind-veic-q"
+                  class="input"
+                  type="text"
+                  autocomplete="off"
+                  [ngModel]="veicSearchQuery"
+                  (ngModelChange)="onVeicSearch($event)"
+                  name="veicSearchQuery"
+                  placeholder="Digite ao menos 2 caracteres..."
+                />
+                <div *ngIf="veicSearching()" class="search-dd muted">Buscando...</div>
+                <ul *ngIf="!veicSearching() && veicResults().length > 0" class="search-dd">
+                  <li *ngFor="let v of veicResults()">
+                    <button type="button" class="search-dd__btn" (click)="vincularVeiculoExistente(v)">
+                      <span class="font-medium font-mono">{{ v.plate }}</span>
+                      <span class="meta">{{ v.brand || '—' }} {{ v.model || '' }}</span>
+                    </button>
+                  </li>
+                </ul>
               </div>
-            </ng-container>
-            <ng-template #indReadonly>
-              <p class="text-sm text-slate-500">Somente visualização — sem permissão para adicionar.</p>
-            </ng-template>
+              <button type="button" class="btn btn--ghost w-full mt-2" (click)="abrirModalNovoVeic()">
+                Novo veículo
+              </button>
+            </div>
           </ng-container>
 
           <p class="listhead">Credenciais existentes</p>
@@ -860,40 +857,6 @@ function maskDocument(document: string): string {
               <span class="cli__st" [ngClass]="statusBadgeClass(cred.id_access_status)">
                 {{ cred.access_status_description }}
               </span>
-              <div class="flex flex-col gap-1">
-                <button
-                  *ngIf="canProdutoraAct(cred)"
-                  type="button"
-                  class="btn btn--ghost btn--sm"
-                  (click)="aprovarProdutora(cred)"
-                >
-                  Aprovar
-                </button>
-                <button
-                  *ngIf="canProdutoraAct(cred)"
-                  type="button"
-                  class="btn btn--ghost btn--sm"
-                  (click)="negarCredencial(cred)"
-                >
-                  Negar
-                </button>
-                <button
-                  *ngIf="canFinalApproveAct(cred)"
-                  type="button"
-                  class="btn btn--primary btn--sm"
-                  (click)="aprovarAdmin(cred)"
-                >
-                  Aprovar
-                </button>
-                <button
-                  *ngIf="canFinalApproveAct(cred)"
-                  type="button"
-                  class="btn btn--ghost btn--sm"
-                  (click)="negarCredencial(cred)"
-                >
-                  Negar
-                </button>
-              </div>
             </div>
           </div>
           <ng-template #noDrawerCreds>
@@ -1406,28 +1369,19 @@ export class EventDetailComponent implements OnInit {
 
   canRequestCredentialForCompany(row: AggregatedCompany): boolean {
     if (this.event()?.ativo === false) return false;
-    if (this.isAdmin) return true;
     if (!this.canManageCompanies() && this.event()?.is_solicitante) return false;
     if (this.userCompanyId == null) return false;
-    // Só a própria empresa indica; responsável vê/aprova sem escrever pelas parceiras.
-    return row.id_company === this.userCompanyId;
+    // Cada empresa indica só os próprios colaboradores (admin/responsável não escrevem pela parceira).
+    return Number(row.id_company) === Number(this.userCompanyId);
   }
 
-  canProdutoraAct(cred: CredentialItem): boolean {
-    const responsavelId = this.event()?.id_company_responsavel;
-    const isProdutoraActor = this.userRole === 'PRODUTORA' || this.canManageCompanies();
-    return (
-      isProdutoraActor &&
-      cred.id_access_status === STATUS_AGUARDANDO_PRODUTORA &&
-      (cred.event_day_company.id_producer === this.userCompanyId || responsavelId === this.userCompanyId)
-    );
-  }
+  /** Empresas nas quais o usuário pode incluir colaboradores/veículos. */
+  writableCompanies = computed(() =>
+    this.aggregatedCompanies().filter((c) => this.canRequestCredentialForCompany(c)),
+  );
 
-  canFinalApproveAct(cred: CredentialItem): boolean {
-    return (
-      !!this.event()?.can_approve_credentials &&
-      cred.id_access_status === STATUS_AGUARDANDO_APROVACAO
-    );
+  canAddCollaborators(): boolean {
+    return this.event()?.ativo !== false && this.writableCompanies().length > 0;
   }
 
   private buildAggregatedCompanies(): AggregatedCompany[] {
@@ -1601,15 +1555,28 @@ export class EventDetailComponent implements OnInit {
       this.notification.error('Evento desativado. Reative-o para gerenciar colaboradores.');
       return;
     }
-    const resolvedId =
+    let resolvedId =
       companyId ??
       (this.isPartnerScopedView() ? this.userCompanyId : null);
+
+    // Fluxo "Adicionar": só empresas em que o usuário pode escrever.
+    if (companyId == null && !this.isPartnerScopedView()) {
+      const writable = this.writableCompanies();
+      resolvedId = writable.length === 1 ? writable[0].id_company : null;
+    }
+
     this.drawerCompanyId.set(resolvedId);
-    this.drawerSeg.set(seg ?? 'lote');
+    const canWrite =
+      resolvedId != null &&
+      !!this.aggregatedCompanies().find(
+        (c) => c.id_company === resolvedId && this.canRequestCredentialForCompany(c),
+      );
+    // Visualização de parceira: não abre abas de inclusão.
+    this.drawerSeg.set(canWrite ? (seg ?? 'lote') : 'ind');
     this.resetIndividualState();
     this.resetSelectedLinkIds(resolvedId);
     this.showDrawer.set(true);
-    this.ensureRolesLoaded();
+    if (canWrite) this.ensureRolesLoaded();
     if (resolvedId != null) this.carregarVeiculosEmpresa(resolvedId);
   }
 
@@ -1791,6 +1758,10 @@ export class EventDetailComponent implements OnInit {
     roleId: number,
     onSuccess?: () => void,
   ) {
+    if (!this.canManageDrawerCompany()) {
+      this.notification.error('Sem permissão para indicar colaboradores nesta empresa.');
+      return;
+    }
     const agg = this.drawerAggregatedCompany();
     const linkIds = this.requireSelectedLinkIds();
     if (!agg?.links.length) {
@@ -1877,6 +1848,10 @@ export class EventDetailComponent implements OnInit {
   }
 
   vincularVeiculoExistente(item: VehicleItem) {
+    if (!this.canManageDrawerCompany()) {
+      this.notification.error('Sem permissão para vincular veículos nesta empresa.');
+      return;
+    }
     const ev = this.event();
     const companyId = this.drawerCompanyId();
     const linkIds = this.requireSelectedLinkIds();
@@ -1978,6 +1953,10 @@ export class EventDetailComponent implements OnInit {
   }
 
   salvarNovoColaborador() {
+    if (!this.canManageDrawerCompany()) {
+      this.notification.error('Sem permissão para indicar colaboradores nesta empresa.');
+      return;
+    }
     const form = this.colabForm;
     if (
       !form.id_collaborator_document_type ||
@@ -2025,6 +2004,10 @@ export class EventDetailComponent implements OnInit {
   }
 
   salvarNovoVeiculo() {
+    if (!this.canManageDrawerCompany()) {
+      this.notification.error('Sem permissão para vincular veículos nesta empresa.');
+      return;
+    }
     const companyId = this.drawerCompanyId();
     const ev = this.event();
     const form = this.veicForm;
@@ -2598,86 +2581,6 @@ export class EventDetailComponent implements OnInit {
       },
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar credenciais.'),
     });
-  }
-
-  aprovarProdutora(cred: CredentialItem) {
-    Swal.fire({
-      title: 'Aprovar acesso?',
-      text: `Deseja aprovar o acesso de ${cred.collaborator.name}?`,
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonText: 'Aprovar',
-      cancelButtonText: 'Cancelar',
-    }).then((result) => {
-      if (!result.isConfirmed) return;
-      this.credentialService
-        .updateStatus(cred.id_event_day_company_collaborator, {
-          id_access_status: STATUS_AGUARDANDO_APROVACAO,
-        })
-        .subscribe({
-          next: () => {
-            this.notification.success('Enviado para validação administrativa.');
-            this.refreshCredentials();
-          },
-          error: (err) => this.notification.error(this.extractError(err) || 'Falha ao aprovar.'),
-        });
-    });
-  }
-
-  aprovarAdmin(cred: CredentialItem) {
-    Swal.fire({
-      title: 'Aprovar acesso?',
-      text: `Deseja aprovar o acesso de ${cred.collaborator.name}?`,
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonText: 'Aprovar',
-      cancelButtonText: 'Cancelar',
-    }).then((result) => {
-      if (!result.isConfirmed) return;
-      this.credentialService
-        .updateStatus(cred.id_event_day_company_collaborator, { id_access_status: STATUS_APROVADO })
-        .subscribe({
-          next: () => {
-            this.notification.success('Credencial aprovada.');
-            this.refreshCredentials();
-          },
-          error: (err) => this.notification.error(this.extractError(err) || 'Falha ao aprovar.'),
-        });
-    });
-  }
-
-  negarCredencial(cred: CredentialItem) {
-    Swal.fire({
-      title: 'Motivo da recusa',
-      input: 'textarea',
-      inputPlaceholder: 'Descreva o motivo (mín. 3 caracteres)',
-      showCancelButton: true,
-      confirmButtonText: 'Recusar',
-      cancelButtonText: 'Cancelar',
-      inputValidator: (value) => {
-        if (!value || value.trim().length < 3) return 'Informe o motivo da recusa.';
-        return null;
-      },
-    }).then((result) => {
-      if (!result.isConfirmed || !result.value) return;
-      this.credentialService
-        .updateStatus(cred.id_event_day_company_collaborator, {
-          id_access_status: STATUS_NEGADO,
-          reason: String(result.value).trim(),
-        })
-        .subscribe({
-          next: () => {
-            this.notification.success('Credencial recusada.');
-            this.refreshCredentials();
-          },
-          error: (err) => this.notification.error(this.extractError(err) || 'Falha ao recusar.'),
-        });
-    });
-  }
-
-  private refreshCredentials() {
-    const eventId = this.event()?.id_event;
-    if (eventId) this.carregarCredenciais(eventId);
   }
 
   private extractError(err: unknown): string | null {

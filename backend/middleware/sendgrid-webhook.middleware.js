@@ -30,11 +30,12 @@ async function sendgridWebhookMiddleware(req, res, next) {
       return next(new AppError("Assinatura SendGrid ausente.", 401));
     }
 
-    const rawBody = Buffer.isBuffer(req.rawBody)
-      ? req.rawBody.toString("utf8")
-      : typeof req.body === "string"
-        ? req.body
-        : JSON.stringify(req.body);
+    // Assinatura exige o body bruto; re-serializar req.body invalida a verificação.
+    if (!Buffer.isBuffer(req.rawBody)) {
+      logger.warn({ requestId: req.requestId }, "rawBody ausente para webhook SendGrid");
+      return next(new AppError("Corpo bruto do webhook indisponível para verificação.", 500));
+    }
+    const rawBody = req.rawBody.toString("utf8");
 
     const ew = new EventWebhook();
     let ok = false;

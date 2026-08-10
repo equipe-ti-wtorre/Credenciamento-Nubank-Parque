@@ -1,10 +1,12 @@
+const crypto = require("crypto");
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const {
   assertCanOperateOnLink,
   listCompanyLinksOnEvent,
-  resolveInitialStatus,
+  resolveIndicationStatus,
 } = require("../credentials/credentials.service");
+const { STATUS_APROVADO } = require("../credentials/credentials.schema");
 const { getProfileCodigo, hasPermission, isSuperAdmin } = require("../../utils/permissions");
 
 const VEHICLE_SELECT = `
@@ -190,17 +192,23 @@ async function addCompanyVehicle(req, idEvent, idCompany, idVehicle, selectedLin
     throw new AppError("Veículo não pertence a esta empresa.", 400);
   }
 
-  const initialStatus = await resolveInitialStatus(req);
+  const { status: initialStatus, accessId } = await resolveIndicationStatus(
+    req,
+    links[0]?.event_access_status,
+  );
   let created = 0;
   let skipped = 0;
 
   for (const link of links) {
     try {
+      const rowAccessId =
+        accessId ||
+        (Number(initialStatus) === STATUS_APROVADO ? crypto.randomUUID() : null);
       const [result] = await db.execute(
         `INSERT INTO event_day_company_vehicle (
-           id_event_day_company, id_vehicle, id_access_status
-         ) VALUES (?, ?, ?)`,
-        [link.id_event_day_company, vehicleId, initialStatus],
+           id_event_day_company, id_vehicle, id_access_status, access_id
+         ) VALUES (?, ?, ?, ?)`,
+        [link.id_event_day_company, vehicleId, initialStatus, rowAccessId],
       );
       if (result.insertId) created += 1;
     } catch (err) {
@@ -259,12 +267,14 @@ async function removeCompanyVehicle(req, idEvent, idCompany, idVehicle) {
 async function linkVehicleToAllCompanyDays(conn, links, vehicleId, idAccessStatus) {
   let created = 0;
   for (const link of links) {
+    const accessId =
+      Number(idAccessStatus) === STATUS_APROVADO ? crypto.randomUUID() : null;
     const [result] = await conn.execute(
       `INSERT INTO event_day_company_vehicle (
-         id_event_day_company, id_vehicle, id_access_status
-       ) VALUES (?, ?, ?)
+         id_event_day_company, id_vehicle, id_access_status, access_id
+       ) VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE id_vehicle = VALUES(id_vehicle)`,
-      [link.id_event_day_company, vehicleId, idAccessStatus],
+      [link.id_event_day_company, vehicleId, idAccessStatus, accessId],
     );
     if (result.affectedRows === 1) created += 1;
   }
