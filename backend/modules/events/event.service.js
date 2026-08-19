@@ -401,12 +401,23 @@ async function loadEventDaysWithCompanies(idEvent, { onlyCompanyId } = {}) {
 
   const dayIds = dayRows.map((d) => d.id_event_day);
   const placeholders = dayIds.map(() => "?").join(", ");
-  const companyParams = [...dayIds];
+  const hasNotifyTable = await tableExists("event_company_notify");
+  const companyParams = hasNotifyTable
+    ? [Number(idEvent), ...dayIds]
+    : [...dayIds];
   let companyFilter = "";
   if (onlyCompanyId != null) {
     companyFilter = " AND edc.id_company = ?";
     companyParams.push(Number(onlyCompanyId));
   }
+
+  const notifySelect = hasNotifyTable
+    ? ", ecn.notified_complete_at AS company_notified_complete_at"
+    : ", NULL AS company_notified_complete_at";
+  const notifyJoin = hasNotifyTable
+    ? `LEFT JOIN event_company_notify ecn
+         ON ecn.id_event = ? AND ecn.id_company = edc.id_company`
+    : "";
 
   const [companyRows] = await db.execute(
     `SELECT edc.id_event_day_company, edc.id_event_day, edc.id_company, edc.id_producer,
@@ -416,11 +427,13 @@ async function loadEventDaysWithCompanies(idEvent, { onlyCompanyId } = {}) {
             pc.fancy_name AS producer_fancy_name,
             pc.id_company_type AS producer_company_type,
             pct.description AS producer_type_description
+            ${notifySelect}
      FROM event_day_company edc
      INNER JOIN company c ON c.id_company = edc.id_company
      INNER JOIN company_type ct ON ct.id_company_type = c.id_company_type
      LEFT JOIN company pc ON pc.id_company = edc.id_producer
      LEFT JOIN company_type pct ON pct.id_company_type = pc.id_company_type
+     ${notifyJoin}
      WHERE edc.id_event_day IN (${placeholders})${companyFilter}
      ORDER BY c.company_name ASC`,
     companyParams,
@@ -431,6 +444,12 @@ async function loadEventDaysWithCompanies(idEvent, { onlyCompanyId } = {}) {
     if (!companiesByDay.has(row.id_event_day)) {
       companiesByDay.set(row.id_event_day, []);
     }
+    const notifiedRaw = row.company_notified_complete_at || null;
+    const notifiedAt = notifiedRaw
+      ? notifiedRaw instanceof Date
+        ? notifiedRaw.toISOString()
+        : String(notifiedRaw)
+      : null;
     companiesByDay.get(row.id_event_day).push({
       id_event_day_company: row.id_event_day_company,
       company: {
@@ -439,6 +458,7 @@ async function loadEventDaysWithCompanies(idEvent, { onlyCompanyId } = {}) {
         fancy_name: row.fancy_name || null,
         id_company_type: row.id_company_type,
         company_type_description: row.company_type_description,
+        notified_complete_at: notifiedAt,
       },
       producer: row.id_producer
         ? {
@@ -651,6 +671,7 @@ async function getEventById(req, id) {
   const hasData = await eventHasRegisteredData(id);
   const can_delete =
     !hasData && (await userCanDeleteEvent(req, row, id));
+  const companies_notify = await getEventCompaniesNotifyMap(id);
   return {
     ...detail,
     notificar_portaria,
@@ -662,6 +683,7 @@ async function getEventById(req, id) {
     can_submit_approval,
     can_notify_complete,
     notified_complete_at,
+    companies_notify,
     can_delete,
     has_registered_data: hasData,
   };
@@ -808,13 +830,30 @@ async function createEvent(req, data) {
   }
 }
 
+function uniquePositiveIds(ids) {
+  if (!Array.isArray(ids)) return null;
+  const seen = new Set();
+  const out = [];
+  for (const raw of ids) {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0 || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
 /**
  * Aprova o evento e cascateia liberação de colaboradores/veículos pendentes
  * (AGUARDANDO_PRODUTORA / AGUARDANDO_APROVACAO → APROVADO + access_id).
  * Ignora blocklist e não altera NEGADO/EXPIRADO.
+ * Itens desmarcados na aprovação seletiva perdem a credencial (access_id).
  */
-async function markApproved(conn, idEntidade) {
+async function markApproved(conn, idEntidade, ctx = {}) {
   const idEvent = Number(idEntidade);
+  const approvedCollaboratorIds = uniquePositiveIds(ctx.approvedCollaboratorIds);
+  const approvedVehicleIds = uniquePositiveIds(ctx.approvedVehicleIds);
+
   await conn.execute(`UPDATE event SET id_access_status = ? WHERE id_event = ?`, [
     STATUS_APROVADO,
     idEvent,
@@ -822,50 +861,226 @@ async function markApproved(conn, idEntidade) {
 
   const pendingStatuses = [STATUS_AGUARDANDO_PRODUTORA, STATUS_AGUARDANDO_APROVACAO];
 
-  const [collaborators] = await conn.execute(
-    `SELECT edcc.id_event_day_company_collaborator
-       FROM event_day_company_collaborator edcc
-       INNER JOIN event_day_company edc
-         ON edc.id_event_day_company = edcc.id_event_day_company
-       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
-      WHERE ed.id_event = ?
-        AND edcc.id_access_status IN (?, ?)
-        AND NOT EXISTS (
-          SELECT 1 FROM collaborator_block_list bl
-           WHERE bl.id_collaborator = edcc.id_collaborator
-        )`,
-    [idEvent, ...pendingStatuses],
-  );
-  for (const row of collaborators) {
+  if (approvedCollaboratorIds) {
+    if (approvedCollaboratorIds.length) {
+      const placeholders = approvedCollaboratorIds.map(() => "?").join(",");
+      const [owned] = await conn.execute(
+        `SELECT edcc.id_event_day_company_collaborator
+           FROM event_day_company_collaborator edcc
+           INNER JOIN event_day_company edc
+             ON edc.id_event_day_company = edcc.id_event_day_company
+           INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+          WHERE ed.id_event = ?
+            AND edcc.id_event_day_company_collaborator IN (${placeholders})`,
+        [idEvent, ...approvedCollaboratorIds],
+      );
+      if (owned.length !== approvedCollaboratorIds.length) {
+        throw new AppError(
+          "Um ou mais colaboradores selecionados não pertencem a este evento.",
+          400,
+        );
+      }
+
+      const [blocklisted] = await conn.execute(
+        `SELECT c.name
+           FROM event_day_company_collaborator edcc
+           INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
+           INNER JOIN collaborator_block_list bl ON bl.id_collaborator = edcc.id_collaborator
+           INNER JOIN event_day_company edc
+             ON edc.id_event_day_company = edcc.id_event_day_company
+           INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+          WHERE ed.id_event = ?
+            AND edcc.id_event_day_company_collaborator IN (${placeholders})`,
+        [idEvent, ...approvedCollaboratorIds],
+      );
+      if (blocklisted.length) {
+        const names = blocklisted.map((r) => r.name).join(", ");
+        throw new AppError(
+          `Colaborador(es) na lista de restrição não podem ser aprovados: ${names}`,
+          403,
+        );
+      }
+
+      const [collaborators] = await conn.execute(
+        `SELECT edcc.id_event_day_company_collaborator
+           FROM event_day_company_collaborator edcc
+           INNER JOIN event_day_company edc
+             ON edc.id_event_day_company = edcc.id_event_day_company
+           INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+          WHERE ed.id_event = ?
+            AND edcc.id_event_day_company_collaborator IN (${placeholders})
+            AND edcc.id_access_status IN (?, ?)
+            AND edcc.access_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM collaborator_block_list bl
+               WHERE bl.id_collaborator = edcc.id_collaborator
+            )`,
+        [idEvent, ...approvedCollaboratorIds, ...pendingStatuses],
+      );
+      for (const row of collaborators) {
+        await conn.execute(
+          `UPDATE event_day_company_collaborator
+              SET id_access_status = ?, access_id = ?
+            WHERE id_event_day_company_collaborator = ?`,
+          [STATUS_APROVADO, crypto.randomUUID(), row.id_event_day_company_collaborator],
+        );
+      }
+    }
+
+    const collabRevokeParams = approvedCollaboratorIds.length
+      ? [
+          STATUS_AGUARDANDO_APROVACAO,
+          idEvent,
+          ...approvedCollaboratorIds,
+          STATUS_AGUARDANDO_PRODUTORA,
+          STATUS_AGUARDANDO_APROVACAO,
+          STATUS_APROVADO,
+        ]
+      : [
+          STATUS_AGUARDANDO_APROVACAO,
+          idEvent,
+          STATUS_AGUARDANDO_PRODUTORA,
+          STATUS_AGUARDANDO_APROVACAO,
+          STATUS_APROVADO,
+        ];
+    const collabNotIn = approvedCollaboratorIds.length
+      ? `AND edcc.id_event_day_company_collaborator NOT IN (${approvedCollaboratorIds.map(() => "?").join(",")})`
+      : "";
     await conn.execute(
-      `UPDATE event_day_company_collaborator
-          SET id_access_status = ?, access_id = ?
-        WHERE id_event_day_company_collaborator = ?`,
-      [STATUS_APROVADO, crypto.randomUUID(), row.id_event_day_company_collaborator],
+      `UPDATE event_day_company_collaborator edcc
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcc.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+          SET edcc.access_id = NULL, edcc.id_access_status = ?
+        WHERE ed.id_event = ?
+          ${collabNotIn}
+          AND edcc.id_access_status IN (?, ?, ?)`,
+      collabRevokeParams,
     );
+  } else {
+    const [collaborators] = await conn.execute(
+      `SELECT edcc.id_event_day_company_collaborator
+         FROM event_day_company_collaborator edcc
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcc.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event = ?
+          AND edcc.id_access_status IN (?, ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM collaborator_block_list bl
+             WHERE bl.id_collaborator = edcc.id_collaborator
+          )`,
+      [idEvent, ...pendingStatuses],
+    );
+    for (const row of collaborators) {
+      await conn.execute(
+        `UPDATE event_day_company_collaborator
+            SET id_access_status = ?, access_id = ?
+          WHERE id_event_day_company_collaborator = ?`,
+        [STATUS_APROVADO, crypto.randomUUID(), row.id_event_day_company_collaborator],
+      );
+    }
   }
 
-  const [vehicles] = await conn.execute(
-    `SELECT edcv.id_event_day_company_vehicle
-       FROM event_day_company_vehicle edcv
-       INNER JOIN event_day_company edc
-         ON edc.id_event_day_company = edcv.id_event_day_company
-       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
-      WHERE ed.id_event = ?
-        AND edcv.id_access_status IN (?, ?)
-        AND NOT EXISTS (
-          SELECT 1 FROM vehicle_block_list vbl
-           WHERE vbl.id_vehicle = edcv.id_vehicle
-        )`,
-    [idEvent, ...pendingStatuses],
-  );
-  for (const row of vehicles) {
+  if (approvedVehicleIds) {
+    if (approvedVehicleIds.length) {
+      const placeholders = approvedVehicleIds.map(() => "?").join(",");
+      const [owned] = await conn.execute(
+        `SELECT edcv.id_event_day_company_vehicle
+           FROM event_day_company_vehicle edcv
+           INNER JOIN event_day_company edc
+             ON edc.id_event_day_company = edcv.id_event_day_company
+           INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+          WHERE ed.id_event = ?
+            AND edcv.id_event_day_company_vehicle IN (${placeholders})`,
+        [idEvent, ...approvedVehicleIds],
+      );
+      if (owned.length !== approvedVehicleIds.length) {
+        throw new AppError(
+          "Um ou mais veículos selecionados não pertencem a este evento.",
+          400,
+        );
+      }
+
+      const [vehicles] = await conn.execute(
+        `SELECT edcv.id_event_day_company_vehicle
+           FROM event_day_company_vehicle edcv
+           INNER JOIN event_day_company edc
+             ON edc.id_event_day_company = edcv.id_event_day_company
+           INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+          WHERE ed.id_event = ?
+            AND edcv.id_event_day_company_vehicle IN (${placeholders})
+            AND edcv.id_access_status IN (?, ?)
+            AND edcv.access_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM vehicle_block_list vbl
+               WHERE vbl.id_vehicle = edcv.id_vehicle
+            )`,
+        [idEvent, ...approvedVehicleIds, ...pendingStatuses],
+      );
+      for (const row of vehicles) {
+        await conn.execute(
+          `UPDATE event_day_company_vehicle
+              SET id_access_status = ?, access_id = ?
+            WHERE id_event_day_company_vehicle = ?`,
+          [STATUS_APROVADO, crypto.randomUUID(), row.id_event_day_company_vehicle],
+        );
+      }
+    }
+
+    const vehicleRevokeParams = approvedVehicleIds.length
+      ? [
+          STATUS_AGUARDANDO_APROVACAO,
+          idEvent,
+          ...approvedVehicleIds,
+          STATUS_AGUARDANDO_PRODUTORA,
+          STATUS_AGUARDANDO_APROVACAO,
+          STATUS_APROVADO,
+        ]
+      : [
+          STATUS_AGUARDANDO_APROVACAO,
+          idEvent,
+          STATUS_AGUARDANDO_PRODUTORA,
+          STATUS_AGUARDANDO_APROVACAO,
+          STATUS_APROVADO,
+        ];
+    const vehicleNotIn = approvedVehicleIds.length
+      ? `AND edcv.id_event_day_company_vehicle NOT IN (${approvedVehicleIds.map(() => "?").join(",")})`
+      : "";
     await conn.execute(
-      `UPDATE event_day_company_vehicle
-          SET id_access_status = ?, access_id = ?
-        WHERE id_event_day_company_vehicle = ?`,
-      [STATUS_APROVADO, crypto.randomUUID(), row.id_event_day_company_vehicle],
+      `UPDATE event_day_company_vehicle edcv
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcv.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+          SET edcv.access_id = NULL, edcv.id_access_status = ?
+        WHERE ed.id_event = ?
+          ${vehicleNotIn}
+          AND edcv.id_access_status IN (?, ?, ?)`,
+      vehicleRevokeParams,
     );
+  } else {
+    const [vehicles] = await conn.execute(
+      `SELECT edcv.id_event_day_company_vehicle
+         FROM event_day_company_vehicle edcv
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcv.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event = ?
+          AND edcv.id_access_status IN (?, ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM vehicle_block_list vbl
+             WHERE vbl.id_vehicle = edcv.id_vehicle
+          )`,
+      [idEvent, ...pendingStatuses],
+    );
+    for (const row of vehicles) {
+      await conn.execute(
+        `UPDATE event_day_company_vehicle
+            SET id_access_status = ?, access_id = ?
+          WHERE id_event_day_company_vehicle = ?`,
+        [STATUS_APROVADO, crypto.randomUUID(), row.id_event_day_company_vehicle],
+      );
+    }
   }
 }
 
@@ -2062,6 +2277,29 @@ async function getCompanyNotifyCompleteAt(idEvent, idCompany) {
     [idEvent, idCompany],
   );
   return rows[0]?.notified_complete_at || null;
+}
+
+/** Mapa id_company → notified_complete_at para o evento. */
+async function getEventCompaniesNotifyMap(idEvent) {
+  if (!(await tableExists("event_company_notify"))) return {};
+  const [rows] = await db.execute(
+    `SELECT id_company, notified_complete_at
+       FROM event_company_notify
+      WHERE id_event = ?`,
+    [idEvent],
+  );
+  const map = {};
+  for (const row of rows) {
+    const id = Number(row.id_company);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    const raw = row.notified_complete_at || null;
+    map[String(id)] = raw
+      ? raw instanceof Date
+        ? raw.toISOString()
+        : String(raw)
+      : null;
+  }
+  return map;
 }
 
 async function submitEventApproval(req, id) {

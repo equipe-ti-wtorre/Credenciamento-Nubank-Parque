@@ -31,6 +31,7 @@ export interface EventDayCompanyBrief {
   fancy_name?: string | null;
   id_company_type?: number;
   company_type_description?: string;
+  notified_complete_at?: string | null;
 }
 
 export interface EventDayCompanyLink {
@@ -72,6 +73,8 @@ export interface EventDetail extends EventItem {
   can_submit_approval?: boolean;
   can_notify_complete?: boolean;
   notified_complete_at?: string | null;
+  /** id_company → data em que a parceira notificou término do cadastro */
+  companies_notify?: Record<number, string | null>;
   can_delete?: boolean;
   has_registered_data?: boolean;
 }

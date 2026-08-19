@@ -63,7 +63,7 @@ interface VeicDecisionState {
       <div class="wimp">
         <div
           class="wimp-stepper"
-          *ngIf="!embedded || !!apiAdapter"
+          *ngIf="!hideInternalStepper && (!embedded || !!apiAdapter)"
           [attr.aria-label]="'Passo ' + stepNumber() + ' de 3: ' + stepLabel()"
         >
           <div class="wimp-stepper__track">
@@ -102,7 +102,7 @@ interface VeicDecisionState {
                 <input #fileInput type="file" accept=".xlsx,.xls" class="hidden" (change)="onFileSelected($event)" />
                 @if (!file()) {
                   <div
-                    class="upload-dropzone upload-dropzone--banner"
+                    class="upload-dropzone upload-dropzone--banner upload-dropzone--centered"
                     [class.upload-dropzone--dragover]="dragging()"
                     tabindex="0"
                     role="button"
@@ -114,10 +114,10 @@ interface VeicDecisionState {
                     (dragleave)="dragging.set(false)"
                     (drop)="dragging.set(false); onDrop($event)"
                   >
+                    <span class="upload-dropzone__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+                    </span>
                     <div class="upload-dropzone__main">
-                      <span class="upload-dropzone__icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
-                      </span>
                       <span class="upload-dropzone__text">
                         <span class="upload-dropzone__title">
                           Arraste a planilha aqui ou
@@ -219,7 +219,7 @@ interface VeicDecisionState {
               <input #fileInputFull type="file" accept=".xlsx,.xls" class="hidden" (change)="onFileSelected($event)" />
               @if (!file()) {
                 <div
-                  class="upload-dropzone upload-dropzone--banner"
+                  class="upload-dropzone upload-dropzone--banner upload-dropzone--centered"
                   [class.upload-dropzone--dragover]="dragging()"
                   tabindex="0"
                   role="button"
@@ -230,10 +230,10 @@ interface VeicDecisionState {
                   (dragleave)="dragging.set(false)"
                   (drop)="dragging.set(false); onDrop($event)"
                 >
+                  <span class="upload-dropzone__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+                  </span>
                   <div class="upload-dropzone__main">
-                    <span class="upload-dropzone__icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
-                    </span>
                     <span class="upload-dropzone__text">
                       <span class="upload-dropzone__title">
                         Arraste a planilha aqui ou
@@ -317,6 +317,10 @@ interface VeicDecisionState {
             <div class="wimp-section-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
               Colaboradores <span class="wimp-count">· {{ prev.colaboradores.length }}</span>
+              <span class="wimp-section-actions">
+                <button type="button" class="wimp-link-action" (click)="selectAllCollaborators()">Selecionar todos</button>
+                <button type="button" class="wimp-link-action" (click)="deselectAllCollaborators()">Remover todos</button>
+              </span>
             </div>
             <div class="wimp-cards">
               @for (row of prev.colaboradores; track row.linha) {
@@ -434,6 +438,10 @@ interface VeicDecisionState {
               <div class="wimp-section-title">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6 17l1-5h10l1 5M7 12l1-4h8l1 4"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>
                 Veículos <span class="wimp-count">· {{ prev.veiculos.length }}</span>
+                <span class="wimp-section-actions">
+                  <button type="button" class="wimp-link-action" (click)="selectAllVehicles()">Selecionar todos</button>
+                  <button type="button" class="wimp-link-action" (click)="deselectAllVehicles()">Remover todos</button>
+                </span>
               </div>
               <div class="wimp-cards">
                 @for (row of prev.veiculos; track row.linha) {
@@ -578,10 +586,13 @@ interface VeicDecisionState {
           <span></span>
         }
         <div class="wimp-foot__right">
-          @if (step() === 'upload') {
+          @if (step() === 'upload' && !apiAdapter) {
             <button type="button" class="wimp-btn wimp-btn--primary" [disabled]="!file() || busy()" (click)="runPreview()">
               {{ busy() ? 'Analisando...' : 'Continuar' }}
             </button>
+          }
+          @if (step() === 'upload' && apiAdapter && busy()) {
+            <span class="wimp-analyzing">Analisando planilha...</span>
           }
           @if (step() === 'review') {
             <button type="button" class="wimp-btn wimp-btn--primary" [disabled]="busy() || !canConfirm()" (click)="runConfirm()">
@@ -665,6 +676,53 @@ interface VeicDecisionState {
         flex-direction: column;
         width: 100%;
         min-width: 0;
+      }
+      /* Ícone fixo à esquerda; texto no centro; botão à direita */
+      .upload-dropzone--centered.upload-dropzone--banner {
+        position: relative !important;
+        display: block !important;
+        min-height: 4.5rem !important;
+        padding: 0.75rem 9.5rem 0.75rem 3.75rem !important;
+        text-align: center !important;
+      }
+      .upload-dropzone--centered > .upload-dropzone__icon {
+        position: absolute !important;
+        left: 0.875rem !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        margin: 0 !important;
+        z-index: 2;
+      }
+      .upload-dropzone--centered .upload-dropzone__main {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        min-height: 2.75rem;
+      }
+      .upload-dropzone--centered .upload-dropzone__text {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        text-align: center !important;
+        width: 100% !important;
+        margin: 0 !important;
+      }
+      .upload-dropzone--centered .upload-dropzone__title,
+      .upload-dropzone--centered .upload-dropzone__hint {
+        text-align: center !important;
+        white-space: normal !important;
+      }
+      .upload-dropzone--centered > .upload-dropzone__action {
+        position: absolute !important;
+        right: 0.875rem !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        margin: 0 !important;
+        z-index: 2;
       }
       .wimp-embed__err {
         min-height: 1.125rem;
@@ -804,11 +862,20 @@ interface VeicDecisionState {
 
       .wimp-section-title {
         display: flex; align-items: center; gap: 8px; font-family: var(--font-display, Sora, sans-serif);
-        font-size: 14px; font-weight: 700; margin: 4px 0 12px;
+        font-size: 14px; font-weight: 700; margin: 4px 0 12px; flex-wrap: wrap;
       }
       .wimp-section-title:not(:first-of-type) { margin-top: 22px; }
       .wimp-section-title svg { width: 16px; height: 16px; color: var(--wtorre); }
       .wimp-count { font-family: var(--font-body, inherit); font-size: 12px; font-weight: 600; color: var(--ink-3); }
+      .wimp-section-actions {
+        margin-left: auto; display: inline-flex; align-items: center; gap: 12px;
+        font-family: var(--font-body, inherit);
+      }
+      .wimp-link-action {
+        border: 0; background: transparent; color: var(--wtorre); cursor: pointer;
+        font-size: 12.5px; font-weight: 700; padding: 0;
+      }
+      .wimp-link-action:hover { text-decoration: underline; }
 
       .wimp-cards { display: flex; flex-direction: column; gap: 10px; max-height: min(42vh, 380px); overflow: auto; }
       .wimp-rowcard { border: 1px solid var(--line); border-radius: var(--radius-field); padding: 14px 16px; }
@@ -914,7 +981,8 @@ interface VeicDecisionState {
         padding-top: 12px;
         border-top: 1px solid var(--line, #e2e8f0);
       }
-      .wimp-foot__right { display: flex; gap: 10px; margin-left: auto; }
+      .wimp-foot__right { display: flex; gap: 10px; margin-left: auto; align-items: center; }
+      .wimp-analyzing { font-size: 13px; font-weight: 600; color: var(--ink-3); }
       .wimp-btn {
         display: inline-flex; align-items: center; justify-content: center; gap: 8px;
         height: var(--field-h); padding: 0 20px; border-radius: var(--radius-pill);
@@ -944,17 +1012,17 @@ interface VeicDecisionState {
           flex-wrap: wrap;
           width: 100%;
         }
-        .upload-dropzone--banner {
-          flex-wrap: wrap;
-          align-items: flex-start;
+        .upload-dropzone--centered.upload-dropzone--banner {
+          padding: 0.75rem 0.875rem 3.5rem 3.75rem !important;
         }
-        .upload-dropzone--banner .upload-dropzone__main {
-          width: 100%;
-          min-width: 0;
-        }
-        .upload-dropzone--banner .upload-dropzone__text {
-          min-width: 0;
-          width: 100%;
+        .upload-dropzone--centered > .upload-dropzone__action {
+          left: 0.875rem !important;
+          right: 0.875rem !important;
+          top: auto !important;
+          bottom: 0.75rem !important;
+          transform: none !important;
+          width: auto;
+          justify-content: center;
         }
         .upload-dropzone--banner .upload-dropzone__title,
         .upload-dropzone--banner .upload-dropzone__hint {
@@ -962,15 +1030,12 @@ interface VeicDecisionState {
           overflow: visible;
           text-overflow: unset;
           word-break: break-word;
+          text-align: center;
         }
         .upload-dropzone--banner .upload-dropzone__hint {
           font-size: 0.8125rem;
           color: #64748b;
           line-height: 1.35;
-        }
-        .upload-dropzone__action {
-          width: 100%;
-          justify-content: center;
         }
         .wimp-foot,
         .wimp-foot--embed {
@@ -1005,6 +1070,8 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   @Input() notifyApprovers = true;
   /** Renderiza o conteúdo sem app-modal (dentro de outro wizard). */
   @Input() embedded = false;
+  /** Quando true, oculta o stepper interno (o pai já exibe o próprio). */
+  @Input() hideInternalStepper = false;
   /** APIs externas (ex.: evento) — dispensa rascunho de acesso de serviço. */
   @Input() apiAdapter: BulkImportApiAdapter | null = null;
   /** Admin de colaboradores: oculta eixo/resumo de veículos. */
@@ -1038,6 +1105,8 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
       toRoleId: number | null;
     }[]
   >();
+  /** Emite quando a etapa interna muda (upload / review / result). */
+  @Output() stepChange = new EventEmitter<WizardStep>();
 
   private pendingUpload: File | null = null;
   private pendingTemplate = false;
@@ -1169,8 +1238,14 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     this.onClose();
   }
 
+  private setStep(next: WizardStep) {
+    if (this.step() === next) return;
+    this.step.set(next);
+    this.stepChange.emit(next);
+  }
+
   reset() {
-    this.step.set('upload');
+    this.setStep('upload');
     this.file.set(null);
     this.preview.set(null);
     this.result.set(null);
@@ -1182,6 +1257,11 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     this.dismissedVeicLines.set(new Set());
     this.importing.set(false);
     this.dragging.set(false);
+  }
+
+  /** Volta à etapa de upload (usado por wizards pai). */
+  resetToUpload() {
+    this.backToUpload();
   }
 
   roleChangeDiff(row: UnifiedCollaboratorRow) {
@@ -1319,6 +1399,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     }
     if (this.apiAdapter) {
       this.file.set(f);
+      this.runPreview();
       return;
     }
     // No wizard de criação (embedded): sempre sincroniza o período do formulário no rascunho.
@@ -1416,7 +1497,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
           this.runConfirm();
           return;
         }
-        this.step.set('review');
+        this.setStep('review');
         this.busy.set(false);
       },
       error: (err) => {
@@ -1510,12 +1591,47 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   backToUpload() {
-    this.step.set('upload');
+    this.setStep('upload');
+    this.preview.set(null);
+    this.result.set(null);
+    this.tokenConsumed.set(false);
+    this.colDecisions.set({});
+    this.veicDecisions.set({});
+    this.dismissedColLines.set(new Set());
+    this.dismissedVeicLines.set(new Set());
+    this.uploadError.set(null);
   }
 
   toggleColInclude(line: number, ev: Event) {
     const checked = (ev.target as HTMLInputElement).checked;
     this.colDecisions.update((m) => ({ ...m, [line]: { ...m[line], include: checked } }));
+  }
+
+  selectAllCollaborators() {
+    const prev = this.preview();
+    if (!prev) return;
+    this.colDecisions.update((m) => {
+      const next = { ...m };
+      for (const row of prev.colaboradores) {
+        if (this.dismissedColLines().has(row.linha)) continue;
+        if (row.cadastro === 'erro' && !row.pendente_funcao) continue;
+        const state = next[row.linha];
+        if (!state) continue;
+        if (row.pendente_funcao && !state.roleId) continue;
+        next[row.linha] = { ...state, include: true };
+      }
+      return next;
+    });
+  }
+
+  deselectAllCollaborators() {
+    this.colDecisions.update((m) => {
+      const next: Record<number, ColDecisionState> = {};
+      for (const [lineStr, state] of Object.entries(m)) {
+        next[Number(lineStr)] = { ...state, include: false };
+      }
+      return next;
+    });
   }
 
   toggleColMasterField(line: number, field: string, ev: Event) {
@@ -1601,6 +1717,32 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     this.veicDecisions.update((m) => ({ ...m, [line]: { ...m[line], include: checked } }));
   }
 
+  selectAllVehicles() {
+    const prev = this.preview();
+    if (!prev) return;
+    this.veicDecisions.update((m) => {
+      const next = { ...m };
+      for (const row of prev.veiculos) {
+        if (this.dismissedVeicLines().has(row.linha)) continue;
+        if (row.cadastro === 'erro') continue;
+        const state = next[row.linha];
+        if (!state) continue;
+        next[row.linha] = { ...state, include: true };
+      }
+      return next;
+    });
+  }
+
+  deselectAllVehicles() {
+    this.veicDecisions.update((m) => {
+      const next: Record<number, VeicDecisionState> = {};
+      for (const [lineStr, state] of Object.entries(m)) {
+        next[Number(lineStr)] = { ...state, include: false };
+      }
+      return next;
+    });
+  }
+
   toggleVeicField(line: number, field: string, ev: Event) {
     const checked = (ev.target as HTMLInputElement).checked;
     this.veicDecisions.update((m) => ({
@@ -1654,7 +1796,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     this.importing.set(true);
     this.tokenConsumed.set(false);
     if (!this.shouldAutoConfirm()) {
-      this.step.set('result');
+      this.setStep('result');
     }
 
     const confirm$ = this.apiAdapter
@@ -1699,13 +1841,13 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
           return;
         }
         if (this.shouldAutoConfirm()) {
-          this.step.set('upload');
+          this.setStep('upload');
           this.uploadError.set(
             (typeof err?.error === 'object' && err?.error?.message) ||
               'Falha ao importar a planilha.',
           );
         } else {
-          this.step.set('review');
+          this.setStep('review');
         }
         this.notification.notifyHttpError(err, 'Falha ao confirmar importação.');
       },

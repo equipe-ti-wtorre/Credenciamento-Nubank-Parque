@@ -231,42 +231,84 @@ async function attachLiberacaoResumo(items) {
   if (!Array.isArray(items) || !items.length) return items;
 
   const serviceItems = items.filter((item) => item.tipoEntidade === 'ACESSO_SERVICO');
-  if (!serviceItems.length) return items;
+  const eventItems = items.filter((item) => item.tipoEntidade === 'EVENTO');
 
-  const ids = [...new Set(serviceItems.map((item) => item.idEntidade))];
-  const placeholders = ids.map(() => '?').join(',');
+  const serviceCollabById = new Map();
+  const serviceVehicleById = new Map();
+  if (serviceItems.length) {
+    const ids = [...new Set(serviceItems.map((item) => item.idEntidade))];
+    const placeholders = ids.map(() => '?').join(',');
 
-  const [collabRows] = await pool.query(
-    `SELECT id_service_access AS id,
-            SUM(CASE WHEN access_id IS NOT NULL THEN 1 ELSE 0 END) AS liberados,
-            COUNT(*) AS total
-       FROM service_access_collaborator
-      WHERE id_service_access IN (${placeholders})
-      GROUP BY id_service_access`,
-    ids,
-  );
+    const [collabRows] = await pool.query(
+      `SELECT id_service_access AS id,
+              SUM(CASE WHEN access_id IS NOT NULL THEN 1 ELSE 0 END) AS liberados,
+              COUNT(*) AS total
+         FROM service_access_collaborator
+        WHERE id_service_access IN (${placeholders})
+        GROUP BY id_service_access`,
+      ids,
+    );
+    const [vehicleRows] = await pool.query(
+      `SELECT id_service_access AS id,
+              SUM(CASE WHEN access_id IS NOT NULL THEN 1 ELSE 0 END) AS liberados,
+              COUNT(*) AS total
+         FROM service_access_vehicle
+        WHERE id_service_access IN (${placeholders})
+        GROUP BY id_service_access`,
+      ids,
+    );
+    for (const r of collabRows) serviceCollabById.set(Number(r.id), r);
+    for (const r of vehicleRows) serviceVehicleById.set(Number(r.id), r);
+  }
 
-  const [vehicleRows] = await pool.query(
-    `SELECT id_service_access AS id,
-            SUM(CASE WHEN access_id IS NOT NULL THEN 1 ELSE 0 END) AS liberados,
-            COUNT(*) AS total
-       FROM service_access_vehicle
-      WHERE id_service_access IN (${placeholders})
-      GROUP BY id_service_access`,
-    ids,
-  );
+  const eventCollabById = new Map();
+  const eventVehicleById = new Map();
+  if (eventItems.length) {
+    const ids = [...new Set(eventItems.map((item) => item.idEntidade))];
+    const placeholders = ids.map(() => '?').join(',');
 
-  const collabById = new Map(collabRows.map((r) => [Number(r.id), r]));
-  const vehicleById = new Map(vehicleRows.map((r) => [Number(r.id), r]));
+    const [collabRows] = await pool.query(
+      `SELECT ed.id_event AS id,
+              SUM(CASE WHEN edcc.access_id IS NOT NULL THEN 1 ELSE 0 END) AS liberados,
+              COUNT(*) AS total
+         FROM event_day_company_collaborator edcc
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcc.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event IN (${placeholders})
+        GROUP BY ed.id_event`,
+      ids,
+    );
+    const [vehicleRows] = await pool.query(
+      `SELECT ed.id_event AS id,
+              SUM(CASE WHEN edcv.access_id IS NOT NULL THEN 1 ELSE 0 END) AS liberados,
+              COUNT(*) AS total
+         FROM event_day_company_vehicle edcv
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcv.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event IN (${placeholders})
+        GROUP BY ed.id_event`,
+      ids,
+    );
+    for (const r of collabRows) eventCollabById.set(Number(r.id), r);
+    for (const r of vehicleRows) eventVehicleById.set(Number(r.id), r);
+  }
 
   for (const item of items) {
-    if (item.tipoEntidade !== 'ACESSO_SERVICO') {
+    let collab = null;
+    let vehicle = null;
+    if (item.tipoEntidade === 'ACESSO_SERVICO') {
+      collab = serviceCollabById.get(Number(item.idEntidade));
+      vehicle = serviceVehicleById.get(Number(item.idEntidade));
+    } else if (item.tipoEntidade === 'EVENTO') {
+      collab = eventCollabById.get(Number(item.idEntidade));
+      vehicle = eventVehicleById.get(Number(item.idEntidade));
+    } else {
       item.liberacaoResumo = null;
       continue;
     }
 
-    const collab = collabById.get(Number(item.idEntidade));
-    const vehicle = vehicleById.get(Number(item.idEntidade));
     const cLiberados = Number(collab?.liberados || 0);
     const cTotal = Number(collab?.total || 0);
     const vLiberados = Number(vehicle?.liberados || 0);
@@ -294,7 +336,12 @@ async function attachLiberacaoResumo(items) {
 }
 
 function liberacaoResumoFromEntity(entidade, approvalStatus) {
-  if (!entidade || entidade.tipo !== 'ACESSO_SERVICO') return null;
+  if (
+    !entidade ||
+    (entidade.tipo !== 'ACESSO_SERVICO' && entidade.tipo !== 'EVENTO')
+  ) {
+    return null;
+  }
 
   const summarize = (list = []) => {
     let liberados = 0;
@@ -354,22 +401,48 @@ async function buildSelectiveApprovalMetadata(conn, aprovacao, {
   approvedCollaboratorIds,
   approvedVehicleIds,
 } = {}) {
-  if (aprovacao.tipo_entidade !== 'ACESSO_SERVICO') return null;
+  const tipo = aprovacao.tipo_entidade;
+  if (tipo !== 'ACESSO_SERVICO' && tipo !== 'EVENTO') return null;
 
-  const [collabRows] = await conn.query(
-    `SELECT sac.id_service_access_collaborator AS id, c.name AS nome
-       FROM service_access_collaborator sac
-       INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
-      WHERE sac.id_service_access = ?`,
-    [aprovacao.id_entidade],
-  );
-  const [vehicleRows] = await conn.query(
-    `SELECT sav.id_service_access_vehicle AS id, v.plate AS placa
-       FROM service_access_vehicle sav
-       INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
-      WHERE sav.id_service_access = ?`,
-    [aprovacao.id_entidade],
-  );
+  let collabRows;
+  let vehicleRows;
+  if (tipo === 'ACESSO_SERVICO') {
+    [collabRows] = await conn.query(
+      `SELECT sac.id_service_access_collaborator AS id, c.name AS nome
+         FROM service_access_collaborator sac
+         INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
+        WHERE sac.id_service_access = ?`,
+      [aprovacao.id_entidade],
+    );
+    [vehicleRows] = await conn.query(
+      `SELECT sav.id_service_access_vehicle AS id, v.plate AS placa
+         FROM service_access_vehicle sav
+         INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
+        WHERE sav.id_service_access = ?`,
+      [aprovacao.id_entidade],
+    );
+  } else {
+    [collabRows] = await conn.query(
+      `SELECT edcc.id_event_day_company_collaborator AS id, c.name AS nome
+         FROM event_day_company_collaborator edcc
+         INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcc.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event = ?`,
+      [aprovacao.id_entidade],
+    );
+    [vehicleRows] = await conn.query(
+      `SELECT edcv.id_event_day_company_vehicle AS id, v.plate AS placa
+         FROM event_day_company_vehicle edcv
+         INNER JOIN vehicle v ON v.id_vehicle = edcv.id_vehicle
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcv.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event = ?`,
+      [aprovacao.id_entidade],
+    );
+  }
 
   const filterCollabs = Array.isArray(approvedCollaboratorIds);
   const filterVehicles = Array.isArray(approvedVehicleIds);
@@ -497,35 +570,99 @@ async function loadServiceAccessEntity(idEntidade, { approvalStatus = null } = {
   };
 }
 
-async function loadEventEntity(idEntidade) {
+async function loadEventEntity(idEntidade, { approvalStatus = null } = {}) {
   const [rows] = await pool.query(
-    `SELECT e.id_event, e.name, e.start, e.end, e.criado_em, e.atualizado_em
+    `SELECT e.id_event, e.name, e.start, e.end, e.criado_em, e.atualizado_em,
+            c.fancy_name AS company_fancy_name, c.company_name AS company_name
        FROM event e
+       LEFT JOIN company c ON c.id_company = e.id_company_responsavel
       WHERE e.id_event = ?
       LIMIT 1`,
     [idEntidade],
   );
   if (!rows.length) return null;
   const row = rows[0];
+
+  const [collabRows] = await pool.query(
+    `SELECT edcc.id_event_day_company_collaborator, edcc.id_collaborator, edcc.id_collaborator_role,
+            edcc.access_id, edcc.criado_em,
+            c.name AS collaborator_name, c.document AS collaborator_document,
+            c.picture AS collaborator_picture,
+            cr.description AS role_description,
+            co.company_name, co.fancy_name AS company_fancy_name,
+            ed.date AS day_date, edt.description AS phase_description
+       FROM event_day_company_collaborator edcc
+       INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
+       INNER JOIN collaborator_role cr ON cr.id_collaborator_role = edcc.id_collaborator_role
+       INNER JOIN event_day_company edc
+         ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN company co ON co.id_company = edc.id_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+       INNER JOIN event_day_type edt ON edt.id_event_day_type = ed.id_type
+      WHERE ed.id_event = ?
+      ORDER BY c.name ASC, ed.date ASC, edcc.id_event_day_company_collaborator ASC`,
+    [idEntidade],
+  );
+
+  const [vehicleRows] = await pool.query(
+    `SELECT edcv.id_event_day_company_vehicle, edcv.id_vehicle, edcv.access_id,
+            v.plate, v.brand, v.model,
+            co.company_name, co.fancy_name AS company_fancy_name,
+            ed.date AS day_date, edt.description AS phase_description
+       FROM event_day_company_vehicle edcv
+       INNER JOIN vehicle v ON v.id_vehicle = edcv.id_vehicle
+       INNER JOIN event_day_company edc
+         ON edc.id_event_day_company = edcv.id_event_day_company
+       INNER JOIN company co ON co.id_company = edc.id_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+       INNER JOIN event_day_type edt ON edt.id_event_day_type = ed.id_type
+      WHERE ed.id_event = ?
+      ORDER BY v.plate ASC, ed.date ASC, edcv.id_event_day_company_vehicle ASC`,
+    [idEntidade],
+  );
+
   return {
     tipo: 'EVENTO',
     id: row.id_event,
     nome: row.name || null,
     startDate: formatDateOnly(row.start),
     endDate: formatDateOnly(row.end),
-    empresa: null,
+    empresa: row.company_fancy_name || row.company_name || null,
     departamento: null,
     observacao: null,
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
-    collaborators: [],
-    vehicles: [],
+    collaborators: collabRows.map((r) => ({
+      id: r.id_event_day_company_collaborator,
+      idCollaborator: r.id_collaborator,
+      nome: r.collaborator_name,
+      documento: r.collaborator_document,
+      funcao: r.role_description,
+      picture: r.collaborator_picture || null,
+      empresa: r.company_fancy_name || r.company_name || null,
+      fase: r.phase_description || null,
+      dataDia: formatDateOnly(r.day_date),
+      criadoEm: r.criado_em,
+      statusLiberacao: liberacaoStatus(r.access_id, approvalStatus),
+    })),
+    vehicles: vehicleRows.map((r) => ({
+      id: r.id_event_day_company_vehicle,
+      idVehicle: r.id_vehicle,
+      placa: r.plate,
+      marca: r.brand || null,
+      modelo: r.model || null,
+      empresa: r.company_fancy_name || r.company_name || null,
+      fase: r.phase_description || null,
+      dataDia: formatDateOnly(r.day_date),
+      criadoEm: null,
+      statusLiberacao: liberacaoStatus(r.access_id, approvalStatus),
+    })),
   };
 }
 
 async function loadEntityForApproval(tipoEntidade, idEntidade, opts = {}) {
   if (tipoEntidade === 'ACESSO_SERVICO') return loadServiceAccessEntity(idEntidade, opts);
-  if (tipoEntidade === 'EVENTO') return loadEventEntity(idEntidade);
+  if (tipoEntidade === 'EVENTO') return loadEventEntity(idEntidade, opts);
   return null;
 }
 
@@ -1319,7 +1456,11 @@ async function approve(idAprovacao, user, options = {}) {
     const isFinalLevel = nivel >= aprovacao.niveis_exigidos;
 
     let decisionMetadata = null;
-    if (isFinalLevel && aprovacao.tipo_entidade === 'ACESSO_SERVICO') {
+    if (
+      isFinalLevel &&
+      (aprovacao.tipo_entidade === 'ACESSO_SERVICO' ||
+        aprovacao.tipo_entidade === 'EVENTO')
+    ) {
       decisionMetadata = await buildSelectiveApprovalMetadata(conn, aprovacao, {
         approvedCollaboratorIds,
         approvedVehicleIds,

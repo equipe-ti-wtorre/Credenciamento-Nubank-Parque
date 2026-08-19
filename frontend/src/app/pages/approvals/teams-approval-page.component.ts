@@ -22,6 +22,8 @@ import {
   approvalStatusBadgeClass,
   liberacaoStatusBadgeClass,
   liberacaoStatusLabel,
+  toPositiveId,
+  toPositiveIdSet,
 } from '../../services/approval.service';
 import { CollaboratorService } from '../../services/collaborator.service';
 import { NotificationService } from '../../core/services/notification.service';
@@ -144,7 +146,7 @@ import { TeamsContextService } from '../../services/teams-context.service';
                 </p>
               </div>
 
-              <div *ngIf="ent.tipo === 'ACESSO_SERVICO'">
+              <div *ngIf="ent.tipo === 'ACESSO_SERVICO' || ent.tipo === 'EVENTO'">
                 <p class="text-xs font-bold text-slate-500 uppercase mb-2">Colaboradores</p>
                 <p *ngIf="!ent.collaborators.length" class="text-sm text-slate-500">Nenhum.</p>
                 <ul class="space-y-2" *ngIf="ent.collaborators.length">
@@ -153,7 +155,11 @@ import { TeamsContextService } from '../../services/teams-context.service';
                     class="flex flex-wrap items-center gap-2 text-sm rounded-lg bg-slate-50 px-3 py-2"
                   >
                     <span class="font-medium text-slate-800">{{ c.nome }}</span>
-                    <span class="text-slate-500">{{ c.documento }} · {{ c.funcao }}</span>
+                    <span class="text-slate-500">
+                      {{ c.documento }} · {{ c.funcao }}
+                      <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
+                      <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
+                    </span>
                     <span
                       class="ml-auto inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
                       [ngClass]="liberacaoBadgeClass(c.statusLiberacao)"
@@ -212,7 +218,10 @@ import { TeamsContextService } from '../../services/teams-context.service';
               {{ mode === 'approve' ? 'Confirmar aprovação' : 'Confirmar reprovação' }}
             </p>
 
-            <div *ngIf="mode === 'approve' && d.tipoEntidade === 'ACESSO_SERVICO'" class="space-y-5">
+            <div
+              *ngIf="mode === 'approve' && (d.tipoEntidade === 'ACESSO_SERVICO' || d.tipoEntidade === 'EVENTO')"
+              class="space-y-5"
+            >
               <p class="text-xs text-slate-500">
                 Marque quem recebe acesso. Desmarque para bloquear na portaria.
               </p>
@@ -270,7 +279,7 @@ import { TeamsContextService } from '../../services/teams-context.service';
                 </div>
 
                 <p *ngIf="!(d.entidade?.collaborators?.length)" class="text-sm text-slate-500">
-                  Nenhum colaborador neste acesso.
+                  Nenhum colaborador nesta solicitação.
                 </p>
 
                 <div class="flex flex-col gap-2" *ngIf="d.entidade?.collaborators?.length">
@@ -335,6 +344,8 @@ import { TeamsContextService } from '../../services/teams-context.service';
                         [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-500' : 'text-slate-400'"
                       >
                         {{ c.documento }} · {{ c.funcao }}
+                        <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
+                        <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
                       </span>
                     </span>
                     <span
@@ -403,7 +414,7 @@ import { TeamsContextService } from '../../services/teams-context.service';
                 </div>
 
                 <p *ngIf="!(d.entidade?.vehicles?.length)" class="text-sm text-slate-500">
-                  Nenhum veículo neste acesso.
+                  Nenhum veículo nesta solicitação.
                 </p>
 
                 <div class="flex flex-col gap-2" *ngIf="d.entidade?.vehicles?.length">
@@ -472,10 +483,14 @@ import { TeamsContextService } from '../../services/teams-context.service';
                       </span>
                       <span
                         class="block text-[12.5px] truncate"
-                        *ngIf="v.marca || v.modelo"
+                        *ngIf="v.marca || v.modelo || v.empresa || v.fase"
                         [ngClass]="isVehicleSelected(v.id) ? 'text-slate-500' : 'text-slate-400'"
                       >
-                        {{ v.marca }} {{ v.modelo }}
+                        <ng-container *ngIf="v.marca || v.modelo">{{ v.marca }} {{ v.modelo }}</ng-container>
+                        <ng-container *ngIf="(v.marca || v.modelo) && (v.empresa || v.fase)"> · </ng-container>
+                        <ng-container *ngIf="v.empresa">{{ v.empresa }}</ng-container>
+                        <ng-container *ngIf="v.empresa && v.fase"> · </ng-container>
+                        <ng-container *ngIf="v.fase">{{ v.fase }}</ng-container>
                       </span>
                     </span>
                     <span
@@ -716,18 +731,20 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
 
   private initSelection(item: ApprovalItem) {
     this.selectedCollaboratorIds.set(
-      new Set((item.entidade?.collaborators ?? []).map((c) => c.id)),
+      toPositiveIdSet((item.entidade?.collaborators ?? []).map((c) => c.id)),
     );
-    this.selectedVehicleIds.set(new Set((item.entidade?.vehicles ?? []).map((v) => v.id)));
+    this.selectedVehicleIds.set(toPositiveIdSet((item.entidade?.vehicles ?? []).map((v) => v.id)));
     this.loadThumbnails(item.entidade?.collaborators ?? []);
   }
 
   isCollaboratorSelected(id: number) {
-    return this.selectedCollaboratorIds().has(id);
+    const n = toPositiveId(id);
+    return n != null && this.selectedCollaboratorIds().has(n);
   }
 
   isVehicleSelected(id: number) {
-    return this.selectedVehicleIds().has(id);
+    const n = toPositiveId(id);
+    return n != null && this.selectedVehicleIds().has(n);
   }
 
   selectedCollaboratorCount(): number {
@@ -780,30 +797,34 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
   }
 
   toggleCollaborator(id: number) {
+    const n = toPositiveId(id);
+    if (n == null) return;
     const next = new Set(this.selectedCollaboratorIds());
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(n)) next.delete(n);
+    else next.add(n);
     this.selectedCollaboratorIds.set(next);
     this.cdr.markForCheck();
   }
 
   toggleVehicle(id: number) {
+    const n = toPositiveId(id);
+    if (n == null) return;
     const next = new Set(this.selectedVehicleIds());
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(n)) next.delete(n);
+    else next.add(n);
     this.selectedVehicleIds.set(next);
     this.cdr.markForCheck();
   }
 
   markAllCollaborators(selected: boolean) {
     const list = this.approval()?.entidade?.collaborators ?? [];
-    this.selectedCollaboratorIds.set(selected ? new Set(list.map((c) => c.id)) : new Set());
+    this.selectedCollaboratorIds.set(selected ? toPositiveIdSet(list.map((c) => c.id)) : new Set());
     this.cdr.markForCheck();
   }
 
   markAllVehicles(selected: boolean) {
     const list = this.approval()?.entidade?.vehicles ?? [];
-    this.selectedVehicleIds.set(selected ? new Set(list.map((v) => v.id)) : new Set());
+    this.selectedVehicleIds.set(selected ? toPositiveIdSet(list.map((v) => v.id)) : new Set());
     this.cdr.markForCheck();
   }
 
@@ -824,7 +845,7 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
         approvedCollaboratorIds?: number[];
         approvedVehicleIds?: number[];
       } = { comentario: this.comment.trim() || undefined };
-      if (d.tipoEntidade === 'ACESSO_SERVICO') {
+      if (d.tipoEntidade === 'ACESSO_SERVICO' || d.tipoEntidade === 'EVENTO') {
         payload.approvedCollaboratorIds = [...this.selectedCollaboratorIds()];
         payload.approvedVehicleIds = [...this.selectedVehicleIds()];
       }

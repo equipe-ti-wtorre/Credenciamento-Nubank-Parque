@@ -139,8 +139,16 @@ function buildListWhere(scope, filters) {
     }
     if (filters.name) {
       const term = `%${filters.name}%`;
-      conditions.push("(c.company_name LIKE ? OR c.fancy_name LIKE ?)");
-      params.push(term, term);
+      const digits = String(filters.name).replace(/\D/g, "");
+      if (digits.length >= 3) {
+        conditions.push(
+          "(c.company_name LIKE ? OR c.fancy_name LIKE ? OR REPLACE(REPLACE(REPLACE(REPLACE(c.cnpj, '.', ''), '-', ''), '/', ''), ' ', '') LIKE ?)",
+        );
+        params.push(term, term, `%${digits}%`);
+      } else {
+        conditions.push("(c.company_name LIKE ? OR c.fancy_name LIKE ?)");
+        params.push(term, term);
+      }
     }
     if (filters.id_company_type) {
       conditions.push("c.id_company_type = ?");

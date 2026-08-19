@@ -20,8 +20,11 @@ import {
   approvalHistoryDotClass,
   approvalItemTitle,
   approvalStatusBadgeClass,
+  approvalStatusLabel,
   liberacaoStatusBadgeClass,
   liberacaoStatusLabel,
+  toPositiveId,
+  toPositiveIdSet,
 } from '../../services/approval.service';
 import { CollaboratorService } from '../../services/collaborator.service';
 import { NotificationService } from '../../core/services/notification.service';
@@ -255,67 +258,73 @@ import { ModalComponent } from '../../shared/modal/modal.component';
       </div>
 
       <ng-template #approvalCard let-item>
-        <article class="card-surface p-5 sm:p-6 flex flex-col gap-4">
-          <div class="flex items-start justify-between gap-3">
-            <div class="flex items-center gap-2 min-w-0 text-sm text-slate-500">
-              <svg
-                *ngIf="item.tipoEntidade === 'ACESSO_SERVICO'"
-                class="w-4 h-4 shrink-0 text-slate-400"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
+        <article
+          class="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.04),0_8px_24px_-12px_rgba(15,23,42,.12)] transition duration-200 hover:-translate-y-px hover:border-slate-300 hover:shadow-[0_1px_2px_rgba(15,23,42,.04),0_12px_32px_-12px_rgba(15,23,42,.18)]"
+        >
+          <span aria-hidden="true" class="absolute inset-y-0 left-0 w-1" [ngClass]="cardBarClass(item)"></span>
+
+          <div class="p-5 pl-6 sm:p-6 sm:pl-7">
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 text-xs font-medium text-slate-500">
+                  <span class="tabular-nums">{{ entityLabel(item.tipoEntidade) }} #{{ item.idEntidade }}</span>
+                  <span class="h-1 w-1 rounded-full bg-slate-300"></span>
+                  <span
+                    class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600"
+                  >
+                    <svg
+                      *ngIf="item.tipoEntidade === 'ACESSO_SERVICO'"
+                      class="h-3 w-3"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                      />
+                    </svg>
+                    <svg
+                      *ngIf="item.tipoEntidade === 'EVENTO'"
+                      class="h-3 w-3"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1M9 13h1m4 0h1M9 17h1m4 0h1" />
+                    </svg>
+                    {{ item.setor.nome }}
+                  </span>
+                </div>
+                <h2 class="mt-1.5 truncate text-2xl font-semibold tracking-tight text-slate-900">
+                  {{ itemTitle(item) }}
+                </h2>
+              </div>
+
+              <span
+                class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset"
+                [ngClass]="statusPillClass(item)"
               >
-                <path
-                  d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
-                />
-              </svg>
-              <svg
-                *ngIf="item.tipoEntidade === 'EVENTO'"
-                class="w-4 h-4 shrink-0 text-slate-400"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="3" y="4" width="18" height="18" rx="2" />
-                <path d="M16 2v4M8 2v4M3 10h18" />
-              </svg>
-              <span class="truncate font-medium">
-                {{ entityLabel(item.tipoEntidade) }} #{{ item.idEntidade }}
+                <span class="h-1.5 w-1.5 rounded-full" [ngClass]="statusPillDotClass(item)"></span>
+                {{ statusPillLabel(item) }}
               </span>
             </div>
-            <span
-              class="inline-flex items-center gap-1.5 shrink-0 px-2.5 py-1 rounded-md text-xs font-bold tracking-wide"
-              [ngClass]="badgeClass(item.status)"
-            >
-              <span class="h-1.5 w-1.5 rounded-full bg-current opacity-80" aria-hidden="true"></span>
-              {{ item.status }}
-            </span>
-          </div>
 
-          <div
-            class="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6"
-            [class.sm:justify-between]="item.tipoEntidade === 'ACESSO_SERVICO' && item.liberacaoResumo"
-          >
-            <div class="min-w-0 flex-1 space-y-3">
-              <h3 class="text-xl sm:text-2xl font-bold text-slate-900 leading-snug tracking-tight">
-                {{ itemTitle(item) }}
-              </h3>
-
-              <dl class="space-y-2.5 text-sm">
+            <div class="mt-5 grid gap-5 md:grid-cols-[1fr_auto] md:gap-8">
+              <dl class="grid grid-cols-1 gap-x-6 gap-y-3.5 self-start sm:grid-cols-2 md:grid-cols-1">
                 <div
                   class="flex items-start gap-2.5"
                   *ngIf="item.entidadeResumo?.startDate || item.entidadeResumo?.endDate"
                 >
                   <svg
-                    class="w-4 h-4 mt-0.5 shrink-0 text-slate-400"
+                    class="mt-0.5 h-4 w-4 shrink-0 text-slate-400"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -328,17 +337,22 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                     <path d="M16 2v4M8 2v4M3 10h18" />
                   </svg>
                   <div class="min-w-0">
-                    <dt class="inline text-slate-500">Período</dt>
-                    <dd class="inline text-slate-800 font-semibold ml-1.5">
-                      {{ item.entidadeResumo?.startDate | date: 'dd/MM' }} –
-                      {{ item.entidadeResumo?.endDate | date: 'dd/MM/yyyy' }}
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Período</dt>
+                    <dd class="tabular-nums text-sm font-medium text-slate-800">
+                      {{ periodLabel(item) }}
+                      <span
+                        *ngIf="periodDays(item) as days"
+                        class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500"
+                      >
+                        {{ days }} {{ days === 1 ? 'dia' : 'dias' }}
+                      </span>
                     </dd>
                   </div>
                 </div>
 
                 <div class="flex items-start gap-2.5">
                   <svg
-                    class="w-4 h-4 mt-0.5 shrink-0 text-slate-400"
+                    class="mt-0.5 h-4 w-4 shrink-0 text-slate-400"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -347,13 +361,11 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                     stroke-linejoin="round"
                     aria-hidden="true"
                   >
-                    <path d="M3 21h18" />
-                    <path d="M5 21V7l7-4 7 4v14" />
-                    <path d="M9 21v-6h6v6" />
+                    <path d="M3 21h18M5 21V7l7-4 7 4v14M10 21v-5h4v5" />
                   </svg>
                   <div class="min-w-0">
-                    <dt class="inline text-slate-500">Setor</dt>
-                    <dd class="inline text-slate-800 font-semibold ml-1.5">{{ item.setor.nome }}</dd>
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Setor</dt>
+                    <dd class="text-sm font-medium text-slate-800">{{ item.setor.nome }}</dd>
                   </div>
                 </div>
 
@@ -362,7 +374,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   *ngIf="tab() !== 'mine' || item.solicitante?.nome"
                 >
                   <svg
-                    class="w-4 h-4 mt-0.5 shrink-0 text-slate-400"
+                    class="mt-0.5 h-4 w-4 shrink-0 text-slate-400"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -371,168 +383,350 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                     stroke-linejoin="round"
                     aria-hidden="true"
                   >
-                    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                   </svg>
                   <div class="min-w-0">
-                    <dt class="inline text-slate-500">Solicitante</dt>
-                    <dd class="inline text-slate-800 font-semibold ml-1.5">
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      Solicitante
+                    </dt>
+                    <dd class="flex items-center gap-2 text-sm font-medium text-slate-800">
+                      <span
+                        *ngIf="item.solicitante?.nome"
+                        class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600"
+                      >
+                        {{ initials(item.solicitante.nome) }}
+                      </span>
                       {{ item.solicitante?.nome || '—' }}
                     </dd>
                   </div>
                 </div>
               </dl>
-            </div>
 
-            <aside
-              *ngIf="item.tipoEntidade === 'ACESSO_SERVICO' && item.liberacaoResumo"
-              class="sm:w-[13.5rem] sm:shrink-0 grid grid-cols-2 sm:grid-cols-1 gap-2"
-              aria-label="Resumo de liberação"
-            >
-              <div class="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-                <p class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">
-                  Colaboradores
-                </p>
-                <div *ngIf="item.status === 'APROVADO'">
-                  <div class="flex items-baseline gap-1.5">
-                    <span class="text-2xl font-bold tabular-nums text-emerald-700 leading-none">
+              <div
+                *ngIf="item.liberacaoResumo"
+                class="grid gap-3 sm:grid-cols-2 md:w-[340px] md:grid-cols-1"
+                aria-label="Resumo de liberação"
+              >
+                <div class="rounded-xl border px-4 py-3" [ngClass]="axisCardClass(item, 'colaboradores')">
+                  <div class="flex items-center justify-between">
+                    <span
+                      class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+                    >
+                      <svg
+                        class="h-3.5 w-3.5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                      Colaboradores
+                    </span>
+                    <span class="tabular-nums text-[11px] font-medium text-slate-400">
+                      {{ item.liberacaoResumo.colaboradores.total }} no total
+                    </span>
+                  </div>
+                  <div *ngIf="showLiberacaoCounts(item)" class="mt-2 flex items-baseline gap-2">
+                    <span class="tabular-nums text-2xl font-semibold leading-none text-emerald-600">
                       {{ item.liberacaoResumo.colaboradores.liberados }}
                     </span>
-                    <span class="text-xs font-medium text-emerald-700/80">liberados</span>
-                  </div>
-                  <div class="mt-1 flex items-baseline gap-1.5">
-                    <span class="text-lg font-bold tabular-nums text-red-700 leading-none">
-                      {{ item.liberacaoResumo.colaboradores.bloqueados }}
+                    <span class="text-xs font-medium text-slate-500">
+                      {{ countLabel(item.liberacaoResumo.colaboradores.liberados, 'liberado', 'liberados') }}
                     </span>
-                    <span class="text-xs font-medium text-red-700/80">bloqueados</span>
+                    <span class="ml-auto flex items-baseline gap-1.5">
+                      <span
+                        class="tabular-nums text-sm"
+                        [class.font-bold]="axisHasBlocks(item, 'colaboradores')"
+                        [class.font-semibold]="!axisHasBlocks(item, 'colaboradores')"
+                        [class.text-rose-600]="axisHasBlocks(item, 'colaboradores')"
+                        [class.text-slate-400]="!axisHasBlocks(item, 'colaboradores')"
+                      >
+                        {{ item.liberacaoResumo.colaboradores.bloqueados }}
+                      </span>
+                      <span
+                        class="text-xs"
+                        [class.font-medium]="axisHasBlocks(item, 'colaboradores')"
+                        [class.text-rose-600]="axisHasBlocks(item, 'colaboradores')"
+                        [class.text-slate-400]="!axisHasBlocks(item, 'colaboradores')"
+                      >
+                        {{
+                          countLabel(
+                            item.liberacaoResumo.colaboradores.bloqueados,
+                            'bloqueado',
+                            'bloqueados'
+                          )
+                        }}
+                      </span>
+                    </span>
+                  </div>
+                  <div *ngIf="!showLiberacaoCounts(item)" class="mt-2 flex items-baseline gap-2">
+                    <span class="tabular-nums text-2xl font-semibold leading-none text-slate-400">—</span>
+                    <span class="text-xs font-medium text-slate-500">em análise</span>
+                  </div>
+                  <div
+                    *ngIf="showLiberacaoCounts(item) && axisHasBlocks(item, 'colaboradores')"
+                    class="mt-2.5 flex h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+                    role="progressbar"
+                    [attr.aria-valuenow]="item.liberacaoResumo.colaboradores.liberados"
+                    aria-valuemin="0"
+                    [attr.aria-valuemax]="item.liberacaoResumo.colaboradores.total"
+                    aria-label="Colaboradores liberados"
+                  >
+                    <div
+                      class="h-full bg-emerald-500"
+                      [style.width.%]="
+                        axisShare(
+                          item.liberacaoResumo.colaboradores.liberados,
+                          item.liberacaoResumo.colaboradores.total
+                        )
+                      "
+                    ></div>
+                    <div
+                      class="h-full bg-rose-500"
+                      [style.width.%]="
+                        axisShare(
+                          item.liberacaoResumo.colaboradores.bloqueados,
+                          item.liberacaoResumo.colaboradores.total
+                        )
+                      "
+                    ></div>
+                  </div>
+                  <div
+                    *ngIf="showLiberacaoCounts(item) && !axisHasBlocks(item, 'colaboradores')"
+                    class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+                    role="progressbar"
+                    [attr.aria-valuenow]="item.liberacaoResumo.colaboradores.liberados"
+                    aria-valuemin="0"
+                    [attr.aria-valuemax]="item.liberacaoResumo.colaboradores.total"
+                    aria-label="Colaboradores liberados"
+                  >
+                    <div
+                      class="h-full rounded-full bg-emerald-500"
+                      [style.width.%]="
+                        axisShare(
+                          item.liberacaoResumo.colaboradores.liberados,
+                          item.liberacaoResumo.colaboradores.total
+                        )
+                      "
+                    ></div>
+                  </div>
+                  <div
+                    *ngIf="!showLiberacaoCounts(item)"
+                    class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+                  >
+                    <div
+                      class="h-full w-full rounded-full bg-[repeating-linear-gradient(45deg,#cbd5e1_0_6px,#e2e8f0_6px_12px)]"
+                    ></div>
                   </div>
                 </div>
-                <div *ngIf="item.status !== 'APROVADO'" class="flex items-baseline gap-1.5">
-                  <span class="text-2xl font-bold tabular-nums text-slate-800 leading-none">
-                    {{ item.liberacaoResumo.colaboradores.total }}
-                  </span>
-                  <span class="text-xs font-medium text-slate-500">total</span>
-                </div>
-              </div>
 
-              <div class="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-                <p class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">
-                  Veículos
-                </p>
-                <div *ngIf="item.status === 'APROVADO'">
-                  <div class="flex items-baseline gap-1.5">
-                    <span class="text-2xl font-bold tabular-nums text-emerald-700 leading-none">
+                <div class="rounded-xl border px-4 py-3" [ngClass]="axisCardClass(item, 'veiculos')">
+                  <div class="flex items-center justify-between">
+                    <span
+                      class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+                    >
+                      <svg
+                        class="h-3.5 w-3.5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M5 17h14M3 17v-5l2-5h14l2 5v5M3 17v2M21 17v2" />
+                        <circle cx="7.5" cy="17" r="1.5" />
+                        <circle cx="16.5" cy="17" r="1.5" />
+                      </svg>
+                      Veículos
+                    </span>
+                    <span class="tabular-nums text-[11px] font-medium text-slate-400">
+                      {{ item.liberacaoResumo.veiculos.total }} no total
+                    </span>
+                  </div>
+                  <div *ngIf="showLiberacaoCounts(item)" class="mt-2 flex items-baseline gap-2">
+                    <span class="tabular-nums text-2xl font-semibold leading-none text-emerald-600">
                       {{ item.liberacaoResumo.veiculos.liberados }}
                     </span>
-                    <span class="text-xs font-medium text-emerald-700/80">liberados</span>
-                  </div>
-                  <div class="mt-1 flex items-baseline gap-1.5">
-                    <span class="text-lg font-bold tabular-nums text-red-700 leading-none">
-                      {{ item.liberacaoResumo.veiculos.bloqueados }}
+                    <span class="text-xs font-medium text-slate-500">
+                      {{ countLabel(item.liberacaoResumo.veiculos.liberados, 'liberado', 'liberados') }}
                     </span>
-                    <span class="text-xs font-medium text-red-700/80">bloqueados</span>
+                    <span class="ml-auto flex items-baseline gap-1.5">
+                      <span
+                        class="tabular-nums text-sm"
+                        [class.font-bold]="axisHasBlocks(item, 'veiculos')"
+                        [class.font-semibold]="!axisHasBlocks(item, 'veiculos')"
+                        [class.text-rose-600]="axisHasBlocks(item, 'veiculos')"
+                        [class.text-slate-400]="!axisHasBlocks(item, 'veiculos')"
+                      >
+                        {{ item.liberacaoResumo.veiculos.bloqueados }}
+                      </span>
+                      <span
+                        class="text-xs"
+                        [class.font-medium]="axisHasBlocks(item, 'veiculos')"
+                        [class.text-rose-600]="axisHasBlocks(item, 'veiculos')"
+                        [class.text-slate-400]="!axisHasBlocks(item, 'veiculos')"
+                      >
+                        {{ countLabel(item.liberacaoResumo.veiculos.bloqueados, 'bloqueado', 'bloqueados') }}
+                      </span>
+                    </span>
                   </div>
-                </div>
-                <div *ngIf="item.status !== 'APROVADO'" class="flex items-baseline gap-1.5">
-                  <span class="text-2xl font-bold tabular-nums text-slate-800 leading-none">
-                    {{ item.liberacaoResumo.veiculos.total }}
-                  </span>
-                  <span class="text-xs font-medium text-slate-500">total</span>
+                  <div *ngIf="!showLiberacaoCounts(item)" class="mt-2 flex items-baseline gap-2">
+                    <span class="tabular-nums text-2xl font-semibold leading-none text-slate-400">—</span>
+                    <span class="text-xs font-medium text-slate-500">em análise</span>
+                  </div>
+                  <div
+                    *ngIf="showLiberacaoCounts(item) && axisHasBlocks(item, 'veiculos')"
+                    class="mt-2.5 flex h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+                    role="progressbar"
+                    [attr.aria-valuenow]="item.liberacaoResumo.veiculos.liberados"
+                    aria-valuemin="0"
+                    [attr.aria-valuemax]="item.liberacaoResumo.veiculos.total"
+                    aria-label="Veículos liberados"
+                  >
+                    <div
+                      class="h-full bg-emerald-500"
+                      [style.width.%]="
+                        axisShare(item.liberacaoResumo.veiculos.liberados, item.liberacaoResumo.veiculos.total)
+                      "
+                    ></div>
+                    <div
+                      class="h-full bg-rose-500"
+                      [style.width.%]="
+                        axisShare(item.liberacaoResumo.veiculos.bloqueados, item.liberacaoResumo.veiculos.total)
+                      "
+                    ></div>
+                  </div>
+                  <div
+                    *ngIf="showLiberacaoCounts(item) && !axisHasBlocks(item, 'veiculos')"
+                    class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+                    role="progressbar"
+                    [attr.aria-valuenow]="item.liberacaoResumo.veiculos.liberados"
+                    aria-valuemin="0"
+                    [attr.aria-valuemax]="item.liberacaoResumo.veiculos.total"
+                    aria-label="Veículos liberados"
+                  >
+                    <div
+                      class="h-full rounded-full bg-emerald-500"
+                      [style.width.%]="
+                        axisShare(item.liberacaoResumo.veiculos.liberados, item.liberacaoResumo.veiculos.total)
+                      "
+                    ></div>
+                  </div>
+                  <div
+                    *ngIf="!showLiberacaoCounts(item)"
+                    class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+                  >
+                    <div
+                      class="h-full w-full rounded-full bg-[repeating-linear-gradient(45deg,#cbd5e1_0_6px,#e2e8f0_6px_12px)]"
+                    ></div>
+                  </div>
                 </div>
               </div>
-            </aside>
-          </div>
+            </div>
 
-          <div class="border-t border-slate-100 pt-3 flex items-center gap-2 text-xs text-slate-400">
-            <svg
-              class="w-3.5 h-3.5 shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 6v6l4 2" />
-            </svg>
-            <span>Criado em {{ item.criadoEm | date: 'dd/MM/yyyy HH:mm' }}</span>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2 pt-1">
-            <ng-container *ngIf="tab() === 'pending' && item.status === 'PENDENTE'">
-              <button
-                type="button"
-                class="inline-flex items-center justify-center gap-1.5 h-10 rounded-full text-xs font-semibold px-4 bg-[var(--wtorre)] text-white hover:brightness-95 transition-[filter]"
-                (click)="abrirAcao(item, 'approve')"
-              >
+            <div class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+              <p class="flex items-center gap-1.5 text-xs text-slate-400">
                 <svg
-                  class="w-3.5 h-3.5"
+                  class="h-3.5 w-3.5"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  stroke-width="2.5"
+                  stroke-width="2"
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M20 6 9 17l-5-5" />
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
                 </svg>
-                Aprovar
-              </button>
-              <button
-                type="button"
-                class="inline-flex items-center justify-center gap-1.5 h-10 rounded-full text-xs font-semibold px-4 bg-white text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
-                (click)="abrirAcao(item, 'reject')"
-              >
-                <svg
-                  class="w-3.5 h-3.5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
+                Criado em
+                <span class="tabular-nums font-medium text-slate-500">
+                  {{ item.criadoEm | date: 'dd/MM/yyyy' }} às {{ item.criadoEm | date: 'HH:mm' }}
+                </span>
+              </p>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <ng-container *ngIf="tab() === 'pending' && item.status === 'PENDENTE'">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-[var(--wtorre)] px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
+                    (click)="abrirAcao(item, 'approve')"
+                  >
+                    <svg
+                      class="h-3.5 w-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                    Aprovar
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
+                    (click)="abrirAcao(item, 'reject')"
+                  >
+                    <svg
+                      class="h-3.5 w-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                    Reprovar
+                  </button>
+                </ng-container>
+
+                <button
+                  *ngIf="tab() === 'mine' && item.status === 'PENDENTE'"
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                  (click)="cancelar(item)"
                 >
-                  <path d="M18 6 6 18" />
-                  <path d="m6 6 12 12" />
-                </svg>
-                Reprovar
-              </button>
-            </ng-container>
+                  Cancelar
+                </button>
 
-            <button
-              *ngIf="tab() === 'mine' && item.status === 'PENDENTE'"
-              type="button"
-              class="inline-flex items-center justify-center gap-1.5 h-10 rounded-full text-xs font-semibold px-4 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition-colors"
-              (click)="cancelar(item)"
-            >
-              Cancelar
-            </button>
-
-            <button
-              type="button"
-              class="inline-flex items-center justify-center gap-1.5 h-10 rounded-full text-xs font-semibold px-4 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:text-slate-800 transition-colors"
-              (click)="abrirDetalhe(item)"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <path d="M14 2v6h6" />
-                <path d="M8 13h8M8 17h8M8 9h2" />
-              </svg>
-              Detalhes
-            </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 focus-visible:ring-offset-2"
+                  (click)="abrirDetalhe(item)"
+                >
+                  Ver detalhes
+                  <svg
+                    class="h-3.5 w-3.5 text-slate-400 transition group-hover:translate-x-0.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </article>
       </ng-template>
@@ -588,7 +782,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
           </div>
         </div>
 
-        <div *ngIf="d.entidade?.tipo === 'ACESSO_SERVICO'">
+        <div *ngIf="d.entidade?.tipo === 'ACESSO_SERVICO' || d.entidade?.tipo === 'EVENTO'">
           <div
             *ngIf="d.liberacaoResumo"
             class="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"
@@ -644,7 +838,15 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   *ngFor="let c of d.entidade?.collaborators"
                   class="border-b border-slate-50 last:border-0"
                 >
-                  <td class="py-2 pr-3 text-slate-800">{{ c.nome }}</td>
+                  <td class="py-2 pr-3 text-slate-800">
+                    {{ c.nome }}
+                    <span class="block text-xs text-slate-500" *ngIf="c.empresa || c.fase">
+                      <ng-container *ngIf="c.empresa">{{ c.empresa }}</ng-container>
+                      <ng-container *ngIf="c.empresa && c.fase"> · </ng-container>
+                      <ng-container *ngIf="c.fase">{{ c.fase }}</ng-container>
+                      <ng-container *ngIf="c.dataDia"> · {{ c.dataDia | date: 'dd/MM/yyyy' }}</ng-container>
+                    </span>
+                  </td>
                   <td class="py-2 pr-3 text-slate-600">{{ c.documento }}</td>
                   <td class="py-2 pr-3 text-slate-600">{{ c.funcao }}</td>
                   <td class="py-2">
@@ -668,6 +870,12 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   {{ v.placa }}
                   <span class="text-slate-500" *ngIf="v.marca || v.modelo">
                     — {{ v.marca }} {{ v.modelo }}
+                  </span>
+                  <span class="text-slate-500" *ngIf="v.empresa || v.fase">
+                    ·
+                    <ng-container *ngIf="v.empresa">{{ v.empresa }}</ng-container>
+                    <ng-container *ngIf="v.empresa && v.fase"> · </ng-container>
+                    <ng-container *ngIf="v.fase">{{ v.fase }}</ng-container>
                   </span>
                 </span>
                 <span
@@ -741,7 +949,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
       [open]="!!actionItem()"
       [title]="actionMode() === 'approve' ? 'Aprovar solicitação' : 'Reprovar solicitação'"
       [subtitle]="approveModalSubtitle()"
-      [size]="actionMode() === 'approve' && isServiceAccessAction() ? 'md' : 'sm'"
+      [size]="actionMode() === 'approve' && hasSelectiveApproval() ? 'md' : 'sm'"
       (close)="fecharAcao()"
     >
       <div *ngIf="actionLoading()" class="text-sm text-slate-500 py-6 text-center">Carregando...</div>
@@ -765,7 +973,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
           ></textarea>
         </div>
 
-        <ng-container *ngIf="actionMode() === 'approve' && isServiceAccessAction()">
+        <ng-container *ngIf="actionMode() === 'approve' && hasSelectiveApproval()">
           <section>
             <div class="flex items-center justify-between gap-3 mb-2.5">
               <div class="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-slate-500">
@@ -816,7 +1024,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
             </div>
 
             <p *ngIf="!approveCollaborators().length" class="text-sm text-slate-500">
-              Nenhum colaborador neste acesso.
+              Nenhum colaborador nesta solicitação.
             </p>
 
             <div class="flex flex-col gap-2" *ngIf="approveCollaborators().length">
@@ -881,6 +1089,8 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                     [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-500' : 'text-slate-400'"
                   >
                     {{ c.documento }} · {{ c.funcao }}
+                    <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
+                    <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
                   </span>
                 </span>
                 <span
@@ -943,7 +1153,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
               </div>
             </div>
 
-            <p *ngIf="!approveVehicles().length" class="text-sm text-slate-500">Nenhum veículo neste acesso.</p>
+            <p *ngIf="!approveVehicles().length" class="text-sm text-slate-500">Nenhum veículo nesta solicitação.</p>
 
             <div class="flex flex-col gap-2" *ngIf="approveVehicles().length">
               <button
@@ -1007,10 +1217,14 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   </span>
                   <span
                     class="block text-[12.5px] truncate"
-                    *ngIf="v.marca || v.modelo"
+                    *ngIf="v.marca || v.modelo || v.empresa || v.fase"
                     [ngClass]="isVehicleSelected(v.id) ? 'text-slate-500' : 'text-slate-400'"
                   >
-                    {{ v.marca }} {{ v.modelo }}
+                    <ng-container *ngIf="v.marca || v.modelo">{{ v.marca }} {{ v.modelo }}</ng-container>
+                    <ng-container *ngIf="(v.marca || v.modelo) && (v.empresa || v.fase)"> · </ng-container>
+                    <ng-container *ngIf="v.empresa">{{ v.empresa }}</ng-container>
+                    <ng-container *ngIf="v.empresa && v.fase"> · </ng-container>
+                    <ng-container *ngIf="v.fase">{{ v.fase }}</ng-container>
                   </span>
                 </span>
                 <span
@@ -1051,7 +1265,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
         class="modal-footer !justify-between !items-center gap-3 flex-wrap sm:flex-nowrap"
       >
         <span
-          *ngIf="actionMode() === 'approve' && isServiceAccessAction() && !actionLoading()"
+          *ngIf="actionMode() === 'approve' && hasSelectiveApproval() && !actionLoading()"
           class="text-[12.5px] text-slate-500 order-last sm:order-first w-full sm:w-auto"
         >
           <ng-container *ngIf="liberatedItemsCount() === 0">Nenhum item liberado</ng-container>
@@ -1195,8 +1409,9 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     return this.teamSummary().filter((item) => item.tipoEntidade === 'EVENTO').length;
   }
 
-  isServiceAccessAction(): boolean {
-    return this.actionItem()?.tipoEntidade === 'ACESSO_SERVICO';
+  hasSelectiveApproval(): boolean {
+    const tipo = this.actionItem()?.tipoEntidade;
+    return tipo === 'ACESSO_SERVICO' || tipo === 'EVENTO';
   }
 
   approveCollaborators(): ApprovalEntityCollaborator[] {
@@ -1211,7 +1426,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     if (this.actionMode() === 'reject') {
       return 'Informe o motivo da reprovação.';
     }
-    if (this.isServiceAccessAction()) {
+    if (this.hasSelectiveApproval()) {
       return 'Marque quem recebe acesso. Desmarque para bloquear na portaria.';
     }
     return 'Comentário opcional para o solicitante.';
@@ -1435,7 +1650,10 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
         }
 
         this.actionItem.set(fresh);
-        if (mode === 'approve' && fresh.tipoEntidade === 'ACESSO_SERVICO') {
+        if (
+          mode === 'approve' &&
+          (fresh.tipoEntidade === 'ACESSO_SERVICO' || fresh.tipoEntidade === 'EVENTO')
+        ) {
           this.initApproveSelection(fresh);
         }
         this.cdr.markForCheck();
@@ -1481,9 +1699,11 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   private initApproveSelection(approval: ApprovalItem) {
     this.actionDetail.set(approval);
     this.selectedCollaboratorIds.set(
-      new Set((approval.entidade?.collaborators ?? []).map((c) => c.id)),
+      toPositiveIdSet((approval.entidade?.collaborators ?? []).map((c) => c.id)),
     );
-    this.selectedVehicleIds.set(new Set((approval.entidade?.vehicles ?? []).map((v) => v.id)));
+    this.selectedVehicleIds.set(
+      toPositiveIdSet((approval.entidade?.vehicles ?? []).map((v) => v.id)),
+    );
     this.loadThumbnails(approval.entidade?.collaborators ?? []);
     this.cdr.markForCheck();
   }
@@ -1500,6 +1720,106 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     if (!parts.length) return '?';
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  blockedTotal(item: ApprovalItem): number {
+    const resumo = item.liberacaoResumo;
+    if (!resumo) return 0;
+    return Number(resumo.colaboradores?.bloqueados || 0) + Number(resumo.veiculos?.bloqueados || 0);
+  }
+
+  hasBlocks(item: ApprovalItem): boolean {
+    return item.status === 'APROVADO' && this.blockedTotal(item) > 0;
+  }
+
+  showLiberacaoCounts(item: ApprovalItem): boolean {
+    return item.status === 'APROVADO';
+  }
+
+  cardBarClass(item: ApprovalItem): string {
+    if (item.status === 'REPROVADO') return 'bg-rose-500';
+    if (this.hasBlocks(item)) return 'bg-orange-500';
+    if (item.status === 'APROVADO') return 'bg-emerald-500';
+    if (item.status === 'PENDENTE') return 'bg-amber-400';
+    return 'bg-slate-300';
+  }
+
+  statusPillClass(item: ApprovalItem): string {
+    if (item.status === 'REPROVADO') return 'bg-rose-50 text-rose-700 ring-rose-600/20';
+    if (this.hasBlocks(item)) return 'bg-orange-50 text-orange-700 ring-orange-600/20';
+    if (item.status === 'APROVADO') return 'bg-emerald-50 text-emerald-700 ring-emerald-600/20';
+    if (item.status === 'PENDENTE') return 'bg-amber-50 text-amber-700 ring-amber-600/20';
+    return 'bg-slate-100 text-slate-600 ring-slate-400/20';
+  }
+
+  statusPillDotClass(item: ApprovalItem): string {
+    if (item.status === 'REPROVADO') return 'bg-rose-500';
+    if (this.hasBlocks(item)) return 'bg-orange-500';
+    if (item.status === 'APROVADO') return 'bg-emerald-500';
+    if (item.status === 'PENDENTE') return 'bg-amber-500';
+    return 'bg-slate-400';
+  }
+
+  statusPillLabel(item: ApprovalItem): string {
+    if (this.hasBlocks(item)) return 'Liberado parcialmente';
+    if (item.status === 'PENDENTE') return 'Aguardando aprovação';
+    return approvalStatusLabel(item.status);
+  }
+
+  axisHasBlocks(item: ApprovalItem, axis: 'colaboradores' | 'veiculos'): boolean {
+    if (item.status !== 'APROVADO') return false;
+    return Number(item.liberacaoResumo?.[axis]?.bloqueados || 0) > 0;
+  }
+
+  axisCardClass(item: ApprovalItem, axis: 'colaboradores' | 'veiculos'): string {
+    return this.axisHasBlocks(item, axis)
+      ? 'border-rose-200 bg-rose-50/40'
+      : 'border-slate-200 bg-slate-50/60';
+  }
+
+  axisShare(part: number, total: number): number {
+    const t = Number(total) || 0;
+    if (t <= 0) return 0;
+    return Math.max(0, Math.min(100, (Number(part) / t) * 100));
+  }
+
+  countLabel(count: number, singular: string, plural: string): string {
+    return Number(count) === 1 ? singular : plural;
+  }
+
+  periodDays(item: ApprovalItem): number | null {
+    const start = item.entidadeResumo?.startDate;
+    const end = item.entidadeResumo?.endDate;
+    if (!start || !end) return null;
+    const parse = (value: string) => {
+      const [y, m, d] = String(value).slice(0, 10).split('-').map(Number);
+      if (!y || !m || !d) return NaN;
+      return Date.UTC(y, m - 1, d);
+    };
+    const from = parse(start);
+    const to = parse(end);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+    return Math.max(1, Math.round((to - from) / 86400000) + 1);
+  }
+
+  periodLabel(item: ApprovalItem): string {
+    const start = item.entidadeResumo?.startDate;
+    const end = item.entidadeResumo?.endDate;
+    if (!start && !end) return '—';
+    const fmt = (value: string, opts: Intl.DateTimeFormatOptions) => {
+      const [y, m, d] = String(value).slice(0, 10).split('-').map(Number);
+      return new Date(y, (m || 1) - 1, d || 1)
+        .toLocaleDateString('pt-BR', opts)
+        .replace(/\./g, '');
+    };
+    if (start && end) {
+      const sameMonth =
+        String(start).slice(0, 7) === String(end).slice(0, 7);
+      const startPart = fmt(start, sameMonth ? { day: 'numeric' } : { day: 'numeric', month: 'short' });
+      const endPart = fmt(end, { day: 'numeric', month: 'short', year: 'numeric' });
+      return `${startPart} – ${endPart}`;
+    }
+    return fmt((start || end) as string, { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
   private loadThumbnails(list: ApprovalEntityCollaborator[]) {
@@ -1530,11 +1850,13 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   }
 
   isCollaboratorSelected(id: number): boolean {
-    return this.selectedCollaboratorIds().has(id);
+    const n = toPositiveId(id);
+    return n != null && this.selectedCollaboratorIds().has(n);
   }
 
   isVehicleSelected(id: number): boolean {
-    return this.selectedVehicleIds().has(id);
+    const n = toPositiveId(id);
+    return n != null && this.selectedVehicleIds().has(n);
   }
 
   selectedCollaboratorCount(): number {
@@ -1550,31 +1872,35 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   }
 
   toggleCollaborator(id: number) {
+    const n = toPositiveId(id);
+    if (n == null) return;
     const next = new Set(this.selectedCollaboratorIds());
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(n)) next.delete(n);
+    else next.add(n);
     this.selectedCollaboratorIds.set(next);
     this.cdr.markForCheck();
   }
 
   toggleVehicle(id: number) {
+    const n = toPositiveId(id);
+    if (n == null) return;
     const next = new Set(this.selectedVehicleIds());
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(n)) next.delete(n);
+    else next.add(n);
     this.selectedVehicleIds.set(next);
     this.cdr.markForCheck();
   }
 
   markAllCollaborators(selected: boolean) {
     this.selectedCollaboratorIds.set(
-      selected ? new Set(this.approveCollaborators().map((c) => c.id)) : new Set(),
+      selected ? toPositiveIdSet(this.approveCollaborators().map((c) => c.id)) : new Set(),
     );
     this.cdr.markForCheck();
   }
 
   markAllVehicles(selected: boolean) {
     this.selectedVehicleIds.set(
-      selected ? new Set(this.approveVehicles().map((v) => v.id)) : new Set(),
+      selected ? toPositiveIdSet(this.approveVehicles().map((v) => v.id)) : new Set(),
     );
     this.cdr.markForCheck();
   }
@@ -1606,7 +1932,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
       } = {
         comentario: this.actionComment.trim() || undefined,
       };
-      if (item.tipoEntidade === 'ACESSO_SERVICO') {
+      if (item.tipoEntidade === 'ACESSO_SERVICO' || item.tipoEntidade === 'EVENTO') {
         payload.approvedCollaboratorIds = [...this.selectedCollaboratorIds()];
         payload.approvedVehicleIds = [...this.selectedVehicleIds()];
       }

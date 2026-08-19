@@ -1,7 +1,8 @@
-import { ChangeDetectorRef, Component, inject, OnDestroy, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { forkJoin } from 'rxjs';
+import { ActivatedRoute, Router } from '@angular/router';
+import { forkJoin, Subscription } from 'rxjs';
 import Swal from 'sweetalert2';
 import {
   CollaboratorAccessDetailsResponse,
@@ -1006,8 +1007,10 @@ interface CollaboratorFormState {
     />
   `,
 })
-export class CollaboratorListComponent implements OnDestroy {
+export class CollaboratorListComponent implements OnInit, OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   collaborators = signal<CollaboratorItem[]>([]);
   documentTypes = signal<CollaboratorDocumentType[]>([]);
@@ -1068,6 +1071,7 @@ export class CollaboratorListComponent implements OnDestroy {
   private readonly filterDebounceMs = 500;
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private thumbnailLoadId = 0;
+  private routeSub?: Subscription;
 
   collaboratorBulkAdapter: BulkImportApiAdapter = {
     downloadTemplate: () => this.collaboratorService.downloadBulkTemplate(),
@@ -1092,12 +1096,23 @@ export class CollaboratorListComponent implements OnDestroy {
     this.carregar();
   }
 
+  ngOnInit() {
+    this.routeSub = this.route.queryParamMap.subscribe((params) => {
+      const raw = params.get('open');
+      if (!raw) return;
+      const id = Number(raw);
+      if (!Number.isInteger(id) || id <= 0) return;
+      this.consumeOpenQuery(id);
+    });
+  }
+
   private async resolveCompanyScope() {
     const user = await this.authService.getCurrentUser();
     this.isCompanyScoped.set(!!user?.profile?.requires_company);
   }
 
   ngOnDestroy() {
+    this.routeSub?.unsubscribe();
     this.clearFilterDebounce();
     this.revokeThumbnails();
     this.revokePicturePreview();
@@ -1663,6 +1678,16 @@ export class CollaboratorListComponent implements OnDestroy {
     a.download = `acessos-${slug}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  private consumeOpenQuery(id: number) {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { open: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+    this.editar({ id_collaborator: id } as CollaboratorItem);
   }
 
   editar(c: CollaboratorItem) {

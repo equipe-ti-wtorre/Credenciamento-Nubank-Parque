@@ -22,6 +22,8 @@ import {
   EligibleSector,
   liberacaoStatusBadgeClass,
   liberacaoStatusLabel,
+  toPositiveId,
+  toPositiveIdSet,
 } from '../../services/approval.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService, AuthUser, hasPermission, isSuperAdmin } from '../../core/services/auth.service';
@@ -1370,21 +1372,128 @@ type ModalMode = 'search' | 'create';
       [subtitle]="
         decisionMode() === 'reject'
           ? 'Informe o motivo da reprovação. A decisão segue o fluxo do setor aprovador.'
-          : 'Confirme a aprovação pelo setor. Comentário opcional.'
+          : 'Marque quem recebe acesso. Desmarque para bloquear na portaria.'
       "
-      size="sm"
+      [size]="decisionMode() === 'approve' ? 'md' : 'sm'"
       (close)="fecharDecisao()"
     >
-      <form id="service-approval-form" (ngSubmit)="confirmarDecisao()">
-        <label class="form-label" for="service-approval-comment">Comentário</label>
-        <textarea
-          id="service-approval-comment"
-          [(ngModel)]="decisionComment"
-          name="decisionComment"
-          rows="3"
-          class="form-field"
-          [placeholder]="decisionMode() === 'reject' ? 'Comentário obrigatório' : 'Comentário opcional'"
-        ></textarea>
+      <form id="service-approval-form" (ngSubmit)="confirmarDecisao()" class="space-y-4">
+        <div>
+          <label class="form-label" for="service-approval-comment">Comentário</label>
+          <textarea
+            id="service-approval-comment"
+            [(ngModel)]="decisionComment"
+            name="decisionComment"
+            rows="3"
+            class="form-field"
+            [placeholder]="decisionMode() === 'reject' ? 'Comentário obrigatório' : 'Comentário opcional'"
+          ></textarea>
+        </div>
+
+        <ng-container *ngIf="decisionMode() === 'approve'">
+          <section>
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <p class="text-xs font-semibold tracking-wide uppercase text-slate-500">
+                Colaboradores
+                <span class="normal-case tracking-normal font-semibold text-slate-700">
+                  {{ selectedDecisionCollaboratorCount() }} de {{ persistedCollaborators().length }}
+                </span>
+              </p>
+              <div class="flex items-center gap-1 text-xs font-semibold" *ngIf="persistedCollaborators().length">
+                <button type="button" class="text-[var(--wtorre)] hover:underline px-1" (click)="markAllDecisionCollaborators(true)">
+                  Liberar todos
+                </button>
+                <span class="text-slate-300">·</span>
+                <button type="button" class="text-[var(--wtorre)] hover:underline px-1" (click)="markAllDecisionCollaborators(false)">
+                  Bloquear todos
+                </button>
+              </div>
+            </div>
+            <p *ngIf="!persistedCollaborators().length" class="text-sm text-slate-500">Nenhum colaborador vinculado.</p>
+            <div class="flex flex-col gap-2" *ngIf="persistedCollaborators().length">
+              <button
+                type="button"
+                *ngFor="let c of persistedCollaborators()"
+                class="flex items-center gap-3 w-full text-left px-3 py-2 rounded-xl border"
+                [ngClass]="
+                  isDecisionCollaboratorSelected(c.id_service_access_collaborator)
+                    ? 'bg-white border-slate-200'
+                    : 'bg-slate-50/80 border-dashed border-slate-200'
+                "
+                (click)="toggleDecisionCollaborator(c.id_service_access_collaborator)"
+              >
+                <span class="min-w-0 flex-1">
+                  <span
+                    class="block text-sm font-medium truncate"
+                    [ngClass]="
+                      isDecisionCollaboratorSelected(c.id_service_access_collaborator)
+                        ? 'text-slate-900'
+                        : 'text-slate-400'
+                    "
+                  >
+                    {{ c.collaborator_name }}
+                  </span>
+                  <span class="block text-xs text-slate-500 truncate">{{ c.collaborator_document }}</span>
+                </span>
+                <span
+                  *ngIf="!isDecisionCollaboratorSelected(c.id_service_access_collaborator)"
+                  class="shrink-0 text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-1 rounded-full"
+                >
+                  Bloqueado
+                </span>
+              </button>
+            </div>
+          </section>
+
+          <section>
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <p class="text-xs font-semibold tracking-wide uppercase text-slate-500">
+                Veículos
+                <span class="normal-case tracking-normal font-semibold text-slate-700">
+                  {{ selectedDecisionVehicleCount() }} de {{ persistedVehicles().length }}
+                </span>
+              </p>
+              <div class="flex items-center gap-1 text-xs font-semibold" *ngIf="persistedVehicles().length">
+                <button type="button" class="text-[var(--wtorre)] hover:underline px-1" (click)="markAllDecisionVehicles(true)">
+                  Liberar todos
+                </button>
+                <span class="text-slate-300">·</span>
+                <button type="button" class="text-[var(--wtorre)] hover:underline px-1" (click)="markAllDecisionVehicles(false)">
+                  Bloquear todos
+                </button>
+              </div>
+            </div>
+            <p *ngIf="!persistedVehicles().length" class="text-sm text-slate-500">Nenhum veículo vinculado.</p>
+            <div class="flex flex-col gap-2" *ngIf="persistedVehicles().length">
+              <button
+                type="button"
+                *ngFor="let v of persistedVehicles()"
+                class="flex items-center gap-3 w-full text-left px-3 py-2 rounded-xl border"
+                [ngClass]="
+                  isDecisionVehicleSelected(v.id_service_access_vehicle)
+                    ? 'bg-white border-slate-200'
+                    : 'bg-slate-50/80 border-dashed border-slate-200'
+                "
+                (click)="toggleDecisionVehicle(v.id_service_access_vehicle)"
+              >
+                <span
+                  class="min-w-0 flex-1 text-sm font-medium font-mono"
+                  [ngClass]="
+                    isDecisionVehicleSelected(v.id_service_access_vehicle) ? 'text-slate-900' : 'text-slate-400'
+                  "
+                >
+                  {{ v.plate }}
+                </span>
+                <span
+                  *ngIf="!isDecisionVehicleSelected(v.id_service_access_vehicle)"
+                  class="shrink-0 text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-1 rounded-full"
+                >
+                  Bloqueado
+                </span>
+              </button>
+            </div>
+          </section>
+        </ng-container>
       </form>
       <div modal-footer class="modal-footer">
         <button type="button" class="btn-action-secondary" (click)="fecharDecisao()">Cancelar</button>
@@ -1433,6 +1542,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   decisionMode = signal<'approve' | 'reject' | null>(null);
   decisionComment = '';
   decisionActing = signal(false);
+  selectedDecisionCollaboratorIds = signal<Set<number>>(new Set());
+  selectedDecisionVehicleIds = signal<Set<number>>(new Set());
 
   documentTypes = signal<CollaboratorDocumentType[]>([]);
   roles = signal<CollaboratorRole[]>([]);
@@ -1955,6 +2066,14 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
         }
         this.decisionComment = '';
         this.decisionMode.set(mode);
+        if (mode === 'approve') {
+          this.selectedDecisionCollaboratorIds.set(
+            toPositiveIdSet(this.persistedCollaborators().map((c) => c.id_service_access_collaborator)),
+          );
+          this.selectedDecisionVehicleIds.set(
+            toPositiveIdSet(this.persistedVehicles().map((v) => v.id_service_access_vehicle)),
+          );
+        }
       },
       error: (err) =>
         this.notification.notifyHttpError(err, 'Falha ao atualizar status do acesso.'),
@@ -1965,6 +2084,68 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     this.decisionMode.set(null);
     this.decisionComment = '';
     this.decisionActing.set(false);
+    this.selectedDecisionCollaboratorIds.set(new Set());
+    this.selectedDecisionVehicleIds.set(new Set());
+  }
+
+  persistedCollaborators(): ServiceAccessCollaborator[] {
+    return this.draftCollaborators().filter((c) => c.id_service_access_collaborator > 0);
+  }
+
+  persistedVehicles(): ServiceAccessVehicle[] {
+    return this.draftVehicles().filter((v) => v.id_service_access_vehicle > 0);
+  }
+
+  isDecisionCollaboratorSelected(id: number): boolean {
+    const n = toPositiveId(id);
+    return n != null && this.selectedDecisionCollaboratorIds().has(n);
+  }
+
+  isDecisionVehicleSelected(id: number): boolean {
+    const n = toPositiveId(id);
+    return n != null && this.selectedDecisionVehicleIds().has(n);
+  }
+
+  selectedDecisionCollaboratorCount(): number {
+    return this.selectedDecisionCollaboratorIds().size;
+  }
+
+  selectedDecisionVehicleCount(): number {
+    return this.selectedDecisionVehicleIds().size;
+  }
+
+  toggleDecisionCollaborator(id: number) {
+    const n = toPositiveId(id);
+    if (n == null) return;
+    const next = new Set(this.selectedDecisionCollaboratorIds());
+    if (next.has(n)) next.delete(n);
+    else next.add(n);
+    this.selectedDecisionCollaboratorIds.set(next);
+  }
+
+  toggleDecisionVehicle(id: number) {
+    const n = toPositiveId(id);
+    if (n == null) return;
+    const next = new Set(this.selectedDecisionVehicleIds());
+    if (next.has(n)) next.delete(n);
+    else next.add(n);
+    this.selectedDecisionVehicleIds.set(next);
+  }
+
+  markAllDecisionCollaborators(selected: boolean) {
+    this.selectedDecisionCollaboratorIds.set(
+      selected
+        ? toPositiveIdSet(this.persistedCollaborators().map((c) => c.id_service_access_collaborator))
+        : new Set(),
+    );
+  }
+
+  markAllDecisionVehicles(selected: boolean) {
+    this.selectedDecisionVehicleIds.set(
+      selected
+        ? toPositiveIdSet(this.persistedVehicles().map((v) => v.id_service_access_vehicle))
+        : new Set(),
+    );
   }
 
   confirmarDecisao() {
@@ -1980,13 +2161,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       mode === 'approve'
         ? this.approvalService.approve(svc.id_aprovacao, {
             comentario: this.decisionComment.trim() || undefined,
-            // Backend valida contra o vínculo (service_access_*), não o cadastro master
-            approvedCollaboratorIds: this.draftCollaborators()
-              .filter((c) => c.id_service_access_collaborator > 0)
-              .map((c) => c.id_service_access_collaborator),
-            approvedVehicleIds: this.draftVehicles()
-              .filter((v) => v.id_service_access_vehicle > 0)
-              .map((v) => v.id_service_access_vehicle),
+            approvedCollaboratorIds: [...this.selectedDecisionCollaboratorIds()],
+            approvedVehicleIds: [...this.selectedDecisionVehicleIds()],
           })
         : this.approvalService.reject(svc.id_aprovacao, this.decisionComment.trim());
     req

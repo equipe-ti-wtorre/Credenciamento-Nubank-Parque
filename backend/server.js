@@ -16,7 +16,7 @@ async function start() {
     const serviceAccessService = require("./modules/patrimonial/service-access.service");
 
     approvalsService.registerEntityFinalizer("EVENTO", {
-      onApproved: (conn, id) => eventService.markApproved(conn, id),
+      onApproved: (conn, id, ctx) => eventService.markApproved(conn, id, ctx),
       onRejected: (conn, id) => eventService.markRejected(conn, id),
       onExpired: (conn, id) => eventService.markExpired(conn, id),
     });

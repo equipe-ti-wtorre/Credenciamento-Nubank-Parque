@@ -786,75 +786,99 @@ async function updateServiceAccess(req, id, data) {
   };
 }
 
+function uniquePositiveIds(ids) {
+  if (!Array.isArray(ids)) return null;
+  const seen = new Set();
+  const out = [];
+  for (const raw of ids) {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0 || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
+async function assignAccessIds(conn, table, idColumn, rows) {
+  for (const row of rows) {
+    await conn.execute(`UPDATE ${table} SET access_id = ? WHERE ${idColumn} = ?`, [
+      crypto.randomUUID(),
+      row[idColumn],
+    ]);
+  }
+}
+
+async function revokeUnselectedServiceAccessIds(conn, table, idColumn, parentId, selectedIds) {
+  if (!selectedIds.length) {
+    await conn.execute(
+      `UPDATE ${table} SET access_id = NULL WHERE id_service_access = ? AND access_id IS NOT NULL`,
+      [parentId],
+    );
+    return;
+  }
+  const placeholders = selectedIds.map(() => "?").join(",");
+  await conn.execute(
+    `UPDATE ${table}
+        SET access_id = NULL
+      WHERE id_service_access = ?
+        AND access_id IS NOT NULL
+        AND ${idColumn} NOT IN (${placeholders})`,
+    [parentId, ...selectedIds],
+  );
+}
+
 async function generateAccessIds(conn, idServiceAccess, {
   approvedCollaboratorIds,
   approvedVehicleIds,
 } = {}) {
-  const filterCollaborators = Array.isArray(approvedCollaboratorIds);
-  const filterVehicles = Array.isArray(approvedVehicleIds);
+  const selectedCollaborators = uniquePositiveIds(approvedCollaboratorIds);
+  const selectedVehicles = uniquePositiveIds(approvedVehicleIds);
 
-  if (filterCollaborators && approvedCollaboratorIds.length) {
-    const placeholders = approvedCollaboratorIds.map(() => '?').join(',');
+  if (selectedCollaborators && selectedCollaborators.length) {
+    const placeholders = selectedCollaborators.map(() => "?").join(",");
     const [owned] = await conn.execute(
       `SELECT id_service_access_collaborator FROM service_access_collaborator
         WHERE id_service_access = ? AND id_service_access_collaborator IN (${placeholders})`,
-      [idServiceAccess, ...approvedCollaboratorIds],
+      [idServiceAccess, ...selectedCollaborators],
     );
-    if (owned.length !== approvedCollaboratorIds.length) {
-      throw new AppError('Um ou mais colaboradores selecionados não pertencem a este acesso.', 400);
+    if (owned.length !== selectedCollaborators.length) {
+      throw new AppError("Um ou mais colaboradores selecionados não pertencem a este acesso.", 400);
     }
-  }
 
-  if (filterVehicles && approvedVehicleIds.length) {
-    const placeholders = approvedVehicleIds.map(() => '?').join(',');
-    const [owned] = await conn.execute(
-      `SELECT id_service_access_vehicle FROM service_access_vehicle
-        WHERE id_service_access = ? AND id_service_access_vehicle IN (${placeholders})`,
-      [idServiceAccess, ...approvedVehicleIds],
+    const [blocklisted] = await conn.execute(
+      `SELECT c.name
+         FROM service_access_collaborator sac
+         INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
+         INNER JOIN collaborator_block_list bl ON bl.id_collaborator = sac.id_collaborator
+        WHERE sac.id_service_access = ?
+          AND sac.id_service_access_collaborator IN (${placeholders})`,
+      [idServiceAccess, ...selectedCollaborators],
     );
-    if (owned.length !== approvedVehicleIds.length) {
-      throw new AppError('Um ou mais veículos selecionados não pertencem a este acesso.', 400);
-    }
-  }
-
-  if (filterCollaborators) {
-    if (approvedCollaboratorIds.length) {
-      const placeholders = approvedCollaboratorIds.map(() => '?').join(',');
-      const [blocklisted] = await conn.execute(
-        `SELECT c.name
-           FROM service_access_collaborator sac
-           INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
-           INNER JOIN collaborator_block_list bl ON bl.id_collaborator = sac.id_collaborator
-          WHERE sac.id_service_access = ?
-            AND sac.id_service_access_collaborator IN (${placeholders})`,
-        [idServiceAccess, ...approvedCollaboratorIds],
+    if (blocklisted.length) {
+      const names = blocklisted.map((r) => r.name).join(", ");
+      throw new AppError(
+        `Colaborador(es) na lista de restrição não podem ser aprovados: ${names}`,
+        403,
       );
-      if (blocklisted.length) {
-        const names = blocklisted.map((r) => r.name).join(", ");
-        throw new AppError(
-          `Colaborador(es) na lista de restrição não podem ser aprovados: ${names}`,
-          403,
-        );
-      }
-
-      const [collaborators] = await conn.execute(
-        `SELECT id_service_access_collaborator FROM service_access_collaborator
-          WHERE id_service_access = ? AND access_id IS NULL
-            AND id_service_access_collaborator IN (${placeholders})
-            AND NOT EXISTS (
-              SELECT 1 FROM collaborator_block_list bl
-               WHERE bl.id_collaborator = service_access_collaborator.id_collaborator
-            )`,
-        [idServiceAccess, ...approvedCollaboratorIds],
-      );
-      for (const row of collaborators) {
-        await conn.execute(
-          `UPDATE service_access_collaborator SET access_id = ? WHERE id_service_access_collaborator = ?`,
-          [crypto.randomUUID(), row.id_service_access_collaborator],
-        );
-      }
     }
-  } else {
+
+    const [collaborators] = await conn.execute(
+      `SELECT id_service_access_collaborator FROM service_access_collaborator
+        WHERE id_service_access = ? AND access_id IS NULL
+          AND id_service_access_collaborator IN (${placeholders})
+          AND NOT EXISTS (
+            SELECT 1 FROM collaborator_block_list bl
+             WHERE bl.id_collaborator = service_access_collaborator.id_collaborator
+          )`,
+      [idServiceAccess, ...selectedCollaborators],
+    );
+    await assignAccessIds(
+      conn,
+      "service_access_collaborator",
+      "id_service_access_collaborator",
+      collaborators,
+    );
+  } else if (!selectedCollaborators) {
     const [collaborators] = await conn.execute(
       `SELECT id_service_access_collaborator FROM service_access_collaborator
        WHERE id_service_access = ? AND access_id IS NULL
@@ -864,42 +888,59 @@ async function generateAccessIds(conn, idServiceAccess, {
          )`,
       [idServiceAccess],
     );
-    for (const row of collaborators) {
-      await conn.execute(
-        `UPDATE service_access_collaborator SET access_id = ? WHERE id_service_access_collaborator = ?`,
-        [crypto.randomUUID(), row.id_service_access_collaborator],
-      );
-    }
+    await assignAccessIds(
+      conn,
+      "service_access_collaborator",
+      "id_service_access_collaborator",
+      collaborators,
+    );
   }
 
-  if (filterVehicles) {
-    if (approvedVehicleIds.length) {
-      const placeholders = approvedVehicleIds.map(() => '?').join(',');
-      const [vehicles] = await conn.execute(
-        `SELECT id_service_access_vehicle FROM service_access_vehicle
-          WHERE id_service_access = ? AND access_id IS NULL
-            AND id_service_access_vehicle IN (${placeholders})`,
-        [idServiceAccess, ...approvedVehicleIds],
-      );
-      for (const row of vehicles) {
-        await conn.execute(
-          `UPDATE service_access_vehicle SET access_id = ? WHERE id_service_access_vehicle = ?`,
-          [crypto.randomUUID(), row.id_service_access_vehicle],
-        );
-      }
+  if (selectedCollaborators) {
+    await revokeUnselectedServiceAccessIds(
+      conn,
+      "service_access_collaborator",
+      "id_service_access_collaborator",
+      idServiceAccess,
+      selectedCollaborators,
+    );
+  }
+
+  if (selectedVehicles && selectedVehicles.length) {
+    const placeholders = selectedVehicles.map(() => "?").join(",");
+    const [owned] = await conn.execute(
+      `SELECT id_service_access_vehicle FROM service_access_vehicle
+        WHERE id_service_access = ? AND id_service_access_vehicle IN (${placeholders})`,
+      [idServiceAccess, ...selectedVehicles],
+    );
+    if (owned.length !== selectedVehicles.length) {
+      throw new AppError("Um ou mais veículos selecionados não pertencem a este acesso.", 400);
     }
-  } else {
+
+    const [vehicles] = await conn.execute(
+      `SELECT id_service_access_vehicle FROM service_access_vehicle
+        WHERE id_service_access = ? AND access_id IS NULL
+          AND id_service_access_vehicle IN (${placeholders})`,
+      [idServiceAccess, ...selectedVehicles],
+    );
+    await assignAccessIds(conn, "service_access_vehicle", "id_service_access_vehicle", vehicles);
+  } else if (!selectedVehicles) {
     const [vehicles] = await conn.execute(
       `SELECT id_service_access_vehicle FROM service_access_vehicle
        WHERE id_service_access = ? AND access_id IS NULL`,
       [idServiceAccess],
     );
-    for (const row of vehicles) {
-      await conn.execute(
-        `UPDATE service_access_vehicle SET access_id = ? WHERE id_service_access_vehicle = ?`,
-        [crypto.randomUUID(), row.id_service_access_vehicle],
-      );
-    }
+    await assignAccessIds(conn, "service_access_vehicle", "id_service_access_vehicle", vehicles);
+  }
+
+  if (selectedVehicles) {
+    await revokeUnselectedServiceAccessIds(
+      conn,
+      "service_access_vehicle",
+      "id_service_access_vehicle",
+      idServiceAccess,
+      selectedVehicles,
+    );
   }
 }
 

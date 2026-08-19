@@ -59,6 +59,9 @@ export interface ApprovalEntityCollaborator {
   documento: string;
   funcao: string;
   picture?: string | null;
+  empresa?: string | null;
+  fase?: string | null;
+  dataDia?: string | null;
   criadoEm?: string | null;
   statusLiberacao?: ApprovalLiberacaoStatus;
 }
@@ -69,6 +72,9 @@ export interface ApprovalEntityVehicle {
   placa: string;
   marca?: string | null;
   modelo?: string | null;
+  empresa?: string | null;
+  fase?: string | null;
+  dataDia?: string | null;
   criadoEm?: string | null;
   statusLiberacao?: ApprovalLiberacaoStatus;
 }
@@ -276,4 +282,20 @@ export function approvalHistoryDotClass(tipo: ApprovalHistoryType | string): str
     default:
       return 'bg-[var(--color-primary)]';
   }
+}
+
+export function toPositiveId(id: number | string | null | undefined): number | null {
+  const n = Number(id);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+export function toPositiveIdSet(
+  ids: Array<number | string | null | undefined> | null | undefined,
+): Set<number> {
+  const set = new Set<number>();
+  for (const raw of ids || []) {
+    const n = toPositiveId(raw);
+    if (n != null) set.add(n);
+  }
+  return set;
 }

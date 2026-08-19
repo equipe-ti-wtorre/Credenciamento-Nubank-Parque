@@ -2,10 +2,8 @@ import { ChangeDetectorRef, Component, computed, inject, OnInit, signal } from '
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { HttpErrorResponse } from '@angular/common/http';
 import Swal from 'sweetalert2';
 import {
-  EventCompanyVehicleItem,
   EventDayCompanyBrief,
   EventDayType,
   EventDetail,
@@ -14,19 +12,11 @@ import {
 } from '../../../services/event.service';
 import { CompanyItem } from '../../../services/company.service';
 import {
-  CollaboratorDocumentType,
-  CollaboratorItem,
-  CollaboratorRole,
-  CollaboratorService,
-} from '../../../services/collaborator.service';
-import { VehicleItem, VehicleService } from '../../../services/vehicle.service';
-import {
   CredentialItem,
   CredentialService,
   STATUS_AGUARDANDO_APROVACAO,
   STATUS_AGUARDANDO_PRODUTORA,
   STATUS_APROVADO,
-  statusBadgeClass,
 } from '../../../services/credential.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -35,15 +25,12 @@ import {
   PeriodoRangePickerComponent,
   PeriodoRangeValue,
 } from '../../../shared/periodo-range-picker';
-import {
-  BulkImportApiAdapter,
-  ServiceAccessBulkImportWizardComponent,
-} from '../../patrimonial/service-access-bulk-import-wizard.component';
 import { NovoEventoStepDiasComponent } from './novo-evento-modal/steps/step-dias.component';
 import { eachIsoInRange } from './novo-evento-modal/ui/calendar.util';
 
-type CredStatusSummary = 'aprovado' | 'aguardando' | 'rascunho';
-type DrawerSeg = 'lote' | 'ind';
+type CollaboratorsSeg = 'lote' | 'ind';
+type ViewerProfile = 'solicitante' | 'responsavel' | 'parceira';
+type FlowChipKind = 'waiting' | 'progress' | 'done' | 'error' | 'muted';
 
 interface CompanyDayLink {
   id_event_day_company: number;
@@ -60,27 +47,10 @@ interface AggregatedCompany {
   links: CompanyDayLink[];
   producerIds: number[];
   credentials: CredentialItem[];
-  credStatus: CredStatusSummary;
+  notified_complete_at: string | null;
   isResponsavel: boolean;
   collaboratorCount: number;
   vehicleCount: number;
-}
-
-interface PhaseDayGroup {
-  phase: string;
-  days: CompanyDayLink[];
-}
-
-function maskDocument(document: string): string {
-  const raw = String(document || '').trim();
-  if (!raw) return '—';
-  if (raw.includes('*')) return raw;
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 11) {
-    return `***.***.${digits.slice(6, 9)}-${digits.slice(9)}`;
-  }
-  if (raw.length <= 4) return '****';
-  return `${'*'.repeat(Math.max(0, raw.length - 4))}${raw.slice(-4)}`;
 }
 
 @Component({
@@ -92,7 +62,6 @@ function maskDocument(document: string): string {
     RouterLink,
     ModalComponent,
     PeriodoRangePickerComponent,
-    ServiceAccessBulkImportWizardComponent,
     NovoEventoStepDiasComponent,
   ],
   styleUrl: './event-detail.component.scss',
@@ -295,8 +264,8 @@ function maskDocument(document: string): string {
               </div>
               <div class="evstat__body">
                 <div class="evstat__value evstat__value--inline">
-                  {{ headerStats().credRequested }}
-                  <span class="evstat__sub">de <b>{{ headerStats().companies }}</b> com credencial solicitada</span>
+                  {{ headerStats().partnersComplete }}
+                  <span class="evstat__sub">de <b>{{ headerStats().partnersTotal }}</b> com cadastro concluído</span>
                 </div>
               </div>
             </div>
@@ -327,7 +296,7 @@ function maskDocument(document: string): string {
                     type="button"
                     class="btn btn--primary btn--sm"
                     [disabled]="writableCompanies().length === 0 || !event()!.ativo"
-                    (click)="abrirDrawer()"
+                    (click)="irParaColaboradores()"
                   >
                     Adicionar colaboradores
                   </button>
@@ -376,7 +345,7 @@ function maskDocument(document: string): string {
                     <th>Fases</th>
                     <th class="center">Colab.</th>
                     <th class="center">Veíc.</th>
-                    <th>Credencial</th>
+                    <th>Status</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -406,11 +375,11 @@ function maskDocument(document: string): string {
                         </span>
                       </div>
                     </td>
-                    <td class="td-center"><span class="colnum">{{ row.collaboratorCount }}</span></td>
+                    <td class="td-center"><span class="colnum">{{ collaboratorCountForRow(row) }}</span></td>
                     <td class="td-center"><span class="colnum">{{ row.vehicleCount }}</span></td>
                     <td>
-                      <span class="credstatus" [ngClass]="'cs-' + row.credStatus">
-                        {{ credStatusLabel(row.credStatus) }}
+                      <span class="flowstatus" [ngClass]="'fs-' + companyFlowChip(row)">
+                        {{ companyFlowStatusLabel(row) }}
                       </span>
                     </td>
                     <td>
@@ -450,7 +419,7 @@ function maskDocument(document: string): string {
                         <button
                           type="button"
                           class="btn btn--ghost btn--sm"
-                          (click)="abrirDrawer(row.id_company)"
+                          (click)="irParaColaboradores(row.id_company)"
                         >
                           {{ canRequestCredentialForCompany(row) ? 'Colaboradores' : 'Ver' }}
                         </button>
@@ -464,18 +433,10 @@ function maskDocument(document: string): string {
                           {{
                             notifyCompleteSaving() && notifyCompleteCompanyId() === row.id_company
                               ? 'Enviando...'
-                              : event()!.notified_complete_at
+                              : row.notified_complete_at
                                 ? 'Renotificar término'
                                 : 'Notificar término'
                           }}
-                        </button>
-                        <button
-                          *ngIf="canRequestCredentialForCompany(row)"
-                          type="button"
-                          class="btn btn--primary btn--sm"
-                          (click)="abrirDrawer(row.id_company, 'ind')"
-                        >
-                          Solicitar
                         </button>
                       </div>
                     </td>
@@ -665,337 +626,6 @@ function maskDocument(document: string): string {
           </button>
         </div>
       </app-modal>
-
-      <!-- Drawer colaboradores -->
-      <div class="overlay" [class.open]="showDrawer()" (click)="fecharDrawer()"></div>
-      <div class="drawer" [class.open]="showDrawer()">
-        <div class="drawer__head">
-          <div class="drawer__top">
-            <div>
-              <h3 class="drawer__title">Colaboradores e veículos</h3>
-              <p class="drawer__sub" *ngIf="drawerAggregatedCompany() as dc">
-                {{ dc.company_name }} · {{ dc.collaboratorCount }} colab. · {{ dc.vehicleCount }} veíc.
-              </p>
-              <p class="drawer__sub" *ngIf="!drawerAggregatedCompany()">Selecione a empresa</p>
-              <div class="drawer__phases" *ngIf="drawerAggregatedCompany() as dc">
-                <span *ngFor="let ph of dc.phases" class="miniphase" [ngClass]="phaseClass(ph)">
-                  <span class="dot"></span>{{ ph }}
-                </span>
-              </div>
-            </div>
-            <button type="button" class="iconbtn" (click)="fecharDrawer()" aria-label="Fechar">✕</button>
-          </div>
-          <div class="field mt-3" *ngIf="!drawerCompanyId() && writableCompanies().length > 0">
-            <label class="label" for="drawer-company">Empresa</label>
-            <select
-              id="drawer-company"
-              class="select"
-              [ngModel]="drawerCompanyId()"
-              (ngModelChange)="onDrawerCompanyChange($event)"
-              name="drawerCompany"
-            >
-              <option [ngValue]="null">Selecione</option>
-              <option *ngFor="let c of writableCompanies()" [ngValue]="c.id_company">
-                {{ c.company_name }}
-              </option>
-            </select>
-          </div>
-        </div>
-
-        <div class="drawer__body" *ngIf="drawerAggregatedCompany(); else drawerPickCompany">
-          <div class="seg" *ngIf="canManageDrawerCompany()">
-            <button type="button" [class.on]="drawerSeg() === 'lote'" (click)="setDrawerSeg('lote')">
-              Importar em lote
-            </button>
-            <button type="button" [class.on]="drawerSeg() === 'ind'" (click)="setDrawerSeg('ind')">
-              Adicionar individual
-            </button>
-          </div>
-          <p class="text-sm text-slate-500 mb-3" *ngIf="!canManageDrawerCompany()">
-            Somente visualização e aprovação — a inclusão de colaboradores é feita pela própria empresa.
-          </p>
-
-          <div class="card-box day-picker" *ngIf="canManageDrawerCompany() && drawerPhaseGroups().length > 0">
-            <p class="ind-label">Dias / fases para indicação</p>
-            <p class="day-picker__hint">Selecione a fase e os dias em que a equipe será vinculada.</p>
-            <div class="day-picker__phase" *ngFor="let group of drawerPhaseGroups()">
-              <label class="day-picker__phase-head">
-                <input
-                  type="checkbox"
-                  [checked]="isPhaseFullySelected(group)"
-                  [indeterminate]="isPhasePartiallySelected(group)"
-                  (change)="togglePhaseSelection(group, $any($event.target).checked)"
-                />
-                <span class="miniphase" [ngClass]="phaseClass(group.phase)">
-                  <span class="dot"></span>{{ group.phase }}
-                </span>
-                <span class="day-picker__count">{{ selectedCountInPhase(group) }}/{{ group.days.length }}</span>
-              </label>
-              <div class="day-picker__days">
-                <label class="day-picker__day" *ngFor="let day of group.days">
-                  <input
-                    type="checkbox"
-                    [checked]="isLinkSelected(day.id_event_day_company)"
-                    (change)="toggleLinkSelection(day.id_event_day_company, $any($event.target).checked)"
-                  />
-                  <span>{{ formatDateBr(day.date) }}</span>
-                </label>
-              </div>
-            </div>
-            <p class="day-picker__warn" *ngIf="selectedLinkIds().length === 0">
-              Selecione ao menos um dia para continuar.
-            </p>
-          </div>
-
-          <!-- Lote unificado (padrão SA) — só quem pode indicar na empresa -->
-          <ng-container *ngIf="canManageDrawerCompany() && drawerSeg() === 'lote'">
-            <app-service-access-bulk-import-wizard
-              [open]="true"
-              [embedded]="true"
-              [apiAdapter]="eventBulkAdapter"
-              [accessName]="event()?.name || 'Evento'"
-              [companyName]="drawerAggregatedCompany()?.company_name || ''"
-              (completed)="onEventBulkCompleted()"
-              (closed)="setDrawerSeg('ind')"
-            />
-          </ng-container>
-
-          <!-- Individual: busca tipada + cadastro — só quem pode indicar na empresa -->
-          <ng-container *ngIf="canManageDrawerCompany() && drawerSeg() === 'ind'">
-            <div class="card-box">
-              <p class="ind-label">Colaborador</p>
-              <div class="field relative">
-                <label class="label" for="ind-colab-q">Buscar por nome ou documento</label>
-                <input
-                  id="ind-colab-q"
-                  class="input"
-                  type="text"
-                  autocomplete="off"
-                  [ngModel]="colabSearchQuery"
-                  (ngModelChange)="onColabSearch($event)"
-                  name="colabSearchQuery"
-                  placeholder="Digite ao menos 2 caracteres..."
-                />
-                <div *ngIf="colabSearching()" class="search-dd muted">Buscando...</div>
-                <ul *ngIf="!colabSearching() && colabResults().length > 0" class="search-dd">
-                  <li *ngFor="let c of colabResults()">
-                    <button type="button" class="search-dd__btn" (click)="selecionarColaboradorBusca(c)">
-                      <span class="font-medium">{{ c.name }}</span>
-                      <span class="meta">{{ maskDocument(c.document) }}</span>
-                    </button>
-                  </li>
-                </ul>
-              </div>
-              <div class="field" *ngIf="selectedColab() as col">
-                <div class="picked">
-                  <div>
-                    <p class="font-semibold">{{ col.name }}</p>
-                    <p class="text-slate-500 text-sm">{{ maskDocument(col.document) }}</p>
-                  </div>
-                  <button type="button" class="btn--link" (click)="limparColabSelecionado()">Trocar</button>
-                </div>
-                <label class="label" for="ind-role-pick">Função no evento</label>
-                <select id="ind-role-pick" class="select" [(ngModel)]="selectedColabRoleId" name="selectedColabRoleId">
-                  <option [ngValue]="null">Selecione</option>
-                  <option *ngFor="let r of roles()" [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
-                </select>
-                <button
-                  type="button"
-                  class="btn btn--primary w-full mt-3"
-                  [disabled]="individualSubmitting() || selectedLinkIds().length === 0"
-                  (click)="vincularColaboradorSelecionado()"
-                >
-                  {{ individualSubmitting() ? 'Vinculando...' : 'Solicitar credencial' }}
-                </button>
-              </div>
-              <button type="button" class="btn btn--ghost w-full mt-2" (click)="abrirModalNovoColab()">
-                Novo colaborador
-              </button>
-            </div>
-
-            <div class="card-box mt-3">
-              <p class="ind-label">Veículo</p>
-              <div class="field relative">
-                <label class="label" for="ind-veic-q">Buscar por placa, marca ou modelo</label>
-                <input
-                  id="ind-veic-q"
-                  class="input"
-                  type="text"
-                  autocomplete="off"
-                  [ngModel]="veicSearchQuery"
-                  (ngModelChange)="onVeicSearch($event)"
-                  name="veicSearchQuery"
-                  placeholder="Digite ao menos 2 caracteres..."
-                />
-                <div *ngIf="veicSearching()" class="search-dd muted">Buscando...</div>
-                <ul *ngIf="!veicSearching() && veicResults().length > 0" class="search-dd">
-                  <li *ngFor="let v of veicResults()">
-                    <button type="button" class="search-dd__btn" (click)="vincularVeiculoExistente(v)">
-                      <span class="font-medium font-mono">{{ v.plate }}</span>
-                      <span class="meta">{{ v.brand || '—' }} {{ v.model || '' }}</span>
-                    </button>
-                  </li>
-                </ul>
-              </div>
-              <button type="button" class="btn btn--ghost w-full mt-2" (click)="abrirModalNovoVeic()">
-                Novo veículo
-              </button>
-            </div>
-          </ng-container>
-
-          <p class="listhead">Credenciais existentes</p>
-          <div class="clist" *ngIf="drawerCredentials().length > 0; else noDrawerCreds">
-            <div *ngFor="let cred of drawerCredentials()" class="cli">
-              <div class="cli__av">{{ initials(cred.collaborator.name) }}</div>
-              <div class="cli__body">
-                <div class="cli__name">{{ cred.collaborator.name }}</div>
-                <div class="cli__meta">
-                  {{ credDayLabel(cred) }} · {{ cred.role_description }} ·
-                  {{ maskDocument(cred.collaborator.document) }}
-                </div>
-              </div>
-              <span class="cli__st" [ngClass]="statusBadgeClass(cred.id_access_status)">
-                {{ cred.access_status_description }}
-              </span>
-            </div>
-          </div>
-          <ng-template #noDrawerCreds>
-            <p class="text-sm text-slate-500 mt-2">Nenhuma credencial cadastrada para esta empresa.</p>
-          </ng-template>
-
-          <p class="listhead">Veículos vinculados</p>
-          <div class="clist" *ngIf="drawerVehicles().length > 0; else noDrawerVeics">
-            <div *ngFor="let v of drawerVehicles()" class="cli">
-              <div class="cli__av">{{ (v.plate || '?').slice(0, 2) }}</div>
-              <div class="cli__body">
-                <div class="cli__name font-mono">{{ v.plate }}</div>
-                <div class="cli__meta">{{ v.brand || '—' }} {{ v.model || '' }} · {{ v.color || '—' }}</div>
-              </div>
-              <span class="cli__st">{{ v.access_status_description }}</span>
-              <button
-                *ngIf="canManageDrawerCompany()"
-                type="button"
-                class="btn btn--ghost btn--sm"
-                (click)="removerVeiculoEvento(v)"
-              >
-                Remover
-              </button>
-            </div>
-          </div>
-          <ng-template #noDrawerVeics>
-            <p class="text-sm text-slate-500 mt-2">Nenhum veículo vinculado a esta empresa.</p>
-          </ng-template>
-        </div>
-
-        <ng-template #drawerPickCompany>
-          <div class="drawer__body">
-            <p class="text-sm text-slate-500">Selecione uma empresa acima para gerenciar colaboradores e veículos.</p>
-          </div>
-        </ng-template>
-
-        <div class="drawer__foot" *ngIf="drawerAggregatedCompany() as dc">
-          <span class="text-sm text-slate-600 flex-1">
-            {{ dc.collaboratorCount }} colab. · {{ dc.vehicleCount }} veíc. ·
-            {{ drawerPendingCount() }} aguardando aprovação
-          </span>
-          <button type="button" class="btn btn--ghost btn--sm" (click)="fecharDrawer()">Fechar</button>
-        </div>
-      </div>
-
-      <!-- Modal novo colaborador -->
-      <app-modal
-        [open]="showColabModal()"
-        title="Novo colaborador"
-        subtitle="Cadastro completo e vínculo ao evento."
-        size="md"
-        (close)="fecharModalNovoColab()"
-      >
-        <form id="event-colab-form" class="space-y-3" (ngSubmit)="salvarNovoColaborador()">
-          <div class="field">
-            <label class="label" for="nc-type">Tipo de documento</label>
-            <select id="nc-type" class="select" [(ngModel)]="colabForm.id_collaborator_document_type" name="ncType">
-              <option *ngFor="let t of documentTypes()" [ngValue]="t.id_collaborator_document_type">{{ t.description }}</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="label" for="nc-doc">Documento</label>
-            <input id="nc-doc" class="input" [(ngModel)]="colabForm.document" name="ncDoc" />
-          </div>
-          <div class="field">
-            <label class="label" for="nc-name">Nome completo</label>
-            <input id="nc-name" class="input" [(ngModel)]="colabForm.name" name="ncName" />
-          </div>
-          <div class="field">
-            <label class="label" for="nc-role">Função</label>
-            <select id="nc-role" class="select" [(ngModel)]="colabForm.id_collaborator_role" name="ncRole">
-              <option [ngValue]="null">Selecione</option>
-              <option *ngFor="let r of roles()" [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
-            </select>
-          </div>
-          <div class="grid2">
-            <div class="field">
-              <label class="label" for="nc-rg">RG (opcional)</label>
-              <input id="nc-rg" class="input" [(ngModel)]="colabForm.rg" name="ncRg" />
-            </div>
-            <div class="field">
-              <label class="label" for="nc-phone">Telefone (opcional)</label>
-              <input id="nc-phone" class="input" [(ngModel)]="colabForm.phone" name="ncPhone" />
-            </div>
-          </div>
-        </form>
-        <div modal-footer class="modal-footer">
-          <button type="button" class="btn-action-secondary" (click)="fecharModalNovoColab()">Cancelar</button>
-          <button type="submit" form="event-colab-form" class="btn-action-primary" [disabled]="colabSaving()">
-            {{ colabSaving() ? 'Salvando...' : 'Cadastrar e vincular' }}
-          </button>
-        </div>
-      </app-modal>
-
-      <!-- Modal novo veículo -->
-      <app-modal
-        [open]="showVeicModal()"
-        title="Novo veículo"
-        subtitle="Cadastro completo e vínculo ao evento."
-        size="md"
-        (close)="fecharModalNovoVeic()"
-      >
-        <form id="event-veic-form" class="space-y-3" (ngSubmit)="salvarNovoVeiculo()">
-          <div class="field">
-            <label class="label" for="nv-plate">Placa</label>
-            <input id="nv-plate" class="input font-mono" [(ngModel)]="veicForm.plate" name="nvPlate" />
-          </div>
-          <div class="grid2">
-            <div class="field">
-              <label class="label" for="nv-brand">Marca</label>
-              <input id="nv-brand" class="input" [(ngModel)]="veicForm.brand" name="nvBrand" />
-            </div>
-            <div class="field">
-              <label class="label" for="nv-model">Modelo</label>
-              <input id="nv-model" class="input" [(ngModel)]="veicForm.model" name="nvModel" />
-            </div>
-          </div>
-          <div class="grid2">
-            <div class="field">
-              <label class="label" for="nv-color">Cor</label>
-              <input id="nv-color" class="input" [(ngModel)]="veicForm.color" name="nvColor" />
-            </div>
-            <div class="field">
-              <label class="label" for="nv-type">Tipo</label>
-              <input id="nv-type" class="input" [(ngModel)]="veicForm.type" name="nvType" placeholder="Passeio, utilitário..." />
-            </div>
-          </div>
-          <div class="field">
-            <label class="label" for="nv-desc">Descrição (opcional)</label>
-            <input id="nv-desc" class="input" [(ngModel)]="veicForm.description" name="nvDesc" />
-          </div>
-        </form>
-        <div modal-footer class="modal-footer">
-          <button type="button" class="btn-action-secondary" (click)="fecharModalNovoVeic()">Cancelar</button>
-          <button type="submit" form="event-veic-form" class="btn-action-primary" [disabled]="veicSaving()">
-            {{ veicSaving() ? 'Salvando...' : 'Cadastrar e vincular' }}
-          </button>
-        </div>
-      </app-modal>
     </div>
   `,
 })
@@ -1003,15 +633,11 @@ export class EventDetailComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly route = inject(ActivatedRoute);
   readonly formatDateBr = formatDateBr;
-  readonly statusBadgeClass = statusBadgeClass;
-  readonly maskDocument = maskDocument;
 
   event = signal<EventDetail | null>(null);
   companies = signal<CompanyItem[]>([]);
   producers = signal<EventDayCompanyBrief[]>([]);
   credentials = signal<CredentialItem[]>([]);
-  documentTypes = signal<CollaboratorDocumentType[]>([]);
-  roles = signal<CollaboratorRole[]>([]);
   loading = signal(true);
   activeTab = signal('Todas');
 
@@ -1020,12 +646,6 @@ export class EventDetailComponent implements OnInit {
   vincularSelectedCompanyId = signal<number | null>(null);
   vincularSelectedPhases = signal<string[]>([]);
   vincularSaving = signal(false);
-
-  showDrawer = signal(false);
-  drawerCompanyId = signal<number | null>(null);
-  drawerSeg = signal<DrawerSeg>('lote');
-  /** Dias (id_event_day_company) selecionados para indicar colaboradores/veículos. */
-  selectedLinkIds = signal<number[]>([]);
 
   showEditModal = signal(false);
   editSaving = signal(false);
@@ -1044,42 +664,7 @@ export class EventDetailComponent implements OnInit {
   notifyCompleteSaving = signal(false);
   notifyCompleteCompanyId = signal<number | null>(null);
 
-  individualSubmitting = signal(false);
-  colabSearching = signal(false);
-  colabResults = signal<CollaboratorItem[]>([]);
-  selectedColab = signal<CollaboratorItem | null>(null);
-  selectedColabRoleId: number | null = null;
-  colabSearchQuery = '';
-  private colabTimer: ReturnType<typeof setTimeout> | null = null;
-
-  veicSearching = signal(false);
-  veicResults = signal<VehicleItem[]>([]);
-  veicSearchQuery = '';
-  private veicTimer: ReturnType<typeof setTimeout> | null = null;
-
-  drawerVehicles = signal<EventCompanyVehicleItem[]>([]);
   vehicleCounts = signal<Record<number, number>>({});
-
-  showColabModal = signal(false);
-  showVeicModal = signal(false);
-  colabSaving = signal(false);
-  veicSaving = signal(false);
-  colabForm = {
-    id_collaborator_document_type: null as number | null,
-    id_collaborator_role: null as number | null,
-    document: '',
-    name: '',
-    rg: '',
-    phone: '',
-  };
-  veicForm = {
-    plate: '',
-    brand: '',
-    model: '',
-    color: '',
-    type: '',
-    description: '',
-  };
 
   responsavelFormId: number | null = null;
 
@@ -1087,40 +672,6 @@ export class EventDetailComponent implements OnInit {
   userRole = '';
   userCompanyId: number | null = null;
   isPartnerCompanyUser = false;
-
-  eventBulkAdapter: BulkImportApiAdapter = {
-    downloadTemplate: () => {
-      const ev = this.event();
-      const companyId = this.drawerCompanyId();
-      if (!ev || companyId == null) throw new Error('Contexto inválido');
-      return this.eventService.downloadCompanyBulkTemplate(ev.id_event, companyId);
-    },
-    preview: (file: File) => {
-      const ev = this.event();
-      const companyId = this.drawerCompanyId();
-      if (!ev || companyId == null) throw new Error('Contexto inválido');
-      return this.eventService.previewCompanyBulkImport(ev.id_event, companyId, file);
-    },
-    confirm: (previewToken, decisoes) => {
-      const ev = this.event();
-      const companyId = this.drawerCompanyId();
-      const linkIds = this.selectedLinkIds();
-      if (!ev || companyId == null) throw new Error('Contexto inválido');
-      if (!linkIds.length) {
-        this.notification.error('Selecione ao menos um dia para importar.');
-        throw new Error('Selecione ao menos um dia para importar.');
-      }
-      return this.eventService.confirmCompanyBulkImport(
-        ev.id_event,
-        companyId,
-        previewToken,
-        decisoes,
-        linkIds,
-      );
-    },
-    templateFilename: 'template-evento-colaboradores-veiculos.xlsx',
-    confirmLabel: 'Importar para o evento',
-  };
 
   /** Parceira sem gestão do evento: só a própria empresa/fases. Responsável e admin veem tudo. */
   private isPartnerScopedView(): boolean {
@@ -1157,10 +708,14 @@ export class EventDetailComponent implements OnInit {
     const companies = this.aggregatedCompanies();
     const collabIds = new Set<number>();
     let vehicles = 0;
-    let credRequested = 0;
+    let partnersTotal = 0;
+    let partnersComplete = 0;
     for (const c of companies) {
       vehicles += c.vehicleCount || 0;
-      if (c.credStatus !== 'rascunho') credRequested += 1;
+      if (!c.isResponsavel) {
+        partnersTotal += 1;
+        if (c.notified_complete_at) partnersComplete += 1;
+      }
       for (const cred of c.credentials) {
         collabIds.add(cred.id_collaborator);
       }
@@ -1169,7 +724,8 @@ export class EventDetailComponent implements OnInit {
       companies: companies.length,
       collaborators: collabIds.size,
       vehicles,
-      credRequested,
+      partnersTotal,
+      partnersComplete,
     };
   });
 
@@ -1186,57 +742,9 @@ export class EventDetailComponent implements OnInit {
     return this.companies().filter((c) => !linked.has(c.id_company) || c.id_company === editing);
   });
 
-  drawerAggregatedCompany = computed(() => {
-    const id = this.drawerCompanyId();
-    if (id == null) return null;
-    return this.aggregatedCompanies().find((c) => c.id_company === id) ?? null;
-  });
-
-  drawerPhaseGroups = computed((): PhaseDayGroup[] => {
-    const agg = this.drawerAggregatedCompany();
-    if (!agg?.links.length) return [];
-    const byPhase = new Map<string, CompanyDayLink[]>();
-    for (const link of agg.links) {
-      const list = byPhase.get(link.phase) || [];
-      list.push(link);
-      byPhase.set(link.phase, list);
-    }
-    return [...byPhase.entries()].map(([phase, days]) => ({
-      phase,
-      days: [...days].sort((a, b) => a.date.localeCompare(b.date)),
-    }));
-  });
-
-  drawerCredentials = computed(() => {
-    const agg = this.drawerAggregatedCompany();
-    if (!agg) return [];
-    return [...agg.credentials].sort((a, b) => {
-      const byName = a.collaborator.name.localeCompare(b.collaborator.name);
-      if (byName !== 0) return byName;
-      return String(a.event_day?.date || '').localeCompare(String(b.event_day?.date || ''));
-    });
-  });
-
-  drawerPendingCount = computed(() => {
-    const agg = this.drawerAggregatedCompany();
-    if (!agg) return 0;
-    const pending = new Set<number>();
-    for (const cred of agg.credentials) {
-      if (
-        cred.id_access_status === STATUS_AGUARDANDO_PRODUTORA ||
-        cred.id_access_status === STATUS_AGUARDANDO_APROVACAO
-      ) {
-        pending.add(cred.id_collaborator);
-      }
-    }
-    return pending.size;
-  });
-
   constructor(
     private eventService: EventService,
     private credentialService: CredentialService,
-    private collaboratorService: CollaboratorService,
-    private vehicleService: VehicleService,
     private authService: AuthService,
     private notification: NotificationService,
     private router: Router,
@@ -1251,11 +759,6 @@ export class EventDetailComponent implements OnInit {
       this.userRole === 'PADRAO' ||
       this.userRole === 'EMPRESA_GESTOR' ||
       this.userRole === 'EMPRESA_SOLICITANTE';
-
-    this.collaboratorService.listDocumentTypes().subscribe({
-      next: (res) => this.documentTypes.set(res.types),
-      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar tipos de documento.'),
-    });
 
     this.route.paramMap.subscribe((params) => {
       const id = Number(params.get('id'));
@@ -1313,15 +816,78 @@ export class EventDetailComponent implements OnInit {
     return n === 1 || n === 2;
   }
 
-  credStatusLabel(status: CredStatusSummary): string {
-    switch (status) {
-      case 'aprovado':
-        return 'Aprovado';
-      case 'aguardando':
-        return 'Aguardando';
-      default:
-        return 'Rascunho';
+  private companyNotifiedAt(
+    ev: EventDetail,
+    idCompany: number,
+    fromLink?: string | null,
+  ): string | null {
+    if (fromLink) return String(fromLink);
+    const map = ev.companies_notify as Record<string | number, string | null> | undefined;
+    if (map) {
+      const raw = map[idCompany] ?? map[String(idCompany)];
+      if (raw) return String(raw);
     }
+    if (this.userCompanyId === idCompany && ev.notified_complete_at) {
+      return String(ev.notified_complete_at);
+    }
+    return null;
+  }
+
+  /** Perfil do usuário logado para rótulos da coluna Status. */
+  private viewerProfile(): ViewerProfile {
+    if (this.isPartnerScopedView()) return 'parceira';
+    const ev = this.event();
+    const responsavelId = ev?.id_company_responsavel ?? null;
+    if (
+      this.isAdmin ||
+      this.canManageCompanies() ||
+      (this.userCompanyId != null &&
+        responsavelId != null &&
+        this.userCompanyId === responsavelId)
+    ) {
+      return 'responsavel';
+    }
+    if (ev?.is_solicitante) return 'solicitante';
+    if (
+      this.userCompanyId != null &&
+      responsavelId != null &&
+      this.userCompanyId !== responsavelId
+    ) {
+      return 'parceira';
+    }
+    return 'responsavel';
+  }
+
+  companyFlowStatusLabel(row: AggregatedCompany): string {
+    const profile = this.viewerProfile();
+    const ev = this.event();
+    if (row.isResponsavel) {
+      const status = Number(ev?.id_access_status);
+      if (status === STATUS_AGUARDANDO_PRODUTORA) {
+        return profile === 'responsavel'
+          ? 'Pronto para notificar'
+          : 'Aguardando Empresa Responsável';
+      }
+      if (status === STATUS_AGUARDANDO_APROVACAO) return 'Aguardando aprovação';
+      if (status === STATUS_APROVADO) return 'Aprovado';
+      return (ev?.access_status_description || '—').trim() || '—';
+    }
+    if (row.notified_complete_at) return 'Cadastro concluído';
+    return profile === 'parceira' ? 'Cadastro em andamento' : 'Aguardando Empresa Parceira';
+  }
+
+  companyFlowChip(row: AggregatedCompany): FlowChipKind {
+    const ev = this.event();
+    if (row.isResponsavel) {
+      const status = Number(ev?.id_access_status);
+      if (status === STATUS_APROVADO) return 'done';
+      if (status === STATUS_AGUARDANDO_APROVACAO) return 'waiting';
+      if (status === STATUS_AGUARDANDO_PRODUTORA) return 'progress';
+      if (status === 4) return 'error';
+      return 'muted';
+    }
+    if (row.notified_complete_at) return 'done';
+    return this.viewerProfile() === 'parceira' ? 'progress' : 'waiting';
   }
 
   setActiveTab(tab: string) {
@@ -1331,6 +897,23 @@ export class EventDetailComponent implements OnInit {
   countForTab(tab: string): number {
     if (tab === 'Todas') return this.aggregatedCompanies().length;
     return this.aggregatedCompanies().filter((c) => c.phases.includes(tab)).length;
+  }
+
+  /** Contagem de colaboradores da empresa; com aba de fase, só os daquela fase. */
+  collaboratorCountForRow(row: AggregatedCompany): number {
+    const tab = this.activeTab();
+    if (tab === 'Todas') return row.collaboratorCount;
+    const linkIds = new Set(
+      row.links.filter((l) => l.phase === tab).map((l) => l.id_event_day_company),
+    );
+    if (!linkIds.size) return 0;
+    const collabIds = new Set<number>();
+    for (const cred of row.credentials) {
+      if (linkIds.has(cred.id_event_day_company)) {
+        collabIds.add(cred.id_collaborator);
+      }
+    }
+    return collabIds.size;
   }
 
   canManageCompanies(): boolean {
@@ -1397,6 +980,11 @@ export class EventDetailComponent implements OnInit {
         const id = link.company.id_company;
         let agg = map.get(id);
         if (!agg) {
+          const notified = this.companyNotifiedAt(
+            ev,
+            id,
+            link.company.notified_complete_at,
+          );
           agg = {
             id_company: id,
             company_name: link.company.company_name,
@@ -1406,12 +994,14 @@ export class EventDetailComponent implements OnInit {
             links: [],
             producerIds: [],
             credentials: [],
-            credStatus: 'rascunho',
+            notified_complete_at: notified,
             isResponsavel: responsavelId != null && id === responsavelId,
             collaboratorCount: 0,
             vehicleCount: 0,
           };
           map.set(id, agg);
+        } else if (!agg.notified_complete_at && link.company.notified_complete_at) {
+          agg.notified_complete_at = String(link.company.notified_complete_at);
         }
         if (phaseDesc && !agg.phases.includes(phaseDesc)) {
           agg.phases.push(phaseDesc);
@@ -1434,7 +1024,6 @@ export class EventDetailComponent implements OnInit {
     const allCreds = this.credentials();
     for (const agg of map.values()) {
       agg.credentials = allCreds.filter((c) => agg.linkIds.includes(c.id_event_day_company));
-      agg.credStatus = this.computeCredStatus(agg.credentials);
       const collabIds = new Set(agg.credentials.map((c) => c.id_collaborator));
       agg.collaboratorCount = collabIds.size;
       agg.vehicleCount = this.vehicleCounts()[agg.id_company] || 0;
@@ -1445,21 +1034,6 @@ export class EventDetailComponent implements OnInit {
       if (!a.isResponsavel && b.isResponsavel) return 1;
       return a.company_name.localeCompare(b.company_name);
     });
-  }
-
-  private computeCredStatus(credentials: CredentialItem[]): CredStatusSummary {
-    if (!credentials.length) return 'rascunho';
-    if (credentials.some((c) => c.id_access_status === STATUS_APROVADO)) return 'aprovado';
-    if (
-      credentials.some(
-        (c) =>
-          c.id_access_status === STATUS_AGUARDANDO_PRODUTORA ||
-          c.id_access_status === STATUS_AGUARDANDO_APROVACAO,
-      )
-    ) {
-      return 'aguardando';
-    }
-    return 'rascunho';
   }
 
   abrirVincularModal(row?: AggregatedCompany) {
@@ -1550,365 +1124,18 @@ export class EventDetailComponent implements OnInit {
     });
   }
 
-  abrirDrawer(companyId?: number, seg?: DrawerSeg) {
-    if (this.event()?.ativo === false) {
+  irParaColaboradores(companyId?: number, seg?: CollaboratorsSeg) {
+    const ev = this.event();
+    if (!ev) return;
+    if (ev.ativo === false) {
       this.notification.error('Evento desativado. Reative-o para gerenciar colaboradores.');
       return;
     }
-    let resolvedId =
-      companyId ??
-      (this.isPartnerScopedView() ? this.userCompanyId : null);
-
-    // Fluxo "Adicionar": só empresas em que o usuário pode escrever.
-    if (companyId == null && !this.isPartnerScopedView()) {
-      const writable = this.writableCompanies();
-      resolvedId = writable.length === 1 ? writable[0].id_company : null;
-    }
-
-    this.drawerCompanyId.set(resolvedId);
-    const canWrite =
-      resolvedId != null &&
-      !!this.aggregatedCompanies().find(
-        (c) => c.id_company === resolvedId && this.canRequestCredentialForCompany(c),
-      );
-    // Visualização de parceira: não abre abas de inclusão.
-    this.drawerSeg.set(canWrite ? (seg ?? 'lote') : 'ind');
-    this.resetIndividualState();
-    this.resetSelectedLinkIds(resolvedId);
-    this.showDrawer.set(true);
-    if (canWrite) this.ensureRolesLoaded();
-    if (resolvedId != null) this.carregarVeiculosEmpresa(resolvedId);
-  }
-
-  fecharDrawer() {
-    this.showDrawer.set(false);
-    this.drawerCompanyId.set(null);
-    this.selectedLinkIds.set([]);
-    this.resetIndividualState();
-    this.drawerVehicles.set([]);
-  }
-
-  onDrawerCompanyChange(companyId: number | null) {
-    this.drawerCompanyId.set(companyId);
-    this.resetIndividualState();
-    this.resetSelectedLinkIds(companyId);
-    if (companyId != null) this.carregarVeiculosEmpresa(companyId);
-    else this.drawerVehicles.set([]);
-  }
-
-  private resetSelectedLinkIds(companyId: number | null) {
-    // Exige seleção explícita por dia/fase (não pré-marca todos).
-    this.selectedLinkIds.set([]);
-    void companyId;
-  }
-
-  isLinkSelected(linkId: number): boolean {
-    return this.selectedLinkIds().includes(linkId);
-  }
-
-  toggleLinkSelection(linkId: number, checked: boolean) {
-    const current = this.selectedLinkIds();
-    if (checked) {
-      if (!current.includes(linkId)) this.selectedLinkIds.set([...current, linkId]);
-      return;
-    }
-    this.selectedLinkIds.set(current.filter((id) => id !== linkId));
-  }
-
-  selectedCountInPhase(group: PhaseDayGroup): number {
-    const selected = new Set(this.selectedLinkIds());
-    return group.days.filter((d) => selected.has(d.id_event_day_company)).length;
-  }
-
-  isPhaseFullySelected(group: PhaseDayGroup): boolean {
-    return group.days.length > 0 && this.selectedCountInPhase(group) === group.days.length;
-  }
-
-  isPhasePartiallySelected(group: PhaseDayGroup): boolean {
-    const n = this.selectedCountInPhase(group);
-    return n > 0 && n < group.days.length;
-  }
-
-  togglePhaseSelection(group: PhaseDayGroup, checked: boolean) {
-    const ids = group.days.map((d) => d.id_event_day_company);
-    const current = new Set(this.selectedLinkIds());
-    if (checked) {
-      for (const id of ids) current.add(id);
-    } else {
-      for (const id of ids) current.delete(id);
-    }
-    this.selectedLinkIds.set([...current]);
-  }
-
-  credDayLabel(cred: CredentialItem): string {
-    const agg = this.drawerAggregatedCompany();
-    const link = agg?.links.find((l) => l.id_event_day_company === cred.id_event_day_company);
-    const phase = link?.phase || '';
-    const date = cred.event_day?.date || link?.date || '';
-    const dateBr = date ? formatDateBr(date) : '';
-    if (phase && dateBr) return `${phase} · ${dateBr}`;
-    return phase || dateBr || '—';
-  }
-
-  private requireSelectedLinkIds(): number[] | null {
-    const ids = this.selectedLinkIds();
-    if (!ids.length) {
-      this.notification.error('Selecione ao menos um dia.');
-      return null;
-    }
-    return ids;
-  }
-
-  setDrawerSeg(seg: DrawerSeg) {
-    this.drawerSeg.set(seg);
-    if (seg === 'ind') this.ensureRolesLoaded();
-  }
-
-  canManageDrawerCompany(): boolean {
-    const row = this.drawerAggregatedCompany();
-    if (!row) return false;
-    return this.canRequestCredentialForCompany(row);
-  }
-
-  private ensureRolesLoaded() {
-    if (this.roles().length === 0) {
-      this.collaboratorService.listRoles().subscribe({
-        next: (res) => this.roles.set(res.roles),
-        error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar funções.'),
-      });
-    }
-  }
-
-  private resetIndividualState() {
-    this.individualSubmitting.set(false);
-    this.colabSearching.set(false);
-    this.colabResults.set([]);
-    this.selectedColab.set(null);
-    this.selectedColabRoleId = null;
-    this.colabSearchQuery = '';
-    this.veicSearching.set(false);
-    this.veicResults.set([]);
-    this.veicSearchQuery = '';
-    if (this.colabTimer) clearTimeout(this.colabTimer);
-    if (this.veicTimer) clearTimeout(this.veicTimer);
-  }
-
-  onColabSearch(term: string) {
-    this.colabSearchQuery = term;
-    if (this.colabTimer) clearTimeout(this.colabTimer);
-    this.selectedColab.set(null);
-    const q = term.trim();
-    if (q.length < 2) {
-      this.colabResults.set([]);
-      this.colabSearching.set(false);
-      return;
-    }
-    this.colabTimer = setTimeout(() => this.buscarColaboradores(q), 300);
-  }
-
-  private buscarColaboradores(term: string) {
-    this.colabSearching.set(true);
-    this.collaboratorService.list(1, 15, { q: term, status: true }).subscribe({
-      next: (res) => {
-        this.colabSearching.set(false);
-        this.colabResults.set(res.collaborators.filter((c) => !c.is_blocklisted));
-        this.cdr.markForCheck();
+    void this.router.navigate(['/admin/eventos', ev.id_event, 'colaboradores'], {
+      queryParams: {
+        ...(companyId != null ? { companyId } : {}),
+        ...(seg ? { seg } : {}),
       },
-      error: (err) => {
-        this.colabSearching.set(false);
-        this.colabResults.set([]);
-        this.notification.notifyHttpError(err, 'Falha ao buscar colaboradores.');
-        this.cdr.markForCheck();
-      },
-    });
-  }
-
-  selecionarColaboradorBusca(item: CollaboratorItem) {
-    if (item.is_blocklisted) {
-      this.notification.error('Colaborador está na blocklist.');
-      return;
-    }
-    this.selectedColab.set(item);
-    this.selectedColabRoleId = item.id_collaborator_role || this.roles()[0]?.id_collaborator_role || null;
-    this.colabResults.set([]);
-    this.colabSearchQuery = '';
-    this.ensureRolesLoaded();
-  }
-
-  limparColabSelecionado() {
-    this.selectedColab.set(null);
-    this.selectedColabRoleId = null;
-  }
-
-  vincularColaboradorSelecionado() {
-    const col = this.selectedColab();
-    const roleId = this.selectedColabRoleId;
-    if (!col) return;
-    if (roleId == null) {
-      this.notification.error('Selecione a função.');
-      return;
-    }
-    this.vincularColaboradorEmFases(col.id_collaborator, roleId, () => {
-      this.limparColabSelecionado();
-    });
-  }
-
-  private vincularColaboradorEmFases(
-    idCollaborator: number,
-    roleId: number,
-    onSuccess?: () => void,
-  ) {
-    if (!this.canManageDrawerCompany()) {
-      this.notification.error('Sem permissão para indicar colaboradores nesta empresa.');
-      return;
-    }
-    const agg = this.drawerAggregatedCompany();
-    const linkIds = this.requireSelectedLinkIds();
-    if (!agg?.links.length) {
-      this.notification.error('Empresa sem vínculos de fase.');
-      return;
-    }
-    if (!linkIds) return;
-    this.individualSubmitting.set(true);
-    let done = 0;
-    let ok = 0;
-    const finish = () => {
-      done += 1;
-      if (done >= linkIds.length) {
-        this.individualSubmitting.set(false);
-        if (ok > 0) {
-          this.notification.success('Credencial solicitada.');
-          onSuccess?.();
-          const eventId = this.event()?.id_event;
-          if (eventId) this.carregarCredenciais(eventId);
-        } else {
-          this.notification.error('Este colaborador já possui credencial nos dias selecionados.');
-        }
-        this.cdr.markForCheck();
-      }
-    };
-    for (const linkId of linkIds) {
-      this.credentialService
-        .create({
-          id_event_day_company: linkId,
-          id_collaborator: idCollaborator,
-          id_collaborator_role: roleId,
-        })
-        .subscribe({
-          next: () => {
-            ok += 1;
-            finish();
-          },
-          error: (err) => {
-            if (err instanceof HttpErrorResponse && err.status === 409) {
-              finish();
-              return;
-            }
-            this.notification.error(this.extractError(err) || 'Falha ao solicitar credencial.');
-            finish();
-          },
-        });
-    }
-  }
-
-  onVeicSearch(term: string) {
-    this.veicSearchQuery = term;
-    if (this.veicTimer) clearTimeout(this.veicTimer);
-    const q = term.trim();
-    if (q.length < 2) {
-      this.veicResults.set([]);
-      this.veicSearching.set(false);
-      return;
-    }
-    this.veicTimer = setTimeout(() => this.buscarVeiculos(q), 300);
-  }
-
-  private buscarVeiculos(term: string) {
-    const companyId = this.drawerCompanyId();
-    this.veicSearching.set(true);
-    this.vehicleService
-      .list(1, 15, {
-        q: term,
-        status: true,
-        ...(companyId != null ? { id_company: companyId } : {}),
-      })
-      .subscribe({
-        next: (res) => {
-          this.veicSearching.set(false);
-          this.veicResults.set(res.vehicles.filter((v) => !v.is_blocklisted));
-          this.cdr.markForCheck();
-        },
-        error: (err) => {
-          this.veicSearching.set(false);
-          this.veicResults.set([]);
-          this.notification.notifyHttpError(err, 'Falha ao buscar veículos.');
-          this.cdr.markForCheck();
-        },
-      });
-  }
-
-  vincularVeiculoExistente(item: VehicleItem) {
-    if (!this.canManageDrawerCompany()) {
-      this.notification.error('Sem permissão para vincular veículos nesta empresa.');
-      return;
-    }
-    const ev = this.event();
-    const companyId = this.drawerCompanyId();
-    const linkIds = this.requireSelectedLinkIds();
-    if (!ev || companyId == null || !linkIds) return;
-    if (item.is_blocklisted) {
-      this.notification.error('Veículo está na blocklist.');
-      return;
-    }
-    this.veicResults.set([]);
-    this.veicSearchQuery = '';
-    this.eventService.addCompanyVehicle(ev.id_event, companyId, item.id_vehicle, linkIds).subscribe({
-      next: () => {
-        this.notification.success('Veículo vinculado ao evento.');
-        this.carregarVeiculosEmpresa(companyId);
-        this.refreshVehicleCounts(ev.id_event);
-      },
-      error: (err) => this.notification.notifyHttpError(err, 'Falha ao vincular veículo.'),
-    });
-  }
-
-  removerVeiculoEvento(v: EventCompanyVehicleItem) {
-    const ev = this.event();
-    const companyId = this.drawerCompanyId();
-    if (!ev || companyId == null) return;
-    Swal.fire({
-      title: 'Remover veículo?',
-      text: `Remover ${v.plate} deste evento?`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Remover',
-      cancelButtonText: 'Cancelar',
-    }).then((result) => {
-      if (!result.isConfirmed) return;
-      this.eventService.removeCompanyVehicle(ev.id_event, companyId, v.id_vehicle).subscribe({
-        next: () => {
-          this.notification.success('Veículo removido.');
-          this.carregarVeiculosEmpresa(companyId);
-          this.refreshVehicleCounts(ev.id_event);
-        },
-        error: (err) => this.notification.notifyHttpError(err, 'Falha ao remover veículo.'),
-      });
-    });
-  }
-
-  carregarVeiculosEmpresa(companyId: number) {
-    const ev = this.event();
-    if (!ev) return;
-    this.eventService.listCompanyVehicles(ev.id_event, companyId).subscribe({
-      next: (res) => {
-        this.drawerVehicles.set(res.vehicles || []);
-        this.vehicleCounts.update((m) => ({
-          ...m,
-          [companyId]: (res.vehicles || []).length,
-        }));
-        this.cdr.markForCheck();
-      },
-      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar veículos.'),
     });
   }
 
@@ -1923,141 +1150,6 @@ export class EventDetailComponent implements OnInit {
         this.cdr.markForCheck();
       },
     });
-  }
-
-  onEventBulkCompleted() {
-    const ev = this.event();
-    const companyId = this.drawerCompanyId();
-    if (!ev) return;
-    this.carregarCredenciais(ev.id_event);
-    if (companyId != null) this.carregarVeiculosEmpresa(companyId);
-    this.refreshVehicleCounts(ev.id_event);
-  }
-
-  abrirModalNovoColab() {
-    this.ensureRolesLoaded();
-    const types = this.documentTypes();
-    this.colabForm = {
-      id_collaborator_document_type: types[0]?.id_collaborator_document_type ?? null,
-      id_collaborator_role: this.roles()[0]?.id_collaborator_role ?? null,
-      document: '',
-      name: '',
-      rg: '',
-      phone: '',
-    };
-    this.showColabModal.set(true);
-  }
-
-  fecharModalNovoColab() {
-    this.showColabModal.set(false);
-  }
-
-  salvarNovoColaborador() {
-    if (!this.canManageDrawerCompany()) {
-      this.notification.error('Sem permissão para indicar colaboradores nesta empresa.');
-      return;
-    }
-    const form = this.colabForm;
-    if (
-      !form.id_collaborator_document_type ||
-      !form.id_collaborator_role ||
-      !form.document.trim() ||
-      !form.name.trim()
-    ) {
-      this.notification.error('Preencha tipo de documento, documento, nome e função.');
-      return;
-    }
-    this.colabSaving.set(true);
-    this.collaboratorService
-      .create({
-        id_collaborator_document_type: form.id_collaborator_document_type,
-        id_collaborator_role: form.id_collaborator_role,
-        document: form.document.trim(),
-        name: form.name.trim(),
-        rg: form.rg.trim() || null,
-        phone: form.phone.trim() || null,
-        status: true,
-      })
-      .subscribe({
-        next: (res) => {
-          this.colabSaving.set(false);
-          this.fecharModalNovoColab();
-          this.vincularColaboradorEmFases(
-            res.collaborator.id_collaborator,
-            form.id_collaborator_role!,
-          );
-        },
-        error: (err) => {
-          this.colabSaving.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao cadastrar colaborador.');
-        },
-      });
-  }
-
-  abrirModalNovoVeic() {
-    this.veicForm = { plate: '', brand: '', model: '', color: '', type: '', description: '' };
-    this.showVeicModal.set(true);
-  }
-
-  fecharModalNovoVeic() {
-    this.showVeicModal.set(false);
-  }
-
-  salvarNovoVeiculo() {
-    if (!this.canManageDrawerCompany()) {
-      this.notification.error('Sem permissão para vincular veículos nesta empresa.');
-      return;
-    }
-    const companyId = this.drawerCompanyId();
-    const ev = this.event();
-    const form = this.veicForm;
-    if (
-      !ev ||
-      companyId == null ||
-      !form.plate.trim() ||
-      !form.brand.trim() ||
-      !form.model.trim() ||
-      !form.color.trim() ||
-      !form.type.trim()
-    ) {
-      this.notification.error('Preencha placa, marca, modelo, cor e tipo.');
-      return;
-    }
-    this.veicSaving.set(true);
-    this.vehicleService
-      .create({
-        id_company: companyId,
-        plate: form.plate.trim(),
-        brand: form.brand.trim(),
-        model: form.model.trim(),
-        color: form.color.trim(),
-        type: form.type.trim(),
-        description: form.description.trim() || null,
-        status: true,
-      })
-      .subscribe({
-        next: (res) => {
-          this.veicSaving.set(false);
-          const linkIds = this.requireSelectedLinkIds();
-          if (!linkIds) return;
-          this.fecharModalNovoVeic();
-          this.eventService
-            .addCompanyVehicle(ev.id_event, companyId, res.vehicle.id_vehicle, linkIds)
-            .subscribe({
-              next: () => {
-                this.notification.success('Veículo cadastrado e vinculado.');
-                this.carregarVeiculosEmpresa(companyId);
-                this.refreshVehicleCounts(ev.id_event);
-              },
-              error: (err) =>
-                this.notification.notifyHttpError(err, 'Veículo criado, mas falhou o vínculo ao evento.'),
-            });
-        },
-        error: (err) => {
-          this.veicSaving.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao cadastrar veículo.');
-        },
-      });
   }
 
   editModalSubtitle(): string {

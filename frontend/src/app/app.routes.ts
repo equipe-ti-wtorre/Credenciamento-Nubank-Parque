@@ -19,6 +19,7 @@ import { CompanyListComponent } from './pages/admin/companies/company-list.compo
 import { CollaboratorListComponent } from './pages/admin/collaborators/collaborator-list.component';
 import { EventListComponent } from './pages/admin/events/event-list.component';
 import { EventDetailComponent } from './pages/admin/events/event-detail.component';
+import { EventCollaboratorsComponent } from './pages/admin/events/event-collaborators.component';
 import { GateControlComponent } from './pages/gate/gate-control.component';
 import { VehicleListComponent } from './pages/patrimonial/vehicle-list.component';
 import { ServiceRequestListComponent } from './pages/patrimonial/service-request-list.component';
@@ -238,6 +239,19 @@ export const routes: Routes = [
             { module: 'approvals', action: 'view' },
           ],
           title: 'Detalhe do evento',
+        },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/eventos/:id/colaboradores',
+        component: EventCollaboratorsComponent,
+        canActivate: [PermissionGuard],
+        data: {
+          permissionAny: [
+            { module: 'events', action: 'view' },
+            { module: 'approvals', action: 'view' },
+          ],
+          title: 'Colaboradores do evento',
         },
         runGuardsAndResolvers: 'always',
       },

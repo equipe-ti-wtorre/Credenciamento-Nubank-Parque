@@ -29,6 +29,7 @@ import { ApprovalService } from '../services/approval.service';
 import { DocumentChangeService } from '../services/document-change.service';
 import { ADMIN_MENU_ITEMS, ADMIN_MENU_MODULE_MAP, AdminMenuItem, MenuIconLibrary } from '../config/admin-menu.config';
 import { NotificationsDropdownComponent } from './notifications-dropdown.component';
+import { GlobalSearchComponent } from './global-search.component';
 import { TeamsContextService } from '../services/teams-context.service';
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
@@ -56,7 +57,14 @@ interface NavGroup {
   selector: 'app-main-layout',
   standalone: true,
   encapsulation: ViewEncapsulation.None,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, NotificationsDropdownComponent],
+  imports: [
+    CommonModule,
+    RouterOutlet,
+    RouterLink,
+    RouterLinkActive,
+    NotificationsDropdownComponent,
+    GlobalSearchComponent,
+  ],
   templateUrl: './main-layout.component.html',
   styleUrls: ['./main-layout.component.scss'],
 })

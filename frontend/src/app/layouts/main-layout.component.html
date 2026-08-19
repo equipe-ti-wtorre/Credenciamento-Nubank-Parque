@@ -168,22 +168,7 @@
         <h1>{{ pageTitle() }}</h1>
       </div>
       <div class="topbar-right">
-        <!-- TODO(busca-global): nao ha endpoint/rota de busca ainda. Disparar a busca aqui. -->
-        <div class="search">
-          <svg
-            viewBox="0 0 24 24"
-            width="17"
-            height="17"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            aria-hidden="true"
-          >
-            <circle cx="11" cy="11" r="7" />
-            <path d="M21 21l-4-4" stroke-linecap="round" />
-          </svg>
-          <input placeholder="Buscar empresa, colaborador..." aria-label="Busca global" />
-        </div>
+        <app-global-search />
         <app-notifications-dropdown />
       </div>
     </header>

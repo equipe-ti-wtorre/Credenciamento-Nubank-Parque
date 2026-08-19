@@ -1,6 +1,8 @@
-import { ChangeDetectorRef, Component, computed, inject, OnDestroy, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, computed, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
+import { Subscription } from 'rxjs';
 import Swal from 'sweetalert2';
 import {
   CompanyContact,
@@ -397,8 +399,10 @@ interface CompanyFormState {
     </app-modal>
   `,
 })
-export class CompanyListComponent implements OnDestroy {
+export class CompanyListComponent implements OnInit, OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   readonly formatCnpj = formatCnpj;
 
   companies = signal<CompanyItem[]>([]);
@@ -431,6 +435,7 @@ export class CompanyListComponent implements OnDestroy {
   private readonly filterDebounceMs = 500;
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private thumbnailLoadId = 0;
+  private routeSub?: Subscription;
   private readonly logoAcceptMime = new Set(['image/jpeg', 'image/png', 'image/webp']);
   private readonly logoAcceptExt = new Set(['.jpg', '.jpeg', '.png', '.webp']);
   private readonly logoMaxBytes = 2 * 1024 * 1024;
@@ -454,7 +459,18 @@ export class CompanyListComponent implements OnDestroy {
     this.carregar();
   }
 
+  ngOnInit() {
+    this.routeSub = this.route.queryParamMap.subscribe((params) => {
+      const raw = params.get('open');
+      if (!raw) return;
+      const id = Number(raw);
+      if (!Number.isInteger(id) || id <= 0) return;
+      this.consumeOpenQuery(id);
+    });
+  }
+
   ngOnDestroy() {
+    this.routeSub?.unsubscribe();
     this.clearFilterDebounce();
     this.revokeLogoPreview();
     this.revokeThumbnails();
@@ -547,6 +563,16 @@ export class CompanyListComponent implements OnDestroy {
   irPagina(page: number) {
     if (page < 1 || page > this.pagination().totalPages) return;
     this.carregar(page);
+  }
+
+  private consumeOpenQuery(id: number) {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { open: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+    this.editar({ id_company: id } as CompanyItem);
   }
 
   novaEmpresa() {
