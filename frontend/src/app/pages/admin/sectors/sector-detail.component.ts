@@ -12,7 +12,7 @@ import {
 import { UserItem, UserService } from '../../../services/user.service';
 import { NotificationService } from '../../../core/services/notification.service';
 
-const ENTITY_TYPES = ['EVENTO', 'ACESSO_SERVICO'] as const;
+const ENTITY_TYPES = ['EVENTO', 'ACESSO_SERVICO', 'CREDENCIAMENTO_EVENTO', 'CREDENCIAMENTO_EVENTO_INTERNO'] as const;
 const PAPEL_OPTIONS: SectorPapel[] = ['SOLICITANTE', 'APROVADOR', 'GESTOR'];
 
 @Component({
@@ -238,7 +238,10 @@ export class SectorDetailComponent implements OnInit {
   }
 
   flowLabel(tipo: string): string {
-    return tipo === 'EVENTO' ? 'Evento' : 'Acesso de Serviço';
+    if (tipo === 'EVENTO') return 'Evento';
+    if (tipo === 'CREDENCIAMENTO_EVENTO') return 'Credenciamento Eventos';
+    if (tipo === 'CREDENCIAMENTO_EVENTO_INTERNO') return 'Credenciamento Eventos (internos)';
+    return 'Acesso de Serviço';
   }
 
   carregarMembros() {

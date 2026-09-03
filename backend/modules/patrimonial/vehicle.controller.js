@@ -26,6 +26,24 @@ exports.list = async (req, res, next) => {
   }
 };
 
+exports.statsSummary = async (req, res, next) => {
+  try {
+    const stats = await vehicleService.getVehicleStats(req);
+    res.json({ stats });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listTypes = async (req, res, next) => {
+  try {
+    const types = await vehicleService.listVehicleTypes(req);
+    res.json({ types });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.getById = async (req, res, next) => {
   try {
     const vehicle = await vehicleService.getVehicleById(req, req.params.id);

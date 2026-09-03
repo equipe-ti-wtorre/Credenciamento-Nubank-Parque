@@ -3,6 +3,7 @@ import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from '../tokens/injection-tokens';
 import { PlatformService } from './platform.service';
+import { withImageSrc } from '../utils/image-src';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -37,6 +38,10 @@ export class ApiService {
       params,
       responseType: 'blob',
     });
+  }
+
+  getImageDataUrl(path: string, params?: HttpParams): Observable<string> {
+    return withImageSrc(this.getBlob(path, params));
   }
 
   postFormData<T>(path: string, body: FormData): Observable<T> {

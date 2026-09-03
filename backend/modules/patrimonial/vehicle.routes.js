@@ -11,6 +11,8 @@ const canEdit = [authMiddleware, authorizePermission("fleet", "edit")];
 const canDelete = [authMiddleware, authorizePermission("fleet", "delete")];
 
 router.get("/", ...canView, vehicleController.list);
+router.get("/stats/summary", ...canView, vehicleController.statsSummary);
+router.get("/types", ...canView, vehicleController.listTypes);
 router.get(
   "/bulk/template",
   ...canView,

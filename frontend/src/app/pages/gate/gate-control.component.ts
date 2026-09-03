@@ -952,14 +952,10 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       const picture = row.collaborator.picture;
       if (!picture) continue;
       this.collaboratorService.getPictureBlob(picture).subscribe({
-        next: (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (loadId !== this.thumbnailLoadId) {
-            URL.revokeObjectURL(url);
-            return;
-          }
+        next: (url) => {
+          if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [row.access_id]: url }));
-          this.cdr.markForCheck();
+          this.cdr.detectChanges();
         },
         error: () => undefined,
       });
@@ -973,14 +969,10 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       const picture = row.collaborator?.picture;
       if (!picture) continue;
       this.collaboratorService.getPictureBlob(picture).subscribe({
-        next: (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (loadId !== this.thumbnailLoadId) {
-            URL.revokeObjectURL(url);
-            return;
-          }
+        next: (url) => {
+          if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [row.access_id]: url }));
-          this.cdr.markForCheck();
+          this.cdr.detectChanges();
         },
         error: () => undefined,
       });
@@ -1012,9 +1004,6 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   }
 
   private revokeThumbnails(): void {
-    for (const url of Object.values(this.thumbnailUrls())) {
-      URL.revokeObjectURL(url);
-    }
     this.thumbnailUrls.set({});
   }
 
@@ -1029,9 +1018,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.clearSuccessPhoto();
     if (!picture) return;
     this.collaboratorService.getPictureBlob(picture).subscribe({
-      next: (blob) => {
-        this.successPhotoUrl.set(URL.createObjectURL(blob));
-        this.cdr.markForCheck();
+      next: (url) => {
+        this.successPhotoUrl.set(url);
+        this.cdr.detectChanges();
       },
       error: () => undefined,
     });
@@ -1066,11 +1055,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     }
     this.skipNextFocusRestore = true;
     if (row.next_action === 'CHECK_IN') {
-      this.openReleaseModal({
-        access_id: row.access_id,
-        collaborator: row.collaborator,
-        company_name: row.company.name,
-      });
+      this.openReleaseModal(this.releaseTargetFromEvent(row));
       return;
     }
     this.processScan(row.access_id);
@@ -1099,14 +1084,30 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     }
     this.skipNextFocusRestore = true;
     if (row.next_action === 'CHECK_IN' && row.kind === 'collaborator' && row.collaborator) {
-      this.openReleaseModal({
-        access_id: row.access_id,
-        collaborator: row.collaborator,
-        company_name: row.company.name,
-      });
+      this.openReleaseModal(this.releaseTargetFromService(row));
       return;
     }
     this.processScan(row.access_id);
+  }
+
+  private releaseTargetFromService(row: GateTodayService): GateReleaseTarget {
+    return {
+      access_id: row.access_id,
+      collaborator: row.collaborator!,
+      company_name: row.company.name,
+      start_date: row.start_date,
+      end_date: row.end_date,
+    };
+  }
+
+  private releaseTargetFromEvent(row: GateTodayCredential): GateReleaseTarget {
+    return {
+      access_id: row.access_id,
+      collaborator: row.collaborator,
+      company_name: row.company.name,
+      start_date: row.event_day_date || null,
+      end_date: row.event_day_date || null,
+    };
   }
 
   private openReleaseModal(target: GateReleaseTarget): void {
@@ -1123,22 +1124,14 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     if (this.gateMode() === 'patrimonial') {
       const row = this.todayServices().find((r) => r.access_id === accessId);
       if (row && row.kind === 'collaborator' && row.collaborator && row.next_action === 'CHECK_IN') {
-        this.openReleaseModal({
-          access_id: row.access_id,
-          collaborator: row.collaborator,
-          company_name: row.company.name,
-        });
+        this.openReleaseModal(this.releaseTargetFromService(row));
         return true;
       }
       return false;
     }
     const row = this.todayCredentials().find((r) => r.access_id === accessId);
     if (row && row.next_action === 'CHECK_IN') {
-      this.openReleaseModal({
-        access_id: row.access_id,
-        collaborator: row.collaborator,
-        company_name: row.company.name,
-      });
+      this.openReleaseModal(this.releaseTargetFromEvent(row));
       return true;
     }
     return false;
@@ -1172,6 +1165,68 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   }
 
   notifyingIds = signal<Record<number, boolean>>({});
+  facialResendingIds = signal<Record<string, boolean>>({});
+
+  canResendEventFacial(row: GateTodayCredential): boolean {
+    return !!row.access_check_in && row.next_action !== 'BLOCKED_BLOCKLIST';
+  }
+
+  canResendServiceFacial(row: GateTodayService): boolean {
+    return (
+      row.kind === 'collaborator' &&
+      !!row.check_in &&
+      row.next_action !== 'BLOCKED_BLOCKLIST' &&
+      row.next_action !== 'PENDING_APPROVAL' &&
+      row.next_action !== 'REJECTED'
+    );
+  }
+
+  isFacialResending(accessId: string): boolean {
+    return !!this.facialResendingIds()[accessId];
+  }
+
+  onResendEventFacial(row: GateTodayCredential): void {
+    if (!this.canResendEventFacial(row) || this.processing() || this.isFacialResending(row.access_id)) {
+      return;
+    }
+    this.resendFacial(row.access_id, () => this.gateService.resendEventFacial(row.access_id));
+  }
+
+  onResendServiceFacial(row: GateTodayService): void {
+    if (!this.canResendServiceFacial(row) || this.processing() || this.isFacialResending(row.access_id)) {
+      return;
+    }
+    this.resendFacial(row.access_id, () => this.gateService.resendServiceFacial(row.access_id));
+  }
+
+  private resendFacial(
+    accessId: string,
+    request: () => ReturnType<GateService['resendEventFacial']>,
+  ): void {
+    this.facialResendingIds.update((m) => ({ ...m, [accessId]: true }));
+    request().subscribe({
+      next: (res) => {
+        this.facialResendingIds.update((m) => {
+          const next = { ...m };
+          delete next[accessId];
+          return next;
+        });
+        this.notify.success(res.message || 'Acesso facial reenviado aos terminais.');
+        this.cdr.markForCheck();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.facialResendingIds.update((m) => {
+          const next = { ...m };
+          delete next[accessId];
+          return next;
+        });
+        this.notify.error(
+          err.error?.reason || err.error?.message || 'Não foi possível reenviar o acesso facial.',
+        );
+        this.cdr.markForCheck();
+      },
+    });
+  }
 
   isNotifying(row: GateTodayService): boolean {
     const id = row.id_service_access;
@@ -1220,12 +1275,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       ),
     );
     this.collaboratorService.getPictureBlob(evt.picture).subscribe({
-      next: (blob) => {
-        const url = URL.createObjectURL(blob);
-        const previous = this.thumbnailUrls()[evt.access_id];
-        if (previous) URL.revokeObjectURL(previous);
+      next: (url) => {
         this.thumbnailUrls.update((map) => ({ ...map, [evt.access_id]: url }));
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       },
       error: () => undefined,
     });

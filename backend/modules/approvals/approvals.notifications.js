@@ -70,12 +70,67 @@ async function loadEntityExtras(aprovacao) {
       [aprovacao.id_entidade],
     );
     if (rows[0]?.name) finalidade = rows[0].name;
+  } else if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO_INTERNO") {
+    const [rows] = await db.query(
+      `SELECT name, start, end FROM event_accreditation WHERE id_event_accreditation = ? LIMIT 1`,
+      [aprovacao.id_entidade],
+    );
+    if (rows[0]) {
+      finalidade = `${rows[0].name} — Internos`;
+      periodo = formatPeriodoBr(rows[0].start, rows[0].end);
+    }
+    const [collabRows] = await db.query(
+      `SELECT u.nome_completo AS nome
+         FROM event_accreditation_internal eai
+         INNER JOIN usuarios u ON u.id = eai.id_usuario
+        WHERE eai.id_event_accreditation = ?
+        ORDER BY u.nome_completo ASC`,
+      [aprovacao.id_entidade],
+    );
+    const names = (collabRows || []).map((r) => r.nome).filter(Boolean);
+    colaboradoresNomes = names;
+    colaboradoresCount = names.length;
+    colaboradores = formatCollaboratorsLabel(names);
+  } else if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO") {
+    const [rows] = await db.query(
+      `SELECT ea.name, ea.start, ea.end, c.fancy_name, c.company_name
+         FROM event_accreditation_company eac
+         INNER JOIN event_accreditation ea
+           ON ea.id_event_accreditation = eac.id_event_accreditation
+         LEFT JOIN company c ON c.id_company = eac.id_company
+        WHERE eac.id_event_accreditation_company = ?
+        LIMIT 1`,
+      [aprovacao.id_entidade],
+    );
+    if (rows[0]) {
+      finalidade = [rows[0].name, rows[0].fancy_name || rows[0].company_name]
+        .filter(Boolean)
+        .join(" — ");
+      periodo = formatPeriodoBr(rows[0].start, rows[0].end);
+    }
+    const [collabRows] = await db.query(
+      `SELECT c.name AS nome
+         FROM event_accreditation_collaborator eacol
+         INNER JOIN collaborator c ON c.id_collaborator = eacol.id_collaborator
+        WHERE eacol.id_event_accreditation_company = ?
+        ORDER BY c.name ASC`,
+      [aprovacao.id_entidade],
+    );
+    const names = (collabRows || []).map((r) => r.nome).filter(Boolean);
+    colaboradoresNomes = names;
+    colaboradoresCount = names.length;
+    colaboradores = formatCollaboratorsLabel(names);
   }
   return { periodo, finalidade, colaboradores, colaboradoresNomes, colaboradoresCount };
 }
 
 function tipoLabelOf(aprovacao) {
-  return aprovacao.tipo_entidade === "EVENTO" ? "Evento" : "Acesso de serviço";
+  if (aprovacao.tipo_entidade === "EVENTO") return "Evento";
+  if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO") return "Credenciamento Eventos";
+  if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO_INTERNO") {
+    return "Credenciamento Eventos (internos)";
+  }
+  return "Acesso de serviço";
 }
 
 function colaboradorWord(count) {

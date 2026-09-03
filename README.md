@@ -151,10 +151,14 @@ Copie `backend/.env.example` para `backend/.env`.
 | Variável | Obrigatória | Descrição |
 |----------|-------------|-----------|
 | `PORT` | Não | Porta da API (padrão **3007**) |
+| `HOST` | Não | Interface de bind (padrão **127.0.0.1**) |
 | `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Sim | Conexão MySQL |
-| `JWT_SECRET` | Produção | Assinatura do access token (mín. 32 caracteres) |
+| `JWT_SECRET` | Produção | Assinatura do access token (mín. 32 caracteres; não use `change-me`) |
 | `REFRESH_TOKEN_SECRET` | Produção | Assinatura do refresh token |
 | `ENCRYPTION_KEY` | Produção | Criptografia AES de secrets (tenants, SMTP, ACS, SendGrid) — 32+ chars |
+| `FACIAL_GATEWAY_EVENTS_SECRET` | Sim | Bearer HTTP poll (≥ 32; mesmo valor no Gateway) |
+| `FACIAL_PEER_ORIGIN_IP` | Produção | IP público de saída do Gateway (allowlist) |
+| `FACIAL_PEER_DESTINATION_IP` | Produção | IP público do Credenciamento (paridade com o Gateway) |
 | `JWT_ACCESS_EXPIRES` | Não | Padrão `30m` |
 | `JWT_REFRESH_EXPIRES` | Não | Padrão `7d` |
 | `CORS_ORIGINS` | Não | Origens web permitidas (vírgula) |

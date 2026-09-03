@@ -1,4 +1,4 @@
-import { Component, HostListener, OnDestroy, OnInit, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -1631,6 +1631,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     private approvalService: ApprovalService,
     private notification: NotificationService,
     private authService: AuthService,
+    private cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit() {
@@ -2007,13 +2008,10 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     for (const c of list) {
       if (!c.collaborator_picture) continue;
       this.collaboratorService.getPictureBlob(c.collaborator_picture).subscribe({
-        next: (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (loadId !== this.thumbnailLoadId) {
-            URL.revokeObjectURL(url);
-            return;
-          }
+        next: (url) => {
+          if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [c.id_collaborator]: url }));
+          this.cdr.detectChanges();
         },
         error: () => {},
       });
@@ -2021,9 +2019,6 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   }
 
   private revokeThumbnails() {
-    for (const url of Object.values(this.thumbnailUrls())) {
-      URL.revokeObjectURL(url);
-    }
     this.thumbnailUrls.set({});
   }
 

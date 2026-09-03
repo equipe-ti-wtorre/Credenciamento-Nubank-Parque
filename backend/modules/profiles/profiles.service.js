@@ -224,7 +224,7 @@ async function getProfileByCodigo(codigo) {
 
 async function loadUserProfileContext(userId) {
   const [rows] = await db.execute(
-    `SELECT u.id, u.ativo, u.departamento, u.id_company, u.id_perfil,
+    `SELECT u.id, u.ativo, u.departamento, u.id_company, u.id_perfil, u.is_ad_user,
             p.codigo, p.nome AS perfil_nome, p.is_super_admin, p.requires_company
      FROM usuarios u
      LEFT JOIN perfis p ON p.id = u.id_perfil
@@ -249,6 +249,7 @@ async function loadUserProfileContext(userId) {
     perfil_nome: row.perfil_nome || "Usuário",
     is_super_admin: !!row.is_super_admin,
     requires_company: !!row.requires_company,
+    is_ad_user: !!row.is_ad_user,
     permissions: permissions.map((p) => permissionKey(p.modulo, p.acao)),
   };
 }

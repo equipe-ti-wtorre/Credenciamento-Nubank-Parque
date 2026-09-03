@@ -1,0 +1,45 @@
+<div class="cal">
+  <div class="cal-head">
+    <button type="button" class="nav" aria-label="Mês anterior" (click)="shiftMonth(-1)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 18 9 12l6-6"/>
+      </svg>
+    </button>
+    <b>{{ monthTitle() }}</b>
+    <button type="button" class="nav" aria-label="Próximo mês" (click)="shiftMonth(1)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m9 18 6-6-6-6"/>
+      </svg>
+    </button>
+  </div>
+  <div class="dow">
+    @for (w of weekdays; track $index) {
+      <span>{{ w }}</span>
+    }
+  </div>
+  <div class="days">
+    @for (cell of cells(); track cell.iso + cell.inMonth) {
+      <button
+        type="button"
+        class="day"
+        [class.out]="!cell.inMonth"
+        [class.today]="cell.isToday"
+        [class.in]="cell.inRange"
+        [class.edge]="cell.isStart || cell.isEnd || cell.isSolo"
+        [class.start]="cell.isStart"
+        [class.end]="cell.isEnd"
+        [class.solo]="cell.isSolo"
+        (click)="onDay(cell)"
+      >
+        {{ cell.day }}
+        @if (cell.tick) {
+          <i class="tick" [class.ev]="cell.tick === 'ev'" [class.win]="cell.tick === 'win'"></i>
+        }
+      </button>
+    }
+  </div>
+  <div class="cal-foot">
+    <span>{{ footerText() }}</span>
+    <button type="button" class="link" [disabled]="!hasSelection()" (click)="onClear()">Limpar</button>
+  </div>
+</div>

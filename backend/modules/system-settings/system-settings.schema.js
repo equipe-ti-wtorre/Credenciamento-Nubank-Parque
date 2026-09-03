@@ -8,4 +8,13 @@ const appearanceSettingsSchema = Joi.object({
   color_palette: Joi.string().valid("wtorre", "nubank-parque").required(),
 });
 
-module.exports = { sessionSettingsSchema, appearanceSettingsSchema };
+const eventAccreditationNotifySchema = Joi.object({
+  notify_all: Joi.boolean().required(),
+  user_ids: Joi.array().items(Joi.number().integer().positive()).default([]),
+});
+
+module.exports = {
+  sessionSettingsSchema,
+  appearanceSettingsSchema,
+  eventAccreditationNotifySchema,
+};

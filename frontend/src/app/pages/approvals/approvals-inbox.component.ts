@@ -37,7 +37,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
   imports: [CommonModule, FormsModule, ModalComponent],
   template: `
     <div class="w-full">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
         <div class="stat-card">
           <div class="stat-card__icon">
             <svg
@@ -105,6 +105,31 @@ import { ModalComponent } from '../../shared/modal/modal.component';
             <p class="text-sm text-slate-500 font-medium">Eventos</p>
             <p class="text-2xl font-bold text-slate-900 leading-tight mt-0.5">
               {{ summaryEventCount() }}
+            </p>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-card__icon">
+            <svg
+              class="w-5 h-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="2" y="5" width="20" height="14" rx="2" />
+              <circle cx="8" cy="11" r="2" />
+              <path d="M5 16c.7-1.3 1.8-2 3-2s2.3.7 3 2M15 9h4M15 13h3" />
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <p class="text-sm text-slate-500 font-medium">Credenciamento Eventos</p>
+            <p class="text-2xl font-bold text-slate-900 leading-tight mt-0.5">
+              {{ summaryAccreditationCount() }}
             </p>
           </div>
         </div>
@@ -189,7 +214,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
 
       <p *ngIf="loading()" class="text-center text-slate-500 py-8">Carregando...</p>
 
-      <div *ngIf="!loading()" class="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+      <div *ngIf="!loading()" class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
         <section class="min-w-0">
           <div class="flex items-center gap-2 mb-3">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-100 text-sky-800">
@@ -255,6 +280,25 @@ import { ModalComponent } from '../../shared/modal/modal.component';
             </p>
           </div>
         </section>
+
+        <section class="min-w-0">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+              Credenciamento Eventos
+              <span class="inline-flex min-w-[1.15rem] h-4 px-1 items-center justify-center rounded-full text-[10px] font-bold bg-amber-600 text-white">
+                {{ accreditationItems().length }}
+              </span>
+            </span>
+          </div>
+          <div class="space-y-3">
+            <ng-container *ngFor="let item of accreditationItems()">
+              <ng-container *ngTemplateOutlet="approvalCard; context: { $implicit: item }" />
+            </ng-container>
+            <p *ngIf="!accreditationItems().length" class="card-surface p-6 text-center text-sm text-slate-500">
+              Nenhum credenciamento nesta lista.
+            </p>
+          </div>
+        </section>
       </div>
 
       <ng-template #approvalCard let-item>
@@ -299,6 +343,21 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                       aria-hidden="true"
                     >
                       <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1M9 13h1m4 0h1M9 17h1m4 0h1" />
+                    </svg>
+                    <svg
+                      *ngIf="item.tipoEntidade === 'CREDENCIAMENTO_EVENTO' || item.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO'"
+                      class="h-3 w-3"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <rect x="2" y="5" width="20" height="14" rx="2" />
+                      <circle cx="8" cy="12" r="2" />
+                      <path d="M15 9h4M15 13h3" />
                     </svg>
                     {{ item.setor.nome }}
                   </span>
@@ -754,7 +813,9 @@ import { ModalComponent } from '../../shared/modal/modal.component';
           </p>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-slate-700">
             <p>
-              <span class="text-slate-500">{{ ent.tipo === 'EVENTO' ? 'Evento:' : 'Finalidade:' }}</span>
+              <span class="text-slate-500">{{
+                ent.tipo === 'ACESSO_SERVICO' ? 'Finalidade:' : 'Evento:'
+              }}</span>
               {{ ent.nome || '—' }}
             </p>
             <p>
@@ -782,7 +843,14 @@ import { ModalComponent } from '../../shared/modal/modal.component';
           </div>
         </div>
 
-        <div *ngIf="d.entidade?.tipo === 'ACESSO_SERVICO' || d.entidade?.tipo === 'EVENTO'">
+        <div
+          *ngIf="
+            d.entidade?.tipo === 'ACESSO_SERVICO' ||
+            d.entidade?.tipo === 'EVENTO' ||
+            d.entidade?.tipo === 'CREDENCIAMENTO_EVENTO' ||
+            d.entidade?.tipo === 'CREDENCIAMENTO_EVENTO_INTERNO'
+          "
+        >
           <div
             *ngIf="d.liberacaoResumo"
             class="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"
@@ -849,6 +917,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   </td>
                   <td class="py-2 pr-3 text-slate-600">{{ c.documento }}</td>
                   <td class="py-2 pr-3 text-slate-600">{{ c.funcao }}</td>
+                  <td class="py-2 pr-3 text-slate-600" *ngIf="c.pulseira">{{ c.pulseira }}</td>
                   <td class="py-2">
                     <span
                       class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
@@ -1089,6 +1158,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                     [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-500' : 'text-slate-400'"
                   >
                     {{ c.documento }} · {{ c.funcao }}
+                    <ng-container *ngIf="c.pulseira"> · {{ c.pulseira }}</ng-container>
                     <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
                     <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
                   </span>
@@ -1389,6 +1459,14 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     return this.items().filter((item) => item.tipoEntidade === 'EVENTO');
   }
 
+  accreditationItems(): ApprovalItem[] {
+    return this.items().filter(
+      (item) =>
+        item.tipoEntidade === 'CREDENCIAMENTO_EVENTO' ||
+        item.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO',
+    );
+  }
+
   summaryPendingCount(): number {
     return this.pendingTotal();
   }
@@ -1409,9 +1487,22 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     return this.teamSummary().filter((item) => item.tipoEntidade === 'EVENTO').length;
   }
 
+  summaryAccreditationCount(): number {
+    return this.teamSummary().filter(
+      (item) =>
+        item.tipoEntidade === 'CREDENCIAMENTO_EVENTO' ||
+        item.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO',
+    ).length;
+  }
+
   hasSelectiveApproval(): boolean {
     const tipo = this.actionItem()?.tipoEntidade;
-    return tipo === 'ACESSO_SERVICO' || tipo === 'EVENTO';
+    return (
+      tipo === 'ACESSO_SERVICO' ||
+      tipo === 'EVENTO' ||
+      tipo === 'CREDENCIAMENTO_EVENTO' ||
+      tipo === 'CREDENCIAMENTO_EVENTO_INTERNO'
+    );
   }
 
   approveCollaborators(): ApprovalEntityCollaborator[] {
@@ -1652,7 +1743,10 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
         this.actionItem.set(fresh);
         if (
           mode === 'approve' &&
-          (fresh.tipoEntidade === 'ACESSO_SERVICO' || fresh.tipoEntidade === 'EVENTO')
+          (fresh.tipoEntidade === 'ACESSO_SERVICO' ||
+            fresh.tipoEntidade === 'EVENTO' ||
+            fresh.tipoEntidade === 'CREDENCIAMENTO_EVENTO' ||
+            fresh.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO')
         ) {
           this.initApproveSelection(fresh);
         }
@@ -1828,14 +1922,10 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     for (const c of list) {
       if (!c.picture) continue;
       this.collaboratorService.getPictureBlob(c.picture).subscribe({
-        next: (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (loadId !== this.thumbnailLoadId) {
-            URL.revokeObjectURL(url);
-            return;
-          }
+        next: (url) => {
+          if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [c.idCollaborator]: url }));
-          this.cdr.markForCheck();
+          this.cdr.detectChanges();
         },
         error: () => {},
       });
@@ -1843,9 +1933,6 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   }
 
   private revokeThumbnails() {
-    for (const url of Object.values(this.thumbnailUrls())) {
-      URL.revokeObjectURL(url);
-    }
     this.thumbnailUrls.set({});
   }
 
@@ -1932,7 +2019,12 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
       } = {
         comentario: this.actionComment.trim() || undefined,
       };
-      if (item.tipoEntidade === 'ACESSO_SERVICO' || item.tipoEntidade === 'EVENTO') {
+      if (
+        item.tipoEntidade === 'ACESSO_SERVICO' ||
+        item.tipoEntidade === 'EVENTO' ||
+        item.tipoEntidade === 'CREDENCIAMENTO_EVENTO' ||
+        item.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO'
+      ) {
         payload.approvedCollaboratorIds = [...this.selectedCollaboratorIds()];
         payload.approvedVehicleIds = [...this.selectedVehicleIds()];
       }

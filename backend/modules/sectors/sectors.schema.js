@@ -30,7 +30,14 @@ const flowsUpdateSchema = Joi.object({
   flows: Joi.array()
     .items(
       Joi.object({
-        tipoEntidade: Joi.string().valid("EVENTO", "ACESSO_SERVICO").required(),
+        tipoEntidade: Joi.string()
+          .valid(
+            "EVENTO",
+            "ACESSO_SERVICO",
+            "CREDENCIAMENTO_EVENTO",
+            "CREDENCIAMENTO_EVENTO_INTERNO",
+          )
+          .required(),
         ativo: Joi.boolean().required(),
       }),
     )

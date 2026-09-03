@@ -34,6 +34,7 @@ async function authMiddleware(req, res, next) {
       id_company: ctx.id_company,
       is_super_admin: ctx.is_super_admin,
       requires_company: ctx.requires_company,
+      is_ad_user: !!ctx.is_ad_user,
       profile: {
         id: ctx.id_perfil,
         codigo: ctx.codigo,

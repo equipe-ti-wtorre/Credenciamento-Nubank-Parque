@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -625,15 +625,7 @@ export class VehicleListComponent implements OnInit {
   private readonly filterDebounceMs = 500;
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  stats = computed(() => {
-    const list = this.vehicles();
-    return {
-      total: list.length,
-      ativos: list.filter((v) => v.status).length,
-      inativos: list.filter((v) => !v.status).length,
-      blocklist: list.filter((v) => v.is_blocklisted).length,
-    };
-  });
+  stats = signal({ total: 0, ativos: 0, inativos: 0, blocklist: 0 });
 
   constructor(
     private vehicleService: VehicleService,
@@ -652,7 +644,6 @@ export class VehicleListComponent implements OnInit {
     if (this.isAdmin) {
       this.carregarEmpresas();
     }
-    this.carregarTipos();
     this.carregar();
   }
 
@@ -678,21 +669,30 @@ export class VehicleListComponent implements OnInit {
   }
 
   carregarTipos() {
-    this.vehicleService.list(1, 500, {}).subscribe({
-      next: (res) => {
-        const types = [
-          ...new Set(
-            res.vehicles.map((v) => v.type?.trim()).filter((t): t is string => !!t),
-          ),
-        ].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-        this.vehicleTypes.set(types);
-      },
+    this.vehicleService.listTypes().subscribe({
+      next: (res) => this.vehicleTypes.set(res.types || []),
       error: () => {},
+    });
+  }
+
+  private carregarStats() {
+    this.vehicleService.getStats().subscribe({
+      next: (res) => {
+        this.stats.set({
+          total: res.stats.total,
+          ativos: res.stats.ativos,
+          inativos: res.stats.inativos,
+          blocklist: res.stats.blocklist,
+        });
+        this.cdr.markForCheck();
+      },
     });
   }
 
   carregar(page = this.pagination().page) {
     this.loading.set(true);
+    this.carregarStats();
+    this.carregarTipos();
     this.vehicleService
       .list(page, this.pagination().limit, {
         plate: this.appliedPlate || undefined,

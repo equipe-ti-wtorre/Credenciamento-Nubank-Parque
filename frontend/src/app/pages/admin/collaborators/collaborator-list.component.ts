@@ -2,7 +2,7 @@ import { ChangeDetectorRef, Component, inject, OnDestroy, OnInit, signal } from 
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { forkJoin, Subscription } from 'rxjs';
+import { Subscription } from 'rxjs';
 import Swal from 'sweetalert2';
 import {
   CollaboratorAccessDetailsResponse,
@@ -243,13 +243,13 @@ interface CollaboratorFormState {
               <tr *ngFor="let c of collaborators()" class="border-t border-slate-100 hover:bg-slate-50">
                 <td class="px-4 py-3">
                   <img
-                    *ngIf="pictureUrl(c) as url"
+                    *ngIf="thumbnailUrls()[c.id_collaborator] as url"
                     [src]="url"
                     [alt]="'Foto de ' + c.name"
                     class="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
                   />
                   <div
-                    *ngIf="!pictureUrl(c)"
+                    *ngIf="!thumbnailUrls()[c.id_collaborator]"
                     class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center shrink-0 border border-slate-200"
                     aria-hidden="true"
                   >
@@ -424,8 +424,8 @@ interface CollaboratorFormState {
       <div class="cdet" *ngIf="!detailLoading() && detail() as d">
         <div class="cdet__head">
           <div class="cdet__avatar" aria-hidden="true">
-            <img *ngIf="pictureUrl(d.collaborator) as photo" [src]="photo" [alt]="d.collaborator.name" />
-            <ng-container *ngIf="!pictureUrl(d.collaborator)">{{ initials(d.collaborator.name) }}</ng-container>
+            <img *ngIf="d.collaborator.picture_src as photo" [src]="photo" [alt]="d.collaborator.name" />
+            <ng-container *ngIf="!d.collaborator.picture_src">{{ initials(d.collaborator.name) }}</ng-container>
           </div>
           <div class="cdet__titles">
             <h2 class="cdet__title">
@@ -1261,18 +1261,13 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
   }
 
   private carregarStats() {
-    forkJoin({
-      total: this.collaboratorService.list(1, 1, {}),
-      ativos: this.collaboratorService.list(1, 1, { status: true }),
-      inativos: this.collaboratorService.list(1, 1, { status: false }),
-      blocklist: this.collaboratorService.list(1, 1, { is_blocklisted: true }),
-    }).subscribe({
+    this.collaboratorService.getStats().subscribe({
       next: (res) => {
         this.stats.set({
-          total: res.total.pagination.total,
-          ativos: res.ativos.pagination.total,
-          inativos: res.inativos.pagination.total,
-          blocklist: res.blocklist.pagination.total,
+          total: res.stats.total,
+          ativos: res.stats.ativos,
+          inativos: res.stats.inativos,
+          blocklist: res.stats.blocklist,
         });
         this.cdr.markForCheck();
       },
@@ -1307,10 +1302,6 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
       });
   }
 
-  pictureUrl(c: CollaboratorItem): string | null {
-    return this.thumbnailUrls()[c.id_collaborator] ?? null;
-  }
-
   initials(name: string): string {
     const parts = name.trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return '?';
@@ -1335,14 +1326,10 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
     for (const c of list) {
       if (!c.picture) continue;
       this.collaboratorService.getPictureBlob(c.picture).subscribe({
-        next: (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (loadId !== this.thumbnailLoadId) {
-            URL.revokeObjectURL(url);
-            return;
-          }
+        next: (url) => {
+          if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [c.id_collaborator]: url }));
-          this.cdr.markForCheck();
+          this.cdr.detectChanges();
         },
         error: () => {},
       });
@@ -1350,9 +1337,6 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
   }
 
   private revokeThumbnails() {
-    for (const url of Object.values(this.thumbnailUrls())) {
-      URL.revokeObjectURL(url);
-    }
     this.thumbnailUrls.set({});
   }
 
@@ -1714,14 +1698,21 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
         this.pendingPictureFile.set(null);
         this.pictureValidating.set(false);
         this.pictureValidationOk.set(false);
-        if (col.picture) {
+        this.picturePreviewUrl.set(col.picture_src || null);
+        if (!col.picture_src && col.picture) {
           this.collaboratorService.getPictureBlob(col.picture).subscribe({
-            next: (blob) => this.picturePreviewUrl.set(URL.createObjectURL(blob)),
-            error: () => this.picturePreviewUrl.set(null),
+            next: (url) => {
+              this.picturePreviewUrl.set(url);
+              this.cdr.detectChanges();
+            },
+            error: () => {
+              this.picturePreviewUrl.set(null);
+              this.cdr.detectChanges();
+            },
           });
         }
         this.showModal.set(true);
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       },
       error: (err) => {
         this.loading.set(false);

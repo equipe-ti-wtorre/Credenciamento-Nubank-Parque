@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
@@ -13,6 +14,20 @@ export type ColorPalette = 'wtorre' | 'nubank-parque';
 export interface AppearanceSettings {
   id?: number;
   color_palette: ColorPalette;
+  atualizado_em?: string;
+}
+
+export interface EventAccreditationNotifyUser {
+  id: number;
+  nome_completo: string;
+  email: string;
+  departamento: string | null;
+}
+
+export interface EventAccreditationNotifySettings {
+  id?: number;
+  notify_all: boolean;
+  users: EventAccreditationNotifyUser[];
   atualizado_em?: string;
 }
 
@@ -42,5 +57,29 @@ export class SystemSettingsService {
     return this.api.put<{ settings: AppearanceSettings }>('/system-settings/appearance', {
       color_palette,
     });
+  }
+
+  getEventAccreditationNotifySettings(): Observable<{ settings: EventAccreditationNotifySettings }> {
+    return this.api.get<{ settings: EventAccreditationNotifySettings }>(
+      '/system-settings/event-accreditation-notify',
+    );
+  }
+
+  updateEventAccreditationNotifySettings(payload: {
+    notify_all: boolean;
+    user_ids: number[];
+  }): Observable<{ settings: EventAccreditationNotifySettings }> {
+    return this.api.put<{ settings: EventAccreditationNotifySettings }>(
+      '/system-settings/event-accreditation-notify',
+      payload,
+    );
+  }
+
+  listAdInternalUsers(search = ''): Observable<{ users: EventAccreditationNotifyUser[] }> {
+    const params = search ? new HttpParams().set('search', search) : undefined;
+    return this.api.get<{ users: EventAccreditationNotifyUser[] }>(
+      '/system-settings/event-accreditation-notify/users',
+      params,
+    );
   }
 }

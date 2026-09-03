@@ -8,6 +8,8 @@ const auth = authMiddleware;
 const canViewSession = [auth, authorizePermission("settings_session", "view")];
 const canEditSession = [auth, authorizePermission("settings_session", "edit")];
 const canEditAppearance = [auth, authorizePermission("settings_appearance", "edit")];
+const canViewEaNotify = [auth, authorizePermission("settings_event_accreditation", "view")];
+const canEditEaNotify = [auth, authorizePermission("settings_event_accreditation", "edit")];
 
 router.get("/session", ...canViewSession, systemSettingsController.getSessionSettings);
 router.put("/session", ...canEditSession, systemSettingsController.updateSessionSettings);
@@ -18,6 +20,22 @@ router.put(
   "/appearance",
   ...canEditAppearance,
   systemSettingsController.updateAppearanceSettings,
+);
+
+router.get(
+  "/event-accreditation-notify",
+  ...canViewEaNotify,
+  systemSettingsController.getEventAccreditationNotifySettings,
+);
+router.put(
+  "/event-accreditation-notify",
+  ...canEditEaNotify,
+  systemSettingsController.updateEventAccreditationNotifySettings,
+);
+router.get(
+  "/event-accreditation-notify/users",
+  ...canViewEaNotify,
+  systemSettingsController.listAdInternalUsers,
 );
 
 module.exports = router;

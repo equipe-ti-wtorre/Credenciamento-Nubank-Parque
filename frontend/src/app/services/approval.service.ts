@@ -3,7 +3,11 @@ import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
-export type ApprovalEntityType = 'EVENTO' | 'ACESSO_SERVICO';
+export type ApprovalEntityType =
+  | 'EVENTO'
+  | 'ACESSO_SERVICO'
+  | 'CREDENCIAMENTO_EVENTO'
+  | 'CREDENCIAMENTO_EVENTO_INTERNO';
 export type ApprovalStatus = 'PENDENTE' | 'APROVADO' | 'REPROVADO' | 'CANCELADO' | 'EXPIRADO';
 
 export type ApprovalHistoryType =
@@ -61,6 +65,7 @@ export interface ApprovalEntityCollaborator {
   picture?: string | null;
   empresa?: string | null;
   fase?: string | null;
+  pulseira?: string | null;
   dataDia?: string | null;
   criadoEm?: string | null;
   statusLiberacao?: ApprovalLiberacaoStatus;
@@ -247,17 +252,24 @@ export function liberacaoStatusBadgeClass(status?: ApprovalLiberacaoStatus | str
 }
 
 export function approvalEntityLabel(tipo: ApprovalEntityType | string): string {
-  return tipo === 'EVENTO' ? 'Evento' : 'Acesso de serviço';
+  if (tipo === 'EVENTO') return 'Evento';
+  if (tipo === 'CREDENCIAMENTO_EVENTO') return 'Credenciamento Eventos';
+  if (tipo === 'CREDENCIAMENTO_EVENTO_INTERNO') return 'Credenciamento Eventos (internos)';
+  return 'Acesso de serviço';
 }
 
 export function approvalEntityBadgeClass(tipo: ApprovalEntityType | string): string {
-  return tipo === 'EVENTO'
-    ? 'bg-violet-100 text-violet-800'
-    : 'bg-sky-100 text-sky-800';
+  if (tipo === 'EVENTO') return 'bg-violet-100 text-violet-800';
+  if (tipo === 'CREDENCIAMENTO_EVENTO') return 'bg-amber-100 text-amber-800';
+  if (tipo === 'CREDENCIAMENTO_EVENTO_INTERNO') return 'bg-violet-100 text-violet-800';
+  return 'bg-sky-100 text-sky-800';
 }
 
 export function approvalEntityCardAccentClass(tipo: ApprovalEntityType | string): string {
-  return tipo === 'EVENTO' ? 'border-l-violet-500' : 'border-l-sky-500';
+  if (tipo === 'EVENTO') return 'border-l-violet-500';
+  if (tipo === 'CREDENCIAMENTO_EVENTO') return 'border-l-amber-500';
+  if (tipo === 'CREDENCIAMENTO_EVENTO_INTERNO') return 'border-l-violet-500';
+  return 'border-l-sky-500';
 }
 
 export function approvalItemTitle(item: ApprovalItem): string {

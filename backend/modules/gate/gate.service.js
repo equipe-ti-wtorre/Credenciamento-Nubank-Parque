@@ -16,6 +16,7 @@ const { validateAndNormalizeCollaboratorPayload } = require("../collaborators/co
 const {
   assertNoOverlappingServiceCollaborator,
 } = require("../patrimonial/service-access.service");
+const facialCommand = require("../facial/facial.command.service");
 
 const logger = child({ module: "gate" });
 
@@ -63,6 +64,8 @@ const DENIAL_MESSAGES = {
   INVALID_DATE_WINDOW: "Data incorreta para este credenciamento.",
   BLOCK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
   ACCESS_ALREADY_COMPLETED: "Entrada e saída já registradas para esta credencial.",
+  FACIAL_ENTRY_NOT_RELEASED:
+    "A entrada ainda não foi liberada. Registre a entrada antes de reenviar o facial.",
 };
 
 function buildDenial(errorCode, statusCode = 403) {
@@ -204,6 +207,7 @@ function mapTodayCredentialRow(row) {
       name: row.company_fancy_name,
     },
     event_name: row.event_name,
+    event_day_date: toDateKey(row.event_day_date),
     access_check_in: row.access_check_in || null,
     access_check_out: row.access_check_out || null,
     next_action: nextAction,
@@ -232,6 +236,7 @@ const GATE_TODAY_LIST_SELECT = `
          sub_cdt.description AS substitute_document_type_description,
          co.fancy_name AS company_fancy_name,
          e.name AS event_name,
+         ed.date AS event_day_date,
          bl.id_collaborator AS blocklisted_id,
          bl.reason AS blocklist_reason
   FROM event_day_company_collaborator edcc
@@ -290,6 +295,15 @@ async function validateEventAccess(accessId) {
     `UPDATE event_day_company_collaborator SET ${column} = NOW() WHERE id_event_day_company_collaborator = ?`,
     [row.id_event_day_company_collaborator],
   );
+
+  if (action === "CHECK_IN") {
+    const effective = resolveEffectiveCollaborator(row);
+    await enrollFacialForGateRelease({
+      idCollaborator: effective.id,
+      validDateStart: row.event_day_date,
+      validDateEnd: row.event_day_date,
+    });
+  }
 
   const updated = await findCredentialByAccessId(accessId);
   logger.info(
@@ -435,6 +449,9 @@ const SERVICE_DENIAL_MESSAGES = {
     "Há entrada sem saída registrada. Registre a saída antes de uma nova entrada.",
   VEHICLE_BLOCK_LIST_BLOCKED: "Veículo consta na lista de bloqueio de segurança da arena.",
   COLLABORATOR_BLOCK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
+  FACIAL_ENTRY_NOT_RELEASED:
+    "A entrada ainda não foi liberada. Registre a entrada antes de reenviar o facial.",
+  FACIAL_NOT_COLLABORATOR: "Reenvio facial disponível apenas para colaboradores.",
 };
 
 function buildServiceDenial(errorCode, statusCode = 403) {
@@ -481,6 +498,145 @@ function toDateKey(value) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+const FACIAL_SKIP_MESSAGES = {
+  missing_period: "Período de validade ausente para o enroll facial.",
+  not_found: "Colaborador não encontrado.",
+  inactive: "Colaborador inativo — facial não enviado.",
+  no_picture: "Colaborador sem foto. Cadastre a foto antes de reenviar o facial.",
+  blocklist: "Colaborador consta na lista de bloqueio.",
+  disabled: "Integração facial desabilitada.",
+};
+
+function facialEnrollFailure(result) {
+  if (result?.error) {
+    return {
+      allowed: false,
+      statusCode: 500,
+      error_code: "FACIAL_ENROLL_FAILED",
+      reason: result.error || "Falha ao enviar enroll facial.",
+    };
+  }
+  if (result?.skipped) {
+    return {
+      allowed: false,
+      statusCode: 400,
+      error_code: `FACIAL_${String(result.reason || "skipped").toUpperCase()}`,
+      reason: FACIAL_SKIP_MESSAGES[result.reason] || "Enroll facial não enviado.",
+    };
+  }
+  return null;
+}
+
+function facialEnrollSuccess(result, extra = {}) {
+  return {
+    allowed: true,
+    data: {
+      ok: true,
+      queued: !!result.queued,
+      sent: !!result.sent,
+      correlationId: result.correlationId || null,
+      linkedId: result.linkedId || null,
+      userId: result.userId || null,
+      message: "Acesso facial reenviado aos terminais.",
+      ...extra,
+    },
+  };
+}
+
+async function enrollFacialForGateRelease({ idCollaborator, validDateStart, validDateEnd }) {
+  const start = toDateKey(validDateStart);
+  const end = toDateKey(validDateEnd);
+  const id = Number(idCollaborator);
+  if (!id || !start || !end) return { skipped: true, reason: "missing_period" };
+  try {
+    const row = await collaboratorService.findCollaboratorById(id);
+    if (!row) return { skipped: true, reason: "not_found" };
+    const isBlocklisted = await collaboratorService.checkBlocklist(id);
+    return await facialCommand.sendEnrollIfEligible(
+      {
+        id_collaborator: row.id_collaborator,
+        name: row.name,
+        picture: row.picture,
+        status: !!row.status,
+        is_blocklisted: !!isBlocklisted,
+      },
+      "gate_check_in",
+      { validDateStart: start, validDateEnd: end },
+    );
+  } catch (err) {
+    logger.warn({ err, idCollaborator: id }, "Falha ao liberar facial na portaria");
+    return { error: err.message };
+  }
+}
+
+async function resendEventFacialEnroll(accessId) {
+  const row = await findCredentialByAccessId(accessId);
+  const denial = validateCredentialRow(row);
+  if (denial) return denial;
+  if (!row.access_check_in) {
+    return buildDenial("FACIAL_ENTRY_NOT_RELEASED");
+  }
+  const effective = resolveEffectiveCollaborator(row);
+  const result = await enrollFacialForGateRelease({
+    idCollaborator: effective.id,
+    validDateStart: row.event_day_date,
+    validDateEnd: row.event_day_date,
+  });
+  const failure = facialEnrollFailure(result);
+  if (failure) return failure;
+  logger.info(
+    { accessId, idCollaborator: effective.id, correlationId: result.correlationId },
+    "Facial reenviado na portaria (evento)",
+  );
+  return facialEnrollSuccess(result, {
+    type: "EVENT",
+    access_id: accessId,
+    collaborator: { name: effective.name },
+  });
+}
+
+async function resendServiceFacialEnroll(accessId) {
+  const row = await findServiceCollaboratorByAccessId(accessId);
+  if (!row) {
+    const vehicle = await findServiceVehicleByAccessId(accessId);
+    if (vehicle) return buildServiceDenial("FACIAL_NOT_COLLABORATOR");
+    return buildServiceDenial("SERVICE_NOT_FOUND", 404);
+  }
+  const denial = validateServiceAccessBase(row);
+  if (denial) return denial;
+  const blocklisted = row.id_substitute
+    ? row.sub_blocklisted_id != null
+    : row.main_blocklisted_id != null;
+  if (blocklisted) {
+    return {
+      ...buildServiceDenial("COLLABORATOR_BLOCK_LIST_BLOCKED"),
+      critical: true,
+      id_collaborator: row.id_substitute || row.id_collaborator,
+    };
+  }
+  if (!row.access_check_in) {
+    return buildServiceDenial("FACIAL_ENTRY_NOT_RELEASED");
+  }
+  const result = await enrollFacialForGateRelease({
+    idCollaborator: row.id_substitute || row.id_collaborator,
+    validDateStart: row.start_date,
+    validDateEnd: row.end_date,
+  });
+  const failure = facialEnrollFailure(result);
+  if (failure) return failure;
+  const effective = resolveEffectiveServiceCollaborator(row);
+  logger.info(
+    { accessId, idCollaborator: effective.id, correlationId: result.correlationId },
+    "Facial reenviado na portaria (serviço)",
+  );
+  return facialEnrollSuccess(result, {
+    type: "SERVICE",
+    kind: "collaborator",
+    access_id: accessId,
+    collaborator: { name: effective.name },
+  });
 }
 
 async function getMysqlTodayKey() {
@@ -577,17 +733,16 @@ async function findOpenVehicleStay(idVehicle, excludeSavId) {
 }
 
 /**
- * Persiste o histórico diário de portaria (gate_access_day_log). As colunas em
- * service_access_* guardam o estado corrente (entrada aberta persiste entre dias);
- * o log preserva todos os dias. CHECK_OUT fecha a entrada aberta mais recente
- * (mesmo que seja de outro dia), não cria um log órfão em CURDATE().
+ * Persiste o histórico de portaria (gate_access_day_log). As colunas em
+ * service_access_* guardam o estado corrente; o log preserva todos os ciclos,
+ * inclusive mais de um no mesmo dia (após reaprovação). CHECK_OUT fecha a
+ * entrada aberta mais recente (mesmo que seja de outro dia).
  */
 async function recordServiceDayLog(kind, idRef, idServiceAccess, accessId, action) {
   if (action === "CHECK_IN") {
     await db.execute(
       `INSERT INTO gate_access_day_log (kind, id_ref, id_service_access, access_id, access_date, check_in)
-       VALUES (?, ?, ?, ?, CURDATE(), NOW())
-       ON DUPLICATE KEY UPDATE check_in = NOW(), check_out = NULL`,
+       VALUES (?, ?, ?, ?, CURDATE(), NOW())`,
       [kind, idRef, idServiceAccess, accessId],
     );
     return;
@@ -610,8 +765,7 @@ async function recordServiceDayLog(kind, idRef, idServiceAccess, accessId, actio
 
   await db.execute(
     `INSERT INTO gate_access_day_log (kind, id_ref, id_service_access, access_id, access_date, check_out)
-     VALUES (?, ?, ?, ?, CURDATE(), NOW())
-     ON DUPLICATE KEY UPDATE check_out = NOW()`,
+     VALUES (?, ?, ?, ?, CURDATE(), NOW())`,
     [kind, idRef, idServiceAccess, accessId],
   );
 }
@@ -1348,6 +1502,14 @@ async function validateServiceCollaboratorAccess(accessId) {
     accessId,
     action,
   );
+
+  if (action === "CHECK_IN") {
+    await enrollFacialForGateRelease({
+      idCollaborator: row.id_substitute || row.id_collaborator,
+      validDateStart: row.start_date,
+      validDateEnd: row.end_date,
+    });
+  }
 
   const updated = await findServiceCollaboratorByAccessId(accessId);
   logger.info(
@@ -2233,5 +2395,7 @@ module.exports = {
   createManualRelease,
   notifyPendingServiceApproval,
   cancelPendingServiceApproval,
+  resendEventFacialEnroll,
+  resendServiceFacialEnroll,
   DENIAL_MESSAGES,
 };

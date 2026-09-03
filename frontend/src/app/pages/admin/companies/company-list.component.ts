@@ -131,13 +131,13 @@ interface CompanyFormState {
               <tr *ngFor="let c of companies()" class="border-t border-slate-100 hover:bg-slate-50">
                 <td class="px-4 py-3">
                   <img
-                    *ngIf="logoUrl(c) as url"
+                    *ngIf="thumbnailUrls()[c.id_company] as url"
                     [src]="url"
                     [alt]="'Logo de ' + c.company_name"
                     class="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 shrink-0"
                   />
                   <div
-                    *ngIf="!logoUrl(c)"
+                    *ngIf="!thumbnailUrls()[c.id_company]"
                     class="w-10 h-10 rounded-lg bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center shrink-0 border border-slate-200"
                     aria-hidden="true"
                   >
@@ -778,10 +778,10 @@ export class CompanyListComponent implements OnInit, OnDestroy {
 
   private loadLogoPreview(filename: string) {
     this.companyService.getLogoBlob(filename).subscribe({
-      next: (blob) => {
+      next: (url) => {
         this.revokeLogoPreview();
-        this.logoPreviewUrl.set(URL.createObjectURL(blob));
-        this.cdr.markForCheck();
+        this.logoPreviewUrl.set(url);
+        this.cdr.detectChanges();
       },
       error: () => {},
     });
@@ -805,14 +805,10 @@ export class CompanyListComponent implements OnInit, OnDestroy {
     for (const c of list) {
       if (!c.logo) continue;
       this.companyService.getLogoBlob(c.logo).subscribe({
-        next: (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (loadId !== this.thumbnailLoadId) {
-            URL.revokeObjectURL(url);
-            return;
-          }
+        next: (url) => {
+          if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [c.id_company]: url }));
-          this.cdr.markForCheck();
+          this.cdr.detectChanges();
         },
         error: () => {},
       });
@@ -820,9 +816,6 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   }
 
   private revokeThumbnails() {
-    for (const url of Object.values(this.thumbnailUrls())) {
-      URL.revokeObjectURL(url);
-    }
     this.thumbnailUrls.set({});
   }
 

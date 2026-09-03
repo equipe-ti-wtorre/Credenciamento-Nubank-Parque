@@ -227,6 +227,24 @@
           </div>
         </ng-template>
 
+        <div class="grl-summary__row" *ngIf="periodLabel() as period">
+          <span class="grl-summary__icon grl-summary__icon--period" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4" />
+              <path d="M8 2v4" />
+              <path d="M3 10h18" />
+            </svg>
+          </span>
+          <div class="grl-summary__text">
+            <div class="grl-summary__title">Período de liberação</div>
+            <div class="grl-summary__hint">
+              {{ period }}
+              <ng-container *ngIf="willEnrollFacial()"> · acesso facial neste intervalo</ng-container>
+            </div>
+          </div>
+        </div>
+
         <div class="grl-summary__row">
           <span class="grl-summary__icon grl-summary__icon--user" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="currentColor">
@@ -247,10 +265,16 @@
           <path d="M12 11v5" />
           <path d="M12 8h.01" />
         </svg>
-        <span>
-          Ao confirmar, o registro de <strong>entrada</strong> será criado e o status mudará para
-          <strong>Acessos</strong>.
+        <span *ngIf="willEnrollFacial(); else bannerManual">
+          Ao confirmar, o registro de <strong>entrada</strong> será criado, o acesso facial valerá no
+          <strong>período de liberação</strong> e o status mudará para <strong>Acessos</strong>.
         </span>
+        <ng-template #bannerManual>
+          <span>
+            Ao confirmar, o registro de <strong>entrada</strong> será criado e o status mudará para
+            <strong>Acessos</strong>.
+          </span>
+        </ng-template>
       </div>
     </ng-container>
   </div>

@@ -52,6 +52,7 @@ export interface GateTodayCredential {
   collaborator: GateCollaboratorInfo;
   company: { name: string };
   event_name: string;
+  event_day_date?: string | null;
   access_check_in: string | null;
   access_check_out: string | null;
   next_action: GateNextAction;
@@ -84,6 +85,10 @@ export class GateService {
 
   validateEvent(access_id: string): Observable<GateValidateResponse> {
     return this.api.post<GateValidateResponse>('/gate/events/validate', { access_id });
+  }
+
+  resendEventFacial(access_id: string): Observable<GateFacialResendResponse> {
+    return this.api.post<GateFacialResendResponse>('/gate/events/facial-enroll', { access_id });
   }
 
   substituteEvent(payload: GateSubstitutePayload): Observable<GateSubstituteResponse> {
@@ -119,6 +124,10 @@ export class GateService {
 
   validateService(access_id: string): Observable<GateServiceValidateResponse> {
     return this.api.post<GateServiceValidateResponse>('/gate/services/validate', { access_id });
+  }
+
+  resendServiceFacial(access_id: string): Observable<GateFacialResendResponse> {
+    return this.api.post<GateFacialResendResponse>('/gate/services/facial-enroll', { access_id });
   }
 
   substituteService(payload: {
@@ -287,6 +296,16 @@ export interface GateTodayService {
   id_aprovacao?: number | null;
   id_setor?: number | null;
   setor_nome?: string | null;
+}
+
+export interface GateFacialResendResponse {
+  ok: boolean;
+  queued?: boolean;
+  sent?: boolean;
+  correlationId?: string | null;
+  userId?: string | null;
+  message?: string;
+  collaborator?: { name: string };
 }
 
 export interface GateServiceValidateResponse {

@@ -2,7 +2,13 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { StorageService } from '../services/storage.service';
 import { SessionIdleService } from '../services/session-idle.service';
-import { AuthService, AuthUser, hasPermission, isSuperAdmin } from '../services/auth.service';
+import {
+  AuthService,
+  AuthUser,
+  hasPermission,
+  isAdInternalUser,
+  isSuperAdmin,
+} from '../services/auth.service';
 import { PermissionAction } from '../../config/modules.config';
 
 export const PermissionGuard: CanActivateFn = async (route, state) => {
@@ -45,6 +51,18 @@ export const PermissionGuard: CanActivateFn = async (route, state) => {
   }
 
   const currentUser = JSON.parse(currentUserStr) as AuthUser;
+
+  if (route.data?.['allowAdInternal'] && isAdInternalUser(currentUser)) {
+    return true;
+  }
+
+  if (
+    route.data?.['denyRequiresCompany'] &&
+    (currentUser.requires_company || currentUser.profile?.requires_company)
+  ) {
+    router.navigate(['/admin/credenciamento-eventos']);
+    return false;
+  }
 
   if (permissionAny?.length) {
     if (!canAccessAny(currentUser, permissionAny)) {

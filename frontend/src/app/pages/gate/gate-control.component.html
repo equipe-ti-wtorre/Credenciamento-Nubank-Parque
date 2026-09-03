@@ -214,7 +214,7 @@
 
     <!-- Eventos -->
     <ng-container *ngIf="!todayLoading() && gateMode() === 'events'">
-      <div class="table-head" *ngIf="filteredTodayCredentials().length > 0">
+      <div class="table-head events-head" *ngIf="filteredTodayCredentials().length > 0">
         <div title="Tipo" aria-label="Tipo"></div>
         <div>Identificação</div>
         <div>Empresa</div>
@@ -339,6 +339,21 @@
               title="Registrar saída"
             >
               Saída
+            </button>
+            <button
+              *ngIf="canResendEventFacial(row)"
+              type="button"
+              class="btn-act-icon facial"
+              [disabled]="processing() || isFacialResending(row.access_id)"
+              (click)="onResendEventFacial(row)"
+              title="Reenviar acesso facial"
+              aria-label="Reenviar acesso facial"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+                <path d="M19 8v3M19 11h-3" />
+              </svg>
             </button>
             <span *ngIf="row.next_action === 'COMPLETED'" class="btn-act finished">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -625,6 +640,21 @@
               title="Registrar saída"
             >
               Saída
+            </button>
+            <button
+              *ngIf="canResendServiceFacial(row)"
+              type="button"
+              class="btn-act-icon facial"
+              [disabled]="processing() || isFacialResending(row.access_id)"
+              (click)="onResendServiceFacial(row)"
+              title="Reenviar acesso facial"
+              aria-label="Reenviar acesso facial"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+                <path d="M19 8v3M19 11h-3" />
+              </svg>
             </button>
             <span *ngIf="row.next_action === 'COMPLETED'" class="btn-act finished">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">

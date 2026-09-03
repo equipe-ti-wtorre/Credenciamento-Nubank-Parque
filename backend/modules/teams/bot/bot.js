@@ -79,7 +79,14 @@ async function loadApprovalFacts(idAprovacao) {
   );
   const a = rows[0];
   if (!a) return {};
-  const tipoLabel = a.tipo_entidade === "EVENTO" ? "Evento" : "Acesso de serviço";
+  const tipoLabel =
+    a.tipo_entidade === "EVENTO"
+      ? "Evento"
+      : a.tipo_entidade === "CREDENCIAMENTO_EVENTO"
+        ? "Credenciamento Eventos"
+        : a.tipo_entidade === "CREDENCIAMENTO_EVENTO_INTERNO"
+          ? "Credenciamento Eventos (internos)"
+          : "Acesso de serviço";
   let periodo = null;
   let finalidade = null;
   let colaboradores = null;
@@ -102,6 +109,52 @@ async function loadApprovalFacts(idAprovacao) {
     );
     const names = (collabRows || []).map((r) => r.nome).filter(Boolean);
     colaboradores = formatCollaboratorsLabel(names);
+  } else if (a.tipo_entidade === "CREDENCIAMENTO_EVENTO") {
+    const [ea] = await db.query(
+      `SELECT ea.name, ea.start, ea.end, c.fancy_name, c.company_name
+         FROM event_accreditation_company eac
+         INNER JOIN event_accreditation ea
+           ON ea.id_event_accreditation = eac.id_event_accreditation
+         LEFT JOIN company c ON c.id_company = eac.id_company
+        WHERE eac.id_event_accreditation_company = ?
+        LIMIT 1`,
+      [a.id_entidade],
+    );
+    if (ea[0]) {
+      finalidade = [ea[0].name, ea[0].fancy_name || ea[0].company_name].filter(Boolean).join(" — ");
+      periodo = `${String(ea[0].start).slice(0, 10)} → ${String(ea[0].end).slice(0, 10)}`;
+    }
+    const [collabRows] = await db.query(
+      `SELECT c.name AS nome
+         FROM event_accreditation_collaborator eacol
+         INNER JOIN collaborator c ON c.id_collaborator = eacol.id_collaborator
+        WHERE eacol.id_event_accreditation_company = ?
+        ORDER BY c.name ASC`,
+      [a.id_entidade],
+    );
+    colaboradores = formatCollaboratorsLabel(
+      (collabRows || []).map((r) => r.nome).filter(Boolean),
+    );
+  } else if (a.tipo_entidade === "CREDENCIAMENTO_EVENTO_INTERNO") {
+    const [ea] = await db.query(
+      `SELECT name, start, end FROM event_accreditation WHERE id_event_accreditation = ? LIMIT 1`,
+      [a.id_entidade],
+    );
+    if (ea[0]) {
+      finalidade = `${ea[0].name} — Internos`;
+      periodo = `${String(ea[0].start).slice(0, 10)} → ${String(ea[0].end).slice(0, 10)}`;
+    }
+    const [collabRows] = await db.query(
+      `SELECT u.nome_completo AS nome
+         FROM event_accreditation_internal eai
+         INNER JOIN usuarios u ON u.id = eai.id_usuario
+        WHERE eai.id_event_accreditation = ?
+        ORDER BY u.nome_completo ASC`,
+      [a.id_entidade],
+    );
+    colaboradores = formatCollaboratorsLabel(
+      (collabRows || []).map((r) => r.nome).filter(Boolean),
+    );
   }
   return {
     tipoLabel,

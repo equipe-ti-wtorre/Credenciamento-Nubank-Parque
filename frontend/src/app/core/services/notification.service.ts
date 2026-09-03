@@ -28,8 +28,14 @@ const Toast = Swal.mixin({
   },
 });
 
+const RATE_LIMIT_TOAST_COOLDOWN_MS = 20_000;
+const RATE_LIMIT_TITLE = 'Muitas requisições.';
+const RATE_LIMIT_TEXT = 'Tente novamente mais tarde.';
+
 @Injectable({ providedIn: 'root' })
 export class NotificationService {
+  private lastRateLimitToastAt = 0;
+
   constructor(private injector: Injector) {}
 
   success(title: string, text?: string) {
@@ -39,6 +45,9 @@ export class NotificationService {
   error(title: string, text?: string, err?: unknown) {
     if (!this.shouldNotifyHttpError(err)) {
       return Promise.resolve();
+    }
+    if (this.isRateLimitError(err) || this.looksLikeGlobalRateLimit(title, text)) {
+      return this.notifyRateLimitOnce();
     }
     if (this.isServiceCollaboratorOverlap(err)) {
       return this.showServiceCollaboratorOverlap(err);
@@ -76,10 +85,17 @@ export class NotificationService {
     if (!this.shouldNotifyHttpError(err)) {
       return Promise.resolve();
     }
+    if (this.isRateLimitError(err)) {
+      return this.notifyRateLimitOnce();
+    }
     if (this.isServiceCollaboratorOverlap(err)) {
       return this.showServiceCollaboratorOverlap(err);
     }
     return this.error(this.extractErrorMessage(err, fallback), text, err);
+  }
+
+  isRateLimitError(err: unknown): boolean {
+    return err instanceof HttpErrorResponse && err.status === 429;
   }
 
   extractErrorMessage(err: unknown, fallback: string): string {
@@ -204,6 +220,19 @@ export class NotificationService {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  private looksLikeGlobalRateLimit(title?: string, text?: string): boolean {
+    return /muitas requisições/i.test(`${title || ''} ${text || ''}`);
+  }
+
+  private notifyRateLimitOnce(): Promise<SweetAlertResult | void> {
+    const now = Date.now();
+    if (now - this.lastRateLimitToastAt < RATE_LIMIT_TOAST_COOLDOWN_MS) {
+      return Promise.resolve();
+    }
+    this.lastRateLimitToastAt = now;
+    return this.fire('error', RATE_LIMIT_TITLE, RATE_LIMIT_TEXT);
   }
 
   private fire(icon: SweetAlertIcon, title: string, text?: string) {

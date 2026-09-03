@@ -1,5 +1,7 @@
 # Padrão de cores — Intranet Credenciamento
 
+Guia completo do tema Nubank Parque (identidade, tokens, componentes e regras): [design-system-nubank-parque.md](./design-system-nubank-parque.md).
+
 Fonte única: [`frontend/src/styles/_tokens.scss`](../src/styles/_tokens.scss).  
 **Sempre usar tokens CSS** (`var(--…)`), nunca valores hex hardcoded em telas novas.
 

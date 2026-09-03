@@ -6,6 +6,7 @@ const {
   mapRole,
   toMaskedCollaborator,
 } = require("../../utils/privacy");
+const { readPictureThumbDataUrl } = require("../storage/picture-src");
 const { validateDocumentByType, validateAndNormalizeCollaboratorPayload } = require("./collaborator.schema");
 const { parseBulkFile, normalizeBulkRow, isEmptyBulkRow } = require("./collaborator.bulk");
 const { isSuperAdmin, hasPermission, getProfileCodigo } = require("../../utils/permissions");
@@ -66,7 +67,15 @@ function getUserRole(req) {
   return getProfileCodigo(req.user);
 }
 
-function mapCollaboratorRow(row, { isBlocklisted = false, canDelete = false } = {}) {
+async function withPictureSrc(payload, filename) {
+  return {
+    ...payload,
+    picture: filename || payload.picture || null,
+    picture_src: await readPictureThumbDataUrl(filename || payload.picture),
+  };
+}
+
+function mapCollaboratorRowSync(row, { isBlocklisted = false, canDelete = false } = {}) {
   return {
     id_collaborator: row.id_collaborator,
     id_collaborator_document_type: row.id_collaborator_document_type,
@@ -77,6 +86,13 @@ function mapCollaboratorRow(row, { isBlocklisted = false, canDelete = false } = 
     rg: row.rg || null,
     phone: row.phone || null,
     picture: row.picture || null,
+    picture_src: null,
+    facial_linked_id: row.facial_linked_id || null,
+    facial_user_id: row.facial_user_id || null,
+    facial_status: row.facial_status || null,
+    facial_last_correlation_id: row.facial_last_correlation_id || null,
+    facial_devices_json: row.facial_devices_json || null,
+    facial_synced_at: row.facial_synced_at || null,
     status: !!row.status,
     is_blocklisted: !!isBlocklisted,
     can_delete: !!canDelete,
@@ -85,6 +101,17 @@ function mapCollaboratorRow(row, { isBlocklisted = false, canDelete = false } = 
     document_type: mapDocumentType(row),
     role: mapRole(row),
   };
+}
+
+async function mapCollaboratorRow(
+  row,
+  { isBlocklisted = false, canDelete = false, includePictureSrc = true } = {},
+) {
+  const mapped = mapCollaboratorRowSync(row, { isBlocklisted, canDelete });
+  if (includePictureSrc && row.picture) {
+    mapped.picture_src = await readPictureThumbDataUrl(row.picture);
+  }
+  return mapped;
 }
 
 const COMPANY_COLLABORATOR_SCOPE_SQL =
@@ -173,6 +200,51 @@ async function checkBlocklist(idCollaborator) {
     [idCollaborator],
   );
   return rows.length > 0;
+}
+
+async function batchBlocklistedIds(ids) {
+  const normalized = [...new Set(ids.map((id) => Number(id)).filter((id) => id > 0))];
+  if (!normalized.length) return new Set();
+
+  const placeholders = normalized.map(() => "?").join(",");
+  const [rows] = await db.execute(
+    `SELECT id_collaborator FROM collaborator_block_list
+     WHERE id_collaborator IN (${placeholders})`,
+    normalized,
+  );
+  return new Set(rows.map((row) => Number(row.id_collaborator)));
+}
+
+async function batchCollaboratorUsageIds(ids) {
+  const normalized = [...new Set(ids.map((id) => Number(id)).filter((id) => id > 0))];
+  if (!normalized.length) return new Set();
+
+  const placeholders = normalized.map(() => "?").join(",");
+  const used = new Set();
+  const queries = [
+    `SELECT DISTINCT id_collaborator AS id FROM event_day_company_collaborator
+     WHERE id_collaborator IN (${placeholders})`,
+    `SELECT DISTINCT id_substitute AS id FROM event_day_company_collaborator
+     WHERE id_substitute IN (${placeholders})`,
+    `SELECT DISTINCT id_collaborator AS id FROM service_access_collaborator
+     WHERE id_collaborator IN (${placeholders})`,
+    `SELECT DISTINCT id_substitute AS id FROM service_access_collaborator
+     WHERE id_substitute IN (${placeholders})`,
+    `SELECT DISTINCT id_collaborator AS id FROM material_movement
+     WHERE id_collaborator IN (${placeholders})`,
+    `SELECT DISTINCT id_collaborator AS id FROM material_movement_collaborator
+     WHERE id_collaborator IN (${placeholders})`,
+    `SELECT DISTINCT id_collaborator AS id FROM document_change_request
+     WHERE id_collaborator IN (${placeholders})`,
+  ];
+
+  for (const sql of queries) {
+    const [rows] = await db.execute(sql, normalized);
+    for (const row of rows) {
+      if (row.id != null) used.add(Number(row.id));
+    }
+  }
+  return used;
 }
 
 async function getBlocklistInfo(idCollaborator) {
@@ -418,20 +490,19 @@ async function listCollaborators(req, { page, limit, filters }) {
     params,
   );
 
-  const collaborators = await Promise.all(
-    rows.map(async (row) => {
-      const isBlocklisted = await checkBlocklist(row.id_collaborator);
-      let canDelete = true;
-      if (companyId == null) {
-        const usageCount = await countCollaboratorUsage(row.id_collaborator);
-        canDelete = usageCount === 0;
-      }
-      return mapCollaboratorRow(row, {
-        isBlocklisted,
-        canDelete,
-      });
-    }),
-  );
+  const ids = rows.map((row) => Number(row.id_collaborator));
+  const [blocklistedSet, usedSet] = await Promise.all([
+    batchBlocklistedIds(ids),
+    companyId == null ? batchCollaboratorUsageIds(ids) : Promise.resolve(new Set()),
+  ]);
+
+  const collaborators = rows.map((row) => {
+    const id = Number(row.id_collaborator);
+    return mapCollaboratorRowSync(row, {
+      isBlocklisted: blocklistedSet.has(id),
+      canDelete: companyId != null || !usedSet.has(id),
+    });
+  });
 
   return {
     collaborators,
@@ -441,6 +512,32 @@ async function listCollaborators(req, { page, limit, filters }) {
       total,
       totalPages: Math.ceil(total / limit) || 1,
     },
+  };
+}
+
+async function getCollaboratorStats(req) {
+  assertAdminForList(req);
+  const companyId = getActorCompanyId(req);
+  const { where, params } = buildListWhere({}, companyId);
+  const blocklistSql =
+    "EXISTS (SELECT 1 FROM collaborator_block_list bl WHERE bl.id_collaborator = c.id_collaborator)";
+
+  const [[row]] = await db.execute(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(c.status = 1) AS ativos,
+       SUM(c.status = 0) AS inativos,
+       SUM(CASE WHEN ${blocklistSql} THEN 1 ELSE 0 END) AS blocklist
+     FROM collaborator c
+     ${where}`,
+    params,
+  );
+
+  return {
+    total: Number(row?.total) || 0,
+    ativos: Number(row?.ativos) || 0,
+    inativos: Number(row?.inativos) || 0,
+    blocklist: Number(row?.blocklist) || 0,
   };
 }
 
@@ -454,7 +551,7 @@ async function searchByDocument(req, { document, id_collaborator_document_type }
   const isBlocklisted = await checkBlocklist(row.id_collaborator);
   return {
     found: true,
-    collaborator: toMaskedCollaborator(row, { isBlocklisted }),
+    collaborator: await withPictureSrc(toMaskedCollaborator(row, { isBlocklisted }), row.picture),
   };
 }
 
@@ -499,10 +596,15 @@ async function searchCollaboratorsByTerm(req, { q, limit = 8 }) {
   const blocklisted = new Set(blRows.map((r) => Number(r.id_collaborator)));
 
   return {
-    results: rows.map((row) =>
-      toMaskedCollaborator(row, {
-        isBlocklisted: blocklisted.has(Number(row.id_collaborator)),
-      }),
+    results: await Promise.all(
+      rows.map((row) =>
+        withPictureSrc(
+          toMaskedCollaborator(row, {
+            isBlocklisted: blocklisted.has(Number(row.id_collaborator)),
+          }),
+          row.picture,
+        ),
+      ),
     ),
   };
 }
@@ -519,7 +621,7 @@ async function getCollaboratorById(req, id) {
   }
 
   if (req.user?.requires_company) {
-    return toMaskedCollaborator(row, { isBlocklisted });
+    return withPictureSrc(toMaskedCollaborator(row, { isBlocklisted }), row.picture);
   }
 
   throw new AppError("Perfil sem permissão para consultar colaboradores.", 403);
@@ -548,9 +650,12 @@ async function getCollaboratorAccessDetails(req, id) {
   const blocklist = await getBlocklistInfo(row.id_collaborator);
   let collaborator;
   if (isAdmin(req) || hasPermission(req.user, "collaborators", "edit")) {
-    collaborator = mapCollaboratorRow(row, { isBlocklisted: blocklist.is_blocklisted });
+    collaborator = await mapCollaboratorRow(row, { isBlocklisted: blocklist.is_blocklisted });
   } else if (req.user?.requires_company) {
-    collaborator = toMaskedCollaborator(row, { isBlocklisted: blocklist.is_blocklisted });
+    collaborator = await withPictureSrc(
+      toMaskedCollaborator(row, { isBlocklisted: blocklist.is_blocklisted }),
+      row.picture,
+    );
   } else {
     throw new AppError("Perfil sem permissão para consultar colaboradores.", 403);
   }
@@ -845,6 +950,10 @@ async function updateCollaboratorPicture(id, filename) {
 async function clearCollaboratorPicture(id) {
   const existing = await findCollaboratorById(id);
   if (!existing) throw new AppError("Colaborador não encontrado.", 404);
+  if (existing.picture) {
+    const facialCommand = require("../facial/facial.command.service");
+    await facialCommand.sendRevokeSafe(id, "picture_removed");
+  }
   await db.execute("UPDATE collaborator SET picture = NULL WHERE id_collaborator = ?", [id]);
   return getCollaboratorDetailById(id);
 }
@@ -894,7 +1003,19 @@ async function updateCollaborator(req, id, data) {
     [idDocType, idRole, document, name, rg, phone, status, id],
   );
 
-  return getCollaboratorDetailById(id);
+  const updated = await getCollaboratorDetailById(id);
+  const nextStatus = status ? 1 : 0;
+  const wasActivated = !existing.status && nextStatus === 1;
+  const wasDeactivated = !!existing.status && nextStatus === 0;
+  if (wasDeactivated || wasActivated) {
+    const facialCommand = require("../facial/facial.command.service");
+    if (wasDeactivated) {
+      await facialCommand.sendRevokeSafe(id, "deactivated");
+    } else {
+      await facialCommand.sendEnrollIfEligible(updated, "activated");
+    }
+  }
+  return updated;
 }
 
 /**
@@ -944,13 +1065,21 @@ async function updateCollaboratorStatus(id, status) {
   ]);
 
   const updated = await getCollaboratorDetailById(id);
+  const changes = {
+    statusChanged: Boolean(existing.status) !== Boolean(nextStatus),
+    wasActivated: !existing.status && nextStatus === 1,
+    wasDeactivated: !!existing.status && nextStatus === 0,
+  };
+  if (changes.wasDeactivated) {
+    const facialCommand = require("../facial/facial.command.service");
+    await facialCommand.sendRevokeSafe(id, "deactivated");
+  } else if (changes.wasActivated) {
+    const facialCommand = require("../facial/facial.command.service");
+    await facialCommand.sendEnrollIfEligible(updated, "activated");
+  }
   return {
     collaborator: updated,
-    changes: {
-      statusChanged: Boolean(existing.status) !== Boolean(nextStatus),
-      wasActivated: !existing.status && nextStatus === 1,
-      wasDeactivated: !!existing.status && nextStatus === 0,
-    },
+    changes,
   };
 }
 
@@ -1050,6 +1179,9 @@ async function addToBlocklist(id, reason, userId) {
     conn.release();
   }
 
+  const facialCommand = require("../facial/facial.command.service");
+  await facialCommand.sendRevokeSafe(collaboratorId, "blocklist");
+
   return getCollaboratorDetailById(id);
 }
 
@@ -1066,7 +1198,10 @@ async function removeFromBlocklist(id) {
     throw new AppError("Colaborador não está na lista de restrição.", 404);
   }
 
-  return getCollaboratorDetailById(id);
+  const updated = await getCollaboratorDetailById(id);
+  const facialCommand = require("../facial/facial.command.service");
+  await facialCommand.sendEnrollIfEligible(updated, "blocklist_removed");
+  return updated;
 }
 
 async function countCollaboratorUsage(id) {
@@ -1146,6 +1281,7 @@ module.exports = {
   deleteRole,
   countRoleUsage,
   listCollaborators,
+  getCollaboratorStats,
   searchByDocument,
   searchCollaboratorsByTerm,
   getCollaboratorById,

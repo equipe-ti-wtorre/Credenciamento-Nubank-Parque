@@ -22,4 +22,21 @@ pool.on("connection", (connection) => {
   });
 });
 
-module.exports = pool.promise();
+const promisePool = pool.promise();
+const originalGetConnection = promisePool.getConnection.bind(promisePool);
+
+promisePool.getConnection = () =>
+  Promise.race([
+    originalGetConnection(),
+    new Promise((_, reject) => {
+      setTimeout(
+        () =>
+          reject(
+            new Error(`Timeout ao obter conexão MySQL (${env.db.acquireTimeout}ms)`),
+          ),
+        env.db.acquireTimeout,
+      );
+    }),
+  ]);
+
+module.exports = promisePool;

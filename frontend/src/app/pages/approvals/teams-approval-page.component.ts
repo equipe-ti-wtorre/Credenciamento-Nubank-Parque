@@ -131,7 +131,7 @@ import { TeamsContextService } from '../../services/teams-context.service';
             <div class="px-4 py-4 space-y-4" *ngIf="d.entidade as ent">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-slate-700">
                 <p>
-                  <span class="text-slate-500">{{ ent.tipo === 'EVENTO' ? 'Evento' : 'Finalidade' }}:</span>
+                  <span class="text-slate-500">{{ ent.tipo === 'ACESSO_SERVICO' ? 'Finalidade' : 'Evento' }}:</span>
                   {{ ent.nome || '—' }}
                 </p>
                 <p>
@@ -146,7 +146,14 @@ import { TeamsContextService } from '../../services/teams-context.service';
                 </p>
               </div>
 
-              <div *ngIf="ent.tipo === 'ACESSO_SERVICO' || ent.tipo === 'EVENTO'">
+              <div
+                *ngIf="
+                  ent.tipo === 'ACESSO_SERVICO' ||
+                  ent.tipo === 'EVENTO' ||
+                  ent.tipo === 'CREDENCIAMENTO_EVENTO' ||
+                  ent.tipo === 'CREDENCIAMENTO_EVENTO_INTERNO'
+                "
+              >
                 <p class="text-xs font-bold text-slate-500 uppercase mb-2">Colaboradores</p>
                 <p *ngIf="!ent.collaborators.length" class="text-sm text-slate-500">Nenhum.</p>
                 <ul class="space-y-2" *ngIf="ent.collaborators.length">
@@ -157,6 +164,7 @@ import { TeamsContextService } from '../../services/teams-context.service';
                     <span class="font-medium text-slate-800">{{ c.nome }}</span>
                     <span class="text-slate-500">
                       {{ c.documento }} · {{ c.funcao }}
+                      <ng-container *ngIf="c.pulseira"> · {{ c.pulseira }}</ng-container>
                       <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
                       <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
                     </span>
@@ -219,7 +227,13 @@ import { TeamsContextService } from '../../services/teams-context.service';
             </p>
 
             <div
-              *ngIf="mode === 'approve' && (d.tipoEntidade === 'ACESSO_SERVICO' || d.tipoEntidade === 'EVENTO')"
+              *ngIf="
+                mode === 'approve' &&
+                (d.tipoEntidade === 'ACESSO_SERVICO' ||
+                  d.tipoEntidade === 'EVENTO' ||
+                  d.tipoEntidade === 'CREDENCIAMENTO_EVENTO' ||
+                  d.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO')
+              "
               class="space-y-5"
             >
               <p class="text-xs text-slate-500">
@@ -775,14 +789,10 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     for (const c of list) {
       if (!c.picture) continue;
       this.collaboratorService.getPictureBlob(c.picture).subscribe({
-        next: (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (loadId !== this.thumbnailLoadId) {
-            URL.revokeObjectURL(url);
-            return;
-          }
+        next: (url) => {
+          if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [c.idCollaborator]: url }));
-          this.cdr.markForCheck();
+          this.cdr.detectChanges();
         },
         error: () => {},
       });
@@ -790,9 +800,6 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
   }
 
   private revokeThumbnails() {
-    for (const url of Object.values(this.thumbnailUrls())) {
-      URL.revokeObjectURL(url);
-    }
     this.thumbnailUrls.set({});
   }
 
@@ -845,7 +852,12 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
         approvedCollaboratorIds?: number[];
         approvedVehicleIds?: number[];
       } = { comentario: this.comment.trim() || undefined };
-      if (d.tipoEntidade === 'ACESSO_SERVICO' || d.tipoEntidade === 'EVENTO') {
+      if (
+        d.tipoEntidade === 'ACESSO_SERVICO' ||
+        d.tipoEntidade === 'EVENTO' ||
+        d.tipoEntidade === 'CREDENCIAMENTO_EVENTO' ||
+        d.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO'
+      ) {
         payload.approvedCollaboratorIds = [...this.selectedCollaboratorIds()];
         payload.approvedVehicleIds = [...this.selectedVehicleIds()];
       }

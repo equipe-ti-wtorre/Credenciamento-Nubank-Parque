@@ -6,11 +6,13 @@ import { LoginComponent } from './pages/login/login.component';
 import { DashboardComponent } from './pages/dashboard/dashboard.component';
 import { TenantListComponent } from './pages/admin/tenants/tenant-list.component';
 import { SmtpSettingsComponent } from './pages/admin/smtp/smtp-settings.component';
+import { FacialSettingsComponent } from './pages/admin/facial/facial-settings.component';
 import { EmailTemplatesComponent } from './pages/admin/email-templates/email-templates.component';
 import { SessionSettingsComponent } from './pages/admin/session/session-settings.component';
 import { AppearanceSettingsComponent } from './pages/admin/appearance/appearance-settings.component';
 import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
 import { AboutComponent } from './pages/admin/about/about.component';
+import { EventAccreditationNotifySettingsComponent } from './pages/admin/event-accreditation-notify/event-accreditation-notify-settings.component';
 import { SystemReportsComponent } from './pages/admin/system-reports/system-reports.component';
 import { ProfileListComponent } from './pages/admin/profiles/profile-list.component';
 import { UserListComponent } from './pages/admin/users/user-list.component';
@@ -20,9 +22,13 @@ import { CollaboratorListComponent } from './pages/admin/collaborators/collabora
 import { EventListComponent } from './pages/admin/events/event-list.component';
 import { EventDetailComponent } from './pages/admin/events/event-detail.component';
 import { EventCollaboratorsComponent } from './pages/admin/events/event-collaborators.component';
+import { EventAccreditationListComponent } from './pages/event-accreditation/event-accreditation-list.component';
+import { EventAccreditationCreateComponent } from './pages/event-accreditation/event-accreditation-create.component';
+import { EventAccreditationDetailComponent } from './pages/event-accreditation/event-accreditation-detail.component';
 import { GateControlComponent } from './pages/gate/gate-control.component';
 import { VehicleListComponent } from './pages/patrimonial/vehicle-list.component';
 import { ServiceRequestListComponent } from './pages/patrimonial/service-request-list.component';
+import { ServiceAccessCreateWizardComponent } from './pages/patrimonial/service-access-create-wizard.component';
 import { ServiceAccessDetailComponent } from './pages/patrimonial/service-access-detail.component';
 import { DocumentApprovalsComponent } from './pages/admin/document-approvals/document-approvals.component';
 import { ProductListComponent } from './pages/admin/merchandise/product-list.component';
@@ -86,6 +92,22 @@ export const routes: Routes = [
       ),
     canActivate: [TeamsAwareAuthGuard, PermissionGuard],
     data: { permission: { module: 'service_access', action: 'view' }, title: 'Acesso de serviço' },
+  },
+  {
+    path: 'credenciamento-eventos/:id',
+    loadComponent: () =>
+      import('./pages/event-accreditation/event-accreditation-view-page.component').then(
+        (m) => m.EventAccreditationViewPageComponent,
+      ),
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard],
+    data: {
+      permissionAny: [
+        { module: 'event_accreditation', action: 'view' },
+        { module: 'approvals', action: 'view' },
+      ],
+      allowAdInternal: true,
+      title: 'Credenciamento Eventos',
+    },
   },
   {
     path: '',
@@ -205,6 +227,13 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
+        path: 'admin/acessos-servico/novo',
+        component: ServiceAccessCreateWizardComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'service_access', action: 'create' }, title: 'Novo acesso de serviço' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
         path: 'admin/acessos-servico/:id',
         component: ServiceAccessDetailComponent,
         canActivate: [PermissionGuard],
@@ -215,6 +244,45 @@ export const routes: Routes = [
         path: 'admin/solicitacoes-servico',
         redirectTo: 'admin/acessos-servico',
         pathMatch: 'full',
+      },
+      {
+        path: 'admin/credenciamento-eventos',
+        component: EventAccreditationListComponent,
+        canActivate: [PermissionGuard],
+        data: {
+          permissionAny: [
+            { module: 'event_accreditation', action: 'view' },
+            { module: 'approvals', action: 'view' },
+          ],
+          allowAdInternal: true,
+          title: 'Credenciamento Eventos',
+        },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/credenciamento-eventos/novo',
+        component: EventAccreditationCreateComponent,
+        canActivate: [PermissionGuard],
+        data: {
+          permission: { module: 'event_accreditation', action: 'create' },
+          denyRequiresCompany: true,
+          title: 'Novo credenciamento',
+        },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/credenciamento-eventos/:id',
+        component: EventAccreditationDetailComponent,
+        canActivate: [PermissionGuard],
+        data: {
+          permissionAny: [
+            { module: 'event_accreditation', action: 'view' },
+            { module: 'approvals', action: 'view' },
+          ],
+          allowAdInternal: true,
+          title: 'Detalhe do credenciamento',
+        },
+        runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/eventos',
@@ -312,6 +380,16 @@ export const routes: Routes = [
             data: { permission: { module: 'settings_smtp', action: 'view' }, title: 'Envios SMTP' },
           },
           {
+            path: 'facial',
+            component: FacialSettingsComponent,
+            canActivate: [PermissionGuard],
+            runGuardsAndResolvers: 'always',
+            data: {
+              permission: { module: 'settings_facial', action: 'view' },
+              title: 'Integração facial',
+            },
+          },
+          {
             path: 'templates-email',
             component: EmailTemplatesComponent,
             canActivate: [PermissionGuard],
@@ -358,6 +436,16 @@ export const routes: Routes = [
             canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
             data: { permission: { module: 'settings_about', action: 'view' }, title: 'Sobre' },
+          },
+          {
+            path: 'notificacoes-credenciamento',
+            component: EventAccreditationNotifySettingsComponent,
+            canActivate: [PermissionGuard],
+            runGuardsAndResolvers: 'always',
+            data: {
+              permission: { module: 'settings_event_accreditation', action: 'view' },
+              title: 'Notificações de credenciamento',
+            },
           },
         ],
       },

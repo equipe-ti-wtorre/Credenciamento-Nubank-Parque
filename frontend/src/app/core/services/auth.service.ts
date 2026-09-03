@@ -48,6 +48,7 @@ export interface AuthUser {
   profile?: UserProfileInfo | null;
   permissions?: string[];
   id_company?: number | null;
+  requires_company?: boolean;
   is_ad_user: boolean;
   foto_url?: string;
   session_idle_minutes?: number | null;
@@ -75,6 +76,15 @@ export function isSectorGestor(user: AuthUser | null | undefined): boolean {
 
 export function canApproveInSector(user: AuthUser | null | undefined): boolean {
   return !!user?.sectorMemberships?.some((m) => m.papel === 'APROVADOR' || m.papel === 'GESTOR');
+}
+
+export function isAdInternalUser(user: AuthUser | null | undefined): boolean {
+  if (!user) return false;
+  const isAd = user.is_ad_user === true || Number(user.is_ad_user) === 1;
+  if (!isAd) return false;
+  if (user.id_company != null) return false;
+  if (user.requires_company || user.profile?.requires_company) return false;
+  return true;
 }
 
 export interface AuthSession {
@@ -555,6 +565,22 @@ export class AuthService {
   async getCurrentUser(): Promise<AuthUser | null> {
     const u = await this.storage.get('currentUser');
     return u ? (JSON.parse(u) as AuthUser) : null;
+  }
+
+  /** Atualiza o usuário em cache a partir da API (permissões novas sem precisar de F5). */
+  async refreshCurrentUser(): Promise<AuthUser | null> {
+    try {
+      await this.ensureTokensLoaded();
+      if (!this.accessTokenCache) return this.getCurrentUser();
+      const res = await firstValueFrom(this.api.get<{ user: AuthUser }>('/auth/me'));
+      if (res?.user) {
+        await this.storage.set('currentUser', JSON.stringify(res.user));
+        return res.user;
+      }
+    } catch {
+      /* mantém o cache local se /me falhar */
+    }
+    return this.getCurrentUser();
   }
 
   /** Foto do perfil Microsoft (API ou Graph). */

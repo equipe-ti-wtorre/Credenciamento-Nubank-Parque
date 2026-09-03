@@ -1,4 +1,5 @@
 const db = require("../../config/db");
+const { SQL_HAS_DEPARTMENT } = require("../../utils/userDepartment");
 
 const DEFAULT_IDLE_MINUTES = 30;
 const MIN_IDLE_MINUTES = 5;
@@ -72,11 +73,112 @@ async function updateAppearanceSettings(colorPalette) {
   return getAppearanceSettings();
 }
 
+async function getEventAccreditationNotifySettings() {
+  await ensureRow();
+  const [rows] = await db.execute(
+    `SELECT id, ea_internal_notify_all, atualizado_em FROM system_settings ORDER BY id ASC LIMIT 1`,
+  );
+  const row = rows[0];
+  const [users] = await db.execute(
+    `SELECT u.id, u.nome_completo, u.email, u.departamento
+       FROM event_accreditation_internal_notify_user n
+       INNER JOIN usuarios u ON u.id = n.id_usuario
+      WHERE u.ativo = 1
+      ORDER BY u.nome_completo ASC`,
+  );
+  return {
+    id: row.id,
+    notify_all: !!Number(row.ea_internal_notify_all),
+    users: users.map((u) => ({
+      id: Number(u.id),
+      nome_completo: u.nome_completo,
+      email: u.email,
+      departamento: u.departamento || null,
+    })),
+    atualizado_em: row.atualizado_em,
+  };
+}
+
+async function updateEventAccreditationNotifySettings({ notify_all, user_ids }) {
+  await ensureRow();
+  const [existing] = await db.execute("SELECT id FROM system_settings ORDER BY id ASC LIMIT 1");
+  await db.execute("UPDATE system_settings SET ea_internal_notify_all = ? WHERE id = ?", [
+    notify_all ? 1 : 0,
+    existing[0].id,
+  ]);
+  const uniqueIds = [...new Set((user_ids || []).map(Number).filter((id) => id > 0))];
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute("DELETE FROM event_accreditation_internal_notify_user");
+    if (uniqueIds.length) {
+      const placeholders = uniqueIds.map(() => "?").join(",");
+      const [valid] = await conn.execute(
+        `SELECT u.id
+           FROM usuarios u
+           LEFT JOIN perfis p ON p.id = u.id_perfil
+          WHERE u.id IN (${placeholders})
+            AND u.ativo = 1
+            AND u.is_ad_user = 1
+            AND u.id_company IS NULL
+            AND (p.requires_company IS NULL OR p.requires_company = 0)
+            AND ${SQL_HAS_DEPARTMENT.replace(/departamento/g, "u.departamento")}`,
+        uniqueIds,
+      );
+      for (const row of valid) {
+        await conn.execute(
+          "INSERT INTO event_accreditation_internal_notify_user (id_usuario) VALUES (?)",
+          [row.id],
+        );
+      }
+    }
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+  return getEventAccreditationNotifySettings();
+}
+
+async function listAdInternalUsers({ search = "" } = {}) {
+  const params = [];
+  let extra = "";
+  if (search && String(search).trim()) {
+    extra = " AND (u.nome_completo LIKE ? OR u.email LIKE ? OR u.username LIKE ?)";
+    const term = `%${String(search).trim()}%`;
+    params.push(term, term, term);
+  }
+  const [rows] = await db.execute(
+    `SELECT u.id, u.nome_completo, u.email, u.departamento
+       FROM usuarios u
+       LEFT JOIN perfis p ON p.id = u.id_perfil
+      WHERE u.ativo = 1
+        AND u.is_ad_user = 1
+        AND u.id_company IS NULL
+        AND (p.requires_company IS NULL OR p.requires_company = 0)
+        AND ${SQL_HAS_DEPARTMENT.replace(/departamento/g, "u.departamento")}
+        ${extra}
+      ORDER BY u.nome_completo ASC`,
+    params,
+  );
+  return rows.map((u) => ({
+    id: Number(u.id),
+    nome_completo: u.nome_completo,
+    email: u.email,
+    departamento: u.departamento || null,
+  }));
+}
+
 module.exports = {
   getSessionSettings,
   updateSessionSettings,
   getAppearanceSettings,
   updateAppearanceSettings,
+  getEventAccreditationNotifySettings,
+  updateEventAccreditationNotifySettings,
+  listAdInternalUsers,
   DEFAULT_IDLE_MINUTES,
   MIN_IDLE_MINUTES,
   MAX_IDLE_MINUTES,

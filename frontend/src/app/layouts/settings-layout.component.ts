@@ -1,13 +1,15 @@
 import {
   ChangeDetectorRef,
   Component,
+  OnInit,
   ViewChild,
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { SETTINGS_NAV_ITEMS } from '../config/admin-menu.config';
+import { SETTINGS_NAV_ITEMS, SettingsNavItem } from '../config/admin-menu.config';
 import { isSettingsReloadable } from '../pages/admin/settings-reloadable';
+import { AuthService, AuthUser, hasPermission } from '../core/services/auth.service';
 
 @Component({
   selector: 'app-settings-layout',
@@ -49,13 +51,29 @@ import { isSettingsReloadable } from '../pages/admin/settings-reloadable';
     </div>
   `,
 })
-export class SettingsLayoutComponent {
-  readonly navItems = SETTINGS_NAV_ITEMS;
+export class SettingsLayoutComponent implements OnInit {
+  navItems: SettingsNavItem[] = [];
 
   @ViewChild(RouterOutlet) private outlet?: RouterOutlet;
 
   private readonly router = inject(Router);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly auth = inject(AuthService);
+
+  private currentUser: AuthUser | null = null;
+
+  async ngOnInit() {
+    this.currentUser = await this.auth.getCurrentUser();
+    this.refreshNavItems();
+    this.cdr.markForCheck();
+  }
+
+  private refreshNavItems() {
+    this.navItems = SETTINGS_NAV_ITEMS.filter((item) => {
+      if (!item.module) return true;
+      return hasPermission(this.currentUser, item.module, 'view');
+    });
+  }
 
   /** Clique no item já ativo: só recarrega a página (sem navegar de novo). */
   onNavClick(path: string, event: Event) {
@@ -77,7 +95,7 @@ export class SettingsLayoutComponent {
     if (isSettingsReloadable(component)) {
       component.reloadPage();
     }
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   private reloadActivePage() {
@@ -85,6 +103,6 @@ export class SettingsLayoutComponent {
     if (isSettingsReloadable(component)) {
       component.reloadPage();
     }
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 }

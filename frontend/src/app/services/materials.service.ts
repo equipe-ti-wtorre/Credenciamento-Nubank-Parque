@@ -225,7 +225,9 @@ export class MaterialsService {
   }
 
   getMerchandisePhoto(filename: string): Observable<Blob> {
-    return this.api.getBlob(`/storage/merchandise/${encodeURIComponent(filename)}`);
+    const name = String(filename || "").split(/[/\\]/).pop() || "";
+    const params = new HttpParams().set("filename", name);
+    return this.api.getBlob("/storage/merchandise", params);
   }
 
   getStock(): Observable<{ stock: StockRow[] }> {

@@ -356,6 +356,160 @@ const migrations = [
     validate: (conn) =>
       allTablesExist(conn, ["collaborator_block_list", "vehicle_block_list"]),
   },
+  {
+    filename: "051_collaborator_facial_enrollment.sql",
+    validate: (conn) =>
+      allColumnsExist(conn, "collaborator", [
+        "facial_linked_id",
+        "facial_user_id",
+        "facial_status",
+        "facial_last_correlation_id",
+        "facial_devices_json",
+        "facial_synced_at",
+      ]) &&
+      allTablesExist(conn, ["facial_enrollment_log", "facial_access_log"]),
+  },
+  {
+    filename: "052_facial_gateway_config.sql",
+    validate: (conn) => tableExists(conn, "facial_gateway_config"),
+  },
+  {
+    filename: "053_settings_facial_permissions.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT 1 FROM perfil_permissoes
+         WHERE modulo = 'settings_facial' AND acao = 'view'
+         LIMIT 1`,
+      );
+      return rows.length > 0;
+    },
+  },
+  {
+    filename: "054_facial_enrollment_jobs.sql",
+    validate: async (conn) =>
+      (await tableExists(conn, "facial_enrollment_jobs")) &&
+      (await columnExists(conn, "facial_access_log", "rec_no")),
+  },
+  {
+    filename: "055_facial_peer_ips.sql",
+    validate: (conn) =>
+      allColumnsExist(conn, "facial_gateway_config", [
+        "peer_origin_ip",
+        "peer_destination_ip",
+      ]),
+  },
+  {
+    filename: "056_event_accreditation.sql",
+    validate: (conn) =>
+      allTablesExist(conn, [
+        "bracelet_type",
+        "event_accreditation",
+        "event_accreditation_company",
+        "event_accreditation_collaborator",
+      ]),
+  },
+  {
+    filename: "057_event_accreditation_no_responsavel.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_accreditation'
+            AND COLUMN_NAME = 'id_company_responsavel' LIMIT 1`,
+      );
+      return rows[0]?.IS_NULLABLE === "YES";
+    },
+  },
+  {
+    filename: "058_facial_job_valid_dates.sql",
+    validate: (conn) =>
+      allColumnsExist(conn, "facial_enrollment_jobs", [
+        "valid_date_start",
+        "valid_date_end",
+      ]),
+  },
+  {
+    filename: "059_event_accreditation_bracelet.sql",
+    validate: (conn) => tableExists(conn, "event_accreditation_bracelet"),
+  },
+  {
+    filename: "060_gate_day_log_multi_cycle.sql",
+    validate: async (conn) => {
+      const [uq] = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'gate_access_day_log'
+            AND INDEX_NAME = 'uq_gate_day_log_ref_date'
+          LIMIT 1`,
+      );
+      if (uq.length) return false;
+      const [idx] = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'gate_access_day_log'
+            AND INDEX_NAME = 'idx_gate_day_log_ref_date'
+          LIMIT 1`,
+      );
+      return idx.length > 0;
+    },
+  },
+  {
+    filename: "061_event_accreditation_decision.sql",
+    validate: (conn) =>
+      allColumnsExist(conn, "event_accreditation_collaborator", [
+        "decided_by",
+        "decided_at",
+        "decision_reason",
+      ]),
+  },
+  {
+    filename: "062_event_accreditation_internal.sql",
+    validate: async (conn) =>
+      (await allColumnsExist(conn, "event_accreditation", ["internal_enabled"])) &&
+      (await tableExists(conn, "event_accreditation_internal")) &&
+      (await tableExists(conn, "event_accreditation_internal_bracelet")) &&
+      (await tableExists(conn, "event_accreditation_internal_notify_user")) &&
+      (await columnExists(conn, "system_settings", "ea_internal_notify_all")),
+  },
+  {
+    filename: "063_event_accreditation_internal_multi_bracelet.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'event_accreditation_internal'
+            AND INDEX_NAME IN (
+              'uk_eai_accreditation_usuario_bracelet',
+              'uk_eai_accreditation_usuario'
+            )
+          LIMIT 1`,
+      );
+      return rows.length > 0;
+    },
+  },
+  {
+    filename: "064_event_accreditation_days_and_single_bracelet.sql",
+    validate: async (conn) => {
+      const [uk] = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'event_accreditation_internal'
+            AND INDEX_NAME = 'uk_eai_accreditation_usuario'
+          LIMIT 1`,
+      );
+      return uk.length > 0 && (await tableExists(conn, "event_accreditation_day"));
+    },
+  },
+  {
+    filename: "065_event_accreditation_cover_and_invite.sql",
+    validate: async (conn) =>
+      (await columnExists(conn, "event_accreditation", "cover")) &&
+      (await tableExists(conn, "event_accreditation_invite")) &&
+      (await tableExists(conn, "event_accreditation_invite_file")),
+  },
+  {
+    filename: "066_bracelet_type_icon_color.sql",
+    validate: (conn) => allColumnsExist(conn, "bracelet_type", ["icon", "color"]),
+  },
 ];
 
 module.exports = migrations;

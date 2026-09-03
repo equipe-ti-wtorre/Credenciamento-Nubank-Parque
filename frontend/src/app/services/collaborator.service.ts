@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
 export interface CollaboratorDocumentType {
@@ -48,6 +48,7 @@ export interface CollaboratorItem {
   rg: string | null;
   phone: string | null;
   picture?: string | null;
+  picture_src?: string | null;
   status: boolean;
   is_blocklisted: boolean;
   blocklist_reason?: string | null;
@@ -101,6 +102,13 @@ export interface CollaboratorListResponse {
   };
 }
 
+export interface CollaboratorStats {
+  total: number;
+  ativos: number;
+  inativos: number;
+  blocklist: number;
+}
+
 export interface CollaboratorCreatePayload {
   id_collaborator_document_type: number;
   id_collaborator_role: number;
@@ -146,6 +154,10 @@ export class CollaboratorService {
       '/collaborators',
       this.buildParams(page, limit, filters),
     );
+  }
+
+  getStats(): Observable<{ stats: CollaboratorStats }> {
+    return this.api.get<{ stats: CollaboratorStats }>('/collaborators/stats/summary');
   }
 
   get(id: number): Observable<{ collaborator: CollaboratorItem }> {
@@ -255,8 +267,10 @@ export class CollaboratorService {
     return this.api.postFormData<FaceValidationReport>('/faces/validar', form);
   }
 
-  getPictureBlob(filename: string): Observable<Blob> {
-    return this.api.getBlob(`/storage/pictures/${filename}`);
+  getPictureBlob(filename: string): Observable<string> {
+    const name = String(filename || "").split(/[/\\]/).pop() || "";
+    const params = new HttpParams().set("filename", name).set("format", "json");
+    return this.api.get<{ src: string }>("/storage/pictures", params).pipe(map((res) => res.src));
   }
 
   private buildParams(

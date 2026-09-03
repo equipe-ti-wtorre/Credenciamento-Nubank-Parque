@@ -10,7 +10,7 @@ Aplica-se a `frontend/src/**/*.{ts,scss,html}` ao criar ou alterar telas, modais
 
 ## Tokens (fonte única)
 
-Definidos em [`frontend/src/styles/_tokens.scss`](../frontend/src/styles/_tokens.scss). Detalhamento de cores: [`frontend/docs/cores.md`](../frontend/docs/cores.md).
+Definidos em [`frontend/src/styles/_tokens.scss`](../frontend/src/styles/_tokens.scss). Detalhamento de cores: [`frontend/docs/cores.md`](../frontend/docs/cores.md). Guia completo Nubank Parque: [`frontend/docs/design-system-nubank-parque.md`](../frontend/docs/design-system-nubank-parque.md).
 
 **Sempre referenciar tokens** (`var(--…)`), nunca hex hardcoded. A paleta ativa vem de `html[data-theme]` (`wtorre` | `nubank-parque`), escolhida em **Configurações → Aparência**.
 

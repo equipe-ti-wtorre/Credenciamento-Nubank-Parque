@@ -361,13 +361,95 @@ async function isProducerLinkedToDay(idEventDay, idProducer, conn = db) {
   return rows.length > 0;
 }
 
+const tableExistsCache = new Map();
+
 async function tableExists(tableName) {
+  if (tableExistsCache.has(tableName)) return tableExistsCache.get(tableName);
   const [rows] = await db.execute(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? LIMIT 1`,
     [env.db.name, tableName],
   );
-  return rows.length > 0;
+  const exists = rows.length > 0;
+  tableExistsCache.set(tableName, exists);
+  return exists;
+}
+
+function normalizePositiveIds(ids) {
+  return [...new Set((ids || []).map((id) => Number(id)).filter((id) => id > 0))];
+}
+
+async function batchEventsWithRegisteredData(eventIds) {
+  const ids = normalizePositiveIds(eventIds);
+  const withData = new Set();
+  if (!ids.length) return withData;
+
+  const placeholders = ids.map(() => "?").join(",");
+
+  if (await tableExists(CREDENTIAL_LINK_TABLE)) {
+    const [credRows] = await db.execute(
+      `SELECT DISTINCT ed.id_event
+         FROM event_day_company_collaborator edcc
+         INNER JOIN event_day_company edc
+           ON edc.id_event_day_company = edcc.id_event_day_company
+         INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        WHERE ed.id_event IN (${placeholders})`,
+      ids,
+    );
+    for (const row of credRows) withData.add(Number(row.id_event));
+  }
+
+  const remaining = ids.filter((id) => !withData.has(id));
+  if (!remaining.length) return withData;
+
+  const remainPlaceholders = remaining.map(() => "?").join(",");
+  const [linkRows] = await db.execute(
+    `SELECT DISTINCT ed.id_event
+       FROM event_day ed
+       INNER JOIN event e ON e.id_event = ed.id_event
+       INNER JOIN event_day_company edc ON edc.id_event_day = ed.id_event_day
+      WHERE ed.id_event IN (${remainPlaceholders})
+        AND (
+          e.id_company_responsavel IS NULL
+          OR NOT (edc.id_company = e.id_company_responsavel AND edc.id_producer IS NULL)
+        )`,
+    remaining,
+  );
+  for (const row of linkRows) withData.add(Number(row.id_event));
+  return withData;
+}
+
+async function batchEventSolicitanteMap(rows) {
+  const map = new Map();
+  const missing = [];
+  for (const row of rows) {
+    const id = Number(row.id_event);
+    if (row.id_solicitante != null) {
+      map.set(id, Number(row.id_solicitante));
+    } else {
+      missing.push(id);
+    }
+  }
+  if (!missing.length) return map;
+
+  const placeholders = missing.map(() => "?").join(",");
+  const [approvalRows] = await db.execute(
+    `SELECT a.id_entidade, a.id_solicitante
+       FROM aprovacoes a
+       INNER JOIN (
+         SELECT id_entidade, MIN(id) AS min_id
+           FROM aprovacoes
+          WHERE tipo_entidade = 'EVENTO' AND id_entidade IN (${placeholders})
+          GROUP BY id_entidade
+       ) first ON first.min_id = a.id`,
+    missing,
+  );
+  for (const row of approvalRows) {
+    if (row.id_solicitante != null) {
+      map.set(Number(row.id_entidade), Number(row.id_solicitante));
+    }
+  }
+  return map;
 }
 
 async function assertNoCredentialedCollaborators(idEventDayCompany) {
@@ -499,7 +581,7 @@ async function listEvents(req, { page, limit, filters }) {
 
   const [rows] = await db.execute(
     `SELECT DISTINCT e.id_event, e.name, e.start, e.end, e.id_access_status,
-            e.id_company_responsavel, e.ativo, e.criado_em, e.atualizado_em,
+            e.id_company_responsavel, e.id_solicitante, e.ativo, e.criado_em, e.atualizado_em,
             ast.description AS access_status_description,
             rc.company_name AS responsavel_company_name,
             rc.fancy_name AS responsavel_fancy_name,
@@ -521,21 +603,28 @@ async function listEvents(req, { page, limit, filters }) {
     params,
   );
 
-  const events = await Promise.all(
-    rows.map(async (row) => {
-      const mapped = mapEventRow(row);
-      const hasData = await eventHasRegisteredData(mapped.id_event);
-      const can_delete =
-        !hasData && (await userCanDeleteEvent(req, row, mapped.id_event));
-      const can_toggle_active = await userCanToggleEventActive(req, mapped.id_event);
-      return {
-        ...mapped,
-        can_delete,
-        can_toggle_active,
-        has_registered_data: hasData,
-      };
-    }),
-  );
+  const eventIds = rows.map((row) => Number(row.id_event));
+  const [registeredSet, solicitanteMap] = await Promise.all([
+    batchEventsWithRegisteredData(eventIds),
+    batchEventSolicitanteMap(rows),
+  ]);
+  const isSuperAdmin = !!req.user?.is_super_admin;
+
+  const events = rows.map((row) => {
+    const mapped = mapEventRow(row);
+    const hasData = registeredSet.has(mapped.id_event);
+    const solicitanteId = solicitanteMap.get(mapped.id_event);
+    const isSolicitante = userId != null && solicitanteId === userId;
+    const can_toggle_active = isSuperAdmin || isSolicitante;
+    const can_delete =
+      !hasData && (isSuperAdmin || userCanManageEventCompanies(req, row) || isSolicitante);
+    return {
+      ...mapped,
+      can_delete,
+      can_toggle_active,
+      has_registered_data: hasData,
+    };
+  });
 
   return {
     events,

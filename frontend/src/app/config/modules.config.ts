@@ -32,16 +32,24 @@ export const MODULES: ModuleDefinition[] = [
   { key: 'fleet', label: 'Frota', group: 'Administração' },
   { key: 'service_access', label: 'Acessos de serviço', group: 'Operação' },
   { key: 'events', label: 'Eventos', group: 'Operação' },
+  { key: 'event_accreditation', label: 'Credenciamento Eventos', group: 'Operação' },
   { key: 'merchandise_products', label: 'Produtos', group: 'Administração' },
   { key: 'merchandise_locations', label: 'Locais de armazenagem', group: 'Administração' },
   { key: 'merchandise_reports', label: 'Relatórios de mercadorias', group: 'Administração' },
   { key: 'settings_tenants', label: 'Tenants Azure', group: 'Configurações' },
   { key: 'settings_smtp', label: 'Envios de e-mail', group: 'Configurações' },
+  { key: 'settings_facial', label: 'Integração facial', group: 'Configurações' },
+  { key: 'settings_email_templates', label: 'Templates de e-mail', group: 'Configurações' },
   { key: 'settings_session', label: 'Sessão', group: 'Configurações' },
   { key: 'settings_appearance', label: 'Aparência', group: 'Configurações' },
   { key: 'settings_teams', label: 'Integração Teams', group: 'Configurações' },
   { key: 'settings_system_reports', label: 'Relatórios do sistema', group: 'Configurações' },
   { key: 'settings_about', label: 'Sobre', group: 'Configurações' },
+  {
+    key: 'settings_event_accreditation',
+    label: 'Notificações de credenciamento',
+    group: 'Configurações',
+  },
 ];
 
 export function permissionKey(module: string, action: PermissionAction): string {

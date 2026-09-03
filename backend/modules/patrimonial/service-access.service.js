@@ -1844,12 +1844,78 @@ async function bulkAddVehicles(req, id, file) {
   return { totalProcessed, successCount, errors };
 }
 
+/**
+ * Após reaprovação, só quem foi aprovado de novo e já concluiu entrada/saída
+ * volta para Aguardando na portaria. Permanência aberta não é alterada.
+ * Lista ausente = aprovou todos; lista vazia = ninguém.
+ */
+async function resetCompletedGateCycles(
+  conn,
+  idServiceAccess,
+  { approvedCollaboratorIds, approvedVehicleIds } = {},
+) {
+  const selectedCollaborators = uniquePositiveIds(approvedCollaboratorIds);
+  const selectedVehicles = uniquePositiveIds(approvedVehicleIds);
+
+  if (selectedCollaborators && selectedCollaborators.length) {
+    const placeholders = selectedCollaborators.map(() => "?").join(",");
+    await conn.execute(
+      `UPDATE service_access_collaborator
+          SET access_check_in = NULL, access_check_out = NULL
+        WHERE id_service_access = ?
+          AND access_check_in IS NOT NULL
+          AND access_check_out IS NOT NULL
+          AND access_check_out >= access_check_in
+          AND id_service_access_collaborator IN (${placeholders})`,
+      [idServiceAccess, ...selectedCollaborators],
+    );
+  } else if (!selectedCollaborators) {
+    await conn.execute(
+      `UPDATE service_access_collaborator
+          SET access_check_in = NULL, access_check_out = NULL
+        WHERE id_service_access = ?
+          AND access_check_in IS NOT NULL
+          AND access_check_out IS NOT NULL
+          AND access_check_out >= access_check_in`,
+      [idServiceAccess],
+    );
+  }
+
+  if (selectedVehicles && selectedVehicles.length) {
+    const placeholders = selectedVehicles.map(() => "?").join(",");
+    await conn.execute(
+      `UPDATE service_access_vehicle
+          SET check_in = NULL, check_out = NULL
+        WHERE id_service_access = ?
+          AND check_in IS NOT NULL
+          AND check_out IS NOT NULL
+          AND check_out >= check_in
+          AND id_service_access_vehicle IN (${placeholders})`,
+      [idServiceAccess, ...selectedVehicles],
+    );
+  } else if (!selectedVehicles) {
+    await conn.execute(
+      `UPDATE service_access_vehicle
+          SET check_in = NULL, check_out = NULL
+        WHERE id_service_access = ?
+          AND check_in IS NOT NULL
+          AND check_out IS NOT NULL
+          AND check_out >= check_in`,
+      [idServiceAccess],
+    );
+  }
+}
+
 async function markApproved(conn, idEntidade, ctx = {}) {
   await conn.execute(`UPDATE service_access SET id_access_status = ? WHERE id_service_access = ?`, [
     STATUS_APROVADO,
     idEntidade,
   ]);
   await generateAccessIds(conn, idEntidade, {
+    approvedCollaboratorIds: ctx.approvedCollaboratorIds,
+    approvedVehicleIds: ctx.approvedVehicleIds,
+  });
+  await resetCompletedGateCycles(conn, idEntidade, {
     approvedCollaboratorIds: ctx.approvedCollaboratorIds,
     approvedVehicleIds: ctx.approvedVehicleIds,
   });

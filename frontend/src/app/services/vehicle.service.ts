@@ -33,6 +33,13 @@ export interface VehicleListResponse {
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
+export interface VehicleStats {
+  total: number;
+  ativos: number;
+  inativos: number;
+  blocklist: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class VehicleService {
   constructor(private api: ApiService) {}
@@ -46,6 +53,14 @@ export class VehicleService {
     if (filters.id_company != null) params = params.set('id_company', String(filters.id_company));
     if (filters.status !== undefined) params = params.set('status', String(filters.status));
     return this.api.get<VehicleListResponse>('/vehicles', params);
+  }
+
+  getStats(): Observable<{ stats: VehicleStats }> {
+    return this.api.get<{ stats: VehicleStats }>('/vehicles/stats/summary');
+  }
+
+  listTypes(): Observable<{ types: string[] }> {
+    return this.api.get<{ types: string[] }>('/vehicles/types');
   }
 
   create(data: {

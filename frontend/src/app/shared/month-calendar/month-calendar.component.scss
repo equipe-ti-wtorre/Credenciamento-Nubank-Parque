@@ -1,0 +1,174 @@
+:host {
+  display: block;
+  --purple-core: #8d0de3;
+  --purple-900: #420465;
+  --green-300: #a7d296;
+  --line: #e3dfe9;
+  --line-strong: #cfc8d8;
+  --ink: #241030;
+  --ink-2: #54485f;
+  --ink-3: #7b7086;
+}
+
+.cal {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.cal-head b {
+  font-family: var(--font-display, Sora, system-ui, sans-serif);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  margin: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--ink-2);
+  line-height: 0;
+}
+
+.nav svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.nav:hover {
+  border-color: var(--purple-core);
+  color: var(--purple-900);
+  background: #f9f2fe;
+}
+
+.dow,
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.dow span {
+  text-align: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--ink-3);
+  padding: 2px 0;
+}
+
+.day {
+  position: relative;
+  border: 0;
+  background: none;
+  border-radius: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.day:hover:not(.edge) {
+  background: #f3edf8;
+}
+
+.day.out:not(.edge):not(.in) {
+  color: #c6bfcd;
+}
+
+.day.today {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.day.in {
+  background: #f3e5fc;
+  border-radius: 0;
+}
+
+.day.edge {
+  background: var(--purple-core);
+  color: #fff;
+  font-weight: 700;
+}
+
+.day.edge.start {
+  border-radius: 6px 0 0 6px;
+}
+
+.day.edge.end {
+  border-radius: 0 6px 6px 0;
+}
+
+.day.edge.solo {
+  border-radius: 6px;
+}
+
+.tick {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+
+.tick.ev {
+  background: var(--purple-core);
+}
+
+.tick.win {
+  background: var(--green-300);
+}
+
+.day.edge .tick {
+  background: #fff;
+}
+
+.cal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  padding-top: 7px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--purple-core);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link:disabled {
+  color: var(--ink-3);
+  text-decoration: none;
+  cursor: default;
+}

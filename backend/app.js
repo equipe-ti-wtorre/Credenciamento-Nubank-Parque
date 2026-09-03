@@ -22,6 +22,7 @@ const companyUsersRoutes = require("./modules/company-users/company-users.routes
 const companyRoutes = require("./modules/companies/company.routes");
 const collaboratorRoutes = require("./modules/collaborators/collaborator.routes");
 const eventRoutes = require("./modules/events/event.routes");
+const eventAccreditationRoutes = require("./modules/event-accreditation/event-accreditation.routes");
 const credentialsRoutes = require("./modules/credentials/credentials.routes");
 const gateRoutes = require("./modules/gate/gate.routes");
 const vehicleRoutes = require("./modules/patrimonial/vehicle.routes");
@@ -83,6 +84,7 @@ v1Router.use("/company-users", companyUsersRoutes);
 v1Router.use("/companies", companyRoutes);
 v1Router.use("/collaborators", collaboratorRoutes);
 v1Router.use("/events", eventRoutes);
+v1Router.use("/event-accreditations", eventAccreditationRoutes);
 v1Router.use("/credentials", credentialsRoutes);
 v1Router.use("/gate", gateRoutes);
 v1Router.use("/vehicles", vehicleRoutes);
@@ -96,8 +98,11 @@ v1Router.use("/profiles", profilesRoutes);
 v1Router.use("/sectors", sectorsRoutes);
 v1Router.use("/alerts", alertsRoutes);
 v1Router.use("/faces", require("./modules/faces/faces.routes"));
+v1Router.use("/facial", require("./modules/facial/facial-settings.routes"));
 
 app.use("/api/v1", v1Router);
+
+app.use("/api/facial", require("./modules/facial/facial.routes"));
 
 app.use("/api", deprecationWarning, v1Router);
 

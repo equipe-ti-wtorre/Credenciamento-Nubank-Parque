@@ -1,27 +1,23 @@
 import {
   Component,
   ElementRef,
-  EventEmitter,
-  Input,
-  OnChanges,
-  Output,
-  SimpleChanges,
+  OnDestroy,
+  OnInit,
   ViewChild,
   computed,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormControl, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { ModalComponent } from '../../shared/modal/modal.component';
+import { Router, RouterLink } from '@angular/router';
 import { NotificationService } from '../../core/services/notification.service';
+import { AuthService } from '../../core/services/auth.service';
 import {
   PatrimonialService,
   ServiceAccessCollaborator,
-  ServiceAccessItem,
   ServiceAccessVehicle,
 } from '../../services/patrimonial.service';
-import { CompanyItem } from '../../services/company.service';
+import { CompanyItem, CompanyService } from '../../services/company.service';
 import { ApprovalService, EligibleSector } from '../../services/approval.service';
 import {
   CollaboratorDocumentType,
@@ -104,23 +100,20 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
     FormsModule,
     ReactiveFormsModule,
     RouterLink,
-    ModalComponent,
     ServiceAccessBulkImportWizardComponent,
     PeriodoRangePickerComponent,
   ],
   template: `
-    <app-modal
-      [open]="open"
-      title="Novo acesso de serviço"
-      [subtitle]="modalSubtitle"
-      size="2xl"
-      [closeOnBackdrop]="false"
-      [focusFirstField]="false"
-      [bodyScroll]="true"
-      (close)="onClose()"
-    >
+    <div class="wcrt-page">
+      <button type="button" class="wcrt-back" (click)="onClose()">← Voltar para lista</button>
+
+      <header class="wcrt-head">
+        <p class="wcrt-head__eyebrow">Acessos de serviço</p>
+        <h1 class="wcrt-head__title">Novo acesso de serviço</h1>
+        <p class="wcrt-head__sub">{{ modalSubtitle }}</p>
+      </header>
+
       <div
-        modal-header-extra
         class="wcrt-stepper"
         [attr.aria-label]="'Passo ' + stepNumber() + ' de 3: ' + stepLabel()"
       >
@@ -671,7 +664,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         }
       </div>
 
-      <div modal-footer class="modal-footer wcrt-foot">
+      <div class="wcrt-foot">
         <button type="button" class="btn-action-secondary" [disabled]="busy()" (click)="onBack()">
           {{ step() === 'dados' ? 'Cancelar' : 'Voltar' }}
         </button>
@@ -717,7 +710,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
           }
         </div>
       </div>
-    </app-modal>
+    </div>
   `,
   styles: [
     `
@@ -732,6 +725,57 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         --danger-border: #fecdd3;
         --form-field-height: 2.5rem;
         font-family: var(--font-body, 'Plus Jakarta Sans', system-ui, sans-serif);
+        display: block;
+      }
+      .wcrt-page {
+        max-width: 1200px;
+        margin: 0 auto;
+        color: var(--ink);
+        padding-bottom: 40px;
+      }
+      .wcrt-back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0 0 18px;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--wtorre, #1d54e6);
+        font: inherit;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .wcrt-back:hover {
+        text-decoration: underline;
+      }
+      .wcrt-head {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 22px 24px 20px;
+        margin-bottom: 16px;
+      }
+      .wcrt-head__eyebrow {
+        margin: 0 0 4px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+      }
+      .wcrt-head__title {
+        font-weight: 700;
+        font-size: 24px;
+        letter-spacing: -0.02em;
+        margin: 0;
+        color: var(--ink);
+      }
+      .wcrt-head__sub {
+        font-size: 13px;
+        color: var(--ink-3);
+        margin: 6px 0 0;
       }
       .wcrt {
         display: flex;
@@ -749,9 +793,13 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         display: flex;
         flex-direction: column;
         gap: 0;
-        padding: 2px 0 0;
+        margin-bottom: 16px;
+        padding: 14px 16px;
         min-width: 0;
         flex: none;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 14px;
       }
       .wcrt-stepper__track {
         display: flex;
@@ -823,6 +871,10 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         display: flex;
         flex-direction: column;
         gap: 0.75rem;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 22px 24px;
       }
       .wcrt-dados {
         display: grid;
@@ -1469,6 +1521,8 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         gap: 12px;
         width: 100%;
         flex-wrap: wrap;
+        margin-top: 24px;
+        padding-top: 8px;
       }
       .wcrt-foot__right {
         margin-left: auto;
@@ -1611,12 +1665,9 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
     `,
   ],
 })
-export class ServiceAccessCreateWizardComponent implements OnChanges {
-  @Input({ required: true }) open = false;
-  @Input() isAdmin = false;
-  @Input() companies: CompanyItem[] = [];
-  @Output() closed = new EventEmitter<{ createdId: number | null }>();
-  @Output() completed = new EventEmitter<{ service: ServiceAccessItem }>();
+export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
+  isAdmin = false;
+  companies: CompanyItem[] = [];
 
   @ViewChild('finalidadeInput') finalidadeInput?: ElementRef<HTMLInputElement>;
   @ViewChild('observacaoInput') observacaoInput?: ElementRef<HTMLTextAreaElement>;
@@ -1637,6 +1688,8 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
 
   /** true somente após Enviar para aprovação com sucesso */
   private submitted = false;
+  /** evita descartar o rascunho duas vezes ao sair da página */
+  private leaving = false;
   /** linhas com problema importadas via planilha, aguardando resolução no servidor */
   private pendingFromSheet = signal<DraftCollaborator[]>([]);
 
@@ -1717,19 +1770,27 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
     private collaboratorService: CollaboratorService,
     private vehicleService: VehicleService,
     private notification: NotificationService,
+    private authService: AuthService,
+    private companyService: CompanyService,
+    private router: Router,
   ) {}
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['open'] && this.open) {
-      this.reset();
-      this.loadSectors();
-      this.loadRoles();
-      this.loadDocumentTypes();
-      return;
+  async ngOnInit() {
+    const user = await this.authService.getCurrentUser();
+    this.isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
+    this.reset();
+    this.loadSectors();
+    this.loadRoles();
+    this.loadDocumentTypes();
+    if (this.isAdmin) {
+      this.loadCompanies();
     }
-    if (changes['isAdmin']) {
-      this.applyCompanyValidator();
-    }
+  }
+
+  ngOnDestroy(): void {
+    const id = this.createdId();
+    if (!id || this.submitted || this.leaving) return;
+    this.patrimonialService.deleteDraft(id).subscribe({ next: () => {}, error: () => {} });
   }
 
   get modalSubtitle(): string {
@@ -1962,7 +2023,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   }
 
   onClose() {
-    if (this.busy()) return;
+    if (this.busy() || this.leaving) return;
     this.discardDraftAndClose();
   }
 
@@ -2093,8 +2154,7 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
               this.busy.set(false);
               this.submitted = true;
               this.notification.success('Acesso enviado para aprovação.');
-              this.completed.emit({ service: res.service });
-              this.reset();
+              void this.router.navigate(['/admin/acessos-servico', res.service.id_service_access]);
             },
             error: (err) => {
               this.busy.set(false);
@@ -2260,24 +2320,33 @@ export class ServiceAccessCreateWizardComponent implements OnChanges {
   }
 
   private discardDraftAndClose() {
+    this.leaving = true;
     const id = this.createdId();
     if (!id || this.submitted) {
-      this.reset();
-      this.closed.emit({ createdId: null });
+      void this.router.navigate(['/admin/acessos-servico']);
       return;
     }
     this.busy.set(true);
     this.patrimonialService.deleteDraft(id).subscribe({
       next: () => {
+        this.createdId.set(null);
         this.busy.set(false);
-        this.reset();
-        this.closed.emit({ createdId: null });
+        void this.router.navigate(['/admin/acessos-servico']);
       },
       error: () => {
+        this.createdId.set(null);
         this.busy.set(false);
-        this.reset();
-        this.closed.emit({ createdId: null });
+        void this.router.navigate(['/admin/acessos-servico']);
       },
+    });
+  }
+
+  private loadCompanies() {
+    this.companyService.list(1, 500, {}).subscribe({
+      next: (res) => {
+        this.companies = res.companies.filter((c) => c.status);
+      },
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
     });
   }
 

@@ -2,9 +2,8 @@ import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { PatrimonialService, ServiceAccessItem } from '../../services/patrimonial.service';
-import { CompanyItem, CompanyService } from '../../services/company.service';
 import { NotificationService } from '../../core/services/notification.service';
-import { AuthService } from '../../core/services/auth.service';
+import { AuthService, hasPermission } from '../../core/services/auth.service';
 import {
   ActionBtnComponent,
   ActionDropdownComponent,
@@ -12,7 +11,6 @@ import {
   ActionMenuComponent,
 } from '../../shared/actions';
 import { statusBadgeClass } from '../../services/credential.service';
-import { ServiceAccessCreateWizardComponent } from './service-access-create-wizard.component';
 
 function parseIsoDateParts(value: string | null | undefined): { y: string; m: string; d: string } | null {
   if (!value) return null;
@@ -47,7 +45,6 @@ function formatPeriodBr(
     ActionMenuComponent,
     ActionDropdownComponent,
     ActionDropdownItemDirective,
-    ServiceAccessCreateWizardComponent,
   ],
   template: `
     <div class="w-full sa-list">
@@ -62,7 +59,7 @@ function formatPeriodBr(
           <button type="button" class="btn-secondary" (click)="carregar()" [disabled]="loading()">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
-          <button type="button" class="btn-primary" (click)="abrirWizard()">+ Novo acesso</button>
+          <button *ngIf="canCreate" type="button" class="btn-primary" (click)="irParaNovo()">+ Novo acesso</button>
         </div>
       </div>
 
@@ -207,14 +204,6 @@ function formatPeriodBr(
         </app-action-dropdown>
       </app-action-menu>
     </ng-template>
-
-    <app-service-access-create-wizard
-      [open]="showWizard()"
-      [isAdmin]="isAdmin"
-      [companies]="companies()"
-      (closed)="onWizardClosed($event)"
-      (completed)="onWizardCompleted($event)"
-    />
   `,
   styles: [
     `
@@ -304,16 +293,14 @@ function formatPeriodBr(
 })
 export class ServiceRequestListComponent implements OnInit {
   services = signal<ServiceAccessItem[]>([]);
-  companies = signal<CompanyItem[]>([]);
   loading = signal(false);
-  showWizard = signal(false);
   isAdmin = false;
+  canCreate = false;
   formatPeriodBr = formatPeriodBr;
   readonly statusBadgeClass = statusBadgeClass;
 
   constructor(
     private patrimonialService: PatrimonialService,
-    private companyService: CompanyService,
     private notification: NotificationService,
     private authService: AuthService,
     private router: Router,
@@ -322,17 +309,8 @@ export class ServiceRequestListComponent implements OnInit {
   async ngOnInit() {
     const user = await this.authService.getCurrentUser();
     this.isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
-    if (this.isAdmin) {
-      this.carregarEmpresas();
-    }
+    this.canCreate = hasPermission(user, 'service_access', 'create');
     this.carregar();
-  }
-
-  carregarEmpresas() {
-    this.companyService.list(1, 500, {}).subscribe({
-      next: (res) => this.companies.set(res.companies.filter((c) => c.status)),
-      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
-    });
   }
 
   carregar() {
@@ -349,22 +327,8 @@ export class ServiceRequestListComponent implements OnInit {
     });
   }
 
-  abrirWizard() {
-    if (this.isAdmin) {
-      this.carregarEmpresas();
-    }
-    this.showWizard.set(true);
-  }
-
-  onWizardClosed(_event: { createdId: number | null }) {
-    this.showWizard.set(false);
-    this.carregar();
-  }
-
-  onWizardCompleted(event: { service: ServiceAccessItem }) {
-    this.showWizard.set(false);
-    this.carregar();
-    this.router.navigate(['/admin/acessos-servico', event.service.id_service_access]);
+  irParaNovo() {
+    void this.router.navigate(['/admin/acessos-servico', 'novo']);
   }
 
   abrirDetalhe(s: ServiceAccessItem) {

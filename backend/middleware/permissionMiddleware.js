@@ -1,4 +1,4 @@
-const { hasPermission, hasAnyPermission } = require("../utils/permissions");
+const { hasPermission, hasAnyPermission, canAccessAccreditation } = require("../utils/permissions");
 
 function authorizePermission(modulo, acao) {
   return (req, res, next) => {
@@ -24,4 +24,20 @@ function authorizeAnyPermission(entries) {
   };
 }
 
-module.exports = { authorizePermission, authorizeAnyPermission };
+function authorizeAccreditationAccess() {
+  return (req, res, next) => {
+    if (!canAccessAccreditation(req.user)) {
+      return res.status(403).json({
+        message: "Permissão insuficiente.",
+        requestId: req.requestId,
+      });
+    }
+    next();
+  };
+}
+
+module.exports = {
+  authorizePermission,
+  authorizeAnyPermission,
+  authorizeAccreditationAccess,
+};

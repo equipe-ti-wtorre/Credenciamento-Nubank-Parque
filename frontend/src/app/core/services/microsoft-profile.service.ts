@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
+import { blobToDataUrl, isProbablyImageBlob } from '../utils/image-src';
 
 const GRAPH_PHOTO_URL = 'https://graph.microsoft.com/v1.0/me/photo/$value';
 
@@ -12,9 +13,7 @@ export class MicrosoftProfileService {
   async fetchPhotoObjectUrlFromApi(): Promise<string | null> {
     try {
       const blob = await firstValueFrom(this.api.getBlob('/auth/profile-photo'));
-      if (!blob?.size) return null;
-      const imageBlob = this.normalizeImageBlob(blob);
-      return URL.createObjectURL(imageBlob);
+      return this.toSrc(blob);
     } catch {
       return null;
     }
@@ -25,8 +24,7 @@ export class MicrosoftProfileService {
     if (!Number.isFinite(userId) || userId <= 0) return null;
     try {
       const blob = await firstValueFrom(this.api.getBlob(`/auth/users/${userId}/photo`));
-      if (!blob?.size) return null;
-      return URL.createObjectURL(this.normalizeImageBlob(blob));
+      return this.toSrc(blob);
     } catch {
       return null;
     }
@@ -41,15 +39,15 @@ export class MicrosoftProfileService {
       if (response.status === 404 || !response.ok) return null;
 
       const blob = await response.blob();
-      if (!blob?.size) return null;
-      return URL.createObjectURL(this.normalizeImageBlob(blob));
+      return this.toSrc(blob);
     } catch {
       return null;
     }
   }
 
-  private normalizeImageBlob(blob: Blob): Blob {
-    if (blob.type && blob.type.startsWith('image/')) return blob;
-    return new Blob([blob], { type: 'image/jpeg' });
+  private async toSrc(blob: Blob | null | undefined): Promise<string | null> {
+    if (!blob || !isProbablyImageBlob(blob)) return null;
+    const typed = blob.type?.startsWith('image/') ? blob : new Blob([blob], { type: 'image/jpeg' });
+    return blobToDataUrl(typed);
   }
 }

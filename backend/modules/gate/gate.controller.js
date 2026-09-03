@@ -364,6 +364,67 @@ exports.notifyPendingServiceApproval = async (req, res, next) => {
   }
 };
 
+function respondFacialEnroll(req, res, result, value, auditEvent, resourceType, resourceId) {
+  if (!result.allowed) {
+    return respondDenial(res, req, result);
+  }
+  attachAudit(req, {
+    action: "UPDATE",
+    module: "gate",
+    event: auditEvent,
+    resource: {
+      type: resourceType,
+      id: resourceId,
+      access_id: value.access_id,
+    },
+    metadata: {
+      correlationId: result.data.correlationId,
+      userId: result.data.userId,
+    },
+  });
+  return res.json(result.data);
+}
+
+exports.resendEventFacial = async (req, res, next) => {
+  try {
+    const { error, value } = eventValidateSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await gateService.resendEventFacialEnroll(value.access_id);
+    return respondFacialEnroll(
+      req,
+      res,
+      result,
+      value,
+      "gate.event.facial_resend",
+      "credential",
+      result.data?.userId || value.access_id,
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.resendServiceFacial = async (req, res, next) => {
+  try {
+    const { error, value } = serviceValidateSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await gateService.resendServiceFacialEnroll(value.access_id);
+    return respondFacialEnroll(
+      req,
+      res,
+      result,
+      value,
+      "gate.service.facial_resend",
+      "service_access",
+      result.data?.userId || value.access_id,
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.cancelPendingServiceApproval = async (req, res, next) => {
   try {
     const result = await gateService.cancelPendingServiceApproval(req, req.params.id);

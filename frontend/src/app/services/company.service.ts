@@ -106,8 +106,10 @@ export class CompanyService {
     );
   }
 
-  getLogoBlob(filename: string): Observable<Blob> {
-    return this.api.getBlob(`/storage/company-logos/${filename}`);
+  getLogoBlob(filename: string): Observable<string> {
+    const name = String(filename || "").split(/[/\\]/).pop() || "";
+    const params = new HttpParams().set("filename", name);
+    return this.api.getImageDataUrl("/storage/company-logos", params);
   }
 
   private buildParams(page: number, limit: number, filters: CompanyListFilters): HttpParams {

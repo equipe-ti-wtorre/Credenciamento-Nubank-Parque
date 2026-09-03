@@ -66,20 +66,7 @@ async function checkVehicleBlocklist(idVehicle) {
   return rows.length > 0;
 }
 
-function resolveCompanyIdForCreate(req, bodyCompanyId) {
-  const scope = buildCompanyScope(req);
-  if (scope.mode === "admin") {
-    if (!bodyCompanyId) throw new AppError("Informe a empresa do veículo.", 400);
-    return bodyCompanyId;
-  }
-  if (scope.mode === "padrao" || scope.mode === "produtora") {
-    return scope.onlyCompanyId ?? scope.ownCompanyId;
-  }
-  throw new AppError("Perfil sem permissão.", 403);
-}
-
-async function listVehicles(req, { page = 1, limit = 20, filters = {} } = {}) {
-  assertCanManageVehicles(req);
+async function buildVehicleListClause(req, filters = {}) {
   const scope = buildCompanyScope(req);
   const { conditions, params } = await applyScopeToWhere(scope, "c");
   const extra = [...conditions];
@@ -116,25 +103,68 @@ async function listVehicles(req, { page = 1, limit = 20, filters = {} } = {}) {
     extraParams.push(filters.status ? 1 : 0);
   }
 
-  const where = extra.length ? `WHERE ${extra.join(" AND ")}` : "";
+  return {
+    where: extra.length ? `WHERE ${extra.join(" AND ")}` : "",
+    params: extraParams,
+  };
+}
+
+async function batchVehicleUsageIds(ids) {
+  const normalized = [...new Set((ids || []).map((id) => Number(id)).filter((id) => id > 0))];
+  if (!normalized.length) return new Set();
+
+  const placeholders = normalized.map(() => "?").join(",");
+  const used = new Set();
+  const queries = [
+    `SELECT DISTINCT id_vehicle AS id FROM service_access_vehicle
+     WHERE id_vehicle IN (${placeholders})`,
+    `SELECT DISTINCT id_substitute_vehicle AS id FROM service_access_vehicle
+     WHERE id_substitute_vehicle IN (${placeholders})`,
+    `SELECT DISTINCT id_vehicle AS id FROM material_movement
+     WHERE id_vehicle IN (${placeholders})`,
+  ];
+
+  for (const sql of queries) {
+    const [rows] = await db.execute(sql, normalized);
+    for (const row of rows) {
+      if (row.id != null) used.add(Number(row.id));
+    }
+  }
+  return used;
+}
+
+function resolveCompanyIdForCreate(req, bodyCompanyId) {
+  const scope = buildCompanyScope(req);
+  if (scope.mode === "admin") {
+    if (!bodyCompanyId) throw new AppError("Informe a empresa do veículo.", 400);
+    return bodyCompanyId;
+  }
+  if (scope.mode === "padrao" || scope.mode === "produtora") {
+    return scope.onlyCompanyId ?? scope.ownCompanyId;
+  }
+  throw new AppError("Perfil sem permissão.", 403);
+}
+
+async function listVehicles(req, { page = 1, limit = 20, filters = {} } = {}) {
+  assertCanManageVehicles(req);
+  const { where, params } = await buildVehicleListClause(req, filters);
   const offset = (page - 1) * limit;
 
   const [rows] = await db.execute(
     `${VEHICLE_SELECT} ${where} ORDER BY v.plate ASC LIMIT ? OFFSET ?`,
-    [...extraParams, limit, offset],
+    [...params, limit, offset],
   );
 
   const [[{ total }]] = await db.execute(
     `SELECT COUNT(*) AS total FROM vehicle v INNER JOIN company c ON c.id_company = v.id_company ${where}`,
-    extraParams,
+    params,
   );
 
+  const usedSet = await batchVehicleUsageIds(rows.map((row) => row.id_vehicle));
+
   return {
-    vehicles: await Promise.all(
-      rows.map(async (row) => {
-        const usageCount = await countVehicleUsage(row.id_vehicle);
-        return mapVehicleRow(row, { canDelete: usageCount === 0 });
-      }),
+    vehicles: rows.map((row) =>
+      mapVehicleRow(row, { canDelete: !usedSet.has(Number(row.id_vehicle)) }),
     ),
     pagination: {
       page,
@@ -143,6 +173,45 @@ async function listVehicles(req, { page = 1, limit = 20, filters = {} } = {}) {
       totalPages: Math.ceil(total / limit) || 1,
     },
   };
+}
+
+async function getVehicleStats(req) {
+  assertCanManageVehicles(req);
+  const { where, params } = await buildVehicleListClause(req, {});
+  const [[row]] = await db.execute(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(v.status = 1) AS ativos,
+       SUM(v.status = 0) AS inativos,
+       SUM(vbl.id_vehicle IS NOT NULL) AS blocklist
+     FROM vehicle v
+     INNER JOIN company c ON c.id_company = v.id_company
+     LEFT JOIN vehicle_block_list vbl ON vbl.id_vehicle = v.id_vehicle
+     ${where}`,
+    params,
+  );
+
+  return {
+    total: Number(row?.total) || 0,
+    ativos: Number(row?.ativos) || 0,
+    inativos: Number(row?.inativos) || 0,
+    blocklist: Number(row?.blocklist) || 0,
+  };
+}
+
+async function listVehicleTypes(req) {
+  assertCanManageVehicles(req);
+  const { where, params } = await buildVehicleListClause(req, {});
+  const [rows] = await db.execute(
+    `SELECT DISTINCT v.type
+       FROM vehicle v
+       INNER JOIN company c ON c.id_company = v.id_company
+       ${where}
+         ${where ? "AND" : "WHERE"} v.type IS NOT NULL AND TRIM(v.type) <> ''
+       ORDER BY v.type ASC`,
+    params,
+  );
+  return rows.map((row) => String(row.type).trim());
 }
 
 async function getVehicleById(req, id) {
@@ -366,6 +435,8 @@ async function commitBulkVehicles(req, body = {}) {
 module.exports = {
   assertCanManageVehicles,
   listVehicles,
+  getVehicleStats,
+  listVehicleTypes,
   getVehicleById,
   createVehicle,
   updateVehicle,

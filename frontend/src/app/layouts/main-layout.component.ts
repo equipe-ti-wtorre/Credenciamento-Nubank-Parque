@@ -7,6 +7,7 @@ import {
   OnInit,
   ViewChild,
   ViewEncapsulation,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -21,7 +22,13 @@ import {
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subscription, filter } from 'rxjs';
-import { AuthService, AuthUser, hasPermission, isSectorGestor } from '../core/services/auth.service';
+import {
+  AuthService,
+  AuthUser,
+  hasPermission,
+  isAdInternalUser,
+  isSectorGestor,
+} from '../core/services/auth.service';
 import { SessionIdleService } from '../core/services/session-idle.service';
 import { ThemeService } from '../core/services/theme.service';
 import { StorageService } from '../core/services/storage.service';
@@ -79,13 +86,23 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   navCanScrollUp = signal(false);
   navCanScrollDown = signal(false);
 
-  navGroups: NavGroup[] = [];
+  readonly navGroups = signal<NavGroup[]>([]);
 
-  userName = '';
-  userRoleLabel = '';
-  userPhotoUrl: string | null = null;
+  userName = signal('');
+  userRoleLabel = signal('');
+  userPhotoUrl = signal<string | null>(null);
   currentUser: AuthUser | null = null;
-  loggingOut = false;
+  loggingOut = signal(false);
+
+  readonly userInitials = computed(() => {
+    const name = this.userName().trim();
+    if (!name) return '?';
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  });
 
   /** Icones SVG sanitizados UMA vez (sem chamada de metodo por render). */
   private readonly iconMap: Map<string, SafeHtml>;
@@ -173,16 +190,6 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     return `fa-solid fa-${iconName}`;
   }
 
-  get userInitials(): string {
-    const name = this.userName.trim();
-    if (!name) return '?';
-    const parts = name.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  }
-
   async ngOnInit() {
     const storedCollapsed = await this.storage.get(SIDEBAR_COLLAPSED_KEY);
     this.collapsed.set(storedCollapsed === '1');
@@ -205,14 +212,19 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
       /* ignore */
     }
 
-    const user = await this.authService.getCurrentUser();
-    this.currentUser = user;
-    this.userName = user?.nome_completo || user?.email || 'Usuário';
-    this.userRoleLabel = user?.profile?.nome || this.roleLabel(String(user?.role || user?.perfil || ''));
-    this.userPhotoUrl = await this.authService.resolveUserPhoto();
-
+    const cached = await this.authService.getCurrentUser();
+    this.applyUser(cached);
     this.buildNav();
     this.loadPendingBadges();
+
+    const fresh = await this.authService.refreshCurrentUser();
+    if (fresh) {
+      this.applyUser(fresh);
+      this.buildNav();
+      this.loadPendingBadges();
+    }
+
+    this.userPhotoUrl.set(await this.authService.resolveUserPhoto());
 
     this.resolveTitle();
     this.resolveGatePage();
@@ -223,8 +235,6 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
         this.resolveGatePage();
         this.loadPendingBadges();
       });
-
-    this.cdr.detectChanges();
   }
 
   ngAfterViewInit(): void {
@@ -334,6 +344,17 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     if (hasPermission(user, 'events', 'view') || hasPermission(user, 'approvals', 'view')) {
       operacaoItems.push({ label: 'Eventos', route: '/admin/eventos', iconHtml: this.iconFor('calendar') });
     }
+    if (
+      hasPermission(user, 'event_accreditation', 'view') ||
+      hasPermission(user, 'approvals', 'view') ||
+      isAdInternalUser(user)
+    ) {
+      operacaoItems.push({
+        label: 'Credenciamento Eventos',
+        route: '/admin/credenciamento-eventos',
+        iconHtml: this.iconFor('badge'),
+      });
+    }
     if (hasPermission(user, 'service_access', 'view')) {
       operacaoItems.push({
         label: 'Acessos de Serviço',
@@ -359,8 +380,15 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
       });
     }
 
-    this.navGroups = groups;
+    this.navGroups.set(groups);
     this.scheduleNavScrollHintUpdate();
+    this.cdr.markForCheck();
+  }
+
+  private applyUser(user: AuthUser | null): void {
+    this.currentUser = user;
+    this.userName.set(user?.nome_completo || user?.email || 'Usuário');
+    this.userRoleLabel.set(user?.profile?.nome || this.roleLabel(String(user?.role || user?.perfil || '')));
   }
 
   badgeCountFor(item: NavItem): number {
@@ -416,8 +444,7 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onPhotoError(): void {
-    this.userPhotoUrl = null;
-    this.cdr.detectChanges();
+    this.userPhotoUrl.set(null);
   }
 
   async toggleSidebar() {
@@ -428,12 +455,12 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async logout() {
-    if (this.loggingOut) return;
-    this.loggingOut = true;
+    if (this.loggingOut()) return;
+    this.loggingOut.set(true);
     try {
       await this.authService.logout();
     } finally {
-      this.loggingOut = false;
+      this.loggingOut.set(false);
     }
   }
 }

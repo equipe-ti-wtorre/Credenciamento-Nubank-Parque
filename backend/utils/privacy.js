@@ -66,6 +66,7 @@ function toMaskedCollaborator(row, { isBlocklisted = false } = {}) {
     name: row.name,
     document: maskDocument(row.document, typeDesc),
     phone: maskPhone(row.phone),
+    picture: row.picture || null,
     status: !!row.status,
     is_blocklisted: !!isBlocklisted,
     document_type: mapDocumentType(row),

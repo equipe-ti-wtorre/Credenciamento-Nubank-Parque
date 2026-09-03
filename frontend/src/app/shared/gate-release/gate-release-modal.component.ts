@@ -20,10 +20,18 @@ import { CollaboratorService } from '../../services/collaborator.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { GateCollaboratorInfo } from '../../services/gate.service';
 
+function formatBrDate(dateKey: string): string {
+  const d = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateKey;
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 export interface GateReleaseTarget {
   access_id: string;
   collaborator: GateCollaboratorInfo;
   company_name: string;
+  start_date?: string | null;
+  end_date?: string | null;
 }
 
 export interface GateReleaseResult {
@@ -84,6 +92,16 @@ export class GateReleaseModalComponent implements OnChanges, OnDestroy {
   canAdvancePhoto = computed(
     () => (this.hasPhoto() && this.photoConfirmed()) || this.withoutPhoto(),
   );
+  willEnrollFacial = computed(() => this.hasPhoto() && !this.withoutPhoto());
+
+  periodLabel(): string | null {
+    const start = this.target?.start_date;
+    const end = this.target?.end_date || start;
+    if (!start) return null;
+    const a = formatBrDate(start);
+    const b = formatBrDate(end || start);
+    return a === b ? a : `${a} — ${b}`;
+  }
 
   stepIndex = computed(() => {
     const s = this.step();
@@ -145,15 +163,15 @@ export class GateReleaseModalComponent implements OnChanges, OnDestroy {
     if (!picture) return;
     this.photoLoading.set(true);
     this.collaboratorService.getPictureBlob(picture).subscribe({
-      next: (blob) => {
+      next: (url) => {
         this.photoLoading.set(false);
         if (!this.open) return;
-        this.photoUrl.set(URL.createObjectURL(blob));
-        this.cdr.markForCheck();
+        this.photoUrl.set(url);
+        this.cdr.detectChanges();
       },
       error: () => {
         this.photoLoading.set(false);
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       },
     });
   }

@@ -4,6 +4,7 @@ const systemSettingsService = require("./system-settings.service");
 const {
   sessionSettingsSchema,
   appearanceSettingsSchema,
+  eventAccreditationNotifySchema,
 } = require("./system-settings.schema");
 
 exports.getSessionSettings = async (req, res, next) => {
@@ -65,6 +66,47 @@ exports.updateAppearanceSettings = async (req, res, next) => {
     });
 
     res.json({ settings });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getEventAccreditationNotifySettings = async (req, res, next) => {
+  try {
+    const settings = await systemSettingsService.getEventAccreditationNotifySettings();
+    res.json({ settings });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateEventAccreditationNotifySettings = async (req, res, next) => {
+  try {
+    const { error, value } = eventAccreditationNotifySchema.validate(req.body || {});
+    if (error) throw new AppError(error.details[0].message, 400);
+    const settings = await systemSettingsService.updateEventAccreditationNotifySettings(value);
+    await logAudit({
+      userId: req.user?.id,
+      action: "UPDATE",
+      module: "system_settings",
+      req,
+      metadata: {
+        notify_all: settings.notify_all,
+        user_ids: settings.users.map((u) => u.id),
+      },
+    });
+    res.json({ settings });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listAdInternalUsers = async (req, res, next) => {
+  try {
+    const users = await systemSettingsService.listAdInternalUsers({
+      search: req.query.search,
+    });
+    res.json({ users });
   } catch (err) {
     next(err);
   }

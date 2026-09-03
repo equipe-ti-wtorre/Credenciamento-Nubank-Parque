@@ -108,6 +108,15 @@ exports.list = async (req, res, next) => {
   }
 };
 
+exports.statsSummary = async (req, res, next) => {
+  try {
+    const stats = await collaboratorService.getCollaboratorStats(req);
+    res.json({ stats });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.search = async (req, res, next) => {
   try {
     // Typeahead: termo parcial (nome ou documento) retorna lista.
@@ -265,6 +274,9 @@ exports.uploadPicture = async (req, res, next) => {
       filename,
     );
 
+    const facialCommand = require("../facial/facial.command.service");
+    await facialCommand.sendEnrollSafe(collaborator, req.file.buffer);
+
     attachAudit(req, {
       action: "UPDATE",
       module: "collaborators",
@@ -273,6 +285,135 @@ exports.uploadPicture = async (req, res, next) => {
     });
 
     res.json({ collaborator, picture: filename, faceValidation: report });
+  } catch (err) {
+    next(err);
+  }
+};
+
+async function decodeOptionalPhotoBase64(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  const cleaned = raw.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, "").trim();
+  if (!cleaned) return null;
+  const buf = Buffer.from(cleaned, "base64");
+  return buf.length ? buf : null;
+}
+
+exports.getFacialStatus = async (req, res, next) => {
+  try {
+    const collaborator = await collaboratorService.getCollaboratorById(req, req.params.id);
+    const jobsService = require("../facial/facial.jobs.service");
+    const jobs = await jobsService.listJobsByCollaborator(collaborator.id_collaborator, {
+      limit: 10,
+    });
+    res.json({
+      collaborator: {
+        id_collaborator: collaborator.id_collaborator,
+        name: collaborator.name,
+        facial_linked_id: collaborator.facial_linked_id,
+        facial_user_id: collaborator.facial_user_id,
+        facial_status: collaborator.facial_status,
+        facial_last_correlation_id: collaborator.facial_last_correlation_id,
+        facial_devices_json: collaborator.facial_devices_json,
+        facial_synced_at: collaborator.facial_synced_at,
+        picture: collaborator.picture,
+      },
+      jobs,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.facialEnroll = async (req, res, next) => {
+  try {
+    const collaborator = await collaboratorService.getCollaboratorById(req, req.params.id);
+    const photoBuffer = await decodeOptionalPhotoBase64(req.body?.photoBase64);
+    if (!photoBuffer && !collaborator.picture) {
+      throw new AppError("Colaborador sem foto para enroll facial.", 400);
+    }
+
+    if (photoBuffer) {
+      const path = require("path");
+      const fs = require("fs");
+      const { v4: uuidv4 } = require("uuid");
+      const storageDir = path.join(__dirname, "../../storage/pictures");
+      fs.mkdirSync(storageDir, { recursive: true });
+      const filename = `${uuidv4()}.jpg`;
+      fs.writeFileSync(path.join(storageDir, filename), photoBuffer);
+      await collaboratorService.updateCollaboratorPicture(req.params.id, filename);
+      collaborator.picture = filename;
+    }
+
+    const facialCommand = require("../facial/facial.command.service");
+    const result = await facialCommand.sendEnroll(collaborator, photoBuffer);
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "collaborators",
+      event: "collaborator.facial_enroll",
+      resource: { type: "collaborator", id: collaborator.id_collaborator },
+      metadata: { correlationId: result.correlationId, transport: result.transport },
+    });
+
+    res.status(202).json({
+      correlationId: result.correlationId,
+      linkedId: result.linkedId,
+      userId: result.userId,
+      transport: result.transport || null,
+      queued: !!result.queued,
+      sent: !!result.sent,
+      skipped: !!result.skipped,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.facialRevoke = async (req, res, next) => {
+  try {
+    const collaborator = await collaboratorService.getCollaboratorById(req, req.params.id);
+    const facialCommand = require("../facial/facial.command.service");
+    const result = await facialCommand.sendRevoke(collaborator.id_collaborator);
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "collaborators",
+      event: "collaborator.facial_revoke",
+      resource: { type: "collaborator", id: collaborator.id_collaborator },
+      metadata: { correlationId: result.correlationId, transport: result.transport },
+    });
+
+    res.status(202).json({
+      correlationId: result.correlationId,
+      linkedId: result.linkedId,
+      userId: result.userId,
+      transport: result.transport || null,
+      queued: !!result.queued,
+      sent: !!result.sent,
+      skipped: !!result.skipped,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.facialRetry = async (req, res, next) => {
+  req.body = req.body || {};
+  return exports.facialEnroll(req, res, next);
+};
+
+exports.deletePicture = async (req, res, next) => {
+  try {
+    const collaborator = await collaboratorService.clearCollaboratorPicture(req.params.id);
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "collaborators",
+      event: "collaborator.picture.delete",
+      resource: { type: "collaborator", id: collaborator.id_collaborator },
+    });
+
+    res.json({ collaborator });
   } catch (err) {
     next(err);
   }

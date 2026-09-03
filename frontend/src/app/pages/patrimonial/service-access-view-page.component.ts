@@ -1658,14 +1658,10 @@ export class ServiceAccessViewPageComponent implements OnInit, OnDestroy {
     for (const c of list) {
       if (!c.collaborator_picture) continue;
       this.collaboratorService.getPictureBlob(c.collaborator_picture).subscribe({
-        next: (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (loadId !== this.thumbnailLoadId) {
-            URL.revokeObjectURL(url);
-            return;
-          }
+        next: (url) => {
+          if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [c.id_collaborator]: url }));
-          this.cdr.markForCheck();
+          this.cdr.detectChanges();
         },
         error: () => {},
       });
@@ -1673,9 +1669,6 @@ export class ServiceAccessViewPageComponent implements OnInit, OnDestroy {
   }
 
   private revokeThumbnails() {
-    for (const url of Object.values(this.thumbnailUrls())) {
-      URL.revokeObjectURL(url);
-    }
     this.thumbnailUrls.set({});
   }
 }

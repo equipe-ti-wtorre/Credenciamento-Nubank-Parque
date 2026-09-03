@@ -11,7 +11,12 @@ const { child } = require('../../config/logger');
 
 const log = child({ module: 'approvals' });
 
-const ENTITY_TYPES = Object.freeze(['EVENTO', 'ACESSO_SERVICO']);
+const ENTITY_TYPES = Object.freeze([
+  'EVENTO',
+  'ACESSO_SERVICO',
+  'CREDENCIAMENTO_EVENTO',
+  'CREDENCIAMENTO_EVENTO_INTERNO',
+]);
 const STATUS = Object.freeze({
   PENDENTE: 'PENDENTE',
   APROVADO: 'APROVADO',
@@ -78,6 +83,25 @@ async function getEntityEndDate(conn, tipoEntidade, idEntidade) {
     );
     return formatDateOnly(rows[0]?.end_date);
   }
+  if (tipoEntidade === 'CREDENCIAMENTO_EVENTO') {
+    const [rows] = await conn.query(
+      `SELECT ea.end AS end_date
+         FROM event_accreditation_company eac
+         INNER JOIN event_accreditation ea
+           ON ea.id_event_accreditation = eac.id_event_accreditation
+        WHERE eac.id_event_accreditation_company = ?
+        LIMIT 1`,
+      [idEntidade],
+    );
+    return formatDateOnly(rows[0]?.end_date);
+  }
+  if (tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO') {
+    const [rows] = await conn.query(
+      `SELECT end AS end_date FROM event_accreditation WHERE id_event_accreditation = ? LIMIT 1`,
+      [idEntidade],
+    );
+    return formatDateOnly(rows[0]?.end_date);
+  }
   return null;
 }
 
@@ -122,10 +146,20 @@ async function expireOverdueApprovals() {
            ON a.tipo_entidade = 'EVENTO' AND e.id_event = a.id_entidade
          LEFT JOIN service_access sa
            ON a.tipo_entidade = 'ACESSO_SERVICO' AND sa.id_service_access = a.id_entidade
+         LEFT JOIN event_accreditation_company eac_exp
+           ON a.tipo_entidade = 'CREDENCIAMENTO_EVENTO'
+          AND eac_exp.id_event_accreditation_company = a.id_entidade
+         LEFT JOIN event_accreditation ea_exp
+           ON ea_exp.id_event_accreditation = eac_exp.id_event_accreditation
+         LEFT JOIN event_accreditation ea_int_exp
+           ON a.tipo_entidade = 'CREDENCIAMENTO_EVENTO_INTERNO'
+          AND ea_int_exp.id_event_accreditation = a.id_entidade
         WHERE a.status = 'PENDENTE'
           AND (
             (a.tipo_entidade = 'EVENTO' AND e.end IS NOT NULL AND e.end < CURDATE())
             OR (a.tipo_entidade = 'ACESSO_SERVICO' AND sa.end_date IS NOT NULL AND sa.end_date < CURDATE())
+            OR (a.tipo_entidade = 'CREDENCIAMENTO_EVENTO' AND ea_exp.end IS NOT NULL AND ea_exp.end < CURDATE())
+            OR (a.tipo_entidade = 'CREDENCIAMENTO_EVENTO_INTERNO' AND ea_int_exp.end IS NOT NULL AND ea_int_exp.end < CURDATE())
           )
         FOR UPDATE`,
     );
@@ -232,6 +266,8 @@ async function attachLiberacaoResumo(items) {
 
   const serviceItems = items.filter((item) => item.tipoEntidade === 'ACESSO_SERVICO');
   const eventItems = items.filter((item) => item.tipoEntidade === 'EVENTO');
+  const accreditationItems = items.filter((item) => item.tipoEntidade === 'CREDENCIAMENTO_EVENTO');
+  const internalItems = items.filter((item) => item.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO');
 
   const serviceCollabById = new Map();
   const serviceVehicleById = new Map();
@@ -295,6 +331,38 @@ async function attachLiberacaoResumo(items) {
     for (const r of vehicleRows) eventVehicleById.set(Number(r.id), r);
   }
 
+  const accreditationCollabById = new Map();
+  if (accreditationItems.length) {
+    const ids = [...new Set(accreditationItems.map((item) => item.idEntidade))];
+    const placeholders = ids.map(() => '?').join(',');
+    const [collabRows] = await pool.query(
+      `SELECT id_event_accreditation_company AS id,
+              SUM(CASE WHEN id_access_status = 3 THEN 1 ELSE 0 END) AS liberados,
+              COUNT(*) AS total
+         FROM event_accreditation_collaborator
+        WHERE id_event_accreditation_company IN (${placeholders})
+        GROUP BY id_event_accreditation_company`,
+      ids,
+    );
+    for (const r of collabRows) accreditationCollabById.set(Number(r.id), r);
+  }
+
+  const internalCollabById = new Map();
+  if (internalItems.length) {
+    const ids = [...new Set(internalItems.map((item) => item.idEntidade))];
+    const placeholders = ids.map(() => '?').join(',');
+    const [collabRows] = await pool.query(
+      `SELECT id_event_accreditation AS id,
+              SUM(CASE WHEN id_access_status = 3 THEN 1 ELSE 0 END) AS liberados,
+              COUNT(*) AS total
+         FROM event_accreditation_internal
+        WHERE id_event_accreditation IN (${placeholders})
+        GROUP BY id_event_accreditation`,
+      ids,
+    );
+    for (const r of collabRows) internalCollabById.set(Number(r.id), r);
+  }
+
   for (const item of items) {
     let collab = null;
     let vehicle = null;
@@ -304,6 +372,12 @@ async function attachLiberacaoResumo(items) {
     } else if (item.tipoEntidade === 'EVENTO') {
       collab = eventCollabById.get(Number(item.idEntidade));
       vehicle = eventVehicleById.get(Number(item.idEntidade));
+    } else if (item.tipoEntidade === 'CREDENCIAMENTO_EVENTO') {
+      collab = accreditationCollabById.get(Number(item.idEntidade));
+      vehicle = null;
+    } else if (item.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO') {
+      collab = internalCollabById.get(Number(item.idEntidade));
+      vehicle = null;
     } else {
       item.liberacaoResumo = null;
       continue;
@@ -338,7 +412,10 @@ async function attachLiberacaoResumo(items) {
 function liberacaoResumoFromEntity(entidade, approvalStatus) {
   if (
     !entidade ||
-    (entidade.tipo !== 'ACESSO_SERVICO' && entidade.tipo !== 'EVENTO')
+    (entidade.tipo !== 'ACESSO_SERVICO' &&
+      entidade.tipo !== 'EVENTO' &&
+      entidade.tipo !== 'CREDENCIAMENTO_EVENTO' &&
+      entidade.tipo !== 'CREDENCIAMENTO_EVENTO_INTERNO')
   ) {
     return null;
   }
@@ -402,11 +479,36 @@ async function buildSelectiveApprovalMetadata(conn, aprovacao, {
   approvedVehicleIds,
 } = {}) {
   const tipo = aprovacao.tipo_entidade;
-  if (tipo !== 'ACESSO_SERVICO' && tipo !== 'EVENTO') return null;
+  if (
+    tipo !== 'ACESSO_SERVICO' &&
+    tipo !== 'EVENTO' &&
+    tipo !== 'CREDENCIAMENTO_EVENTO' &&
+    tipo !== 'CREDENCIAMENTO_EVENTO_INTERNO'
+  ) {
+    return null;
+  }
 
   let collabRows;
   let vehicleRows;
-  if (tipo === 'ACESSO_SERVICO') {
+  if (tipo === 'CREDENCIAMENTO_EVENTO') {
+    [collabRows] = await conn.query(
+      `SELECT eacol.id_event_accreditation_collaborator AS id, c.name AS nome
+         FROM event_accreditation_collaborator eacol
+         INNER JOIN collaborator c ON c.id_collaborator = eacol.id_collaborator
+        WHERE eacol.id_event_accreditation_company = ?`,
+      [aprovacao.id_entidade],
+    );
+    vehicleRows = [];
+  } else if (tipo === 'CREDENCIAMENTO_EVENTO_INTERNO') {
+    [collabRows] = await conn.query(
+      `SELECT eai.id_event_accreditation_internal AS id, u.nome_completo AS nome
+         FROM event_accreditation_internal eai
+         INNER JOIN usuarios u ON u.id = eai.id_usuario
+        WHERE eai.id_event_accreditation = ?`,
+      [aprovacao.id_entidade],
+    );
+    vehicleRows = [];
+  } else if (tipo === 'ACESSO_SERVICO') {
     [collabRows] = await conn.query(
       `SELECT sac.id_service_access_collaborator AS id, c.name AS nome
          FROM service_access_collaborator sac
@@ -478,12 +580,24 @@ const ENTITY_SUMMARY_JOINS = `
   LEFT JOIN service_access sa_e
     ON a.tipo_entidade = 'ACESSO_SERVICO' AND sa_e.id_service_access = a.id_entidade
   LEFT JOIN event ev_e
-    ON a.tipo_entidade = 'EVENTO' AND ev_e.id_event = a.id_entidade`;
+    ON a.tipo_entidade = 'EVENTO' AND ev_e.id_event = a.id_entidade
+  LEFT JOIN event_accreditation_company eac_e
+    ON a.tipo_entidade = 'CREDENCIAMENTO_EVENTO'
+   AND eac_e.id_event_accreditation_company = a.id_entidade
+  LEFT JOIN event_accreditation ea_e
+    ON ea_e.id_event_accreditation = eac_e.id_event_accreditation
+  LEFT JOIN company eac_co
+    ON eac_co.id_company = eac_e.id_company
+  LEFT JOIN event_accreditation ea_int
+    ON a.tipo_entidade = 'CREDENCIAMENTO_EVENTO_INTERNO'
+   AND ea_int.id_event_accreditation = a.id_entidade`;
 
 const ENTITY_SUMMARY_SELECT = `
-  , COALESCE(sa_e.finalidade, sa_e.service_type, ev_e.name) AS entidade_nome
-  , COALESCE(sa_e.start_date, ev_e.start) AS entidade_start
-  , COALESCE(sa_e.end_date, ev_e.end) AS entidade_end`;
+  , COALESCE(sa_e.finalidade, sa_e.service_type, ev_e.name,
+      CONCAT(ea_e.name, ' — ', COALESCE(eac_co.fancy_name, eac_co.company_name)),
+      CONCAT(ea_int.name, ' — Internos')) AS entidade_nome
+  , COALESCE(sa_e.start_date, ev_e.start, ea_e.start, ea_int.start) AS entidade_start
+  , COALESCE(sa_e.end_date, ev_e.end, ea_e.end, ea_int.end) AS entidade_end`;
 
 function liberacaoStatus(accessId, approvalStatus) {
   if (accessId) return 'APROVADO';
@@ -660,9 +774,140 @@ async function loadEventEntity(idEntidade, { approvalStatus = null } = {}) {
   };
 }
 
+function liberacaoStatusFromAccessStatus(idAccessStatus, approvalStatus) {
+  const status = Number(idAccessStatus);
+  if (status === 3) return 'APROVADO';
+  if (status === 4) return 'REPROVADO';
+  if (approvalStatus === 'PENDENTE') return 'PENDENTE';
+  if (
+    approvalStatus === 'REPROVADO' ||
+    approvalStatus === 'CANCELADO' ||
+    approvalStatus === 'EXPIRADO'
+  ) {
+    return 'REPROVADO';
+  }
+  return 'BLOQUEADO';
+}
+
+async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {}) {
+  const [rows] = await pool.query(
+    `SELECT eac.id_event_accreditation_company, eac.id_company,
+            ea.id_event_accreditation, ea.name, ea.start, ea.end, ea.event_kind,
+            ea.criado_em, ea.atualizado_em,
+            c.fancy_name AS company_fancy_name, c.company_name
+       FROM event_accreditation_company eac
+       INNER JOIN event_accreditation ea
+         ON ea.id_event_accreditation = eac.id_event_accreditation
+       LEFT JOIN company c ON c.id_company = eac.id_company
+      WHERE eac.id_event_accreditation_company = ?
+      LIMIT 1`,
+    [idEntidade],
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+
+  const [collabRows] = await pool.query(
+    `SELECT eacol.id_event_accreditation_collaborator, eacol.id_collaborator,
+            eacol.id_collaborator_role, eacol.id_access_status, eacol.criado_em,
+            c.name AS collaborator_name, c.document AS collaborator_document,
+            c.picture AS collaborator_picture,
+            cr.description AS role_description,
+            bt.name AS bracelet_name
+       FROM event_accreditation_collaborator eacol
+       INNER JOIN collaborator c ON c.id_collaborator = eacol.id_collaborator
+       INNER JOIN collaborator_role cr ON cr.id_collaborator_role = eacol.id_collaborator_role
+       INNER JOIN bracelet_type bt ON bt.id_bracelet_type = eacol.id_bracelet_type
+      WHERE eacol.id_event_accreditation_company = ?
+      ORDER BY c.name ASC`,
+    [idEntidade],
+  );
+
+  return {
+    tipo: 'CREDENCIAMENTO_EVENTO',
+    id: row.id_event_accreditation_company,
+    idAccreditation: row.id_event_accreditation,
+    nome: [row.name, row.company_fancy_name || row.company_name].filter(Boolean).join(' — '),
+    startDate: formatDateOnly(row.start),
+    endDate: formatDateOnly(row.end),
+    empresa: row.company_fancy_name || row.company_name || null,
+    departamento: row.event_kind === 'JOGO' ? 'Jogo' : 'Showday',
+    observacao: null,
+    criadoEm: row.criado_em,
+    atualizadoEm: row.atualizado_em,
+    collaborators: collabRows.map((r) => ({
+      id: r.id_event_accreditation_collaborator,
+      idCollaborator: r.id_collaborator,
+      nome: r.collaborator_name,
+      documento: r.collaborator_document,
+      funcao: r.role_description,
+      pulseira: r.bracelet_name || null,
+      picture: r.collaborator_picture || null,
+      empresa: row.company_fancy_name || row.company_name || null,
+      criadoEm: r.criado_em,
+      statusLiberacao: liberacaoStatusFromAccessStatus(r.id_access_status, approvalStatus),
+    })),
+    vehicles: [],
+  };
+}
+
+async function loadAccreditationInternalEntity(idEntidade, opts = {}) {
+  const approvalStatus = opts.approvalStatus || null;
+  const [rows] = await pool.query(
+    `SELECT ea.*, s.nome AS setor_nome
+       FROM event_accreditation ea
+       LEFT JOIN setores s ON s.id = ea.id_setor
+      WHERE ea.id_event_accreditation = ?
+      LIMIT 1`,
+    [idEntidade],
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  const [collabRows] = await pool.query(
+    `SELECT eai.id_event_accreditation_internal, eai.id_usuario, eai.id_access_status, eai.criado_em,
+            u.nome_completo, u.email, u.departamento,
+            bt.name AS bracelet_name
+       FROM event_accreditation_internal eai
+       INNER JOIN usuarios u ON u.id = eai.id_usuario
+       INNER JOIN bracelet_type bt ON bt.id_bracelet_type = eai.id_bracelet_type
+      WHERE eai.id_event_accreditation = ?
+      ORDER BY u.nome_completo ASC`,
+    [idEntidade],
+  );
+  return {
+    tipo: 'CREDENCIAMENTO_EVENTO_INTERNO',
+    id: row.id_event_accreditation,
+    idAccreditation: row.id_event_accreditation,
+    nome: `${row.name} — Internos`,
+    startDate: formatDateOnly(row.start),
+    endDate: formatDateOnly(row.end),
+    empresa: 'Colaboradores internos',
+    departamento: row.event_kind === 'JOGO' ? 'Jogo' : 'Showday',
+    observacao: null,
+    criadoEm: row.criado_em,
+    atualizadoEm: row.atualizado_em,
+    collaborators: collabRows.map((r) => ({
+      id: r.id_event_accreditation_internal,
+      idCollaborator: r.id_usuario,
+      nome: r.nome_completo,
+      documento: r.email,
+      funcao: r.departamento || 'Interno AD',
+      pulseira: r.bracelet_name || null,
+      picture: null,
+      empresa: 'Colaboradores internos',
+      criadoEm: r.criado_em,
+      statusLiberacao: liberacaoStatusFromAccessStatus(r.id_access_status, approvalStatus),
+    })),
+    vehicles: [],
+  };
+}
+
 async function loadEntityForApproval(tipoEntidade, idEntidade, opts = {}) {
   if (tipoEntidade === 'ACESSO_SERVICO') return loadServiceAccessEntity(idEntidade, opts);
   if (tipoEntidade === 'EVENTO') return loadEventEntity(idEntidade, opts);
+  if (tipoEntidade === 'CREDENCIAMENTO_EVENTO') return loadAccreditationEntity(idEntidade, opts);
+  if (tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO') {
+    return loadAccreditationInternalEntity(idEntidade, opts);
+  }
   return null;
 }
 
@@ -1459,7 +1704,9 @@ async function approve(idAprovacao, user, options = {}) {
     if (
       isFinalLevel &&
       (aprovacao.tipo_entidade === 'ACESSO_SERVICO' ||
-        aprovacao.tipo_entidade === 'EVENTO')
+        aprovacao.tipo_entidade === 'EVENTO' ||
+        aprovacao.tipo_entidade === 'CREDENCIAMENTO_EVENTO' ||
+        aprovacao.tipo_entidade === 'CREDENCIAMENTO_EVENTO_INTERNO')
     ) {
       decisionMetadata = await buildSelectiveApprovalMetadata(conn, aprovacao, {
         approvedCollaboratorIds,

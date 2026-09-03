@@ -1297,6 +1297,14 @@ async function migratePerfisPermissoes(connection) {
     WHERE p.codigo = 'CONTROLADOR'
   `);
 
+  await connection.query(`
+    DELETE pp FROM perfil_permissoes pp
+    INNER JOIN perfis p ON p.id = pp.id_perfil
+    WHERE p.requires_company = 1
+      AND pp.modulo = 'event_accreditation'
+      AND pp.acao = 'create'
+  `);
+
   const hasPerfilColumn = await columnExists(connection, "usuarios", "perfil");
   if (hasPerfilColumn) {
     await connection.query(`
@@ -1601,6 +1609,15 @@ async function initializeDatabase() {
         COMMENT 'wtorre | nubank-parque'
       `);
       logger.info("Migration: system_settings.color_palette adicionada");
+    }
+
+    if (!(await columnExists(connection, "system_settings", "ea_internal_notify_all"))) {
+      await connection.query(`
+        ALTER TABLE system_settings
+        ADD COLUMN ea_internal_notify_all TINYINT(1) NOT NULL DEFAULT 0
+        AFTER color_palette
+      `);
+      logger.info("Migration: system_settings.ea_internal_notify_all adicionada");
     }
 
     const [systemSettingsRows] = await connection.query(

@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Tokens e temas (Credenciamento)
 
-Fonte única: `frontend/src/styles/_tokens.scss`. Detalhe: `frontend/docs/cores.md`.
+Fonte única: `frontend/src/styles/_tokens.scss`. Detalhe: `frontend/docs/cores.md`. Guia completo Nubank Parque: `frontend/docs/design-system-nubank-parque.md`.
 
 **Sempre** `var(--…)`. Nunca hex de marca em componentes.
 

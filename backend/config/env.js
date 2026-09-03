@@ -1,6 +1,12 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "../.env") });
+
+const { parseIpList } = require("../utils/facialPeerIps");
 
 const isProduction = process.env.NODE_ENV === "production";
+
+const JWT_PLACEHOLDERS = ["change-me", "change-me-credenciamento-jwt"];
+const FACIAL_SECRET_PLACEHOLDERS = ["change-me-events-secret", "segredo-forte"];
 
 function requireInProduction(name, value) {
   if (isProduction && (!value || value.length < 8)) {
@@ -8,9 +14,37 @@ function requireInProduction(name, value) {
   }
 }
 
+function requireFacialEventsSecret(raw) {
+  const secret = String(raw || "").trim();
+  if (!secret) {
+    throw new Error("FACIAL_GATEWAY_EVENTS_SECRET é obrigatório (≥ 32 caracteres).");
+  }
+  if (secret.length < 32) {
+    throw new Error("FACIAL_GATEWAY_EVENTS_SECRET deve ter no mínimo 32 caracteres.");
+  }
+  if (FACIAL_SECRET_PLACEHOLDERS.includes(secret)) {
+    throw new Error(
+      "FACIAL_GATEWAY_EVENTS_SECRET não pode ser um valor de exemplo (change-me-events-secret / segredo-forte).",
+    );
+  }
+  return secret;
+}
+
+function requireProductionJwtSecret(raw) {
+  const secret = String(raw || "").trim();
+  if (!secret || secret.length < 32) {
+    throw new Error("JWT_SECRET é obrigatório em produção (mínimo 32 caracteres).");
+  }
+  if (JWT_PLACEHOLDERS.includes(secret)) {
+    throw new Error("JWT_SECRET em produção não pode ser change-me / change-me-credenciamento-jwt.");
+  }
+  return secret;
+}
+
 const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   isProduction,
+  host: (process.env.HOST || "127.0.0.1").trim() || "127.0.0.1",
   port: Number(process.env.PORT) || 3007,
   apiVersion: process.env.API_VERSION || "v1",
   jwtSecret: process.env.JWT_SECRET || (isProduction ? null : "dev_jwt_secret_change_me"),
@@ -42,6 +76,7 @@ const env = {
     name: process.env.DB_NAME || "credenciamento",
     poolLimit: Number(process.env.DB_POOL_LIMIT) || 10,
     connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS) || 30000,
+    acquireTimeout: Number(process.env.DB_ACQUIRE_TIMEOUT_MS) || 10000,
     timezone: process.env.DB_TIMEZONE || "-03:00",
   },
   adminEmail: process.env.ADMIN_EMAIL,
@@ -78,7 +113,7 @@ const env = {
   rateLimitDisabled:
     String(process.env.RATE_LIMIT_DISABLED || "false").toLowerCase() === "true",
   rateLimitGlobalWindowMs: Number(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS) || 15 * 60 * 1000,
-  /** SPA com filtros live gera muitas GETs; 300/15min estoura fácil por IP. */
+  /** Por usuário autenticado (JWT); sem Bearer, por IP. Fotos/gateway não entram no contador. */
   rateLimitGlobalMax: Number(process.env.RATE_LIMIT_GLOBAL_MAX) || 2000,
   rateLimitAuthWindowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS) || 15 * 60 * 1000,
   rateLimitAuthMax: Number(process.env.RATE_LIMIT_AUTH_MAX) || 30,
@@ -112,6 +147,12 @@ const env = {
   approvalsExpirationCron: process.env.APPROVALS_EXPIRATION_CRON || "15 0 * * *",
   approvalsExpirationTimezone:
     process.env.APPROVALS_EXPIRATION_TIMEZONE || "America/Sao_Paulo",
+  /** Cron: disparar convites de credenciamento agendados. */
+  eventAccreditationInviteEnabled:
+    String(process.env.EVENT_ACCREDITATION_INVITE_ENABLED || "true").toLowerCase() === "true",
+  eventAccreditationInviteCron: process.env.EVENT_ACCREDITATION_INVITE_CRON || "*/15 * * * *",
+  eventAccreditationInviteTimezone:
+    process.env.EVENT_ACCREDITATION_INVITE_TIMEZONE || "America/Sao_Paulo",
   /** Tolerância em horas para acesso fora da meia-noite (montagem/desmontagem). */
   gateAccessToleranceHours: Math.max(0, Number(process.env.GATE_ACCESS_TOLERANCE_HOURS) || 6),
 
@@ -154,9 +195,30 @@ const env = {
     },
     modelsPath: process.env.FACES_MODELS_PATH || "./models/face-api",
   },
+
+  /** Jobs HTTP poll em `processing` voltam para `queued` após este timeout. */
+  facialJobStaleMinutes: Math.max(1, Number(process.env.FACIAL_JOB_STALE_MINUTES) || 30),
+  /** Bearer compartilhado com o Gateway (HTTP poll). Obrigatório em dev e prod. */
+  facialGatewayEventsSecret: requireFacialEventsSecret(process.env.FACIAL_GATEWAY_EVENTS_SECRET),
+  /** IP(s) públicos de saída do Gateway (allowlist). Em produção é obrigatório. */
+  facialPeerOriginIpRaw: (process.env.FACIAL_PEER_ORIGIN_IP || "").trim(),
+  /** IP(s) públicos do Credenciamento (paridade com o Gateway). Em produção é obrigatório. */
+  facialPeerDestinationIpRaw: (process.env.FACIAL_PEER_DESTINATION_IP || "").trim(),
 };
 
-requireInProduction("JWT_SECRET", env.jwtSecret);
+env.facialPeerOriginIps = parseIpList(env.facialPeerOriginIpRaw);
+env.facialPeerDestinationIps = parseIpList(env.facialPeerDestinationIpRaw);
+
+if (isProduction) {
+  env.jwtSecret = requireProductionJwtSecret(env.jwtSecret);
+  if (!env.facialPeerOriginIps.length) {
+    throw new Error("FACIAL_PEER_ORIGIN_IP é obrigatório em produção.");
+  }
+  if (!env.facialPeerDestinationIps.length) {
+    throw new Error("FACIAL_PEER_DESTINATION_IP é obrigatório em produção.");
+  }
+}
+
 requireInProduction("REFRESH_TOKEN_SECRET", env.refreshTokenSecret);
 if (isProduction) {
   requireInProduction("ENCRYPTION_KEY", env.encryptionKey);

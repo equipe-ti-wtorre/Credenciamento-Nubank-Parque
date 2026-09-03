@@ -84,7 +84,11 @@ export class TeamsContextService {
     }
     if (typeof window !== 'undefined') {
       const loc = `${window.location.pathname}${window.location.search}`;
-      if (/^\/aprovacoes(\/\d+|\?id=)/.test(loc) || /^\/acessos-servico\/\d+/.test(loc)) {
+      if (
+        /^\/aprovacoes(\/\d+|\?id=)/.test(loc) ||
+        /^\/acessos-servico\/\d+/.test(loc) ||
+        /^\/credenciamento-eventos\/\d+/.test(loc)
+      ) {
         return loc;
       }
     }
@@ -124,7 +128,7 @@ export class TeamsContextService {
     // Path já na barra de endereço (webUrl https do Graph) ou pendente do boot
     if (typeof window !== 'undefined') {
       const loc = `${window.location.pathname}${window.location.search}`;
-      if (/^\/(aprovacoes|acessos-servico)(\/|\?)/.test(loc)) {
+      if (/^\/(aprovacoes|acessos-servico|credenciamento-eventos)(\/|\?)/.test(loc)) {
         emitPath(loc);
       }
       try {
@@ -227,7 +231,7 @@ export class TeamsContextService {
       }
     }
     // Teams às vezes envia sem barra inicial
-    if (/^(aprovacoes|acessos-servico|admin)\b/i.test(value)) {
+    if (/^(aprovacoes|acessos-servico|credenciamento-eventos|admin)\b/i.test(value)) {
       value = `/${value}`;
     }
     if (!value.startsWith('/') || value.startsWith('//')) return null;

@@ -46,14 +46,14 @@
       </button>
     </div>
 
-    <div class="profile" [title]="collapsed() ? userName : ''">
-      <div *ngIf="userPhotoUrl" class="avatar avatar--photo">
-        <img [src]="userPhotoUrl" alt="" (error)="onPhotoError()" />
+    <div class="profile" [title]="collapsed() ? userName() : ''">
+      <div *ngIf="userPhotoUrl() as photo" class="avatar avatar--photo">
+        <img [src]="photo" alt="" (error)="onPhotoError()" />
       </div>
-      <div *ngIf="!userPhotoUrl" class="avatar" aria-hidden="true">{{ userInitials }}</div>
+      <div *ngIf="!userPhotoUrl()" class="avatar" aria-hidden="true">{{ userInitials() }}</div>
       <div class="meta">
-        <div class="name">{{ userName }}</div>
-        <div class="role">{{ userRoleLabel }}</div>
+        <div class="name">{{ userName() }}</div>
+        <div class="role">{{ userRoleLabel() }}</div>
       </div>
     </div>
 
@@ -83,7 +83,7 @@
         aria-label="Navegação principal"
         (scroll)="onNavScroll()"
       >
-        @for (group of navGroups; track $index) {
+        @for (group of navGroups(); track $index) {
           @if (group.title) {
             <div class="nav-label">{{ group.title }}</div>
           }
@@ -141,9 +141,9 @@
       type="button"
       class="logout"
       (click)="logout()"
-      [disabled]="loggingOut"
-      [title]="collapsed() ? (loggingOut ? 'Saindo...' : 'Sair') : ''"
-      [attr.aria-label]="loggingOut ? 'Saindo' : 'Sair'"
+      [disabled]="loggingOut()"
+      [title]="collapsed() ? (loggingOut() ? 'Saindo...' : 'Sair') : ''"
+      [attr.aria-label]="loggingOut() ? 'Saindo' : 'Sair'"
     >
       <svg
         viewBox="0 0 24 24"
@@ -156,7 +156,7 @@
       >
         <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
       </svg>
-      <span class="txt">{{ loggingOut ? 'Saindo...' : 'Sair' }}</span>
+      <span class="txt">{{ loggingOut() ? 'Saindo...' : 'Sair' }}</span>
     </button>
   </aside>
 

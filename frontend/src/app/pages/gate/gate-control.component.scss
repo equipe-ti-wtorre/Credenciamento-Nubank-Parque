@@ -391,14 +391,15 @@
   gap: 12px;
 }
 
+.table-head.events-head,
 .row.events-row {
-  grid-template-columns: 44px minmax(180px, 1.4fr) 140px 1.2fr 180px 180px;
+  grid-template-columns: 44px minmax(180px, 1.4fr) 140px 1.2fr 180px minmax(228px, auto);
 }
 
 /* patrimonial: Tipo | Identificação | Empresa | Dias | Aprovador | Status | Ações */
 .table-head.services-head,
 .row.services-row {
-  grid-template-columns: 44px minmax(160px, 1.2fr) minmax(140px, 1fr) 168px minmax(160px, 1.1fr) 150px 108px;
+  grid-template-columns: 44px minmax(160px, 1.2fr) minmax(140px, 1fr) 168px minmax(160px, 1.1fr) 150px minmax(156px, auto);
   gap: 10px;
 }
 
@@ -796,7 +797,8 @@
   justify-content: flex-end;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .btn-act {
@@ -862,6 +864,21 @@
 
 .btn-act-icon.cancel:hover:not(:disabled) {
   background: #ffe4e6;
+}
+
+.btn-act-icon.facial {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--pill);
+  background: #eef2ff;
+  color: #3730a3;
+  border-color: color-mix(in srgb, #4338ca 28%, white);
+  flex: none;
+  align-self: center;
+}
+
+.btn-act-icon.facial:hover:not(:disabled) {
+  background: #e0e7ff;
 }
 
 .btn-act.saida {

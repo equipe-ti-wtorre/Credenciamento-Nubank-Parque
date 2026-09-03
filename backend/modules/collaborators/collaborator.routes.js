@@ -31,6 +31,7 @@ const canSearch = [
 router.use(domainRoutes);
 
 router.get("/search", ...canSearch, collaboratorController.search);
+router.get("/stats/summary", ...canView, collaboratorController.statsSummary);
 router.get("/", ...canView, collaboratorController.list);
 router.get(
   "/bulk/template",
@@ -82,6 +83,11 @@ router.post(
   pictureUploadMiddleware,
   collaboratorController.uploadPicture,
 );
+router.delete("/:id/picture", ...canEdit, collaboratorController.deletePicture);
+router.get("/:id/facial-status", ...canView, collaboratorController.getFacialStatus);
+router.post("/:id/facial-enroll", ...canEdit, collaboratorController.facialEnroll);
+router.post("/:id/facial-revoke", ...canEdit, collaboratorController.facialRevoke);
+router.post("/:id/facial-retry", ...canEdit, collaboratorController.facialRetry);
 router.post(
   "/:id/document-change",
   ...canCreate,

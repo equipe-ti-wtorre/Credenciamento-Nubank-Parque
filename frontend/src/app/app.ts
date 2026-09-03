@@ -43,7 +43,7 @@ export class App implements OnInit, OnDestroy {
       .pipe(filter((e) => e instanceof NavigationEnd))
       .subscribe((e) => {
         const url = (e as NavigationEnd).urlAfterRedirects.split('?')[0];
-        if (/^\/(aprovacoes|acessos-servico)(\/|$)/.test(url)) {
+        if (/^\/(aprovacoes|acessos-servico|credenciamento-eventos)(\/|$)/.test(url)) {
           try {
             sessionStorage.removeItem(TeamsContextService.PENDING_DEEP_LINK_KEY);
           } catch {

@@ -151,10 +151,57 @@ function merchandisePhotosMiddleware(req, res, next) {
   });
 }
 
+const coverUploadMiddleware = createUploadMiddleware({
+  fieldName: "cover",
+  extensions: IMAGE_EXTENSIONS,
+  mimetypes: IMAGE_MIMETYPES,
+  maxSize: 2 * 1024 * 1024,
+  invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
+});
+
+const INVITE_FILE_EXTENSIONS = new Set([
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+]);
+
+const INVITE_FILE_MIMETYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+]);
+
+const inviteFileUploadMiddleware = createUploadMiddleware({
+  fieldName: "file",
+  extensions: INVITE_FILE_EXTENSIONS,
+  mimetypes: INVITE_FILE_MIMETYPES,
+  maxSize: 5 * 1024 * 1024,
+  invalidMessage: "Anexo inválido. Use PDF, imagem ou Office (máx. 5MB).",
+});
+
 module.exports = {
   bulkUploadMiddleware,
   pictureUploadMiddleware,
   logoUploadMiddleware,
+  coverUploadMiddleware,
+  inviteFileUploadMiddleware,
   merchandisePhotoMiddleware,
   merchandisePhotosMiddleware,
   createUploadMiddleware,
