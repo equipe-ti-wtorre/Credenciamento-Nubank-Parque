@@ -122,6 +122,13 @@ const updateSchema = Joi.object({
     .try(Joi.date().iso(), Joi.string().isoDate())
     .optional(),
   id_setor: Joi.number().integer().positive().optional(),
+  companies: Joi.array()
+    .items(Joi.number().integer().positive())
+    .min(1)
+    .optional()
+    .messages({
+      "array.min": "Selecione ao menos uma empresa para indicar colaboradores.",
+    }),
   bracelet_types: Joi.array()
     .items(Joi.number().integer().positive())
     .min(1)

@@ -43,7 +43,7 @@ router.post(
 );
 router.patch("/bracelet-types/:id", ...canEdit, controller.updateBraceletType);
 
-router.get("/companies", ...canCreate, controller.listCompanies);
+router.get("/companies", ...canManageInvite, controller.listCompanies);
 
 router.get("/", ...canAccess, controller.list);
 router.post("/", ...canCreate, controller.create);

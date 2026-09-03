@@ -6,8 +6,10 @@ import Swal from 'sweetalert2';
 import { NotificationService } from '../../core/services/notification.service';
 import { CollaboratorItem, CollaboratorRole, CollaboratorService } from '../../services/collaborator.service';
 import { STATUS_APROVADO, STATUS_NEGADO } from '../../services/credential.service';
+import { formatCnpj } from '../../services/company.service';
 import {
   AccreditationCompany,
+  AccreditationCompanyBrief,
   AccreditationCollaborator,
   AccreditationInternal,
   BLOCK_REASONS,
@@ -152,11 +154,8 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 <div class="ead-fact__k">Pulseiras liberadas</div>
                 <div class="ead-fact__v">{{ heroBracelets(ev).length }} {{ heroBracelets(ev).length === 1 ? 'tipo' : 'tipos' }}</div>
                 <div class="ead-hero__meta ead-hero__meta--chips">
-                  @for (b of visibleBracelets(heroBracelets(ev)); track b.id_bracelet_type) {
+                  @for (b of heroBracelets(ev); track b.id_bracelet_type) {
                     <app-bracelet-chip [name]="b.name" [icon]="b.icon" [color]="b.color" />
-                  }
-                  @if (extraBraceletCount(heroBracelets(ev)); as extra) {
-                    <span class="ead-chip ead-chip--pulseira ead-chip--plain">+{{ extra }}</span>
                   }
                 </div>
               </div>
@@ -169,7 +168,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
             <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
               <div>
                 <h3 class="ead-edit__h">Editar credenciamento</h3>
-                <p class="ead-edit__sub">Nome, foto, período de indicação, dia do evento e pulseiras. Empresas e colaboradores não mudam aqui.</p>
+                <p class="ead-edit__sub">Nome, foto, período de indicação, dia do evento, pulseiras e empresas convidadas. Colaboradores já indicados não mudam aqui.</p>
               </div>
               <div class="flex flex-wrap gap-2">
                 <button type="button" class="ead-btn" [disabled]="saving()" (click)="cancelEdit()">Cancelar</button>
@@ -272,10 +271,13 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
               <label class="ead-switch">
                 <input
                   type="checkbox"
+                  role="switch"
                   [checked]="editInternalEnabled()"
+                  [attr.aria-checked]="editInternalEnabled()"
                   (change)="editInternalEnabled.set(($any($event.target).checked))"
                 />
-                <span>Credenciamento interno</span>
+                <span class="ead-switch__ui" aria-hidden="true"></span>
+                <span class="ead-switch__txt">Credenciamento interno</span>
               </label>
             </section>
 
@@ -328,6 +330,76 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 </div>
               </section>
             }
+
+            <section class="mt-5">
+              <h4 class="ead-edit__h">Empresas convidadas</h4>
+              <p class="ead-edit__sub">Inclua ou remova empresas. Quem já indicou colaboradores permanece no evento. Empresas novas entram sem e-mail — use Notificar empresas depois de salvar.</p>
+              <div class="ead-co">
+                <div class="ead-co__col">
+                  <div class="ead-co__head">
+                    <h5>Cadastradas</h5>
+                    <span>{{ availableEditCompanies().length }}</span>
+                  </div>
+                  <input
+                    type="search"
+                    class="ead-co__search"
+                    placeholder="Buscar empresa"
+                    aria-label="Buscar empresa para incluir"
+                    [ngModel]="editCompanySearch()"
+                    (ngModelChange)="editCompanySearch.set($event)"
+                  />
+                  @if (availableEditCompanies().length) {
+                    <ul class="ead-co__list">
+                      @for (c of availableEditCompanies(); track c.id_company) {
+                        <li>
+                          <span>
+                            <b>{{ c.fancy_name || c.company_name }}</b>
+                            <small>
+                              {{ c.company_name }}
+                              @if (c.cnpj) {
+                                · {{ formatCnpj(c.cnpj) }}
+                              }
+                            </small>
+                          </span>
+                          <button type="button" class="ead-btn ead-btn--sm" (click)="includeEditCompany(c.id_company)">
+                            Incluir
+                          </button>
+                        </li>
+                      }
+                    </ul>
+                  } @else {
+                    <p class="ead-co__empty">{{ editCompanySearch().trim() ? 'Nenhuma empresa encontrada.' : 'Todas as empresas cadastradas já estão no evento.' }}</p>
+                  }
+                </div>
+                <div class="ead-co__col ead-co__col--on">
+                  <div class="ead-co__head">
+                    <h5>No evento</h5>
+                    <span>{{ selectedCompanyIds().size }}</span>
+                  </div>
+                  @if (selectedEditCompanies().length) {
+                    <ul class="ead-co__list">
+                      @for (c of selectedEditCompanies(); track c.id_company) {
+                        <li>
+                          <span>
+                            <b>{{ c.fancy_name || c.company_name }}</b>
+                            <small>{{ c.company_name }}</small>
+                          </span>
+                          @if (isCompanyLocked(c.id_company)) {
+                            <span class="ead-co__lock">Com indicações</span>
+                          } @else {
+                            <button type="button" class="ead-btn ead-btn--sm" (click)="removeEditCompany(c.id_company)">
+                              Remover
+                            </button>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  } @else {
+                    <p class="ead-co__empty">Inclua ao menos uma empresa.</p>
+                  }
+                </div>
+              </div>
+            </section>
           </section>
         }
 
@@ -1721,11 +1793,137 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         font-weight: 600;
       }
       .ead-switch {
-        display: flex;
+        position: relative;
+        display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
         font-size: 13.5px;
         font-weight: 600;
+        color: var(--ead-ink);
+        cursor: pointer;
+        user-select: none;
+      }
+      .ead-switch input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .ead-switch__ui {
+        flex: 0 0 auto;
+        width: 40px;
+        height: 22px;
+        border-radius: 999px;
+        background: #cbd5e1;
+        position: relative;
+        transition: background 0.15s ease;
+      }
+      .ead-switch__ui::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+        transition: transform 0.15s ease;
+      }
+      .ead-switch input:checked + .ead-switch__ui {
+        background: var(--brand);
+      }
+      .ead-switch input:checked + .ead-switch__ui::after {
+        transform: translateX(18px);
+      }
+      .ead-switch:focus-within .ead-switch__ui {
+        outline: 2px solid var(--brand);
+        outline-offset: 2px;
+      }
+      .ead-co {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 10px;
+      }
+      .ead-co__col {
+        border: 1px solid var(--ead-line);
+        border-radius: var(--ead-r-ctl);
+        background: var(--ead-surface);
+        min-height: 220px;
+        display: flex;
+        flex-direction: column;
+      }
+      .ead-co__col--on {
+        border-color: #d6c9e6;
+      }
+      .ead-co__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 12px 0;
+      }
+      .ead-co__head h5 {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ead-muted);
+      }
+      .ead-co__head span {
+        font-size: 12px;
+        color: var(--ead-muted);
+      }
+      .ead-co__search {
+        margin: 8px 12px 0;
+        height: 36px;
+        border: 1px solid var(--ead-line);
+        border-radius: 8px;
+        padding: 0 10px;
+        font: inherit;
+        font-size: 13px;
+        color: var(--ead-ink);
+      }
+      .ead-co__list {
+        list-style: none;
+        margin: 0;
+        padding: 8px 0;
+        overflow: auto;
+        max-height: 280px;
+      }
+      .ead-co__list li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 12px;
+      }
+      .ead-co__list b {
+        display: block;
+        font-size: 13.5px;
+        color: var(--ead-ink);
+      }
+      .ead-co__list small {
+        display: block;
+        font-size: 12px;
+        color: var(--ead-muted);
+      }
+      .ead-co__empty {
+        margin: auto;
+        padding: 24px 16px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--ead-muted);
+      }
+      .ead-co__lock {
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--ead-muted);
+        white-space: nowrap;
       }
       .ead-br-pick {
         border: 0;
@@ -1823,7 +2021,8 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         .ead-edit__grid,
         .ead-edit__times,
         .ead-indicate,
-        .ead-indicate--internal {
+        .ead-indicate--internal,
+        .ead-co {
           grid-template-columns: 1fr;
         }
       }
@@ -1850,10 +2049,14 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   readonly roles = signal<CollaboratorRole[]>([]);
   readonly bracelets = signal<BraceletType[]>([]);
   readonly catalogBracelets = signal<BraceletType[]>([]);
+  readonly catalogCompanies = signal<AccreditationCompanyBrief[]>([]);
   readonly selectedBracelets = signal<Set<number>>(new Set());
   readonly selectedInternalBracelets = signal<Set<number>>(new Set());
+  readonly selectedCompanyIds = signal<Set<number>>(new Set());
+  readonly editCompanySearch = signal('');
   readonly editInternalEnabled = signal(false);
   readonly editName = signal('');
+  readonly formatCnpj = formatCnpj;
   readonly insStart = signal<string | null>(null);
   readonly insEnd = signal<string | null>(null);
   readonly eventDays = signal<Set<string>>(new Set());
@@ -1904,14 +2107,6 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   heroBracelets(ev: EventAccreditationItem): BraceletType[] {
     return this.isInternalOnlyView(ev) ? ev.internal_bracelet_types || [] : ev.bracelet_types || [];
-  }
-
-  visibleBracelets(list: BraceletType[] | undefined, limit = 3): BraceletType[] {
-    return (list || []).slice(0, limit);
-  }
-
-  extraBraceletCount(list: BraceletType[] | undefined, limit = 3): number {
-    return Math.max(0, (list || []).length - limit);
   }
 
   statusChip(status?: number | null): string {
@@ -2567,9 +2762,31 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     this.selectedInternalBracelets.set(
       new Set((ev.internal_bracelet_types || []).map((b) => b.id_bracelet_type)),
     );
+    this.selectedCompanyIds.set(new Set((ev.companies || []).map((c) => c.id_company)));
+    this.editCompanySearch.set('');
     this.service.listBraceletTypes({ event_kind: ev.event_kind }).subscribe({
       next: (res) => this.catalogBracelets.set(res.types || []),
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar tipos de pulseira.'),
+    });
+    this.service.listCompanies().subscribe({
+      next: (res) => {
+        const byId = new Map((res.companies || []).map((c) => [c.id_company, c]));
+        for (const company of ev.companies || []) {
+          if (!byId.has(company.id_company)) {
+            byId.set(company.id_company, {
+              id_company: company.id_company,
+              company_name: company.company_name,
+              fancy_name: company.fancy_name,
+            });
+          }
+        }
+        this.catalogCompanies.set(
+          [...byId.values()].sort((a, b) =>
+            (a.fancy_name || a.company_name).localeCompare(b.fancy_name || b.company_name, 'pt-BR'),
+          ),
+        );
+      },
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
     });
     this.editName.set(ev.name || '');
     this.resetEditCover();
@@ -2706,9 +2923,57 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
       this.insTimeStart &&
       this.insTimeEnd &&
       this.selectedBracelets().size > 0 &&
+      this.selectedCompanyIds().size > 0 &&
       (!this.editInternalEnabled() || this.selectedInternalBracelets().size > 0) &&
       !this.dateConflict()
     );
+  }
+
+  lockedCompanyIds(): Set<number> {
+    const locked = new Set<number>();
+    for (const company of this.item()?.companies || []) {
+      if ((company.collaborators || []).length || company.id_aprovacao) {
+        locked.add(company.id_company);
+      }
+    }
+    return locked;
+  }
+
+  isCompanyLocked(id: number): boolean {
+    return this.lockedCompanyIds().has(id);
+  }
+
+  private companyMatchesSearch(c: AccreditationCompanyBrief, q: string): boolean {
+    if (!q) return true;
+    const hay = `${c.fancy_name || ''} ${c.company_name || ''} ${c.cnpj || ''}`.toLowerCase();
+    return hay.includes(q);
+  }
+
+  availableEditCompanies(): AccreditationCompanyBrief[] {
+    const sel = this.selectedCompanyIds();
+    const q = this.editCompanySearch().trim().toLowerCase();
+    return this.catalogCompanies().filter((c) => !sel.has(c.id_company) && this.companyMatchesSearch(c, q));
+  }
+
+  selectedEditCompanies(): AccreditationCompanyBrief[] {
+    const sel = this.selectedCompanyIds();
+    return this.catalogCompanies().filter((c) => sel.has(c.id_company));
+  }
+
+  includeEditCompany(id: number): void {
+    const next = new Set(this.selectedCompanyIds());
+    next.add(id);
+    this.selectedCompanyIds.set(next);
+  }
+
+  removeEditCompany(id: number): void {
+    if (this.isCompanyLocked(id)) {
+      this.notification.error('Não é possível remover uma empresa que já indicou colaboradores.');
+      return;
+    }
+    const next = new Set(this.selectedCompanyIds());
+    next.delete(id);
+    this.selectedCompanyIds.set(next);
   }
 
   isBraceletOn(id: number): boolean {
@@ -2737,7 +3002,8 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     const ev = this.item();
     if (!ev || !this.canSaveEdit()) {
       this.notification.error(
-        this.dateConflict() || 'Preencha o nome, a janela, o dia do evento e ao menos uma pulseira.',
+        this.dateConflict() ||
+          'Preencha o nome, a janela, o dia do evento, ao menos uma pulseira e uma empresa.',
       );
       return;
     }
@@ -2759,6 +3025,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
         inscription_start: inscriptionStart,
         inscription_end: inscriptionEnd,
         bracelet_types: [...this.selectedBracelets()],
+        companies: [...this.selectedCompanyIds()],
         internal_enabled: this.editInternalEnabled(),
         internal_bracelet_types: this.editInternalEnabled()
           ? [...this.selectedInternalBracelets()]

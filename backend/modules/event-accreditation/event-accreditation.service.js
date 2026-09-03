@@ -1214,6 +1214,71 @@ async function updateItem(req, id, data) {
       }
     }
 
+    if (data.companies != null) {
+      const companyIds = uniquePositiveIds(data.companies);
+      if (!companyIds.length) {
+        throw new AppError("Selecione ao menos uma empresa para indicar colaboradores.", 400);
+      }
+      const [current] = await conn.execute(
+        `SELECT id_event_accreditation_company, id_company
+           FROM event_accreditation_company
+          WHERE id_event_accreditation = ?`,
+        [itemId],
+      );
+      const currentByCompany = new Map(
+        current.map((r) => [Number(r.id_company), Number(r.id_event_accreditation_company)]),
+      );
+      const nextSet = new Set(companyIds);
+
+      for (const idCompany of companyIds) {
+        if (currentByCompany.has(idCompany)) continue;
+        const company = await companyService.findActiveCompanyById(idCompany);
+        if (!company) {
+          throw new AppError("Uma ou mais empresas selecionadas não existem ou estão inativas.", 400);
+        }
+      }
+
+      const toRemove = current.filter((r) => !nextSet.has(Number(r.id_company)));
+      if (toRemove.length) {
+        const linkIds = toRemove.map((r) => Number(r.id_event_accreditation_company));
+        const placeholders = linkIds.map(() => "?").join(",");
+        const [used] = await conn.execute(
+          `SELECT DISTINCT id_event_accreditation_company
+             FROM event_accreditation_collaborator
+            WHERE id_event_accreditation_company IN (${placeholders})`,
+          linkIds,
+        );
+        const [approved] = await conn.execute(
+          `SELECT DISTINCT id_entidade
+             FROM aprovacoes
+            WHERE tipo_entidade = ?
+              AND id_entidade IN (${placeholders})`,
+          [ENTITY_TYPE, ...linkIds],
+        );
+        if (used.length || approved.length) {
+          throw new AppError(
+            "Não é possível remover uma empresa que já indicou colaboradores.",
+            409,
+          );
+        }
+        await conn.execute(
+          `DELETE FROM event_accreditation_company
+            WHERE id_event_accreditation = ?
+              AND id_company IN (${toRemove.map(() => "?").join(",")})`,
+          [itemId, ...toRemove.map((r) => Number(r.id_company))],
+        );
+      }
+
+      for (const idCompany of companyIds) {
+        if (currentByCompany.has(idCompany)) continue;
+        await conn.execute(
+          `INSERT INTO event_accreditation_company (id_event_accreditation, id_company)
+           VALUES (?, ?)`,
+          [itemId, idCompany],
+        );
+      }
+    }
+
     if (!nextInternalEnabled) {
       await conn.execute(
         `DELETE FROM event_accreditation_internal_bracelet WHERE id_event_accreditation = ?`,

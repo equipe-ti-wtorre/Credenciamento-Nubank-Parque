@@ -11,10 +11,23 @@ html,
 body {
   height: 100%;
   margin: 0;
+  overflow: hidden;
   background: var(--app-bg);
   color: var(--app-text);
   font-family: var(--font-body);
   accent-color: var(--brand);
+}
+
+app-root {
+  display: block;
+  height: 100%;
+  overflow: hidden;
+}
+
+app-root > :not(router-outlet):not(app-main-layout) {
+  display: block;
+  height: 100%;
+  overflow: auto;
 }
 
 /* Select: marca ativa. Em Chromium, base-select permite estilizar hover do picker. */

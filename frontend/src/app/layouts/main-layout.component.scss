@@ -4,6 +4,14 @@
    sob .wt-layout para nao vazar estilos globais.
    Fontes (Sora + Plus Jakarta Sans) carregadas no index.html.
    ========================================================= */
+app-main-layout {
+  display: block;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .wt-layout {
   /* Tokens prefixados --wt-* — menu herda --menu-* da paleta ativa (data-theme) */
   --wt-sidebar: var(--menu-bg-top);
@@ -36,7 +44,10 @@
 
   display: grid;
   grid-template-columns: 264px 1fr;
-  height: 100vh;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
   overflow: hidden;
   background: var(--wt-bg);
   color: var(--wt-text);
@@ -59,7 +70,8 @@
     color: var(--wt-menu-label);
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    min-height: 0;
+    height: 100%;
     overflow: hidden;
   }
 
@@ -226,21 +238,19 @@
     min-height: 0;
     overflow-y: auto;
     padding: 6px 12px 12px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 
     &::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
+      width: 0;
+      display: none;
     }
   }
 
   .nav-scroll-hint {
     position: absolute;
     left: 0;
-    right: 6px;
+    right: 0;
     z-index: 2;
     display: flex;
     align-items: center;
@@ -490,6 +500,8 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
   }
 
@@ -618,6 +630,7 @@
   .wt-content {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     padding: 28px 34px 40px;
   }
 
@@ -658,13 +671,13 @@ body.dashboard-kiosk {
   }
 
   .wt-main {
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
   }
 
   .wt-content {
     padding: 0;
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
   }
 }
