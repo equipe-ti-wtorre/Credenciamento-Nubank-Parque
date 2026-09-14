@@ -16,6 +16,7 @@ const {
   buildEventScope: buildScopeFromUser,
   getProfileCodigo,
 } = require("../../utils/permissions");
+const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
 
 const TYPE_PRODUTORA = "Produtora";
 const TYPE_EMPRESA_PADRAO = "Empresa Padrão";
@@ -975,6 +976,7 @@ async function markApproved(conn, idEntidade, ctx = {}) {
            FROM event_day_company_collaborator edcc
            INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
            INNER JOIN collaborator_block_list bl ON bl.id_collaborator = edcc.id_collaborator
+            AND ${blocklistPolicy.activeBlockJoinSql("bl")}
            INNER JOIN event_day_company edc
              ON edc.id_event_day_company = edcc.id_event_day_company
            INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
@@ -1000,10 +1002,7 @@ async function markApproved(conn, idEntidade, ctx = {}) {
             AND edcc.id_event_day_company_collaborator IN (${placeholders})
             AND edcc.id_access_status IN (?, ?)
             AND edcc.access_id IS NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM collaborator_block_list bl
-               WHERE bl.id_collaborator = edcc.id_collaborator
-            )`,
+            AND NOT ${blocklistPolicy.existsActiveBlockSql("edcc.id_collaborator")}`,
         [idEvent, ...approvedCollaboratorIds, ...pendingStatuses],
       );
       for (const row of collaborators) {
@@ -1055,10 +1054,7 @@ async function markApproved(conn, idEntidade, ctx = {}) {
          INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
         WHERE ed.id_event = ?
           AND edcc.id_access_status IN (?, ?)
-          AND NOT EXISTS (
-            SELECT 1 FROM collaborator_block_list bl
-             WHERE bl.id_collaborator = edcc.id_collaborator
-          )`,
+          AND NOT ${blocklistPolicy.existsActiveBlockSql("edcc.id_collaborator")}`,
       [idEvent, ...pendingStatuses],
     );
     for (const row of collaborators) {
@@ -1171,6 +1167,22 @@ async function markApproved(conn, idEntidade, ctx = {}) {
       );
     }
   }
+
+  const [approvedPeople] = await conn.execute(
+    `SELECT edcc.id_collaborator, edcc.id_substitute
+       FROM event_day_company_collaborator edcc
+       INNER JOIN event_day_company edc
+         ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+      WHERE ed.id_event = ?
+        AND edcc.id_access_status = ?`,
+    [idEvent, STATUS_APROVADO],
+  );
+  const facialCommand = require("../facial/facial.command.service");
+  facialCommand.scheduleRevokeUnlessReleasedToday(
+    approvedPeople.flatMap((row) => [row.id_collaborator, row.id_substitute]),
+    "event_approved_without_portaria",
+  );
 }
 
 async function markRejected(conn, idEntidade) {

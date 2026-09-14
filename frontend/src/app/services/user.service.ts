@@ -65,6 +65,18 @@ export interface AdUsersSyncResult {
   syncedTenants?: number;
   failedTenants?: number;
   durationMs?: number;
+  triggeredBy?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface AdUsersSyncStatus {
+  enabled: boolean;
+  cron: string;
+  timezone: string;
+  intervalLabel: string;
+  running: boolean;
+  last: AdUsersSyncResult | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -92,6 +104,10 @@ export class UserService {
 
   syncAdUsers(): Observable<AdUsersSyncResult> {
     return this.api.post<AdUsersSyncResult>('/users/sync-ad-users', {});
+  }
+
+  getAdSyncStatus(): Observable<AdUsersSyncStatus> {
+    return this.api.get<AdUsersSyncStatus>('/users/sync-ad-status');
   }
 
   syncUserAd(id: number): Observable<{ user: UserItem }> {

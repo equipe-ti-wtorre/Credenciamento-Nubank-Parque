@@ -16,9 +16,17 @@ async function runApprovalsExpiration({ triggeredBy = "manual" } = {}) {
   running = true;
   try {
     const approvalsService = require("../modules/approvals/approvals.service");
+    const facialExpire = require("../modules/facial/facial.expire.service");
     const result = await approvalsService.expireOverdueApprovals();
-    logger.info({ triggeredBy, ...result }, "Expiração de aprovações concluída");
-    return { alreadyRunning: false, ...result };
+    let facialRevoke = { ok: true, candidateCount: 0 };
+    try {
+      facialRevoke = await facialExpire.revokeFacialForExpiredAccesses();
+    } catch (err) {
+      logger.error({ err, triggeredBy }, "Falha ao revogar facial de acessos expirados");
+      facialRevoke = { ok: false, candidateCount: 0, error: err.message };
+    }
+    logger.info({ triggeredBy, ...result, facialRevoke }, "Expiração de aprovações concluída");
+    return { alreadyRunning: false, ...result, facialRevoke };
   } catch (err) {
     logger.error({ err, triggeredBy }, "Erro ao expirar aprovações vencidas");
     return { alreadyRunning: false, ok: false, expiredCount: 0, error: err.message };

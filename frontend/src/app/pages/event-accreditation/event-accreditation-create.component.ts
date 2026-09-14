@@ -6,7 +6,7 @@ import { switchMap } from 'rxjs/operators';
 import { EditorComponent, TINYMCE_SCRIPT_SRC } from '@tinymce/tinymce-angular';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService, hasPermission } from '../../core/services/auth.service';
-import { ApprovalService, EligibleSector } from '../../services/approval.service';
+import { EligibleSector } from '../../services/approval.service';
 import {
   CompanyService,
   CompanyType,
@@ -40,16 +40,14 @@ import {
 } from '../../shared/month-calendar';
 import { EventKindBadgeComponent } from './event-kind-badge.component';
 
-type WizardStep = 'dados' | 'empresas' | 'pulseiras' | 'revisar' | 'email';
+type WizardStep = 'dados' | 'pulseiras' | 'revisar';
 
-const STEP_ORDER: WizardStep[] = ['dados', 'empresas', 'pulseiras', 'revisar', 'email'];
+const STEP_ORDER: WizardStep[] = ['dados', 'pulseiras', 'revisar'];
 const WEEKDAYS_PT = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 const STEP_LABELS: Record<WizardStep, string> = {
   dados: 'Dados do credenciamento',
-  empresas: 'Empresas convidadas',
   pulseiras: 'Tipos de pulseira',
   revisar: 'Revisar',
-  email: 'E-mail',
 };
 
 @Component({
@@ -71,7 +69,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
     <div class="wcrt-page">
       <button type="button" class="wcrt-back" (click)="onClose()">← Voltar para lista</button>
 
-      <div class="wcrt-stepper" [attr.aria-label]="'Passo ' + stepNumber() + ' de 5: ' + stepLabel()">
+      <div class="wcrt-stepper" [attr.aria-label]="'Passo ' + stepNumber() + ' de 3: ' + stepLabel()">
         <div class="wcrt-stepper__track">
           @for (s of stepDefs; track s.key; let i = $index) {
             @if (i > 0) {
@@ -98,7 +96,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
 
       <div class="wcrt">
         @if (step() === 'dados') {
-          <form id="wcrt-dados-form" class="wcrt-form" [formGroup]="dadosForm" (ngSubmit)="goEmpresas()">
+          <form id="wcrt-dados-form" class="wcrt-form" [formGroup]="dadosForm" (ngSubmit)="goPulseiras()">
             <div class="wcrt-dados">
               <section class="wcrt-col">
                 <h2>Janela de indicação<span class="wcrt-req">*</span></h2>
@@ -152,7 +150,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
 
               <section class="wcrt-col wcrt-col--form">
                 <h2>Identificação</h2>
-                <p class="wcrt-col__sub">O que as empresas convidadas vão ver.</p>
+                <p class="wcrt-col__sub">O que os setores e as empresas vão ver.</p>
                 <div class="wcrt-pair wcrt-pair--id">
                   <div class="wcrt-field">
                     <label for="wcrt-name">Nome do evento<span class="wcrt-req">*</span></label>
@@ -210,19 +208,25 @@ const STEP_LABELS: Record<WizardStep, string> = {
                   </div>
                 </div>
                 <div class="wcrt-field">
-                  <label for="wcrt-setor">Setor aprovador<span class="wcrt-req">*</span></label>
-                  <select
-                    id="wcrt-setor"
-                    formControlName="id_setor"
-                    class="wcrt-control wcrt-select"
-                    [class.invalid]="setorInvalid()"
-                  >
-                    <option [ngValue]="null">Selecione o setor</option>
+                  <span class="wcrt-kind-lbl">Setores participantes<span class="wcrt-req">*</span></span>
+                  <p class="wcrt-help">Cada setor indica as empresas que vão participar e valida as indicações.</p>
+                  <div class="wcrt-setor-list" [class.invalid]="setorInvalid()">
                     @for (s of sectors(); track s.id) {
-                      <option [ngValue]="s.id">{{ s.nome }}</option>
+                      <label class="wcrt-setor-pick">
+                        <input
+                          type="checkbox"
+                          [checked]="selectedSectors().has(s.id)"
+                          (change)="toggleSector(s.id)"
+                        />
+                        <span>{{ s.nome }}</span>
+                      </label>
+                    } @empty {
+                      <p class="wcrt-help">Nenhum setor ativo encontrado.</p>
                     }
-                  </select>
-                  <p class="wcrt-help">Quem aprova as indicações recebidas.</p>
+                  </div>
+                  @if (setorInvalid()) {
+                    <p class="wcrt-err">Selecione ao menos um setor.</p>
+                  }
                 </div>
 
                 <div class="wcrt-field">
@@ -285,7 +289,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
           </form>
         }
 
-        @if (step() === 'empresas') {
+        @if (false) {
           <div class="wcrt-form">
             <div class="wcrt-panel-head">
               <h1>Empresas convidadas</h1>
@@ -351,7 +355,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
                           <span class="wcrt-co-rs">
                             {{ c.company_name }}
                             @if (c.cnpj) {
-                              · <span class="wcrt-co-cnpj">{{ formatCnpj(c.cnpj) }}</span>
+                              · <span class="wcrt-co-cnpj">{{ formatCnpj(c.cnpj || '') }}</span>
                             }
                           </span>
                         </span>
@@ -408,7 +412,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
                           <span class="wcrt-co-rs">
                             {{ c.company_name }}
                             @if (c.cnpj) {
-                              · <span class="wcrt-co-cnpj">{{ formatCnpj(c.cnpj) }}</span>
+                              · <span class="wcrt-co-cnpj">{{ formatCnpj(c.cnpj || '') }}</span>
                             }
                           </span>
                         </span>
@@ -444,6 +448,18 @@ const STEP_LABELS: Record<WizardStep, string> = {
                   Escolha as pulseiras que as empresas poderão atribuir aos colaboradores.
                 }
               </p>
+              <label class="wcrt-switch">
+                <input
+                  type="checkbox"
+                  [checked]="internalEnabled()"
+                  (change)="internalEnabled.set(($any($event.target).checked))"
+                />
+                <span class="wcrt-switch__ui" aria-hidden="true"></span>
+                <span class="wcrt-switch__txt">
+                  <b>Credenciamento interno</b>
+                  Usuários internos AD poderão se inscrever neste evento.
+                </span>
+              </label>
               <div class="wcrt-kind-filter" role="status">
                 <span>Filtro pelo tipo do evento</span>
                 <app-event-kind-badge [kind]="dadosForm.controls.event_kind.value" [compact]="true" />
@@ -668,7 +684,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
                 </p>
                 <p class="wcrt-rev-hero-sub">
                   <app-event-kind-badge [kind]="dadosForm.controls.event_kind.value" />
-                  <span>aprovação pelo setor de {{ setorNome() }}</span>
+                  <span>setores: {{ setoresNomes() }}</span>
                 </p>
                 <dl class="wcrt-rev-dl">
                   <div>
@@ -688,10 +704,10 @@ const STEP_LABELS: Record<WizardStep, string> = {
                     </dd>
                   </div>
                   <div>
-                    <dt>Setor aprovador</dt>
+                    <dt>Setores participantes</dt>
                     <dd>
-                      {{ setorNome() }}
-                      <small>aprova as indicações</small>
+                      {{ setoresNomes() }}
+                      <small>cada setor indica empresas e valida as indicações</small>
                     </dd>
                   </div>
                 </dl>
@@ -699,8 +715,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
 
               <section class="wcrt-rev-card">
                 <div class="wcrt-rev-card-head">
-                  <h2>Empresas convidadas <span class="wcrt-rev-qtd">{{ selected().size }}</span></h2>
-                  <button type="button" class="wcrt-rev-edit" (click)="goToStep('empresas')">Editar empresas</button>
+                  <h2>Próximo passo</h2>
                 </div>
                 <p class="wcrt-rev-hero-sub">
                   Credenciamento interno:
@@ -709,17 +724,9 @@ const STEP_LABELS: Record<WizardStep, string> = {
                     · {{ selectedInternalBracelets().size }} pulseira{{ selectedInternalBracelets().size === 1 ? '' : 's' }} para AD
                   }
                 </p>
-                <div class="wcrt-rev-emp">
-                  @for (c of selectedCompanies(); track c.id_company) {
-                    <div class="wcrt-rev-emp-item">
-                      <b>{{ c.fancy_name || c.company_name }}</b>
-                      <span>{{ c.company_name }}</span>
-                      @if (c.cnpj) {
-                        <span class="wcrt-rev-cnpj">{{ formatCnpj(c.cnpj) }}</span>
-                      }
-                    </div>
-                  }
-                </div>
+                <p class="wcrt-col__sub">
+                  Depois de criar, cada setor participante indica as empresas e envia o convite automaticamente.
+                </p>
               </section>
 
               <section class="wcrt-rev-card">
@@ -751,12 +758,12 @@ const STEP_LABELS: Record<WizardStep, string> = {
 
             <aside class="wcrt-rev-rail">
               <h2>Ao criar</h2>
-              <p class="wcrt-rev-rail-sub">O evento é criado; o e-mail de convite é o próximo passo.</p>
+              <p class="wcrt-rev-rail-sub">O credenciamento é criado e os setores são avisados para indicar empresas.</p>
               <ul class="wcrt-rev-tl">
                 <li class="now">
                   <b>Agora</b>
-                  <span>O credenciamento é criado sem disparar e-mail</span>
-                  <em>Você edita o convite para {{ inviteCompanyNames() }} no próximo passo</em>
+                  <span>O credenciamento é criado sem empresas</span>
+                  <em>Cada setor convida as empresas que vão participar</em>
                 </li>
                 <li>
                   <b>{{ railOpenWhen() }}</b>
@@ -778,10 +785,10 @@ const STEP_LABELS: Record<WizardStep, string> = {
                 <button
                   type="button"
                   class="wcrt-rev-btn wcrt-rev-btn-pri"
-                  [disabled]="saving() || !canContinue() || selected().size === 0 || selectedBracelets().size === 0 || internalBraceletsMissing()"
+                  [disabled]="saving() || !canContinue() || selectedBracelets().size === 0 || internalBraceletsMissing()"
                   (click)="salvar()"
                 >
-                  {{ saving() ? 'Criando…' : 'Criar e ir para o e-mail' }}
+                  {{ saving() ? 'Criando…' : 'Criar credenciamento' }}
                 </button>
                 <button type="button" class="wcrt-rev-btn wcrt-rev-btn-sec" [disabled]="saving()" (click)="onBack()">
                   Voltar
@@ -791,7 +798,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
           </div>
         }
 
-        @if (step() === 'email') {
+        @if (false) {
           <div class="wcrt-mail">
             <section class="wcrt-rev-card">
               <div class="wcrt-rev-card-head">
@@ -879,13 +886,11 @@ const STEP_LABELS: Record<WizardStep, string> = {
         }
       </div>
 
-      @if (step() !== 'revisar' && step() !== 'email') {
+      @if (step() !== 'revisar') {
         <div class="wcrt-foot">
           <div class="wcrt-foot__left">
             @if (step() === 'dados') {
               <span class="wcrt-foot__status">{{ footStatus() }}</span>
-            } @else if (step() === 'empresas') {
-              <span class="wcrt-foot__status" [class.warn]="selected().size === 0">{{ companiesFootStatus() }}</span>
             } @else {
               <span class="wcrt-foot__status" [class.warn]="selectedBracelets().size === 0 || internalBraceletsMissing()">{{ braceletsFootStatus() }}</span>
             }
@@ -899,19 +904,6 @@ const STEP_LABELS: Record<WizardStep, string> = {
                 type="button"
                 class="btn-action-primary"
                 [disabled]="saving() || !canContinue()"
-                (click)="goEmpresas()"
-              >
-                Continuar para empresas
-              </button>
-            }
-            @if (step() === 'empresas') {
-              <button type="button" class="btn-action-secondary" [disabled]="saving()" (click)="onBack()">
-                Voltar
-              </button>
-              <button
-                type="button"
-                class="btn-action-primary"
-                [disabled]="saving() || selected().size === 0"
                 (click)="goPulseiras()"
               >
                 Continuar para pulseiras
@@ -1265,7 +1257,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 5px;
+        gap: 10px;
         min-width: 0;
         border: 1px solid var(--line-strong);
         background: #fff;
@@ -1589,6 +1581,27 @@ const STEP_LABELS: Record<WizardStep, string> = {
         flex: 1 1 220px;
         min-width: 0;
       }
+      .wcrt-setor-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 220px;
+        overflow: auto;
+        padding: 10px 12px;
+        border: 1px solid var(--line, #e2e5ec);
+        border-radius: 10px;
+        background: #fff;
+      }
+      .wcrt-setor-list.invalid {
+        border-color: #d64545;
+      }
+      .wcrt-setor-pick {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 14px;
+        cursor: pointer;
+      }
       .wcrt-field {
         margin-bottom: 14px;
         min-width: 0;
@@ -1602,6 +1615,22 @@ const STEP_LABELS: Record<WizardStep, string> = {
         font-weight: 600;
         color: var(--ink-2);
         margin-bottom: 6px;
+      }
+      .wcrt-field label.wcrt-setor-pick {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-bottom: 0;
+        font-size: 14px;
+        font-weight: 500;
+        color: inherit;
+      }
+      .wcrt-setor-pick input[type='checkbox'] {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        accent-color: var(--brand, var(--purple-core, #8d0de3));
       }
       .wcrt-control {
         width: 100%;
@@ -2336,7 +2365,6 @@ const STEP_LABELS: Record<WizardStep, string> = {
 })
 export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   private readonly service = inject(EventAccreditationService);
-  private readonly approvalService = inject(ApprovalService);
   private readonly companyService = inject(CompanyService);
   private readonly auth = inject(AuthService);
   private readonly notification = inject(NotificationService);
@@ -2433,8 +2461,9 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
       nonNullable: true,
       validators: [Validators.required, Validators.maxLength(200)],
     }),
-    id_setor: new FormControl<number | null>(null, { validators: [Validators.required] }),
+    id_setor: new FormControl<number | null>(null),
   });
+  readonly selectedSectors = signal<Set<number>>(new Set());
 
   readonly insWindowEnd = computed(() => this.insEnd() || this.insStart());
 
@@ -2576,10 +2605,9 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
 
   canContinue(): boolean {
     const name = this.dadosForm.controls.name.value.trim();
-    const setor = this.dadosForm.controls.id_setor.value;
     return !!(
       name &&
-      setor &&
+      this.selectedSectors().size &&
       this.eventDays().size &&
       this.insStart() &&
       this.insEnd() &&
@@ -2590,7 +2618,7 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   footStatus(): string {
     const falta = [
       !this.dadosForm.controls.name.value.trim() && 'nome',
-      !this.dadosForm.controls.id_setor.value && 'setor aprovador',
+      !this.selectedSectors().size && 'setores participantes',
       !this.eventDays().size && 'dias do evento',
       (!this.insStart() || !this.insEnd()) && 'janela de indicação',
     ].filter(Boolean);
@@ -2638,8 +2666,22 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   }
 
   setorInvalid(): boolean {
-    const c = this.dadosForm.controls.id_setor;
-    return c.invalid && (c.touched || this.dadosFormSubmitted);
+    return this.dadosFormSubmitted && this.selectedSectors().size === 0;
+  }
+
+  toggleSector(id: number): void {
+    const next = new Set(this.selectedSectors());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.selectedSectors.set(next);
+  }
+
+  setoresNomes(): string {
+    const ids = this.selectedSectors();
+    const names = this.sectors()
+      .filter((s) => ids.has(s.id))
+      .map((s) => s.nome);
+    return names.length ? names.join(', ') : '—';
   }
 
   ngOnDestroy(): void {
@@ -2653,13 +2695,12 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
       return;
     }
     this.canCreateCompany.set(hasPermission(user, 'companies', 'create'));
-    this.approvalService.listEligibleSectors('CREDENCIAMENTO_EVENTO').subscribe({
-      next: (res) => this.sectors.set(res.sectors || []),
+    this.service.listSectors().subscribe({
+      next: (res) =>
+        this.sectors.set(
+          (res.sectors || []).map((s) => ({ id: s.id, nome: s.nome, niveisExigidos: 1 })),
+        ),
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar setores.'),
-    });
-    this.service.listCompanies().subscribe({
-      next: (res) => this.companies.set(res.companies || []),
-      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
     });
   }
 
@@ -3089,11 +3130,11 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   railCloseHint(): string {
     const fim = this.insWindowEnd();
     const dia = this.firstEventDay();
-    const setor = this.setorNome();
-    if (!fim || !dia) return `${setor} aprova as indicações`;
+    const setor = this.setoresNomes();
+    if (!fim || !dia) return `${setor} validam as indicações`;
     const ant = this.daysBetween(fim, dia);
-    if (ant === 0) return `${setor} aprova no próprio dia do evento`;
-    return `${setor} tem ${ant} dia${ant === 1 ? '' : 's'} para aprovar`;
+    if (ant === 0) return `${setor} validam no próprio dia do evento`;
+    return `${setor} têm ${ant} dia${ant === 1 ? '' : 's'} para validar`;
   }
 
   railEventHint(): string {
@@ -3140,24 +3181,15 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   }
 
   goToStep(step: WizardStep): void {
-    if (step === 'email' && !this.createdId()) return;
     if (step === 'pulseiras') this.loadBracelets();
     this.step.set(step);
   }
 
-  goEmpresas(): void {
+  goPulseiras(): void {
     this.dadosFormSubmitted = true;
     this.dadosForm.markAllAsTouched();
     if (!this.canContinue()) {
       this.notification.error(this.dateConflict() || 'Preencha os dados obrigatórios do credenciamento.');
-      return;
-    }
-    this.step.set('empresas');
-  }
-
-  goPulseiras(): void {
-    if (this.selected().size === 0) {
-      this.notification.error('Inclua ao menos uma empresa para continuar.');
       return;
     }
     this.loadBracelets();
@@ -3165,10 +3197,6 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   }
 
   onBack(): void {
-    if (this.step() === 'email' && this.createdId()) {
-      this.goToDetail();
-      return;
-    }
     const i = this.stepIndex();
     if (i <= 0) {
       this.onClose();
@@ -3199,7 +3227,6 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   salvar(): void {
     if (
       !this.canContinue() ||
-      this.selected().size === 0 ||
       this.selectedBracelets().size === 0 ||
       this.internalBraceletsMissing()
     ) {
@@ -3207,8 +3234,8 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
     }
     const raw = this.dadosForm.getRawValue();
     const days = this.sortedEventDays();
-    const setor = raw.id_setor;
-    if (!days.length || !setor) return;
+    const setores = [...this.selectedSectors()];
+    if (!days.length || !setores.length) return;
 
     this.saving.set(true);
     this.service
@@ -3220,8 +3247,7 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
         event_dates: days,
         inscription_start: this.inscriptionStartIso(),
         inscription_end: this.inscriptionEndIso(),
-        id_setor: setor,
-        companies: [...this.selected()],
+        setores,
         bracelet_types: [...this.selectedBracelets()],
         internal_enabled: this.internalEnabled(),
         internal_bracelet_types: this.internalEnabled() ? [...this.selectedInternalBracelets()] : [],
@@ -3243,38 +3269,19 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   private afterCreate(id: number): void {
     const file = this.coverFile;
     if (!file) {
-      this.openEmailStep(id);
+      this.saving.set(false);
+      this.goToDetail();
       return;
     }
     this.service.uploadCover(id, file).subscribe({
-      next: () => this.openEmailStep(id),
+      next: () => {
+        this.saving.set(false);
+        this.goToDetail();
+      },
       error: (err) => {
+        this.saving.set(false);
         this.notification.notifyHttpError(err, 'Evento criado, mas a foto não foi enviada.');
-        this.openEmailStep(id);
-      },
-    });
-  }
-
-  private openEmailStep(id: number): void {
-    this.inviteLoading.set(true);
-    this.step.set('email');
-    this.service.getInvite(id).subscribe({
-      next: (res) => {
-        let html = res.invite.html || '';
-        const preview = this.coverPreview();
-        if (preview && html.includes('cid:event-cover')) {
-          html = html.replace(/cid:event-cover/g, preview);
-        }
-        this.inviteSubject = res.invite.subject;
-        this.inviteHtml = html;
-        this.inviteFiles.set(res.invite.files || []);
-        this.inviteLoading.set(false);
-        this.saving.set(false);
-      },
-      error: (err) => {
-        this.inviteLoading.set(false);
-        this.saving.set(false);
-        this.notification.notifyHttpError(err, 'Falha ao carregar o rascunho do e-mail.');
+        this.goToDetail();
       },
     });
   }

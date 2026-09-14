@@ -254,7 +254,7 @@ Escopo: `https://graph.microsoft.com/.default`. Sucesso = HTTP 200 na listagem d
 | Guard | `PermissionGuard` + `data.permission: { module: 'settings_tenants', action: 'view' }` |
 | Menu settings | `SETTINGS_NAV_ITEMS` → `path: 'tenants-azure'` |
 | Redirect legado | `/admin/tenants` → `admin/configuracoes/tenants-azure` |
-| Sidebar admin | Item "Configurações" mapeia para `settings_tenants` em `ADMIN_MENU_MODULE_MAP` |
+| Sidebar admin | Item "Configurações" (grupo Sistema) mapeia para `settings_tenants` em `SIDEBAR_NAV_GROUPS` |
 
 Implementa `SettingsReloadable.reloadPage()` para recarregar ao trocar aba no shell.
 

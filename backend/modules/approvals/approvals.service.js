@@ -789,6 +789,34 @@ function liberacaoStatusFromAccessStatus(idAccessStatus, approvalStatus) {
   return 'BLOQUEADO';
 }
 
+const DEFAULT_BRACELET_ICON = 'chevrons';
+const DEFAULT_BRACELET_COLOR = '#6B4C9A';
+
+function mapApprovalBracelet(r) {
+  return {
+    id_bracelet_type: r.id_bracelet_type,
+    name: r.name,
+    icon: r.icon || DEFAULT_BRACELET_ICON,
+    color: r.color || DEFAULT_BRACELET_COLOR,
+  };
+}
+
+async function listAccreditationBraceletTypes(idAccreditation, { internal = false } = {}) {
+  const sql = internal
+    ? `SELECT bt.id_bracelet_type, bt.name, bt.icon, bt.color
+         FROM event_accreditation_internal_bracelet eab
+         INNER JOIN bracelet_type bt ON bt.id_bracelet_type = eab.id_bracelet_type
+        WHERE eab.id_event_accreditation = ?
+        ORDER BY bt.name ASC`
+    : `SELECT bt.id_bracelet_type, bt.name, bt.icon, bt.color
+         FROM event_accreditation_bracelet eab
+         INNER JOIN bracelet_type bt ON bt.id_bracelet_type = eab.id_bracelet_type
+        WHERE eab.id_event_accreditation = ?
+        ORDER BY bt.name ASC`;
+  const [rows] = await pool.query(sql, [idAccreditation]);
+  return rows.map(mapApprovalBracelet);
+}
+
 async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {}) {
   const [rows] = await pool.query(
     `SELECT eac.id_event_accreditation_company, eac.id_company,
@@ -812,7 +840,10 @@ async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {
             c.name AS collaborator_name, c.document AS collaborator_document,
             c.picture AS collaborator_picture,
             cr.description AS role_description,
-            bt.name AS bracelet_name
+            eacol.id_bracelet_type,
+            bt.name AS bracelet_name,
+            bt.icon AS bracelet_icon,
+            bt.color AS bracelet_color
        FROM event_accreditation_collaborator eacol
        INNER JOIN collaborator c ON c.id_collaborator = eacol.id_collaborator
        INNER JOIN collaborator_role cr ON cr.id_collaborator_role = eacol.id_collaborator_role
@@ -821,6 +852,8 @@ async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {
       ORDER BY c.name ASC`,
     [idEntidade],
   );
+
+  const braceletTypes = await listAccreditationBraceletTypes(row.id_event_accreditation);
 
   return {
     tipo: 'CREDENCIAMENTO_EVENTO',
@@ -834,13 +867,17 @@ async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {
     observacao: null,
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
+    braceletTypes,
     collaborators: collabRows.map((r) => ({
       id: r.id_event_accreditation_collaborator,
       idCollaborator: r.id_collaborator,
       nome: r.collaborator_name,
       documento: r.collaborator_document,
       funcao: r.role_description,
+      idBraceletType: r.id_bracelet_type || null,
       pulseira: r.bracelet_name || null,
+      braceletIcon: r.bracelet_icon || DEFAULT_BRACELET_ICON,
+      braceletColor: r.bracelet_color || DEFAULT_BRACELET_COLOR,
       picture: r.collaborator_picture || null,
       empresa: row.company_fancy_name || row.company_name || null,
       criadoEm: r.criado_em,
@@ -865,7 +902,10 @@ async function loadAccreditationInternalEntity(idEntidade, opts = {}) {
   const [collabRows] = await pool.query(
     `SELECT eai.id_event_accreditation_internal, eai.id_usuario, eai.id_access_status, eai.criado_em,
             u.nome_completo, u.email, u.departamento,
-            bt.name AS bracelet_name
+            eai.id_bracelet_type,
+            bt.name AS bracelet_name,
+            bt.icon AS bracelet_icon,
+            bt.color AS bracelet_color
        FROM event_accreditation_internal eai
        INNER JOIN usuarios u ON u.id = eai.id_usuario
        INNER JOIN bracelet_type bt ON bt.id_bracelet_type = eai.id_bracelet_type
@@ -873,6 +913,9 @@ async function loadAccreditationInternalEntity(idEntidade, opts = {}) {
       ORDER BY u.nome_completo ASC`,
     [idEntidade],
   );
+  const braceletTypes = await listAccreditationBraceletTypes(row.id_event_accreditation, {
+    internal: true,
+  });
   return {
     tipo: 'CREDENCIAMENTO_EVENTO_INTERNO',
     id: row.id_event_accreditation,
@@ -885,13 +928,17 @@ async function loadAccreditationInternalEntity(idEntidade, opts = {}) {
     observacao: null,
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
+    braceletTypes,
     collaborators: collabRows.map((r) => ({
       id: r.id_event_accreditation_internal,
       idCollaborator: r.id_usuario,
       nome: r.nome_completo,
       documento: r.email,
       funcao: r.departamento || 'Interno AD',
+      idBraceletType: r.id_bracelet_type || null,
       pulseira: r.bracelet_name || null,
+      braceletIcon: r.bracelet_icon || DEFAULT_BRACELET_ICON,
+      braceletColor: r.bracelet_color || DEFAULT_BRACELET_COLOR,
       picture: null,
       empresa: 'Colaboradores internos',
       criadoEm: r.criado_em,
@@ -1308,7 +1355,7 @@ async function createApprovalFor(conn, { tipoEntidade, idEntidade, idSetor, idSo
        VALUES (?, ?, ?, ?, 1, ?, 'PENDENTE')`,
       [tipoEntidade, idEntidade, idSetor, idSolicitante, niveisExigidos],
     );
-    return { id: result.insertId, niveisExigidos, nivelAtual: 1 };
+    return { id: result.insertId, niveisExigidos, nivelAtual: 1, id_setor: idSetor };
   } catch (err) {
     if (err && err.code === 'ER_DUP_ENTRY') {
       throw new AppError('Já existe uma aprovação pendente para esta solicitação', 409);

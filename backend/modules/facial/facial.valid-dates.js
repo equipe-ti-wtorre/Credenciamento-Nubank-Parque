@@ -17,30 +17,25 @@ async function mysqlTodayKey() {
   return rows[0]?.d || localTodayKey();
 }
 
-async function findActiveServiceDates(idCollaborator) {
-  const [rows] = await db.execute(
-    `SELECT sa.start_date, sa.end_date
+async function hasPortariaReleaseToday(idCollaborator) {
+  const id = Number(idCollaborator);
+  if (!id) return false;
+
+  const [serviceRows] = await db.execute(
+    `SELECT 1
      FROM service_access_collaborator sac
      INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
      WHERE (sac.id_collaborator = ? OR sac.id_substitute = ?)
        AND sa.status = 1
        AND sa.id_access_status = ?
-       AND CURDATE() BETWEEN sa.start_date AND sa.end_date
-     ORDER BY sa.end_date DESC, sa.start_date ASC
+       AND DATE(sac.facial_released_at) = CURDATE()
      LIMIT 1`,
-    [idCollaborator, idCollaborator, STATUS_APROVADO],
+    [id, id, STATUS_APROVADO],
   );
-  const row = rows[0];
-  if (!row) return null;
-  const start = toSqlDate(row.start_date);
-  const end = toSqlDate(row.end_date);
-  if (!start || !end) return null;
-  return { validDateStart: start, validDateEnd: end };
-}
+  if (serviceRows.length) return true;
 
-async function findActiveEventDates(idCollaborator) {
-  const [rows] = await db.execute(
-    `SELECT ed.date AS event_day_date
+  const [eventRows] = await db.execute(
+    `SELECT 1
      FROM event_day_company_collaborator edcc
      INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
      INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
@@ -48,39 +43,30 @@ async function findActiveEventDates(idCollaborator) {
      WHERE (edcc.id_collaborator = ? OR edcc.id_substitute = ?)
        AND edcc.id_access_status = ?
        AND e.ativo = 1
-       AND ed.date = CURDATE()
-     ORDER BY ed.date ASC
+       AND DATE(edcc.facial_released_at) = CURDATE()
      LIMIT 1`,
-    [idCollaborator, idCollaborator, STATUS_APROVADO],
+    [id, id, STATUS_APROVADO],
   );
-  const day = toSqlDate(rows[0]?.event_day_date);
-  if (!day) return null;
-  return { validDateStart: day, validDateEnd: day };
+  return eventRows.length > 0;
 }
 
 /**
- * Período de validade do enroll: datas do caller, senão acesso ativo, senão hoje/hoje.
- * Retorna só YYYY-MM-DD; o contrato anexa 00:00:00 / 23:59:59 no comando.
+ * Enroll só depois da liberação da portaria no dia.
+ * Datas explícitas do caller só valem se já houver facial_released_at hoje.
  */
 async function resolveCollaboratorValidDates(idCollaborator, options = {}) {
-  const start = toSqlDate(options.validDateStart);
-  const end = toSqlDate(options.validDateEnd);
-  if (start && end) {
-    return { validDateStart: start, validDateEnd: end };
-  }
-
   const id = Number(idCollaborator);
-  if (id) {
-    const fromService = await findActiveServiceDates(id);
-    if (fromService) return fromService;
-    const fromEvent = await findActiveEventDates(id);
-    if (fromEvent) return fromEvent;
+  if (!id || !(await hasPortariaReleaseToday(id))) {
+    return null;
   }
-
   const today = await mysqlTodayKey();
-  return { validDateStart: today, validDateEnd: today };
+  return {
+    validDateStart: toSqlDate(options.validDateStart) || today,
+    validDateEnd: toSqlDate(options.validDateEnd) || today,
+  };
 }
 
 module.exports = {
   resolveCollaboratorValidDates,
+  hasPortariaReleaseToday,
 };

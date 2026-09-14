@@ -83,9 +83,9 @@ async function loadApprovalFacts(idAprovacao) {
     a.tipo_entidade === "EVENTO"
       ? "Evento"
       : a.tipo_entidade === "CREDENCIAMENTO_EVENTO"
-        ? "Credenciamento Eventos"
+        ? "Credenciamento"
         : a.tipo_entidade === "CREDENCIAMENTO_EVENTO_INTERNO"
-          ? "Credenciamento Eventos (internos)"
+          ? "Credenciamento (internos)"
           : "Acesso de serviço";
   let periodo = null;
   let finalidade = null;

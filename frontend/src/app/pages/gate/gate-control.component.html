@@ -252,6 +252,7 @@
         *ngFor="let row of filteredTodayCredentials()"
         class="row events-row"
         [class.state-in]="row.next_action === 'CHECK_OUT'"
+        [class.state-expired]="row.next_action === 'PERIOD_EXPIRED'"
         [class.state-done]="row.next_action === 'COMPLETED'"
         [class.state-blocked]="row.next_action === 'BLOCKED_BLOCKLIST'"
       >
@@ -294,7 +295,8 @@
             <span *ngSwitchCase="'BLOCKED_BLOCKLIST'" class="status-pill blocked" [title]="row.block_reason || ''"
               ><span class="d"></span>Bloqueado</span
             >
-            <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
+            <span *ngSwitchCase="'RELEASE_ACCESS'" class="status-pill wait"><span class="d"></span>Aguardando</span>
+            <span *ngSwitchCase="'CHECK_IN'" class="status-pill released"><span class="d"></span>Acesso liberado</span>
             <div *ngSwitchCase="'CHECK_OUT'">
               <span class="status-pill in status-pill--stack"
                 ><span class="d"></span
@@ -305,8 +307,19 @@
               >
               <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.access_check_in) }}</div>
             </div>
+            <div *ngSwitchCase="'PERIOD_EXPIRED'">
+              <span class="status-pill expired"><span class="d"></span>Período expirado</span>
+              <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.access_check_in) }}</div>
+            </div>
             <div *ngSwitchDefault class="rel">
               {{ formatClock(row.access_check_in) }} → {{ formatClock(row.access_check_out) }}
+            </div>
+            <div class="access-cycles" *ngIf="row.access_cycles?.length">
+              <div class="rel" *ngFor="let cycle of row.access_cycles">
+                {{ formatClock(cycle.check_in) }}
+                <ng-container *ngIf="cycle.check_out"> → {{ formatClock(cycle.check_out) }}</ng-container>
+                <ng-container *ngIf="!cycle.check_out"> → …</ng-container>
+              </div>
             </div>
           </ng-container>
         </div>
@@ -321,14 +334,14 @@
           </ng-container>
           <ng-template #eventActions>
             <button
-              *ngIf="row.next_action === 'CHECK_IN'"
+              *ngIf="row.next_action === 'RELEASE_ACCESS'"
               type="button"
               class="btn-act entrada"
               [disabled]="processing()"
               (click)="onManualValidate(row)"
-              title="Registrar entrada"
+              title="Conferir documento e liberar o facial"
             >
-              Entrada
+              Liberar acesso
             </button>
             <button
               *ngIf="row.next_action === 'CHECK_OUT'"
@@ -339,6 +352,16 @@
               title="Registrar saída"
             >
               Saída
+            </button>
+            <button
+              *ngIf="row.next_action === 'PERIOD_EXPIRED'"
+              type="button"
+              class="btn-act baixa"
+              [disabled]="processing()"
+              (click)="onManualValidate(row)"
+              title="Registrar baixa manual e remover o facial"
+            >
+              Baixa
             </button>
             <button
               *ngIf="canResendEventFacial(row)"
@@ -415,6 +438,7 @@
         *ngFor="let row of filteredTodayServices()"
         class="row services-row"
         [class.state-in]="row.next_action === 'CHECK_OUT'"
+        [class.state-expired]="row.next_action === 'PERIOD_EXPIRED'"
         [class.state-done]="row.next_action === 'COMPLETED'"
         [class.state-pending]="row.next_action === 'PENDING_APPROVAL'"
         [class.state-rejected]="row.next_action === 'REJECTED'"
@@ -562,7 +586,15 @@
             <span *ngSwitchCase="'BLOCKED_OPEN_STAY'" class="status-pill wait"
               ><span class="d"></span>Saída pendente</span
             >
-            <span *ngSwitchCase="'CHECK_IN'" class="status-pill wait"><span class="d"></span>Aguardando</span>
+            <span *ngSwitchCase="'RELEASE_ACCESS'" class="status-pill wait"><span class="d"></span>Aguardando</span>
+            <ng-container *ngSwitchCase="'CHECK_IN'">
+              <span *ngIf="row.kind === 'collaborator'" class="status-pill released"
+                ><span class="d"></span>Acesso liberado</span
+              >
+              <span *ngIf="row.kind !== 'collaborator'" class="status-pill wait"
+                ><span class="d"></span>Aguardando</span
+              >
+            </ng-container>
             <div *ngSwitchCase="'CHECK_OUT'">
               <span class="status-pill in status-pill--stack"
                 ><span class="d"></span
@@ -573,8 +605,19 @@
               >
               <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.check_in) }}</div>
             </div>
+            <div *ngSwitchCase="'PERIOD_EXPIRED'">
+              <span class="status-pill expired"><span class="d"></span>Período expirado</span>
+              <div class="rel" style="margin-top: 3px">Entrou às {{ formatClock(row.check_in) }}</div>
+            </div>
             <div *ngSwitchDefault class="rel">
               {{ formatClock(row.check_in) }} → {{ formatClock(row.check_out) }}
+            </div>
+            <div class="access-cycles" *ngIf="row.kind === 'collaborator' && row.access_cycles?.length">
+              <div class="rel" *ngFor="let cycle of row.access_cycles">
+                {{ formatClock(cycle.check_in) }}
+                <ng-container *ngIf="cycle.check_out"> → {{ formatClock(cycle.check_out) }}</ng-container>
+                <ng-container *ngIf="!cycle.check_out"> → …</ng-container>
+              </div>
             </div>
           </ng-container>
         </div>
@@ -622,7 +665,17 @@
             "
           >
             <button
-              *ngIf="row.next_action === 'CHECK_IN'"
+              *ngIf="row.next_action === 'RELEASE_ACCESS'"
+              type="button"
+              class="btn-act entrada"
+              [disabled]="processing()"
+              (click)="onManualValidateService(row)"
+              title="Conferir documento e liberar o facial"
+            >
+              Liberar acesso
+            </button>
+            <button
+              *ngIf="row.next_action === 'CHECK_IN' && row.kind === 'vehicle'"
               type="button"
               class="btn-act entrada"
               [disabled]="processing()"
@@ -640,6 +693,16 @@
               title="Registrar saída"
             >
               Saída
+            </button>
+            <button
+              *ngIf="row.next_action === 'PERIOD_EXPIRED'"
+              type="button"
+              class="btn-act baixa"
+              [disabled]="processing()"
+              (click)="onManualValidateService(row)"
+              title="Registrar baixa manual e remover o facial"
+            >
+              Baixa
             </button>
             <button
               *ngIf="canResendServiceFacial(row)"

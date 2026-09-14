@@ -11,6 +11,22 @@ export interface SectorSelectItem {
   nome: string;
 }
 
+export interface SectorContact {
+  id?: number;
+  idSetor?: number;
+  nome: string;
+  telefone?: string | null;
+  ramal?: string | null;
+  email?: string | null;
+}
+
+export interface SectorContactPayload {
+  nome: string;
+  telefone?: string | null;
+  ramal?: string | null;
+  email?: string | null;
+}
+
 export interface SectorItem {
   id: number;
   nome: string;
@@ -18,6 +34,8 @@ export interface SectorItem {
   ativo: boolean;
   membrosAtivos: number;
   fluxosConfigurados: number;
+  contatosCadastrados?: number;
+  contacts?: SectorContact[];
   criadoEm: string;
   atualizadoEm: string;
 }
@@ -62,12 +80,43 @@ export class SectorService {
     return this.api.get<SectorListResponse>('/sectors', params);
   }
 
-  create(data: { nome: string; descricao?: string }): Observable<{ sector: SectorItem }> {
+  getById(id: number): Observable<{ sector: SectorItem }> {
+    return this.api.get<{ sector: SectorItem }>(`/sectors/${id}`);
+  }
+
+  create(data: {
+    nome: string;
+    descricao?: string;
+    contacts?: SectorContactPayload[];
+  }): Observable<{ sector: SectorItem }> {
     return this.api.post('/sectors', data);
   }
 
-  update(id: number, data: { nome?: string; descricao?: string }): Observable<{ sector: SectorItem }> {
+  update(
+    id: number,
+    data: { nome?: string; descricao?: string; contacts?: SectorContactPayload[] },
+  ): Observable<{ sector: SectorItem }> {
     return this.api.put(`/sectors/${id}`, data);
+  }
+
+  listContacts(id: number): Observable<{ contacts: SectorContact[] }> {
+    return this.api.get<{ contacts: SectorContact[] }>(`/sectors/${id}/contacts`);
+  }
+
+  addContact(id: number, data: SectorContactPayload): Observable<{ contacts: SectorContact[] }> {
+    return this.api.post(`/sectors/${id}/contacts`, data);
+  }
+
+  updateContact(
+    id: number,
+    contactId: number,
+    data: SectorContactPayload,
+  ): Observable<{ contacts: SectorContact[] }> {
+    return this.api.put(`/sectors/${id}/contacts/${contactId}`, data);
+  }
+
+  removeContact(id: number, contactId: number): Observable<{ contacts: SectorContact[] }> {
+    return this.api.delete(`/sectors/${id}/contacts/${contactId}`);
   }
 
   patchStatus(id: number, ativo: boolean): Observable<{ sector: SectorItem }> {

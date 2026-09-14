@@ -83,10 +83,33 @@
         aria-label="Navegação principal"
         (scroll)="onNavScroll()"
       >
-        @for (group of navGroups(); track $index) {
+        @for (group of navGroups(); track group.id ?? $index) {
           @if (group.title) {
-            <div class="nav-label">{{ group.title }}</div>
+            <button
+              type="button"
+              class="nav-label"
+              (click)="toggleGroup(group.id)"
+              [attr.aria-expanded]="isGroupOpen(group.id)"
+              [attr.aria-controls]="'nav-group-' + (group.id || $index)"
+            >
+              <span>{{ group.title }}</span>
+              <svg
+                class="nav-label-chevron"
+                [class.nav-label-chevron--closed]="!isGroupOpen(group.id)"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.25"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M6 9.5 12 15.5l6-6" />
+              </svg>
+            </button>
           }
+          @if (!group.title || isGroupOpen(group.id) || collapsed()) {
+          <div [id]="'nav-group-' + (group.id || $index)">
           @for (item of group.items; track item.route) {
             <a
               class="wt-nav-item"
@@ -113,6 +136,8 @@
                 }}</span>
               }
             </a>
+          }
+          </div>
           }
         }
       </nav>

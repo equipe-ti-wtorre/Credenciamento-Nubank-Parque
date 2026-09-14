@@ -3,6 +3,7 @@ const AppError = require("../../utils/AppError");
 const { normalizeCpf } = require("../../utils/cpf");
 const { isValidPlate } = require("../../utils/plate");
 const helpers = require("./service-access-bulk-import");
+const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
 
 function assertNoOverlappingServiceCollaborator(...args) {
   return require("./service-access.service").assertNoOverlappingServiceCollaborator(...args);
@@ -366,11 +367,8 @@ async function previewUnifiedBulkImport(ctx) {
       continue;
     }
 
-    const [blocklist] = await db.execute(
-      `SELECT 1 FROM collaborator_block_list WHERE id_collaborator = ? LIMIT 1`,
-      [existing.id_collaborator],
-    );
-    if (blocklist.length) {
+    const blocklist = await blocklistPolicy.getActiveBlock(existing.id_collaborator);
+    if (blocklist) {
       const row = {
         linha: line,
         cadastro: "erro",
@@ -386,7 +384,7 @@ async function previewUnifiedBulkImport(ctx) {
         },
         divergencias: [],
         divergencias_vinculo: buildRoleDivergences(),
-        erros: ["Colaborador consta na lista de bloqueio."],
+        erros: [blocklistPolicy.formatNotice(blocklist)],
         nome: existing.name,
       };
       colaboradores.push(row);

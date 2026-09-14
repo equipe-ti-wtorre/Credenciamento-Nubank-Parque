@@ -13,6 +13,7 @@ const {
   getProfileCodigo,
   isSuperAdmin,
 } = require("../../utils/permissions");
+const { activeBlockJoinSql } = require("../collaborator-blocklist/blocklist.policy");
 const approvalsService = require("../approvals/approvals.service");
 const alertsService = require("../alerts/alerts.service");
 
@@ -366,7 +367,7 @@ async function getDashboardMetrics(req) {
           WHERE v.status = 1 ${vehScope.sql}) AS active_vehicles,
          (SELECT COUNT(*) FROM collaborator_block_list bl
           INNER JOIN collaborator c ON c.id_collaborator = bl.id_collaborator
-          WHERE 1=1 ${colabScope.sql}) AS blocklisted_collaborators,
+          WHERE ${activeBlockJoinSql("bl")} ${colabScope.sql}) AS blocklisted_collaborators,
          (SELECT COUNT(*) FROM vehicle_block_list vbl
           INNER JOIN vehicle v ON v.id_vehicle = vbl.id_vehicle
           WHERE 1=1 ${vehScope.sql}) AS blocklisted_vehicles,

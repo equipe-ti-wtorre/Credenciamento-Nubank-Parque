@@ -7,6 +7,19 @@ const logger = child({ module: "ad-users-sync-cron" });
 
 let scheduledTask = null;
 
+async function runAdUsersSyncCron({ triggeredBy = "manual" } = {}) {
+  try {
+    const result = await runAdUsersSync({ triggeredBy });
+    if (result.alreadyRunning) {
+      logger.info({ triggeredBy }, "Sync AD já em execução — ignorando");
+    }
+    return result;
+  } catch (err) {
+    logger.error({ err, triggeredBy }, "Erro ao sincronizar usuários do AD");
+    return { alreadyRunning: false, ok: false, error: err.message };
+  }
+}
+
 function startAdUsersSyncCron() {
   if (!env.adUsersSyncEnabled) {
     logger.info("Cron de sync AD desabilitada (AD_USERS_SYNC_ENABLED=false)");
@@ -22,12 +35,17 @@ function startAdUsersSyncCron() {
     scheduledTask.stop();
   }
 
+  // Cobrir janela em que o processo esteve parado.
+  runAdUsersSyncCron({ triggeredBy: "startup" }).catch((err) => {
+    logger.error({ err }, "Falha na sync AD no startup");
+  });
+
   scheduledTask = cron.schedule(
     env.adUsersSyncCron,
     async () => {
       logger.info({ cron: env.adUsersSyncCron }, "Iniciando sync AD agendada");
       try {
-        const result = await runAdUsersSync({ triggeredBy: "cron" });
+        const result = await runAdUsersSyncCron({ triggeredBy: "cron" });
         if (result.alreadyRunning) return;
         if (!result.ok) {
           logger.warn({ result }, "Sync AD agendada concluída com falhas");
@@ -41,7 +59,7 @@ function startAdUsersSyncCron() {
 
   logger.info(
     { cron: env.adUsersSyncCron, timezone: env.adUsersSyncTimezone },
-    "Cron de sync AD registrada",
+    "Cron de sync AD registrada (intervalo de 1 hora)",
   );
 
   return scheduledTask;
@@ -54,4 +72,4 @@ function stopAdUsersSyncCron() {
   }
 }
 
-module.exports = { startAdUsersSyncCron, stopAdUsersSyncCron };
+module.exports = { startAdUsersSyncCron, stopAdUsersSyncCron, runAdUsersSyncCron };

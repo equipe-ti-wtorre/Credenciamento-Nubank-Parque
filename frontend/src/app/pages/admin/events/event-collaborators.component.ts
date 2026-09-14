@@ -34,6 +34,7 @@ import {
   statusBadgeClass,
 } from '../../../services/credential.service';
 import { NotificationService } from '../../../core/services/notification.service';
+import { formatBlocklistNotice } from '../../../shared/blocklist-notice';
 import { AuthService } from '../../../core/services/auth.service';
 import { ModalComponent } from '../../../shared/modal/modal.component';
 import {
@@ -254,9 +255,17 @@ function maskDocument(document: string): string {
                     <div *ngIf="colabSearching()" class="search-dd muted">Buscando...</div>
                     <ul *ngIf="!colabSearching() && colabResults().length > 0" class="search-dd">
                       <li *ngFor="let c of colabResults()">
-                        <button type="button" class="search-dd__btn" (click)="selecionarColaboradorBusca(c)">
+                        <button
+                          type="button"
+                          class="search-dd__btn"
+                          [disabled]="c.is_blocklisted"
+                          (click)="selecionarColaboradorBusca(c)"
+                        >
                           <span class="font-medium">{{ c.name }}</span>
-                          <span class="meta">{{ maskDocument(c.document) }}</span>
+                          <span class="meta">
+                            {{ maskDocument(c.document) }}
+                            <span *ngIf="c.is_blocklisted" class="text-rose-600"> · bloqueado</span>
+                          </span>
                         </button>
                       </li>
                     </ul>
@@ -1112,7 +1121,7 @@ export class EventCollaboratorsComponent implements OnInit {
     this.collaboratorService.list(1, 15, { q: term, status: true }).subscribe({
       next: (res) => {
         this.colabSearching.set(false);
-        this.colabResults.set(res.collaborators.filter((c) => !c.is_blocklisted));
+        this.colabResults.set(res.collaborators);
         this.cdr.markForCheck();
       },
       error: (err) => {
@@ -1126,7 +1135,7 @@ export class EventCollaboratorsComponent implements OnInit {
 
   selecionarColaboradorBusca(item: CollaboratorItem) {
     if (item.is_blocklisted) {
-      this.notification.error('Colaborador está na blocklist.');
+      this.notification.error(formatBlocklistNotice(item));
       return;
     }
     this.selectedColab.set(item);

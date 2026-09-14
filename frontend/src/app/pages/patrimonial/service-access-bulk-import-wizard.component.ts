@@ -40,11 +40,17 @@ export interface BulkImportApiAdapter {
 
 type WizardStep = 'upload' | 'review' | 'result';
 
+interface BulkImportBracelet {
+  id_bracelet_type: number;
+  name: string;
+}
+
 interface ColDecisionState {
   include: boolean;
   camposMaster: Record<string, boolean>;
   aplicarFuncao: boolean;
   roleId?: number | null;
+  braceletId?: number | null;
   /** Decisão explícita Aplicar/Manter (como no cadastro). */
   roleDecision?: 'aplicar' | 'manter' | null;
 }
@@ -327,26 +333,27 @@ interface VeicDecisionState {
                 @if (!dismissedColLines().has(row.linha)) {
                   <article
                     class="wimp-rowcard"
-                    [class.wimp-rowcard--error]="row.cadastro === 'erro' && !row.pendente_funcao"
-                    [class.wimp-rowcard--pending]="row.pendente_funcao || hasPendingRoleDecision(row)"
+                    [class.wimp-rowcard--error]="isHardColError(row)"
+                    [class.wimp-rowcard--pending]="isRecoverableCol(row) || hasPendingRoleDecision(row)"
                   >
                     <div class="wimp-entity__head">
-                      @if (row.cadastro !== 'erro' || row.pendente_funcao) {
+                      @if (row.cadastro !== 'erro' || isRecoverableCol(row)) {
                         <input
                           type="checkbox"
                           [checked]="colDecisions()[row.linha]?.include"
-                          [disabled]="row.pendente_funcao && !colDecisions()[row.linha]?.roleId"
+                          [disabled]="isColFixIncomplete(row)"
                           (change)="toggleColInclude(row.linha, $event)"
                         />
                       }
                       <span
                         class="wimp-badge"
-                        [attr.data-status]="row.pendente_funcao ? 'pendente' : row.cadastro"
-                      >{{ row.pendente_funcao ? 'Pendente' : cadastroLabel(row.cadastro) }}</span>
+                        [attr.data-status]="isRecoverableCol(row) ? 'pendente' : row.cadastro"
+                      >{{ isRecoverableCol(row) ? 'Pendente' : cadastroLabel(row.cadastro) }}</span>
                       <div class="wimp-entity__grow">
                         <div class="wimp-entity__title">{{ row.nome || 'Linha ' + row.linha }}</div>
                         <div class="wimp-entity__sub">
                           {{ row.chave.tipo }} · {{ row.chave.documento }}
+                          @if (row.pulseira) { · {{ row.pulseira }} }
                           @if (vinculoLabel(row)) { · {{ vinculoLabel(row) }} }
                         </div>
                       </div>
@@ -356,22 +363,40 @@ interface VeicDecisionState {
                         </button>
                       }
                     </div>
-                    @if (row.cadastro === 'erro' && row.pendente_funcao) {
+                    @if (row.cadastro === 'erro' && isRecoverableCol(row)) {
                       <div class="wimp-rowcard__err">{{ row.erros.join(' · ') }}</div>
-                      <label class="wimp-fix-field">
-                        <span class="wimp-fix-field__label">Função / Cargo</span>
-                        <select
-                          class="wimp-select"
-                          [ngModel]="colDecisions()[row.linha]?.roleId ?? null"
-                          (ngModelChange)="setColRole(row.linha, $event)"
-                          [name]="'role-fix-' + row.linha"
-                        >
-                          <option [ngValue]="null">Selecionar função…</option>
-                          @for (r of roles(); track r.id_collaborator_role) {
-                            <option [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
-                          }
-                        </select>
-                      </label>
+                      @if (row.pendente_funcao) {
+                        <label class="wimp-fix-field">
+                          <span class="wimp-fix-field__label">Função / Cargo</span>
+                          <select
+                            class="wimp-select"
+                            [ngModel]="colDecisions()[row.linha]?.roleId ?? null"
+                            (ngModelChange)="setColRole(row.linha, $event)"
+                            [name]="'role-fix-' + row.linha"
+                          >
+                            <option [ngValue]="null">Selecionar função…</option>
+                            @for (r of roles(); track r.id_collaborator_role) {
+                              <option [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
+                            }
+                          </select>
+                        </label>
+                      }
+                      @if (row.pendente_pulseira) {
+                        <label class="wimp-fix-field">
+                          <span class="wimp-fix-field__label">Pulseira</span>
+                          <select
+                            class="wimp-select"
+                            [ngModel]="colDecisions()[row.linha]?.braceletId ?? null"
+                            (ngModelChange)="setColBracelet(row.linha, $event)"
+                            [name]="'bracelet-fix-' + row.linha"
+                          >
+                            <option [ngValue]="null">Selecionar pulseira…</option>
+                            @for (b of bracelets; track b.id_bracelet_type) {
+                              <option [ngValue]="b.id_bracelet_type">{{ b.name }}</option>
+                            }
+                          </select>
+                        </label>
+                      }
                     } @else if (row.cadastro === 'erro') {
                       <div class="wimp-rowcard__err">{{ row.erros.join(' · ') }}</div>
                     }
@@ -1078,6 +1103,8 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   @Input() hideVehicles = false;
   /** Admin de frota: oculta eixo/resumo de colaboradores. */
   @Input() hideCollaborators = false;
+  /** Credenciamento eventos: pulseiras habilitadas para correção no preview. */
+  @Input() bracelets: BulkImportBracelet[] = [];
   @Output() closed = new EventEmitter<void>();
   @Output() completed = new EventEmitter<{
     roleProposals: {
@@ -1169,15 +1196,31 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     if (!prev) return false;
     const decisions = this.colDecisions();
     for (const row of prev.colaboradores) {
-      if (row.cadastro === 'erro' && !row.pendente_funcao) continue;
+      if (this.isHardColError(row)) continue;
       if (this.dismissedColLines().has(row.linha)) continue;
       const state = decisions[row.linha];
       if (!state?.include) continue;
       if (this.roleChangeDiff(row) && !state.roleDecision) return false;
       if (row.pendente_funcao && !state.roleId) return false;
+      if (row.pendente_pulseira && !state.braceletId) return false;
     }
     return true;
   });
+
+  isRecoverableCol(row: UnifiedCollaboratorRow): boolean {
+    return !!(row.pendente_funcao || row.pendente_pulseira);
+  }
+
+  isHardColError(row: UnifiedCollaboratorRow): boolean {
+    return row.cadastro === 'erro' && !this.isRecoverableCol(row);
+  }
+
+  isColFixIncomplete(row: UnifiedCollaboratorRow): boolean {
+    const state = this.colDecisions()[row.linha];
+    if (row.pendente_funcao && !state?.roleId) return true;
+    if (row.pendente_pulseira && !state?.braceletId) return true;
+    return false;
+  }
 
   constructor(
     private patrimonialService: PatrimonialService,
@@ -1221,9 +1264,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   onClose() {
     if (this.busy()) return;
     this.reset();
-    if (!this.embedded) {
-      this.closed.emit();
-    }
+    this.closed.emit();
   }
 
   onBack() {
@@ -1231,7 +1272,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
       this.backToUpload();
       return;
     }
-    if (this.embedded) {
+    if (this.embedded && !this.apiAdapter) {
       this.clearFile();
       return;
     }
@@ -1270,7 +1311,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
 
   hasPendingRoleDecision(row: UnifiedCollaboratorRow): boolean {
     if (!this.roleChangeDiff(row)) return false;
-    if (row.cadastro === 'erro' && !row.pendente_funcao) return false;
+    if (this.isHardColError(row)) return false;
     const state = this.colDecisions()[row.linha];
     return !!state?.include && !state.roleDecision;
   }
@@ -1322,8 +1363,14 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges) {
-    if (changes['open'] && this.open) {
-      this.ensureRolesLoaded();
+    if (changes['open']) {
+      const becameOpen = this.open && changes['open'].previousValue !== true;
+      if (becameOpen) {
+        this.reset();
+        this.ensureRolesLoaded();
+      } else if (!this.open && changes['open'].previousValue === true) {
+        this.reset();
+      }
     }
 
     const syncReady =
@@ -1553,18 +1600,19 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     this.dismissedVeicLines.set(new Set());
     const col: Record<number, ColDecisionState> = {};
     for (const row of prev.colaboradores) {
-      if (row.cadastro === 'erro' && !row.pendente_funcao) continue;
+      if (row.cadastro === 'erro' && !this.isRecoverableCol(row)) continue;
       const camposMaster: Record<string, boolean> = {};
       for (const d of row.divergencias) {
         camposMaster[d.campo] = false;
       }
       const hasRoleChange = !!this.roleChangeDiff(row);
-      if (row.pendente_funcao) {
+      if (this.isRecoverableCol(row)) {
         col[row.linha] = {
           include: false,
           camposMaster,
-          aplicarFuncao: true,
+          aplicarFuncao: !!row.pendente_funcao,
           roleId: null,
+          braceletId: null,
           roleDecision: null,
         };
         continue;
@@ -1614,10 +1662,10 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
       const next = { ...m };
       for (const row of prev.colaboradores) {
         if (this.dismissedColLines().has(row.linha)) continue;
-        if (row.cadastro === 'erro' && !row.pendente_funcao) continue;
+        if (this.isHardColError(row)) continue;
         const state = next[row.linha];
         if (!state) continue;
-        if (row.pendente_funcao && !state.roleId) continue;
+        if (this.isColFixIncomplete(row)) continue;
         next[row.linha] = { ...state, include: true };
       }
       return next;
@@ -1644,16 +1692,38 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
 
   setColRole(line: number, roleId: number | null) {
     const id = roleId != null && Number(roleId) > 0 ? Number(roleId) : null;
-    this.colDecisions.update((m) => ({
-      ...m,
-      [line]: {
-        ...(m[line] || { include: false, camposMaster: {}, aplicarFuncao: true }),
-        roleId: id,
-        include: id != null,
-        aplicarFuncao: true,
-        roleDecision: id != null ? 'aplicar' : null,
-      },
-    }));
+    this.colDecisions.update((m) => {
+      const current = m[line] || { include: false, camposMaster: {}, aplicarFuncao: true };
+      const braceletOk = !this.preview()?.colaboradores.find((r) => r.linha === line)?.pendente_pulseira
+        || current.braceletId != null;
+      return {
+        ...m,
+        [line]: {
+          ...current,
+          roleId: id,
+          include: id != null && braceletOk,
+          aplicarFuncao: true,
+          roleDecision: id != null ? 'aplicar' : null,
+        },
+      };
+    });
+  }
+
+  setColBracelet(line: number, braceletId: number | null) {
+    const id = braceletId != null && Number(braceletId) > 0 ? Number(braceletId) : null;
+    this.colDecisions.update((m) => {
+      const current = m[line] || { include: false, camposMaster: {}, aplicarFuncao: false };
+      const row = this.preview()?.colaboradores.find((r) => r.linha === line);
+      const roleOk = !row?.pendente_funcao || current.roleId != null;
+      return {
+        ...m,
+        [line]: {
+          ...current,
+          braceletId: id,
+          include: id != null && roleOk,
+        },
+      };
+    });
   }
 
   setColRoleChoice(line: number, roleId: number | null, diff: UnifiedDivergence) {
@@ -1665,7 +1735,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     else if (id != null && fromId != null && id === fromId) roleDecision = 'manter';
     else if (id != null) roleDecision = 'aplicar';
     const row = this.preview()?.colaboradores.find((r) => r.linha === line);
-    const blocked = row?.cadastro === 'erro' && !row.pendente_funcao;
+    const blocked = row ? this.isHardColError(row) : false;
     this.colDecisions.update((m) => ({
       ...m,
       [line]: {
@@ -1690,7 +1760,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
         roleDecision: 'aplicar',
         aplicarFuncao: true,
         roleId: toId ?? m[line]?.roleId ?? null,
-        include: row?.cadastro === 'erro' && !row.pendente_funcao ? false : m[line]?.include !== false,
+        include: row && this.isHardColError(row) ? false : m[line]?.include !== false,
       },
     }));
   }
@@ -1707,7 +1777,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
         roleDecision: 'manter',
         aplicarFuncao: false,
         roleId: fromId ?? m[line]?.roleId ?? null,
-        include: row?.cadastro === 'erro' && !row.pendente_funcao ? false : m[line]?.include !== false,
+        include: row && this.isHardColError(row) ? false : m[line]?.include !== false,
       },
     }));
   }
@@ -1772,6 +1842,9 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
       };
       if (state.roleId != null && Number(state.roleId) > 0) {
         decision.id_collaborator_role = Number(state.roleId);
+      }
+      if (state.braceletId != null && Number(state.braceletId) > 0) {
+        decision.id_bracelet_type = Number(state.braceletId);
       }
       colaboradores.push(decision);
     }

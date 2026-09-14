@@ -11,6 +11,7 @@ const { hasValidDepartment } = require("./userDepartment");
 const logger = child({ module: "ad-users-sync" });
 
 let syncInProgress = false;
+let lastSyncResult = null;
 
 function normalizeGraphUser(graphUser) {
   const email = String(graphUser.mail || graphUser.userPrincipalName || "")
@@ -205,7 +206,16 @@ async function runAdUsersSync({ triggeredBy = "manual" } = {}) {
     );
 
     if (tenants.length === 0) {
-      return { ok: false, message: "Nenhum tenant Azure ativo configurado.", tenants: [] };
+      const empty = {
+        ok: false,
+        triggeredBy,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        message: "Nenhum tenant Azure ativo configurado.",
+        tenants: [],
+      };
+      lastSyncResult = empty;
+      return empty;
     }
 
     const results = [];
@@ -246,21 +256,37 @@ async function runAdUsersSync({ triggeredBy = "manual" } = {}) {
 
     logger.info({ triggeredBy, ...summary, durationMs: Date.now() - startedAt.getTime() }, "Sync AD concluída");
 
-    return {
+    const result = {
       ok: summary.failedTenants === 0,
       triggeredBy,
       startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt.getTime(),
       ...summary,
       tenants: results,
     };
+    lastSyncResult = result;
+    return result;
   } finally {
     syncInProgress = false;
   }
+}
+
+function getAdUsersSyncStatus() {
+  const env = require("../config/env");
+  return {
+    enabled: env.adUsersSyncEnabled,
+    cron: env.adUsersSyncCron,
+    timezone: env.adUsersSyncTimezone,
+    intervalLabel: "1 hora",
+    running: syncInProgress,
+    last: lastSyncResult,
+  };
 }
 
 module.exports = {
   runAdUsersSync,
   syncTenantAdUsers,
   normalizeGraphUser,
+  getAdUsersSyncStatus,
 };

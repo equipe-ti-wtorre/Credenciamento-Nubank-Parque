@@ -2,14 +2,22 @@ import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import Swal from 'sweetalert2';
 import { NotificationService } from '../../core/services/notification.service';
-import { CollaboratorItem, CollaboratorRole, CollaboratorService } from '../../services/collaborator.service';
+import { extractBlocklistNotice, formatBlocklistNotice } from '../../shared/blocklist-notice';
+import {
+  CollaboratorItem,
+  CollaboratorRole,
+  CollaboratorService,
+  formatCpf,
+} from '../../services/collaborator.service';
 import { STATUS_APROVADO, STATUS_NEGADO } from '../../services/credential.service';
 import { formatCnpj } from '../../services/company.service';
 import {
   AccreditationCompany,
   AccreditationCompanyBrief,
+  AccreditationSector,
   AccreditationCollaborator,
   AccreditationInternal,
   BLOCK_REASONS,
@@ -26,8 +34,17 @@ import {
   isCollaboratorPending,
   kindLabel,
 } from '../../services/event-accreditation.service';
-import { ActionBtnComponent } from '../../shared/actions';
-import { BraceletChipComponent } from '../../shared/bracelet-chip';
+import {
+  ActionBtnComponent,
+  ActionDropdownComponent,
+  ActionDropdownItemDirective,
+} from '../../shared/actions';
+import { BraceletChipComponent, BraceletSelectComponent, normalizeBraceletColor } from '../../shared/bracelet-chip';
+import { ModalComponent } from '../../shared/modal/modal.component';
+import {
+  BulkImportApiAdapter,
+  ServiceAccessBulkImportWizardComponent,
+} from '../patrimonial/service-access-bulk-import-wizard.component';
 import {
   MonthCalendarComponent,
   MonthCalendarTick,
@@ -75,7 +92,12 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
     RouterLink,
     MonthCalendarComponent,
     ActionBtnComponent,
+    ActionDropdownComponent,
+    ActionDropdownItemDirective,
     BraceletChipComponent,
+    BraceletSelectComponent,
+    ModalComponent,
+    ServiceAccessBulkImportWizardComponent,
   ],
   template: `
     <div class="ead">
@@ -96,68 +118,162 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 <h2 class="ead-hero__title">{{ ev.name }}</h2>
                 <div class="ead-hero__meta">
                   <span class="ead-chip ead-chip--tipo ead-chip--plain">{{ kindLabel(ev.event_kind) }}</span>
-                  @if (ev.inscription_open) {
-                    <span class="ead-chip ead-chip--ok">Indicação aberta</span>
+                  <span class="ead-chip" [ngClass]="'ead-chip--' + statusChip(ev.id_access_status)">
+                    {{ eventStatusLabel(ev) }}
+                  </span>
+                  @if (ev.can_decide && pendingTotal(ev)) {
+                    <button
+                      type="button"
+                      class="ead-chip ead-chip--wait ead-chip--btn"
+                      [disabled]="acting()"
+                      (click)="aprovarTodosPendentes()"
+                    >
+                      {{ pendingChipLabel(ev) }}
+                    </button>
                   } @else {
-                    <span class="ead-chip" [ngClass]="'ead-chip--' + statusChip(ev.id_access_status)">
-                      {{ eventStatusLabel(ev) }}
+                    <span class="ead-chip" [class.ead-chip--ok]="!pendingTotal(ev)" [class.ead-chip--wait]="pendingTotal(ev)">
+                      {{ pendingChipLabel(ev) }}
                     </span>
                   }
-                  <span class="ead-hero__date">{{ formatEventDatesBr(ev.event_dates, ev.start, ev.end) }}</span>
+                  <span class="ead-chip ead-chip--quiet ead-chip--plain">{{ formatEventDatesBr(ev.event_dates, ev.start, ev.end) }}</span>
                 </div>
               </div>
               @if (!isInternalOnlyView(ev)) {
                 <div class="ead-hero__actions">
-                  @if (ev.can_manage && !editing()) {
-                    <button type="button" class="ead-btn ead-btn--ghost" (click)="beginEdit()">Editar</button>
-                  }
+                  <button
+                    type="button"
+                    class="ead-hero__action ead-hero__action--primary"
+                    [disabled]="!ev.can_export || exporting()"
+                    (click)="exportar()"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <path d="M7 10l5 5 5-5" />
+                      <path d="M12 15V3" />
+                    </svg>
+                    {{ exporting() ? 'Exportando...' : 'Exportar lista' }}
+                  </button>
                   @if (ev.can_notify) {
                     <button
                       type="button"
-                      class="ead-btn ead-btn--light"
+                      class="ead-hero__action ead-hero__action--ghost"
                       [disabled]="acting() || !hasCompaniesInIndication(ev)"
                       (click)="notificar()"
                     >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                      </svg>
                       Notificar empresas
                     </button>
                   }
-                  @if (ev.can_decide) {
-                    <button
-                      type="button"
-                      class="ead-btn ead-btn--light"
-                      [disabled]="acting() || !pendingTotal(ev)"
-                      (click)="aprovarTodosPendentes()"
-                    >
-                      {{ pendingTotal(ev) ? 'Aprovar todos os pendentes (' + pendingTotal(ev) + ')' : 'Nada pendente' }}
-                    </button>
+                  @if (showHeroMenu(ev)) {
+                    <div class="ead-hero__kebab">
+                    <app-action-dropdown>
+                      @if (ev.can_manage && !editing()) {
+                        <button appActionDropdownItem type="button" (click)="beginEdit()">
+                          <svg class="action-dropdown__item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                          </svg>
+                          Editar evento
+                        </button>
+                      }
+                      @if (ev.can_manage) {
+                        <button
+                          appActionDropdownItem
+                          type="button"
+                          [disabled]="acting()"
+                          (click)="duplicarCredenciamento()"
+                        >
+                          <svg class="action-dropdown__item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          Duplicar evento
+                        </button>
+                      }
+                      @if ((ev.can_delete || ev.can_manage) && !editing()) {
+                        @if (ev.can_manage) {
+                          <hr class="action-dropdown__divider" />
+                        }
+                        <button
+                          appActionDropdownItem
+                          type="button"
+                          [danger]="true"
+                          [disabled]="acting()"
+                          (click)="excluirCredenciamento()"
+                        >
+                          <svg class="action-dropdown__item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                          </svg>
+                          Excluir evento
+                        </button>
+                      }
+                    </app-action-dropdown>
+                    </div>
                   }
                 </div>
               }
             </div>
             <div class="ead-hero__facts">
-              <div>
-                <div class="ead-fact__k">Prazo de indicação</div>
-                <div class="ead-fact__v">
-                  {{ formatShortRange(ev.inscription_start, ev.inscription_end) }}
-                  <small>· {{ prazoLabel(ev) }}</small>
+              <div class="ead-hero__facts-grid">
+                <div>
+                  <p class="ead-fact__k">Prazo de indicação</p>
+                  <p class="ead-fact__v">
+                    {{ formatShortRange(ev.inscription_start, ev.inscription_end) }}
+                    <span class="ead-fact__aside">{{ prazoHeroLabel(ev) }}</span>
+                  </p>
+                  <div class="ead-bar" aria-hidden="true"><i [style.width.%]="prazoPct(ev)"></i></div>
                 </div>
-                <div class="ead-bar"><i [style.width.%]="prazoPct(ev)"></i></div>
+                <div>
+                  <p class="ead-fact__k">
+                    Setores participantes
+                    <span class="ead-fact__aside">{{ setoresSummary(ev) }}</span>
+                  </p>
+                  <ul class="ead-hero__setores">
+                    @for (s of visibleHeroSetores(ev); track s.id_setor) {
+                      <li>
+                        <span class="ead-setor-chip">
+                          {{ s.nome }}
+                          <span class="ead-setor-chip__count">{{ s.approvers_count ?? 0 }} aprov.</span>
+                        </span>
+                      </li>
+                    }
+                    @if (heroSetores(ev).length > heroSetorLimit) {
+                      <li>
+                        <button
+                          type="button"
+                          class="ead-setor-chip ead-setor-chip--more"
+                          [attr.aria-expanded]="sectorsExpanded()"
+                          (click)="toggleHeroSetores()"
+                        >
+                          {{ sectorsExpanded() ? 'ver menos' : '+' + hiddenHeroSetoresCount(ev) }}
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                </div>
               </div>
               <div>
-                <div class="ead-fact__k">Setor aprovador</div>
-                <div class="ead-fact__v">
-                  {{ ev.setor_nome || '—' }}
-                  <small>· {{ approversLabel(ev) }}</small>
-                </div>
-              </div>
-              <div>
-                <div class="ead-fact__k">Pulseiras liberadas</div>
-                <div class="ead-fact__v">{{ heroBracelets(ev).length }} {{ heroBracelets(ev).length === 1 ? 'tipo' : 'tipos' }}</div>
-                <div class="ead-hero__meta ead-hero__meta--chips">
+                <p class="ead-fact__k">
+                  Pulseiras liberadas
+                  <span class="ead-fact__aside">
+                    {{ heroBracelets(ev).length }} {{ heroBracelets(ev).length === 1 ? 'tipo' : 'tipos' }}
+                  </span>
+                </p>
+                <ul class="ead-hero__bracelet-list">
                   @for (b of heroBracelets(ev); track b.id_bracelet_type) {
-                    <app-bracelet-chip [name]="b.name" [icon]="b.icon" [color]="b.color" />
+                    <li class="ead-hero__bracelet">
+                      <i aria-hidden="true"></i>
+                      <span [style.background]="braceletColor(b)">{{ b.name }}</span>
+                    </li>
                   }
-                </div>
+                </ul>
               </div>
             </div>
           </div>
@@ -168,7 +284,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
             <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
               <div>
                 <h3 class="ead-edit__h">Editar credenciamento</h3>
-                <p class="ead-edit__sub">Nome, foto, período de indicação, dia do evento, pulseiras e empresas convidadas. Colaboradores já indicados não mudam aqui.</p>
+                <p class="ead-edit__sub">Nome, foto, período de indicação, dia do evento, pulseiras e setores participantes. Empresas são indicadas por cada setor.</p>
               </div>
               <div class="flex flex-wrap gap-2">
                 <button type="button" class="ead-btn" [disabled]="saving()" (click)="cancelEdit()">Cancelar</button>
@@ -297,6 +413,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       [name]="b.name"
                       [icon]="b.icon"
                       [color]="b.color"
+                      [selectable]="true"
                       [selected]="isBraceletOn(b.id_bracelet_type)"
                     />
                   </button>
@@ -323,6 +440,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                         [name]="b.name"
                         [icon]="b.icon"
                         [color]="b.color"
+                        [selectable]="true"
                         [selected]="isInternalBraceletOn(b.id_bracelet_type)"
                       />
                     </button>
@@ -332,72 +450,21 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
             }
 
             <section class="mt-5">
-              <h4 class="ead-edit__h">Empresas convidadas</h4>
-              <p class="ead-edit__sub">Inclua ou remova empresas. Quem já indicou colaboradores permanece no evento. Empresas novas entram sem e-mail — use Notificar empresas depois de salvar.</p>
-              <div class="ead-co">
-                <div class="ead-co__col">
-                  <div class="ead-co__head">
-                    <h5>Cadastradas</h5>
-                    <span>{{ availableEditCompanies().length }}</span>
-                  </div>
-                  <input
-                    type="search"
-                    class="ead-co__search"
-                    placeholder="Buscar empresa"
-                    aria-label="Buscar empresa para incluir"
-                    [ngModel]="editCompanySearch()"
-                    (ngModelChange)="editCompanySearch.set($event)"
-                  />
-                  @if (availableEditCompanies().length) {
-                    <ul class="ead-co__list">
-                      @for (c of availableEditCompanies(); track c.id_company) {
-                        <li>
-                          <span>
-                            <b>{{ c.fancy_name || c.company_name }}</b>
-                            <small>
-                              {{ c.company_name }}
-                              @if (c.cnpj) {
-                                · {{ formatCnpj(c.cnpj) }}
-                              }
-                            </small>
-                          </span>
-                          <button type="button" class="ead-btn ead-btn--sm" (click)="includeEditCompany(c.id_company)">
-                            Incluir
-                          </button>
-                        </li>
-                      }
-                    </ul>
-                  } @else {
-                    <p class="ead-co__empty">{{ editCompanySearch().trim() ? 'Nenhuma empresa encontrada.' : 'Todas as empresas cadastradas já estão no evento.' }}</p>
-                  }
-                </div>
-                <div class="ead-co__col ead-co__col--on">
-                  <div class="ead-co__head">
-                    <h5>No evento</h5>
-                    <span>{{ selectedCompanyIds().size }}</span>
-                  </div>
-                  @if (selectedEditCompanies().length) {
-                    <ul class="ead-co__list">
-                      @for (c of selectedEditCompanies(); track c.id_company) {
-                        <li>
-                          <span>
-                            <b>{{ c.fancy_name || c.company_name }}</b>
-                            <small>{{ c.company_name }}</small>
-                          </span>
-                          @if (isCompanyLocked(c.id_company)) {
-                            <span class="ead-co__lock">Com indicações</span>
-                          } @else {
-                            <button type="button" class="ead-btn ead-btn--sm" (click)="removeEditCompany(c.id_company)">
-                              Remover
-                            </button>
-                          }
-                        </li>
-                      }
-                    </ul>
-                  } @else {
-                    <p class="ead-co__empty">Inclua ao menos uma empresa.</p>
-                  }
-                </div>
+              <h4 class="ead-edit__h">Setores participantes</h4>
+              <p class="ead-edit__sub">Setores com empresas em andamento ou aprovadas não podem ser removidos.</p>
+              <div class="ead-chips">
+                @for (s of catalogSectors(); track s.id) {
+                  <label class="ead-setor-pick" [class.on]="selectedSectorIds().has(s.id)">
+                    <input
+                      type="checkbox"
+                      [checked]="selectedSectorIds().has(s.id)"
+                      (change)="toggleEditSector(s.id)"
+                    />
+                    <span>{{ s.nome }}</span>
+                  </label>
+                } @empty {
+                  <p class="text-sm text-[var(--app-text-muted)]">Nenhum setor ativo.</p>
+                }
               </div>
             </section>
           </section>
@@ -462,6 +529,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       [name]="b.name"
                       [icon]="b.icon"
                       [color]="b.color"
+                      [selectable]="true"
                       [selected]="pickInternalBracelet === b.id_bracelet_type"
                     />
                   </button>
@@ -477,7 +545,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
               </button>
             </div>
           </article>
-        } @else if (ev.my_internal && !ev.can_manage && !ev.can_decide) {
+        } @else if (ev.my_internal && !ev.can_manage && !ev.can_decide_internal) {
           <article class="ead-empresa ead-self">
             <div class="ead-empresa__head">
               <div class="ead-empresa__id">
@@ -507,7 +575,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
           </article>
         }
 
-        @if (ev.internal_enabled && (ev.can_manage || ev.can_decide)) {
+        @if (ev.internal_enabled && (ev.can_manage || ev.can_decide_internal)) {
           <div class="ead-listbar">
             <h2>Colaboradores internos <span>· {{ (ev.internals || []).length }}</span></h2>
           </div>
@@ -530,7 +598,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                   <span class="ead-chip ead-chip--idle ead-chip--plain">Sem inscrições</span>
                 }
               </div>
-              @if (ev.can_decide) {
+              @if (ev.can_manage || ev.can_decide_internal) {
                 <div class="ead-empresa__actions">
                   <button
                     type="button"
@@ -543,22 +611,19 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 </div>
               }
             </div>
-            @if (ev.can_decide && countInternalPending(ev) > 0) {
+            @if ((ev.can_manage || ev.can_decide_internal) && countInternalPending(ev) > 0) {
               <div class="ead-bulk" [class.on]="pickedInternalCount() > 0">
                 <span><b>{{ pickedInternalCount() }}</b> selecionados</span>
                 <span class="ead-bulk-acts">
-                  <select
-                    class="form-select ead-br-select"
-                    [(ngModel)]="bulkInternalBracelet"
-                    name="bulkInternalBracelet"
+                  <app-bracelet-select
+                    [options]="ev.internal_bracelet_types || []"
+                    [value]="bulkInternalBracelet"
+                    placeholder="Definir pulseira"
+                    [allowEmpty]="true"
                     [disabled]="acting()"
-                    aria-label="Pulseira em massa"
-                  >
-                    <option [ngValue]="null">Definir pulseira</option>
-                    @for (b of ev.internal_bracelet_types || []; track b.id_bracelet_type) {
-                      <option [ngValue]="b.id_bracelet_type">{{ b.name }}</option>
-                    }
-                  </select>
+                    ariaLabel="Pulseira em massa"
+                    (valueChange)="bulkInternalBracelet = $event"
+                  />
                   <button
                     type="button"
                     class="ead-btn ead-btn--sm"
@@ -588,7 +653,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
               <table class="ead-tabela">
                 <thead>
                   <tr>
-                    @if (ev.can_decide) {
+                    @if (ev.can_manage || ev.can_decide_internal) {
                       <th class="ead-chk-col">
                         <input
                           type="checkbox"
@@ -610,7 +675,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 <tbody>
                   @for (c of ev.internals || []; track c.id_event_accreditation_internal) {
                     <tr>
-                      @if (ev.can_decide) {
+                      @if (ev.can_manage || ev.can_decide_internal) {
                         <td>
                           @if (isPendingInternal(c)) {
                             <input
@@ -632,19 +697,14 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       </td>
                       <td>{{ c.departamento || '—' }}</td>
                       <td>
-                        @if (ev.can_decide && isPendingInternal(c)) {
-                          <select
-                            class="form-select ead-br-select"
-                            [ngModel]="c.id_bracelet_type"
-                            [name]="'intBr' + c.id_event_accreditation_internal"
+                        @if ((ev.can_manage || ev.can_decide_internal) && isPendingInternal(c)) {
+                          <app-bracelet-select
+                            [options]="ev.internal_bracelet_types || []"
+                            [value]="c.id_bracelet_type"
                             [disabled]="acting()"
-                            (ngModelChange)="trocarPulseira('internal', c.id_event_accreditation_internal, $event)"
-                            [attr.aria-label]="'Pulseira de ' + c.nome_completo"
-                          >
-                            @for (b of ev.internal_bracelet_types || []; track b.id_bracelet_type) {
-                              <option [ngValue]="b.id_bracelet_type">{{ b.name }}</option>
-                            }
-                          </select>
+                            [ariaLabel]="'Pulseira de ' + c.nome_completo"
+                            (valueChange)="onPickBracelet('internal', c.id_event_accreditation_internal, $event)"
+                          />
                         } @else {
                           <app-bracelet-chip
                             [name]="c.bracelet_name"
@@ -657,7 +717,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                         <span class="ead-chip" [ngClass]="'ead-chip--' + internalPillClass(c)">{{ internalPillLabel(c) }}</span>
                       </td>
                       <td class="ead-acoes">
-                        @if (ev.can_decide && isPendingInternal(c)) {
+                        @if ((ev.can_manage || ev.can_decide_internal) && isPendingInternal(c)) {
                           <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivoInterno([c.id_event_accreditation_internal])">
                             Recusar
                           </button>
@@ -693,7 +753,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
 
         @if (!isInternalOnlyView(ev)) {
         <div class="ead-listbar">
-          <h2>Empresas convidadas <span>· {{ (ev.companies || []).length }}</span></h2>
+          <h2>Empresas por setor <span>· {{ (ev.companies || []).length }}</span></h2>
           <div class="ead-listbar__right">
             <div class="ead-search">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -711,16 +771,29 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
               <button type="button" [attr.aria-pressed]="companyFilter() === 'pending'" (click)="companyFilter.set('pending')">Pendentes de aprovação</button>
               <button type="button" [attr.aria-pressed]="companyFilter() === 'empty'" (click)="companyFilter.set('empty')">Sem indicações</button>
             </div>
-            <button
-              type="button"
-              class="ead-btn"
-              [disabled]="!ev.can_export || exporting()"
-              (click)="exportar()"
-            >
-              {{ exporting() ? 'Exportando...' : 'Exportar lista' }}
-            </button>
           </div>
         </div>
+
+        @for (setor of ev.setores || []; track setor.id_setor) {
+          <div class="ead-setor-bar">
+            <div>
+              <b>{{ setor.nome }}</b>
+              <small>{{ companiesOfSector(ev, setor.id_setor).length }} empresa(s)</small>
+            </div>
+            <div class="ead-setor-bar__acts">
+              @if (setor.can_add_companies) {
+                <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirAddEmpresas(setor)">
+                  Adicionar empresas
+                </button>
+              }
+              @if (setor.can_notify_companies) {
+                <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="reenviarConvitesSetor(setor)">
+                  Reenviar convites
+                </button>
+              }
+            </div>
+          </div>
+        }
 
         @for (company of filteredCompanies(ev); track company.id_event_accreditation_company) {
           <article class="ead-empresa">
@@ -729,6 +802,9 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 <div class="ead-empresa__logo" aria-hidden="true">{{ companyInitials(company) }}</div>
                 <div>
                   <h3 class="ead-empresa__nome">{{ company.fancy_name || company.company_name }}</h3>
+                  @if (company.setor_nome) {
+                    <p class="ead-empresa__setor">{{ company.setor_nome }}</p>
+                  }
                   <div class="ead-empresa__counts">
                     <span class="ead-count ead-count--ind"><b>{{ company.collaborators.length }}</b> indicados</span>
                     <span class="ead-count ead-count--apr"><b>{{ countApproved(company) }}</b> aprovados</span>
@@ -741,17 +817,37 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 </span>
               </div>
               <div class="ead-empresa__actions">
+                @if (canAddCollaborators(ev, company)) {
+                  <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirBulkImport(company)">
+                    Importar planilha
+                  </button>
+                }
                 @if (company.can_complete) {
                   <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="concluir(company)">
                     Concluir indicação
                   </button>
                 }
-                @if (ev.can_notify && company.indication_status === 'INDICACAO') {
+                @if (company.can_notify_sector) {
+                  <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="reenviarAvisoSetor(company)">
+                    Reenviar aviso ao setor
+                  </button>
+                }
+                @if (company.can_notify_owner) {
+                  <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="reenviarAvisoResponsavel(company)">
+                    Reenviar aviso ao responsável
+                  </button>
+                }
+                @if ((ev.can_notify || companySectorCanNotify(ev, company)) && company.indication_status === 'INDICACAO') {
                   <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="notificar(company.id_company)">
                     Notificar empresa
                   </button>
                 }
-                @if (ev.can_decide) {
+                @if (company.can_remove) {
+                  <button type="button" class="ead-btn ead-btn--sm ead-btn--danger" [disabled]="acting()" (click)="removerEmpresa(company)">
+                    Remover empresa
+                  </button>
+                }
+                @if (company.can_decide) {
                   <button
                     type="button"
                     class="ead-btn ead-btn--sm ead-btn--primary"
@@ -765,22 +861,19 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
               </div>
             </div>
 
-            @if (ev.can_decide && countPending(company) > 0) {
+            @if (company.can_decide && countPending(company) > 0) {
               <div class="ead-bulk" [class.on]="pickedCount(company) > 0">
                 <span><b>{{ pickedCount(company) }}</b> selecionados</span>
                 <span class="ead-bulk-acts">
-                  <select
-                    class="form-select ead-br-select"
-                    [(ngModel)]="bulkCompanyBracelet[company.id_event_accreditation_company]"
-                    [name]="'bulkCoBr' + company.id_event_accreditation_company"
+                  <app-bracelet-select
+                    [options]="ev.bracelet_types || []"
+                    [value]="bulkCompanyBracelet[company.id_event_accreditation_company] ?? null"
+                    placeholder="Definir pulseira"
+                    [allowEmpty]="true"
                     [disabled]="acting()"
-                    aria-label="Pulseira em massa"
-                  >
-                    <option [ngValue]="null">Definir pulseira</option>
-                    @for (b of ev.bracelet_types || []; track b.id_bracelet_type) {
-                      <option [ngValue]="b.id_bracelet_type">{{ b.name }}</option>
-                    }
-                  </select>
+                    ariaLabel="Pulseira em massa"
+                    (valueChange)="bulkCompanyBracelet[company.id_event_accreditation_company] = $event"
+                  />
                   <button
                     type="button"
                     class="ead-btn ead-btn--sm"
@@ -799,38 +892,77 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
               </div>
             }
 
-            @if (company.can_indicate) {
+            @if (canAddCollaborators(ev, company)) {
               <div class="ead-indicate">
-                <input
-                  [(ngModel)]="search[company.id_company]"
-                  [name]="'q' + company.id_company"
-                  (ngModelChange)="buscarColaboradores(company.id_company)"
-                  placeholder="Buscar colaborador"
-                  class="form-field"
-                />
-                <select [(ngModel)]="pickCollaborator[company.id_company]" [name]="'col' + company.id_company" class="form-select">
-                  <option [ngValue]="null">Colaborador</option>
-                  @for (c of searchResults[company.id_company] || []; track c.id_collaborator) {
-                    <option [ngValue]="c.id_collaborator">{{ c.name }} · {{ c.document }}</option>
+                <div class="ead-typeahead">
+                  @if (pickedSearchItem()[company.id_company]; as picked) {
+                    <div class="ead-typeahead__picked">
+                      <span>
+                        <b>{{ picked.name }}</b>
+                        <small>{{ formatCpf(picked.document) }}{{ picked.is_blocklisted ? ' · bloqueado' : '' }}</small>
+                      </span>
+                      <button type="button" class="ead-typeahead__clear" (click)="limparColaboradorBusca(company)">
+                        Trocar
+                      </button>
+                    </div>
+                  } @else {
+                    <input
+                      [(ngModel)]="search[company.id_company]"
+                      [name]="'q' + company.id_company"
+                      (ngModelChange)="buscarColaboradores(company)"
+                      placeholder="Buscar colaborador"
+                      aria-label="Buscar colaborador"
+                      autocomplete="off"
+                      class="form-field"
+                    />
+                    @if (searching()[company.id_company]) {
+                      <p class="ead-typeahead__dd ead-typeahead__dd--msg">Buscando...</p>
+                    } @else if ((searchResults()[company.id_company] || []).length) {
+                      <ul class="ead-typeahead__dd" role="listbox">
+                        @for (c of searchResults()[company.id_company]; track c.id_collaborator) {
+                          <li>
+                            <button
+                              type="button"
+                              [disabled]="c.is_blocklisted"
+                              (click)="selecionarColaboradorBusca(company, c)"
+                            >
+                              <b>{{ c.name }}</b>
+                              <small>
+                                {{ formatCpf(c.document) }}{{ c.is_blocklisted ? ' · bloqueado' : '' }}
+                              </small>
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                    } @else if ((search[company.id_company] || '').trim().length >= 2) {
+                      <p class="ead-typeahead__dd ead-typeahead__dd--msg">Nenhum colaborador encontrado.</p>
+                    }
                   }
-                </select>
-                <select [(ngModel)]="pickRole[company.id_company]" [name]="'role' + company.id_company" class="form-select">
+                </div>
+                <select
+                  class="form-select"
+                  [name]="'role' + company.id_company"
+                  [ngModel]="pickRole()[company.id_company] ?? null"
+                  (ngModelChange)="setPickRole(company.id_company, $event)"
+                  aria-label="Função"
+                >
                   <option [ngValue]="null">Função</option>
                   @for (r of roles(); track r.id_collaborator_role) {
                     <option [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
                   }
                 </select>
-                <div class="ead-indicate-row">
-                  <select [(ngModel)]="pickBracelet[company.id_company]" [name]="'br' + company.id_company" class="form-select">
-                    <option [ngValue]="null">Pulseira</option>
-                    @for (b of bracelets(); track b.id_bracelet_type) {
-                      <option [ngValue]="b.id_bracelet_type">{{ b.name }}</option>
-                    }
-                  </select>
-                  <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="adicionar(company)">
-                    Indicar
-                  </button>
-                </div>
+                <app-bracelet-select
+                  [options]="bracelets()"
+                  [value]="pickBracelet[company.id_company] ?? null"
+                  placeholder="Pulseira"
+                  [allowEmpty]="true"
+                  [disabled]="acting()"
+                  ariaLabel="Pulseira"
+                  (valueChange)="pickBracelet[company.id_company] = $event"
+                />
+                <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="adicionar(company)">
+                  Indicar
+                </button>
               </div>
             }
 
@@ -854,10 +986,33 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 }
               </div>
             } @else {
+              <div class="ead-tablebar">
+                <select
+                  class="form-select"
+                  [ngModel]="filterRole[company.id_company] ?? null"
+                  (ngModelChange)="filterRole[company.id_company] = $event"
+                  [name]="'frole' + company.id_company"
+                  aria-label="Filtrar por função"
+                >
+                  <option [ngValue]="null">Todas as funções</option>
+                  @for (r of companyRoleOptions(company); track r.id) {
+                    <option [ngValue]="r.id">{{ r.label }}</option>
+                  }
+                </select>
+                <app-bracelet-select
+                  [options]="companyBraceletOptions(company)"
+                  [value]="filterBracelet[company.id_company] ?? null"
+                  placeholder="Todas as pulseiras"
+                  [allowEmpty]="true"
+                  ariaLabel="Filtrar por pulseira"
+                  (valueChange)="filterBracelet[company.id_company] = $event"
+                />
+              </div>
+              @let rows = filteredCollaborators(company);
               <table class="ead-tabela">
                 <thead>
                   <tr>
-                    @if (ev.can_decide) {
+                    @if (company.can_decide) {
                       <th class="ead-chk-col">
                         <input
                           type="checkbox"
@@ -878,9 +1033,9 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                   </tr>
                 </thead>
                 <tbody>
-                  @for (c of company.collaborators; track c.id_event_accreditation_collaborator) {
+                  @for (c of rows; track c.id_event_accreditation_collaborator) {
                     <tr [class.blocked]="isBlocked(c)">
-                      @if (ev.can_decide) {
+                      @if (company.can_decide) {
                         <td>
                           @if (isPending(c)) {
                             <input
@@ -902,19 +1057,14 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       <td class="ead-doc">{{ c.collaborator_document }}</td>
                       <td>{{ c.role_description }}</td>
                       <td>
-                        @if (ev.can_decide && isPending(c)) {
-                          <select
-                            class="form-select ead-br-select"
-                            [ngModel]="c.id_bracelet_type"
-                            [name]="'coBr' + c.id_event_accreditation_collaborator"
+                        @if (canEditCompanyBracelet(ev, company, c)) {
+                          <app-bracelet-select
+                            [options]="ev.bracelet_types || []"
+                            [value]="c.id_bracelet_type"
                             [disabled]="acting()"
-                            (ngModelChange)="trocarPulseira('company', c.id_event_accreditation_collaborator, $event)"
-                            [attr.aria-label]="'Pulseira de ' + c.collaborator_name"
-                          >
-                            @for (b of ev.bracelet_types || []; track b.id_bracelet_type) {
-                              <option [ngValue]="b.id_bracelet_type">{{ b.name }}</option>
-                            }
-                          </select>
+                            [ariaLabel]="'Pulseira de ' + c.collaborator_name"
+                            (valueChange)="onPickBracelet('company', c.id_event_accreditation_collaborator, $event)"
+                          />
                         } @else {
                           <app-bracelet-chip
                             [name]="c.bracelet_name"
@@ -935,7 +1085,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                         }
                       </td>
                       <td class="ead-acoes">
-                        @if (ev.can_decide && isPending(c)) {
+                        @if (company.can_decide && isPending(c)) {
                           <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
                             Recusar
                           </button>
@@ -943,25 +1093,35 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                             Aprovar
                           </button>
                         }
-                        @if (ev.can_decide && isApproved(c)) {
+                        @if (company.can_decide && isApproved(c)) {
                           <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
                             Bloquear
                           </button>
                         }
-                        @if (ev.can_decide && isBlocked(c)) {
+                        @if (company.can_decide && isBlocked(c)) {
                           <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'unblock')">
                             Desbloquear
                           </button>
                         }
-                        @if (company.can_indicate) {
+                        @if (canAddCollaborators(ev, company) && (company.indication_status === 'INDICACAO' || isPending(c))) {
                           <app-action-btn icon="delete" title="Remover" variant="danger" (action)="remover(company, c.id_event_accreditation_collaborator)" />
                         }
                       </td>
                     </tr>
                   }
+                  @if (!rows.length) {
+                    <tr>
+                      <td [attr.colspan]="company.can_decide ? 7 : 6">
+                        <div class="ead-empty ead-empty--inline">
+                          <p class="ead-empty__t">Nenhum indicado neste filtro</p>
+                          <p class="ead-empty__d">Ajuste função ou pulseira para ver outros colaboradores.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  }
                   @if (reasonFor()?.companyId === company.id_event_accreditation_company) {
                     <tr class="ead-reason">
-                      <td [attr.colspan]="ev.can_decide ? 7 : 6">
+                      <td [attr.colspan]="company.can_decide ? 7 : 6">
                         <div class="ead-reason-wrap">
                           <span class="ead-reason-msg">
                             <b>Bloquear {{ reasonFor()?.ids?.length || 0 }} colaborador(es).</b>
@@ -1004,6 +1164,86 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         }
       }
     </div>
+
+    <app-modal
+      [open]="showAddCompanies()"
+      title="Adicionar empresas"
+      [subtitle]="addCompaniesSetor()?.nome || ''"
+      size="lg"
+      (close)="fecharAddEmpresas()"
+    >
+      <div class="ead-co">
+        <div class="ead-co__col">
+          <input
+            type="search"
+            class="form-field ead-co__search"
+            placeholder="Buscar empresa"
+            aria-label="Buscar empresa"
+            [ngModel]="addCompanySearch()"
+            (ngModelChange)="addCompanySearch.set($event)"
+          />
+          @if (availableAddCompanies().length) {
+            <ul class="ead-co__list">
+              @for (c of availableAddCompanies(); track c.id_company) {
+                <li [class.ead-co__item--on]="addSelectedCompanyIds().has(c.id_company)">
+                  <span class="ead-co__info">
+                    <b>{{ c.fancy_name || c.company_name }}</b>
+                    @if (c.company_name && c.company_name !== (c.fancy_name || '')) {
+                      <small>{{ c.company_name }}</small>
+                    }
+                  </span>
+                  <button
+                    type="button"
+                    class="ead-btn ead-btn--sm"
+                    [class.ead-btn--remove]="addSelectedCompanyIds().has(c.id_company)"
+                    (click)="toggleAddCompany(c.id_company)"
+                  >
+                    {{ addSelectedCompanyIds().has(c.id_company) ? 'Remover' : 'Incluir' }}
+                  </button>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="ead-co__empty">Nenhuma empresa disponível.</p>
+          }
+        </div>
+      </div>
+      <div modal-footer class="modal-footer">
+        <button type="button" class="btn-action-secondary" (click)="fecharAddEmpresas()">Cancelar</button>
+        <button
+          type="button"
+          class="btn-action-primary"
+          [disabled]="acting() || addSelectedCompanyIds().size === 0"
+          (click)="confirmarAddEmpresas()"
+        >
+          Convidar {{ addSelectedCompanyIds().size }} empresa(s)
+        </button>
+      </div>
+    </app-modal>
+
+    @if (showBulkModal()) {
+    <app-modal
+      [open]="true"
+      title="Importar em lote"
+      subtitle="Indique colaboradores desta empresa por planilha — revise e confirme."
+      size="xl"
+      [closeOnBackdrop]="false"
+      [focusFirstField]="false"
+      (close)="fecharBulkModal()"
+    >
+      <app-service-access-bulk-import-wizard
+        [open]="true"
+        [embedded]="true"
+        [hideVehicles]="true"
+        [apiAdapter]="accreditationBulkAdapter"
+        [bracelets]="bracelets()"
+        [accessName]="item()?.name || 'Credenciamento'"
+        [companyName]="bulkCompany()?.fancy_name || bulkCompany()?.company_name || ''"
+        (closed)="fecharBulkModal()"
+        (completed)="onBulkCompleted()"
+      />
+    </app-modal>
+    }
   `,
   styles: [
     `
@@ -1025,6 +1265,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         width: 100%;
         color: var(--ead-ink);
         font-family: var(--font-body);
+        padding-bottom: 4.5rem;
       }
       .ead-back {
         display: inline-block;
@@ -1121,12 +1362,22 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         display: none;
       }
       .ead-chip--tipo {
-        background: rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.14);
         color: #fff;
+        font-weight: 500;
+      }
+      .ead-chip--quiet {
+        background: transparent;
+        color: rgba(255, 255, 255, 0.72);
+        padding-left: 2px;
+        font-weight: 500;
       }
       .ead-chip--ok {
         background: var(--ead-green-200);
-        color: #24401a;
+        color: #1f3a16;
+      }
+      .ead-chip--ok::before {
+        background: #2f7a18;
       }
       .ead-chip--wait {
         background: var(--ead-amber-bg);
@@ -1156,8 +1407,8 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
       }
       .ead-hero__cover {
         position: relative;
-        min-height: 250px;
-        background: var(--ead-purple);
+        min-height: 260px;
+        background: var(--ead-green-300);
       }
       .ead-hero__cover img {
         position: absolute;
@@ -1169,11 +1420,12 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         display: block;
       }
       .ead-hero__panel {
-        padding: 26px 28px;
+        padding: 22px 26px 24px;
         color: #fff;
         display: flex;
         flex-direction: column;
         gap: 18px;
+        min-width: 0;
       }
       .ead-hero__row {
         display: flex;
@@ -1184,69 +1436,223 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
       .ead-hero__title {
         font-family: var(--font-display);
         font-weight: 700;
-        font-size: 34px;
-        line-height: 1.05;
-        margin: 0 0 12px;
-        letter-spacing: -0.02em;
+        font-size: 30px;
+        line-height: 1.15;
+        margin: 0;
+        letter-spacing: -0.015em;
       }
       .ead-hero__meta {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 8px;
+        margin-top: 10px;
       }
       .ead-hero__meta--chips {
         margin-top: 9px;
       }
-      .ead-hero__date {
-        font-size: 13.5px;
-        color: #d9c7e8;
-        font-weight: 500;
-      }
       .ead-hero__actions {
         display: flex;
+        align-items: center;
         gap: 8px;
         flex-shrink: 0;
         flex-wrap: wrap;
       }
+      .ead-hero__action {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 16px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: #fff;
+        font-family: var(--font-body);
+        font-size: 13.5px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .ead-hero__action svg {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 18px;
+      }
+      .ead-hero__action--primary {
+        background: #fff;
+        color: var(--ead-purple-900);
+      }
+      .ead-hero__action--primary:hover:not(:disabled) {
+        background: #f1e7fa;
+      }
+      .ead-hero__action--ghost {
+        border-color: rgba(255, 255, 255, 0.22);
+        color: #fff;
+      }
+      .ead-hero__action--ghost:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+      .ead-hero__action:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .ead-hero__kebab {
+        display: inline-flex;
+      }
+      :host ::ng-deep .ead-hero__kebab .action-btn {
+        width: 38px;
+        height: 38px;
+        background: transparent;
+        border-color: rgba(255, 255, 255, 0.22);
+        color: #fff;
+      }
+      :host ::ng-deep .ead-hero__kebab .action-btn:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.4);
+        color: #fff;
+      }
       .ead-hero__facts {
         margin-top: auto;
         display: flex;
+        flex-direction: column;
+        gap: 18px;
+        border-top: 1px solid rgba(255, 255, 255, 0.22);
+        padding-top: 18px;
+      }
+      .ead-hero__facts-grid {
+        display: grid;
+        grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+        gap: 18px 40px;
+        align-items: start;
+      }
+      .ead-hero__setores {
+        display: flex;
         flex-wrap: wrap;
-        gap: 20px 44px;
-        border-top: 1px solid rgba(255, 255, 255, 0.18);
-        padding-top: 16px;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .ead-setor-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 11px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+        font-size: 12.5px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .ead-setor-chip__count {
+        font-size: 11px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.72);
+      }
+      .ead-setor-chip--more {
+        background: transparent;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: #fff;
+        appearance: none;
+      }
+      .ead-setor-chip--more:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .ead-hero__bracelet-list {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .ead-hero__bracelet {
+        display: inline-flex;
+        align-items: center;
+        height: 26px;
+        border-radius: 6px;
+        overflow: hidden;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .ead-hero__bracelet i {
+        width: 26px;
+        height: 26px;
+        background: #fff;
+        opacity: 0.9;
+        flex: 0 0 26px;
+      }
+      .ead-hero__bracelet span {
+        display: grid;
+        place-items: center;
+        height: 26px;
+        padding: 0 11px;
+        color: #fff;
+      }
+      .ead-chip--btn {
+        border: 0;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .ead-chip--btn:hover:not(:disabled) {
+        filter: brightness(0.97);
+      }
+      .ead-chip--btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.7;
       }
       .ead-fact__k {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 6px;
         font-size: 12px;
-        color: #c9b2dc;
+        color: rgba(255, 255, 255, 0.72);
         font-weight: 500;
-        margin-bottom: 5px;
+        margin: 0 0 5px;
       }
       .ead-fact__v {
-        font-size: 14px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: 15px;
         font-weight: 600;
         font-variant-numeric: tabular-nums;
       }
-      .ead-fact__v small {
-        font-weight: 500;
-        color: #c9b2dc;
+      .ead-fact__aside {
+        font-family: var(--font-body);
+        font-weight: 400;
         font-size: 13px;
+        color: rgba(255, 255, 255, 0.72);
+      }
+      .ead-fact__v .ead-fact__aside {
+        margin-left: 6px;
       }
       .ead-bar {
-        height: 6px;
-        border-radius: 3px;
-        background: rgba(255, 255, 255, 0.22);
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.2);
         overflow: hidden;
         margin-top: 9px;
-        width: 230px;
-        max-width: 100%;
+        max-width: 280px;
       }
       .ead-bar i {
         display: block;
         height: 100%;
         background: var(--ead-green-300);
-        border-radius: 3px;
+        border-radius: 999px;
       }
       .ead-kpis {
         margin-top: 12px;
@@ -1322,6 +1728,55 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         gap: 8px;
         flex-wrap: wrap;
       }
+      .ead-setor-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        margin: 8px 0 6px;
+        background: var(--ead-surface);
+        border: 1px solid var(--ead-line);
+        border-radius: var(--ead-r-card);
+      }
+      .ead-setor-bar b {
+        display: block;
+        font-size: 15px;
+      }
+      .ead-setor-bar small {
+        color: var(--ead-muted);
+      }
+      .ead-setor-bar__acts {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .ead-empresa__setor {
+        margin: 2px 0 0;
+        font-size: 12px;
+        color: var(--ead-muted);
+      }
+      .ead-setor-pick {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 8px 12px;
+        border: 1px solid var(--ead-line);
+        border-radius: 999px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      .ead-setor-pick input[type='checkbox'] {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        accent-color: var(--ead-purple, var(--brand));
+      }
+      .ead-setor-pick.on {
+        border-color: var(--ead-purple);
+        background: #f6edff;
+      }
       .ead-search {
         position: relative;
       }
@@ -1370,7 +1825,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         border: 1px solid var(--ead-line);
         border-radius: var(--ead-r-card);
         margin-bottom: 12px;
-        overflow: hidden;
+        overflow: visible;
       }
       .ead-empresa__head {
         padding: 16px 20px;
@@ -1457,6 +1912,18 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         align-items: center;
         gap: 6px;
       }
+      .ead-tablebar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 20px;
+        border-top: 1px solid var(--ead-line-soft);
+      }
+      .ead-tablebar .form-select {
+        min-width: 10rem;
+        max-width: 16rem;
+      }
       .ead-empty {
         border-top: 1px solid var(--ead-line-soft);
         padding: 34px 20px 32px;
@@ -1465,6 +1932,10 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         flex-direction: column;
         align-items: center;
         gap: 6px;
+      }
+      .ead-empty--inline {
+        border-top: 0;
+        padding: 18px 8px;
       }
       .ead-empty__badge {
         width: 44px;
@@ -1544,11 +2015,12 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         flex: 0 0 32px;
       }
       .ead-acoes {
-        text-align: right;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 8px;
         white-space: nowrap;
-      }
-      .ead-acoes .ead-btn + .ead-btn {
-        margin-left: 6px;
       }
       .ead-rodape {
         padding: 12px 20px;
@@ -1588,10 +2060,104 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
       }
       .ead-indicate {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: minmax(14rem, 1.8fr) minmax(8rem, 1fr) minmax(10.5rem, 1fr) auto;
+        align-items: start;
         gap: 8px;
         padding: 14px 20px;
         border-top: 1px solid var(--ead-line-soft);
+      }
+      .ead-typeahead {
+        position: relative;
+        min-width: 0;
+      }
+      .ead-typeahead__dd {
+        position: absolute;
+        z-index: 30;
+        left: 0;
+        right: 0;
+        top: calc(100% + 4px);
+        margin: 0;
+        padding: 6px;
+        list-style: none;
+        max-height: 240px;
+        overflow: auto;
+        background: var(--ead-surface);
+        border: 1px solid var(--ead-line);
+        border-radius: var(--ead-r-ctl);
+        box-shadow: 0 10px 28px rgba(30, 0, 47, 0.12);
+      }
+      .ead-typeahead__dd--msg {
+        padding: 10px 12px;
+        font-size: 13px;
+        color: var(--ead-muted);
+      }
+      .ead-typeahead__dd li + li {
+        border-top: 1px solid var(--ead-line-soft);
+      }
+      .ead-typeahead__dd button {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        width: 100%;
+        border: 0;
+        background: transparent;
+        padding: 8px 10px;
+        border-radius: 8px;
+        text-align: left;
+        cursor: pointer;
+        color: var(--ead-ink);
+        font: inherit;
+      }
+      .ead-typeahead__dd button:hover:not(:disabled) {
+        background: var(--brand-tonal-bg);
+      }
+      .ead-typeahead__dd button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .ead-typeahead__dd b {
+        font-size: 13.5px;
+        font-weight: 650;
+      }
+      .ead-typeahead__dd small {
+        font-size: 12px;
+        color: var(--ead-muted);
+      }
+      .ead-typeahead__picked {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: var(--form-field-height);
+        padding: 6px 12px;
+        border: 1px solid var(--app-border);
+        border-radius: var(--form-radius);
+        background: var(--brand-tonal-bg);
+      }
+      .ead-typeahead__picked b {
+        display: block;
+        font-size: 13.5px;
+        color: var(--ead-ink);
+      }
+      .ead-typeahead__picked small {
+        display: block;
+        font-size: 12px;
+        color: var(--ead-muted);
+      }
+      .ead-typeahead__clear {
+        flex: none;
+        border: 0;
+        background: transparent;
+        color: var(--brand);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 650;
+        cursor: pointer;
+        padding: 0;
+      }
+      .ead-indicate > app-bracelet-select {
+        min-width: 10.5rem;
       }
       .ead-indicate-row {
         display: flex;
@@ -1843,21 +2409,22 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         outline-offset: 2px;
       }
       .ead-co {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-        margin-top: 10px;
+        display: block;
+        width: 100%;
+        min-width: 0;
       }
       .ead-co__col {
         border: 1px solid var(--ead-line);
         border-radius: var(--ead-r-ctl);
         background: var(--ead-surface);
-        min-height: 220px;
+        min-height: 280px;
+        min-width: 0;
+        width: 100%;
         display: flex;
         flex-direction: column;
       }
       .ead-co__col--on {
-        border-color: #d6c9e6;
+        border-color: var(--app-border);
       }
       .ead-co__head {
         display: flex;
@@ -1879,38 +2446,63 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         color: var(--ead-muted);
       }
       .ead-co__search {
-        margin: 8px 12px 0;
-        height: 36px;
-        border: 1px solid var(--ead-line);
-        border-radius: 8px;
-        padding: 0 10px;
-        font: inherit;
-        font-size: 13px;
-        color: var(--ead-ink);
+        display: block;
+        width: calc(100% - 24px);
+        box-sizing: border-box;
+        margin: 12px 12px 0;
+        flex: none;
       }
       .ead-co__list {
         list-style: none;
         margin: 0;
         padding: 8px 0;
-        overflow: auto;
-        max-height: 280px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        flex: 1;
+        max-height: 360px;
+        min-width: 0;
       }
       .ead-co__list li {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 10px;
-        padding: 8px 12px;
+        gap: 16px;
+        padding: 10px 16px;
+        min-width: 0;
+      }
+      .ead-co__list li + li {
+        border-top: 1px solid var(--ead-line-soft);
+      }
+      .ead-co__item--on {
+        background: var(--brand-tonal-bg);
+      }
+      .ead-co__info {
+        flex: 1;
+        min-width: 0;
       }
       .ead-co__list b {
         display: block;
         font-size: 13.5px;
         color: var(--ead-ink);
+        overflow-wrap: anywhere;
       }
       .ead-co__list small {
         display: block;
         font-size: 12px;
         color: var(--ead-muted);
+        overflow-wrap: anywhere;
+      }
+      .ead-co__list .ead-btn {
+        flex: 0 0 auto;
+        min-width: 92px;
+      }
+      .ead-btn--remove {
+        color: var(--danger);
+        border-color: var(--danger-border);
+        background: var(--danger-soft-bg);
+      }
+      .ead-btn--remove:hover {
+        border-color: var(--danger);
       }
       .ead-co__empty {
         margin: auto;
@@ -1993,6 +2585,9 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         .ead-hero__row {
           flex-direction: column;
         }
+        .ead-hero__facts-grid {
+          grid-template-columns: 1fr;
+        }
         .ead-kpis {
           grid-template-columns: repeat(2, 1fr);
         }
@@ -2016,14 +2611,20 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
           padding: 8px 0;
         }
         .ead-acoes {
-          text-align: left;
+          justify-content: flex-start;
         }
         .ead-edit__grid,
         .ead-edit__times,
         .ead-indicate,
-        .ead-indicate--internal,
-        .ead-co {
+        .ead-indicate--internal {
           grid-template-columns: 1fr;
+        }
+        .ead-tablebar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .ead-tablebar .form-select {
+          max-width: none;
         }
       }
     `,
@@ -2053,6 +2654,12 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   readonly selectedBracelets = signal<Set<number>>(new Set());
   readonly selectedInternalBracelets = signal<Set<number>>(new Set());
   readonly selectedCompanyIds = signal<Set<number>>(new Set());
+  readonly selectedSectorIds = signal<Set<number>>(new Set());
+  readonly catalogSectors = signal<{ id: number; nome: string }[]>([]);
+  readonly showAddCompanies = signal(false);
+  readonly addCompaniesSetor = signal<AccreditationSector | null>(null);
+  readonly addCompanySearch = signal('');
+  readonly addSelectedCompanyIds = signal<Set<number>>(new Set());
   readonly editCompanySearch = signal('');
   readonly editInternalEnabled = signal(false);
   readonly editName = signal('');
@@ -2065,13 +2672,97 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   readonly pickedInternals = signal<number[]>([]);
   readonly companyFilter = signal<'all' | 'pending' | 'empty'>('all');
   readonly companyQuery = signal('');
+  readonly sectorsExpanded = signal(false);
+  readonly heroSetorLimit = 4;
   bulkInternalBracelet: number | null = null;
   bulkCompanyBracelet: Record<number, number | null> = {};
+  readonly showBulkModal = signal(false);
+  readonly bulkCompany = signal<AccreditationCompany | null>(null);
   readonly reasonFor = signal<{ companyId: number; ids: number[]; target?: 'company' | 'internal' } | null>(null);
+
+  accreditationBulkAdapter: BulkImportApiAdapter = {
+    downloadTemplate: () => {
+      const ev = this.item();
+      const company = this.bulkCompany();
+      if (!ev || !company) throw new Error('Contexto inválido');
+      return this.service.downloadCompanyBulkTemplate(ev.id_event_accreditation, company.id_company);
+    },
+    preview: (file: File) => {
+      const ev = this.item();
+      const company = this.bulkCompany();
+      if (!ev || !company) throw new Error('Contexto inválido');
+      return this.service.bulkImportPreview(ev.id_event_accreditation, company.id_company, file);
+    },
+    confirm: (previewToken, decisoes) => {
+      const ev = this.item();
+      const company = this.bulkCompany();
+      if (!ev || !company) throw new Error('Contexto inválido');
+      return this.service.bulkImportConfirm(
+        ev.id_event_accreditation,
+        company.id_company,
+        previewToken,
+        decisoes,
+      );
+    },
+    templateFilename: 'template-credenciamento-evento-colaboradores.xlsx',
+    confirmLabel: 'Importar indicações',
+  };
   pickInternalBracelet: number | null = null;
 
   isInternalOnlyView(ev: EventAccreditationItem): boolean {
     return !ev.can_manage && !ev.can_decide && !(ev.companies || []).length;
+  }
+
+  companyRoleOptions(company: AccreditationCompany): { id: number; label: string }[] {
+    const seen = new Map<number, string>();
+    for (const c of company.collaborators || []) {
+      if (!c.id_collaborator_role || seen.has(c.id_collaborator_role)) continue;
+      seen.set(c.id_collaborator_role, c.role_description || `Função ${c.id_collaborator_role}`);
+    }
+    return [...seen.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+  }
+
+  companyBraceletOptions(company: AccreditationCompany): BraceletType[] {
+    const ev = this.item();
+    const byId = new Map<number, BraceletType>();
+    for (const b of ev?.bracelet_types || this.bracelets()) {
+      byId.set(b.id_bracelet_type, b);
+    }
+    for (const c of company.collaborators || []) {
+      if (!c.id_bracelet_type || byId.has(c.id_bracelet_type)) continue;
+      byId.set(c.id_bracelet_type, {
+        id_bracelet_type: c.id_bracelet_type,
+        name: c.bracelet_name,
+        event_kind: c.bracelet_kind,
+        icon: c.bracelet_icon,
+        color: c.bracelet_color,
+        ativo: true,
+      });
+    }
+    return [...byId.values()];
+  }
+
+  filteredCollaborators(company: AccreditationCompany): AccreditationCollaborator[] {
+    const roleId = this.filterRole[company.id_company] ?? null;
+    const braceletId = this.filterBracelet[company.id_company] ?? null;
+    const q = this.companyQuery().trim().toLowerCase();
+    const companyName = `${company.fancy_name || ''} ${company.company_name}`.toLowerCase();
+    const filterByPerson = !!q && !companyName.includes(q);
+    return (company.collaborators || []).filter((c) => {
+      if (roleId != null && c.id_collaborator_role !== roleId) return false;
+      if (braceletId != null && c.id_bracelet_type !== braceletId) return false;
+      if (filterByPerson) {
+        const name = (c.collaborator_name || '').toLowerCase();
+        const doc = (c.collaborator_document || '').toLowerCase();
+        const digits = (c.collaborator_document || '').replace(/\D/g, '');
+        const qDigits = q.replace(/\D/g, '');
+        const docHit = doc.includes(q) || (qDigits.length >= 3 && digits.includes(qDigits));
+        if (!name.includes(q) && !docHit) return false;
+      }
+      return true;
+    });
   }
 
   filteredCompanies(ev: EventAccreditationItem): AccreditationCompany[] {
@@ -2109,6 +2800,65 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     return this.isInternalOnlyView(ev) ? ev.internal_bracelet_types || [] : ev.bracelet_types || [];
   }
 
+  braceletColor(b: BraceletType): string {
+    return normalizeBraceletColor(b.color);
+  }
+
+  showHeroMenu(ev: EventAccreditationItem): boolean {
+    return !!(ev.can_manage || ev.can_delete);
+  }
+
+  pendingChipLabel(ev: EventAccreditationItem): string {
+    const n = this.pendingTotal(ev);
+    if (!n) return 'Nada pendente';
+    return n === 1 ? '1 pendente' : `${n} pendentes`;
+  }
+
+  prazoHeroLabel(ev: EventAccreditationItem): string {
+    if (!ev.inscription_end) return '';
+    const fim = new Date(ev.inscription_end).getTime();
+    if (Number.isNaN(fim)) return '';
+    return this.now() > fim ? 'encerrado' : 'aberta';
+  }
+
+  heroSetores(ev: EventAccreditationItem): AccreditationSector[] {
+    if (ev.setores?.length) return ev.setores;
+    if (ev.id_setor || ev.setor_nome) {
+      return [
+        {
+          id_setor: ev.id_setor || 0,
+          nome: ev.setor_nome || '—',
+          approvers_count: ev.setor_approvers_count ?? 0,
+        },
+      ];
+    }
+    return [];
+  }
+
+  visibleHeroSetores(ev: EventAccreditationItem): AccreditationSector[] {
+    const all = this.heroSetores(ev);
+    if (this.sectorsExpanded() || all.length <= this.heroSetorLimit) return all;
+    return all.slice(0, this.heroSetorLimit);
+  }
+
+  hiddenHeroSetoresCount(ev: EventAccreditationItem): number {
+    return Math.max(0, this.heroSetores(ev).length - this.heroSetorLimit);
+  }
+
+  toggleHeroSetores(): void {
+    this.sectorsExpanded.update((open) => !open);
+  }
+
+  setoresCountLabel(ev: EventAccreditationItem): string {
+    const n = this.heroSetores(ev).length;
+    if (!n) return 'Nenhum setor';
+    return `${n} setor${n === 1 ? '' : 'es'}`;
+  }
+
+  setoresSummary(ev: EventAccreditationItem): string {
+    return `${this.setoresCountLabel(ev)} · ${this.approversLabel(ev)}`;
+  }
+
   statusChip(status?: number | null): string {
     const st = Number(status);
     if (st === 3) return 'ok';
@@ -2127,18 +2877,39 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   readonly blockReasons = BLOCK_REASONS;
 
   search: Record<number, string> = {};
-  searchResults: Record<number, CollaboratorItem[]> = {};
+  readonly searchResults = signal<Record<number, CollaboratorItem[]>>({});
+  readonly searching = signal<Record<number, boolean>>({});
+  readonly pickedSearchItem = signal<Record<number, CollaboratorItem | null>>({});
   pickCollaborator: Record<number, number | null> = {};
-  pickRole: Record<number, number | null> = {};
+  readonly pickRole = signal<Record<number, number | null>>({});
   pickBracelet: Record<number, number | null> = {};
+  filterRole: Record<number, number | null> = {};
+  filterBracelet: Record<number, number | null> = {};
+  readonly formatCpf = formatCpf;
+  private readonly searchDebounceMs = 500;
   private searchTimers: Record<number, ReturnType<typeof setTimeout> | undefined> = {};
   private nowTimer: ReturnType<typeof setInterval> | undefined;
+  private routeSub?: Subscription;
 
   readonly formatDateBr = formatDateBr;
   readonly formatEventDatesBr = formatEventDatesBr;
   readonly formatDateTimeBr = formatDateTimeBr;
   readonly kindLabel = kindLabel;
   readonly formatIsoBr = formatIsoBr;
+
+  canAddCollaborators(ev: EventAccreditationItem, company: AccreditationCompany): boolean {
+    if (!ev.ativo || !ev.inscription_open) return false;
+    return !!company.can_indicate || !!ev.can_manage;
+  }
+
+  canEditCompanyBracelet(
+    ev: EventAccreditationItem,
+    company: AccreditationCompany,
+    c: AccreditationCollaborator,
+  ): boolean {
+    if (!this.isPending(c)) return false;
+    return !!company.can_decide || this.canAddCollaborators(ev, company);
+  }
 
   isPending(c: AccreditationCollaborator | number): boolean {
     return isCollaboratorPending(typeof c === 'number' ? c : c.id_access_status);
@@ -2164,24 +2935,29 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    const id = Number(this.route.snapshot.paramMap.get('id'));
-    if (!Number.isInteger(id) || id <= 0) {
-      void this.router.navigate(['/admin/credenciamento-eventos']);
-      return;
-    }
     this.collaborators.listRoles().subscribe({
       next: (res) => this.roles.set(res.roles || []),
     });
-    this.carregar(id);
+    this.routeSub = this.route.paramMap.subscribe((params) => {
+      const id = Number(params.get('id'));
+      if (!Number.isInteger(id) || id <= 0) {
+        void this.router.navigate(['/admin/credenciamento-eventos']);
+        return;
+      }
+      this.carregar(id);
+    });
     this.nowTimer = setInterval(() => this.now.set(Date.now()), 60_000);
   }
 
   ngOnDestroy(): void {
+    this.routeSub?.unsubscribe();
     if (this.nowTimer) clearInterval(this.nowTimer);
     this.revokeEditCoverObjectUrl();
   }
 
   carregar(id: number): void {
+    this.sectorsExpanded.set(false);
+    this.editing.set(false);
     this.loading.set(true);
     this.service.get(id).subscribe({
       next: (res) => {
@@ -2193,6 +2969,95 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
         this.notification.notifyHttpError(err, 'Falha ao carregar credenciamento.');
         void this.router.navigate(['/admin/credenciamento-eventos']);
       },
+    });
+  }
+
+  duplicarCredenciamento(): void {
+    const ev = this.item();
+    if (!ev?.can_manage) return;
+    Swal.fire({
+      title: 'Duplicar evento?',
+      text: `Uma cópia de "${ev.name}" será criada com as mesmas datas, setores e pulseiras. Empresas e indicações não são copiadas.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Duplicar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor:
+        getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#1d54e6',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.acting.set(true);
+      this.service.duplicate(ev.id_event_accreditation).subscribe({
+        next: (res) => {
+          this.acting.set(false);
+          this.notification.success('Credenciamento duplicado.');
+          void this.router.navigate([
+            '/admin/credenciamento-eventos',
+            res.item.id_event_accreditation,
+          ]);
+        },
+        error: (err) => {
+          this.acting.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao duplicar credenciamento.');
+        },
+      });
+    });
+  }
+
+  excluirCredenciamento(): void {
+    const ev = this.item();
+    if (!ev || !(ev.can_delete || ev.can_manage)) return;
+    Swal.fire({
+      title: 'Excluir credenciamento?',
+      text: `Excluir "${ev.name}" apaga empresas, indicações, convites e aprovações ligadas. Esta ação não pode ser desfeita.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Excluir',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#dc2626',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.acting.set(true);
+      this.service.remove(ev.id_event_accreditation).subscribe({
+        next: () => {
+          this.acting.set(false);
+          this.notification.success('Credenciamento excluído.');
+          void this.router.navigate(['/admin/credenciamento-eventos']);
+        },
+        error: (err) => {
+          this.acting.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao excluir credenciamento.');
+        },
+      });
+    });
+  }
+
+  removerEmpresa(company: AccreditationCompany): void {
+    const ev = this.item();
+    if (!ev || !company.can_remove || company.id_setor == null) return;
+    const nome = company.fancy_name || company.company_name;
+    Swal.fire({
+      title: 'Remover empresa?',
+      text: `Remover "${nome}" deste setor também apaga os colaboradores pendentes. Só é possível enquanto a indicação ainda não foi enviada.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Remover',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#dc2626',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.acting.set(true);
+      this.service.removeSectorCompany(ev.id_event_accreditation, company.id_setor!, company.id_company).subscribe({
+        next: (res) => {
+          this.acting.set(false);
+          this.applyItem(res.item);
+          this.notification.success('Empresa removida do setor.');
+        },
+        error: (err) => {
+          this.acting.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao remover empresa.');
+        },
+      });
     });
   }
 
@@ -2235,7 +3100,8 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   pendingTotal(ev: EventAccreditationItem): number {
     const companies = (ev.companies || []).reduce((acc, c) => acc + this.countPending(c), 0);
-    return companies + this.countInternalPending(ev);
+    const internals = ev.can_decide_internal ? this.countInternalPending(ev) : 0;
+    return companies + internals;
   }
 
   hasCompaniesInIndication(ev: EventAccreditationItem): boolean {
@@ -2306,21 +3172,34 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     return `${n} aprovador${n === 1 ? '' : 'es'} habilitado${n === 1 ? '' : 's'}`;
   }
 
+  setoresLabel(ev: EventAccreditationItem): string {
+    const names = (ev.setores || []).map((s) => s.nome).filter(Boolean);
+    if (names.length) return names.join(', ');
+    return ev.setor_nome || '—';
+  }
+
+  companiesOfSector(ev: EventAccreditationItem, idSetor: number): AccreditationCompany[] {
+    return (ev.companies || []).filter((c) => Number(c.id_setor) === Number(idSetor));
+  }
+
+  companySectorCanNotify(ev: EventAccreditationItem, company: AccreditationCompany): boolean {
+    const setor = (ev.setores || []).find((s) => Number(s.id_setor) === Number(company.id_setor));
+    return !!setor?.can_notify_companies;
+  }
+
   prazoPct(ev: EventAccreditationItem): number {
-    this.now();
+    const now = this.now();
     const ini = ev.inscription_start ? new Date(ev.inscription_start).getTime() : 0;
     const fim = ev.inscription_end ? new Date(ev.inscription_end).getTime() : 0;
     if (!ini || !fim || fim <= ini) return ev.inscription_open ? 0 : 100;
-    const now = Date.now();
-    return Math.min(100, Math.max(0, ((now - ini) / (fim - ini)) * 100));
+    return Math.min(100, Math.max(0, Math.round(((now - ini) / (fim - ini)) * 100)));
   }
 
   prazoLabel(ev: EventAccreditationItem): string {
-    this.now();
     if (!ev.inscription_end) return '—';
     const fim = new Date(ev.inscription_end).getTime();
     if (Number.isNaN(fim)) return '—';
-    const now = Date.now();
+    const now = this.now();
     if (now > fim) return 'Indicações encerradas';
     const h = Math.floor((fim - now) / 36e5);
     if (h > 24) return `Aberta · faltam ${Math.floor(h / 24)} dia(s)`;
@@ -2495,7 +3374,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     const ev = this.item();
     if (!ev) return;
     const companyIds = (ev.companies || []).flatMap((c) => this.pendingIds(c));
-    const internalIds = this.pendingInternalIds(ev);
+    const internalIds = ev.can_decide_internal ? this.pendingInternalIds(ev) : [];
     if (!companyIds.length && !internalIds.length) return;
     void this.confirmAndDecide(
       `Aprovar ${companyIds.length + internalIds.length} colaborador(es) pendentes?`,
@@ -2529,6 +3408,11 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
       return;
     }
     if (internalIds.length) this.decidir(internalIds, action, undefined, undefined, 'internal');
+  }
+
+  onPickBracelet(target: 'company' | 'internal', idOrIds: number | number[], idBracelet: number | null): void {
+    if (idBracelet == null) return;
+    this.trocarPulseira(target, idOrIds, idBracelet);
   }
 
   trocarPulseira(target: 'company' | 'internal', idOrIds: number | number[], idBracelet: number): void {
@@ -2763,7 +3647,14 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
       new Set((ev.internal_bracelet_types || []).map((b) => b.id_bracelet_type)),
     );
     this.selectedCompanyIds.set(new Set((ev.companies || []).map((c) => c.id_company)));
+    this.selectedSectorIds.set(
+      new Set((ev.setores || []).map((s) => s.id_setor).filter((id): id is number => !!id)),
+    );
     this.editCompanySearch.set('');
+    this.service.listSectors().subscribe({
+      next: (res) => this.catalogSectors.set(res.sectors || []),
+      error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar setores.'),
+    });
     this.service.listBraceletTypes({ event_kind: ev.event_kind }).subscribe({
       next: (res) => this.catalogBracelets.set(res.types || []),
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar tipos de pulseira.'),
@@ -2923,10 +3814,17 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
       this.insTimeStart &&
       this.insTimeEnd &&
       this.selectedBracelets().size > 0 &&
-      this.selectedCompanyIds().size > 0 &&
+      this.selectedSectorIds().size > 0 &&
       (!this.editInternalEnabled() || this.selectedInternalBracelets().size > 0) &&
       !this.dateConflict()
     );
+  }
+
+  toggleEditSector(id: number): void {
+    const next = new Set(this.selectedSectorIds());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.selectedSectorIds.set(next);
   }
 
   lockedCompanyIds(): Set<number> {
@@ -3003,7 +3901,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     if (!ev || !this.canSaveEdit()) {
       this.notification.error(
         this.dateConflict() ||
-          'Preencha o nome, a janela, o dia do evento, ao menos uma pulseira e uma empresa.',
+          'Preencha o nome, a janela, o dia do evento, ao menos uma pulseira e um setor.',
       );
       return;
     }
@@ -3025,7 +3923,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
         inscription_start: inscriptionStart,
         inscription_end: inscriptionEnd,
         bracelet_types: [...this.selectedBracelets()],
-        companies: [...this.selectedCompanyIds()],
+        setores: [...this.selectedSectorIds()],
         internal_enabled: this.editInternalEnabled(),
         internal_bracelet_types: this.editInternalEnabled()
           ? [...this.selectedInternalBracelets()]
@@ -3062,26 +3960,131 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     this.notification.success('Credenciamento atualizado.');
   }
 
-  buscarColaboradores(idCompany: number): void {
+  buscarColaboradores(company: AccreditationCompany): void {
+    const idCompany = company.id_company;
     const q = (this.search[idCompany] || '').trim();
+    this.pickCollaborator[idCompany] = null;
+    this.patchPickedSearchItem(idCompany, null);
     if (this.searchTimers[idCompany]) clearTimeout(this.searchTimers[idCompany]);
-    this.searchTimers[idCompany] = setTimeout(() => {
-      this.collaborators.list(1, 20, { q, status: true }).subscribe({
-        next: (res) => {
-          this.searchResults[idCompany] = res.collaborators || [];
-        },
-      });
-    }, 250);
+    if (q.length < 2) {
+      this.patchSearching(idCompany, false);
+      this.patchSearchResults(idCompany, []);
+      return;
+    }
+    this.patchSearching(idCompany, true);
+    this.searchTimers[idCompany] = setTimeout(
+      () => this.loadCompanyCollaborators(company, q),
+      this.searchDebounceMs,
+    );
+  }
+
+  selecionarColaboradorBusca(company: AccreditationCompany, item: CollaboratorItem): void {
+    if (item.is_blocklisted) {
+      this.notification.error(formatBlocklistNotice(item));
+      return;
+    }
+    const idCompany = company.id_company;
+    this.patchPickedSearchItem(idCompany, item);
+    this.pickCollaborator[idCompany] = item.id_collaborator;
+    this.applyCollaboratorRole(idCompany, item);
+    this.search[idCompany] = '';
+    this.patchSearchResults(idCompany, []);
+    this.patchSearching(idCompany, false);
+  }
+
+  limparColaboradorBusca(company: AccreditationCompany): void {
+    const idCompany = company.id_company;
+    this.patchPickedSearchItem(idCompany, null);
+    this.pickCollaborator[idCompany] = null;
+    this.search[idCompany] = '';
+    this.patchSearchResults(idCompany, []);
+  }
+
+  private patchSearching(idCompany: number, value: boolean): void {
+    this.searching.update((m) => ({ ...m, [idCompany]: value }));
+  }
+
+  private patchSearchResults(idCompany: number, rows: CollaboratorItem[]): void {
+    this.searchResults.update((m) => ({ ...m, [idCompany]: rows }));
+  }
+
+  private patchPickedSearchItem(idCompany: number, item: CollaboratorItem | null): void {
+    this.pickedSearchItem.update((m) => ({ ...m, [idCompany]: item }));
+  }
+
+  setPickRole(idCompany: number, roleId: number | null): void {
+    this.pickRole.update((m) => ({ ...m, [idCompany]: roleId }));
+  }
+
+  private collaboratorRoleId(item: CollaboratorItem): number | null {
+    const raw = item.id_collaborator_role ?? item.role?.id_collaborator_role;
+    const id = Number(raw);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }
+
+  private applyCollaboratorRole(idCompany: number, item: CollaboratorItem): void {
+    const roleId = this.collaboratorRoleId(item);
+    this.setPickRole(idCompany, roleId);
+    const label = item.role?.description?.trim();
+    if (!roleId || !label) return;
+    if (this.roles().some((r) => Number(r.id_collaborator_role) === roleId)) return;
+    this.roles.update((list) => [...list, { id_collaborator_role: roleId, description: label }]);
+  }
+
+  private loadCompanyCollaborators(company: AccreditationCompany, q: string): void {
+    const idCompany = company.id_company;
+    const taken = new Set((company.collaborators || []).map((c) => Number(c.id_collaborator)));
+    const apply = (rows: CollaboratorItem[]) => {
+      if ((this.search[idCompany] || '').trim() !== q) return;
+      this.patchSearching(idCompany, false);
+      this.patchSearchResults(
+        idCompany,
+        (rows || []).filter((c) => !taken.has(Number(c.id_collaborator))),
+      );
+    };
+    this.collaborators.searchByTerm(q).subscribe({
+      next: (res) => apply(res.results || []),
+      error: (err) => {
+        this.collaborators.list(1, 20, { q, status: true }).subscribe({
+          next: (res) => apply(res.collaborators || []),
+          error: (err2) => {
+            this.patchSearching(idCompany, false);
+            this.patchSearchResults(idCompany, []);
+            this.notification.notifyHttpError(err2 || err, 'Falha ao buscar colaboradores.');
+          },
+        });
+      },
+    });
+  }
+
+  abrirBulkImport(company: AccreditationCompany): void {
+    this.bulkCompany.set(company);
+    this.showBulkModal.set(true);
+  }
+
+  fecharBulkModal(): void {
+    this.showBulkModal.set(false);
+    this.bulkCompany.set(null);
+  }
+
+  onBulkCompleted(): void {
+    const ev = this.item();
+    if (ev) this.carregar(ev.id_event_accreditation);
   }
 
   adicionar(company: AccreditationCompany): void {
     const ev = this.item();
     if (!ev) return;
     const idCollaborator = this.pickCollaborator[company.id_company];
-    const idRole = this.pickRole[company.id_company];
+    const idRole = this.pickRole()[company.id_company];
     const idBracelet = this.pickBracelet[company.id_company];
     if (!idCollaborator || !idRole || !idBracelet) {
       this.notification.error('Selecione colaborador, função e pulseira.');
+      return;
+    }
+    const picked = this.pickedSearchItem()[company.id_company];
+    if (picked?.is_blocklisted) {
+      this.notification.error(formatBlocklistNotice(picked));
       return;
     }
     this.acting.set(true);
@@ -3095,12 +4098,14 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.acting.set(false);
           this.applyItem(res.item);
-          this.pickCollaborator[company.id_company] = null;
+          this.limparColaboradorBusca(company);
           this.notification.success('Colaborador indicado.');
         },
         error: (err) => {
           this.acting.set(false);
-          this.notification.notifyHttpError(err, 'Falha ao indicar colaborador.');
+          this.notification.error(
+            extractBlocklistNotice(err) || this.notification.extractErrorMessage(err, 'Falha ao indicar colaborador.'),
+          );
         },
       });
   }
@@ -3134,6 +4139,117 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
       error: (err) => {
         this.acting.set(false);
         this.notification.notifyHttpError(err, 'Falha ao concluir indicação.');
+      },
+    });
+  }
+
+  abrirAddEmpresas(setor: AccreditationSector): void {
+    this.addCompaniesSetor.set(setor);
+    this.addSelectedCompanyIds.set(new Set());
+    this.addCompanySearch.set('');
+    this.showAddCompanies.set(true);
+    if (!this.catalogCompanies().length) {
+      this.service.listCompanies().subscribe({
+        next: (res) => this.catalogCompanies.set(res.companies || []),
+        error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
+      });
+    }
+  }
+
+  fecharAddEmpresas(): void {
+    this.showAddCompanies.set(false);
+    this.addCompaniesSetor.set(null);
+  }
+
+  availableAddCompanies(): AccreditationCompanyBrief[] {
+    const ev = this.item();
+    const taken = new Set((ev?.companies || []).map((c) => c.id_company));
+    const q = this.addCompanySearch().trim().toLowerCase();
+    const selected = this.addSelectedCompanyIds();
+    return this.catalogCompanies().filter((c) => {
+      if (taken.has(c.id_company) && !selected.has(c.id_company)) return false;
+      if (!q) return true;
+      return `${c.fancy_name || ''} ${c.company_name} ${c.cnpj || ''}`.toLowerCase().includes(q);
+    });
+  }
+
+  toggleAddCompany(id: number): void {
+    const next = new Set(this.addSelectedCompanyIds());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.addSelectedCompanyIds.set(next);
+  }
+
+  confirmarAddEmpresas(): void {
+    const ev = this.item();
+    const setor = this.addCompaniesSetor();
+    if (!ev || !setor) return;
+    const ids = [...this.addSelectedCompanyIds()];
+    if (!ids.length) return;
+    this.acting.set(true);
+    this.service.addSectorCompanies(ev.id_event_accreditation, setor.id_setor, ids).subscribe({
+      next: (res) => {
+        this.acting.set(false);
+        this.applyItem(res.item);
+        this.fecharAddEmpresas();
+        this.notification.success(
+          res.added ? `${res.added} empresa(s) convidada(s).` : 'Nenhuma empresa nova foi incluída.',
+        );
+      },
+      error: (err) => {
+        this.acting.set(false);
+        this.notification.notifyHttpError(err, 'Falha ao adicionar empresas.');
+      },
+    });
+  }
+
+  reenviarConvitesSetor(setor: AccreditationSector): void {
+    const ev = this.item();
+    if (!ev) return;
+    this.acting.set(true);
+    this.service.notifySectorCompanies(ev.id_event_accreditation, setor.id_setor).subscribe({
+      next: (res) => {
+        this.acting.set(false);
+        this.applyItem(res.item);
+        this.notification.success(`Convites reenviados (${res.sent} e-mail(s)).`);
+      },
+      error: (err) => {
+        this.acting.set(false);
+        this.notification.notifyHttpError(err, 'Falha ao reenviar convites.');
+      },
+    });
+  }
+
+  reenviarAvisoSetor(company: AccreditationCompany): void {
+    const ev = this.item();
+    if (!ev) return;
+    this.acting.set(true);
+    this.service.notifySectorIndication(ev.id_event_accreditation, company.id_company).subscribe({
+      next: (res) => {
+        this.acting.set(false);
+        this.applyItem(res.item);
+        this.notification.success('Setor notificado novamente.');
+      },
+      error: (err) => {
+        this.acting.set(false);
+        this.notification.notifyHttpError(err, 'Falha ao notificar o setor.');
+      },
+    });
+  }
+
+  reenviarAvisoResponsavel(company: AccreditationCompany): void {
+    const ev = this.item();
+    if (!ev) return;
+    this.acting.set(true);
+    this.service.notifyOwnerValidated(ev.id_event_accreditation, company.id_company).subscribe({
+      next: (res) => {
+        this.acting.set(false);
+        this.applyItem(res.item);
+        this.notification.success('Responsável notificado novamente.');
+      },
+      error: (err) => {
+        this.acting.set(false);
+        this.notification.notifyHttpError(err, 'Falha ao notificar o responsável.');
       },
     });
   }

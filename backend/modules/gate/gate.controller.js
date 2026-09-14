@@ -65,7 +65,9 @@ exports.validateEvent = async (req, res, next) => {
     const actionEvent =
       result.data.action_registered === "CHECK_IN"
         ? "gate.event.check_in"
-        : "gate.event.check_out";
+        : result.data.action_registered === "CHECK_OUT"
+          ? "gate.event.check_out"
+          : "gate.event.release_access";
 
     attachAudit(req, {
       action: "UPDATE",
@@ -183,7 +185,9 @@ exports.validateService = async (req, res, next) => {
     const actionEvent =
       result.data.action_registered === "CHECK_IN"
         ? "gate.service.check_in"
-        : "gate.service.check_out";
+        : result.data.action_registered === "CHECK_OUT"
+          ? "gate.service.check_out"
+          : "gate.service.release_access";
 
     attachAudit(req, {
       action: "UPDATE",

@@ -63,6 +63,7 @@ function toMaskedCollaborator(row, { isBlocklisted = false } = {}) {
   const typeDesc = row.document_type_description ?? row.document_type?.description ?? "";
   return {
     id_collaborator: row.id_collaborator,
+    id_collaborator_role: row.id_collaborator_role ?? row.role?.id_collaborator_role ?? null,
     name: row.name,
     document: maskDocument(row.document, typeDesc),
     phone: maskPhone(row.phone),

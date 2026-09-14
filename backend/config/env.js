@@ -1,5 +1,14 @@
 const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, "../.env") });
+
+const envFilePath = path.join(__dirname, "../.env");
+const dotenvResult = require("dotenv").config({ path: envFilePath });
+if (dotenvResult.parsed) {
+  for (const [key, value] of Object.entries(dotenvResult.parsed)) {
+    if (!String(process.env[key] ?? "").trim() && String(value ?? "").trim()) {
+      process.env[key] = value;
+    }
+  }
+}
 
 const { parseIpList } = require("../utils/facialPeerIps");
 
@@ -120,8 +129,8 @@ const env = {
   rateLimitMicrosoftAuthMax: Number(process.env.RATE_LIMIT_MICROSOFT_AUTH_MAX) || 40,
   /** Cron: sincronizar usuários do Azure AD (true/false). */
   adUsersSyncEnabled: String(process.env.AD_USERS_SYNC_ENABLED || "true").toLowerCase() === "true",
-  /** Expressão cron (padrão: todo dia às 02:00). */
-  adUsersSyncCron: process.env.AD_USERS_SYNC_CRON || "0 2 * * *",
+  /** Expressão cron (padrão: a cada hora, no minuto 0). */
+  adUsersSyncCron: process.env.AD_USERS_SYNC_CRON || "0 * * * *",
   /** Timezone IANA para a cron (ex.: America/Sao_Paulo). */
   adUsersSyncTimezone: process.env.AD_USERS_SYNC_TIMEZONE || "America/Sao_Paulo",
   /** Cron: arquivar audit_logs antigos (true/false). */

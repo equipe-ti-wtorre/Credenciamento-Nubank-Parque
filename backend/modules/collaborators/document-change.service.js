@@ -14,11 +14,8 @@ async function hasCollaboratorHistory(idCollaborator) {
     [idCollaborator],
   );
   if (cred.length > 0) return true;
-  const [bl] = await db.execute(
-    `SELECT 1 FROM collaborator_block_list WHERE id_collaborator = ? LIMIT 1`,
-    [idCollaborator],
-  );
-  return bl.length > 0;
+  const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
+  return blocklistPolicy.checkBlocklist(idCollaborator);
 }
 
 async function findCollaboratorRow(id) {

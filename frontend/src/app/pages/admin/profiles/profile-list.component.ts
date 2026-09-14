@@ -7,6 +7,7 @@ import {
   ModulesCatalog,
   ProfilePermission,
   ProfileService,
+  ProfileUser,
 } from '../../../services/profile.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { AuthService, hasPermission } from '../../../core/services/auth.service';
@@ -162,6 +163,39 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
           Exige empresa vinculada ao usuário
         </label>
 
+        <div *ngIf="editingProfile" class="mb-4">
+          <div class="flex items-center justify-between mb-2">
+            <label class="form-label mb-0">Usuários neste perfil</label>
+            <span *ngIf="!loadingUsers" class="text-xs text-slate-500">{{ profileUsers.length }}</span>
+          </div>
+          <p *ngIf="loadingUsers" class="text-sm text-slate-500 py-2">Carregando usuários...</p>
+          <p *ngIf="!loadingUsers && profileUsers.length === 0" class="text-sm text-slate-500 py-2">
+            Nenhum usuário vinculado a este perfil.
+          </p>
+          <ul
+            *ngIf="!loadingUsers && profileUsers.length > 0"
+            class="border border-[var(--app-border)] rounded-xl overflow-y-auto max-h-48 divide-y divide-slate-100"
+            role="list"
+          >
+            <li *ngFor="let u of profileUsers" class="flex items-center gap-3 px-3 py-2">
+              <span
+                class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-xs font-semibold text-slate-600"
+                aria-hidden="true"
+              >
+                {{ iniciais(u.nome_completo) }}
+              </span>
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate">{{ u.nome_completo }}</p>
+                <p class="text-xs text-slate-500 truncate">
+                  {{ u.email }}
+                  <ng-container *ngIf="u.departamento"> · {{ u.departamento }}</ng-container>
+                  <ng-container *ngIf="u.company_nome"> · {{ u.company_nome }}</ng-container>
+                </p>
+              </div>
+            </li>
+          </ul>
+        </div>
+
         <div class="mb-3 flex flex-wrap gap-2">
           <button type="button" class="btn-secondary text-xs py-1 px-3" (click)="marcarTodasAcoes('view')">
             Marcar todos: Visualizar
@@ -239,6 +273,8 @@ export class ProfileListComponent {
   formDescricao = '';
   formRequiresCompany = false;
   selectedPermissions = new Set<string>();
+  profileUsers: ProfileUser[] = [];
+  loadingUsers = false;
 
   constructor() {
     void this.init();
@@ -280,10 +316,51 @@ export class ProfileListComponent {
     this.formDescricao = '';
     this.formRequiresCompany = false;
     this.selectedPermissions = new Set([permissionKey('dashboard', 'view')]);
+    this.profileUsers = [];
+    this.loadingUsers = false;
     this.showModal = true;
   }
 
   editarPerfil(profile: AccessProfile) {
+    this.aplicarPerfilNoForm(profile);
+    this.profileUsers = [];
+    this.loadingUsers = true;
+    this.showModal = true;
+
+    this.profileService.getById(profile.id).subscribe({
+      next: (res) => {
+        if (this.editingProfile?.id !== profile.id) return;
+        this.aplicarPerfilNoForm(res.profile);
+        this.profileUsers = res.profile.users || [];
+        this.loadingUsers = false;
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        if (this.editingProfile?.id !== profile.id) return;
+        this.loadingUsers = false;
+        this.notification.error(err.error?.message || 'Falha ao carregar usuários do perfil.');
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  fecharModal() {
+    this.showModal = false;
+    this.editingProfile = null;
+    this.profileUsers = [];
+    this.loadingUsers = false;
+  }
+
+  iniciais(nome: string): string {
+    return nome
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((parte) => parte[0].toUpperCase())
+      .join('');
+  }
+
+  private aplicarPerfilNoForm(profile: AccessProfile) {
     this.editingProfile = profile;
     this.formNome = profile.nome;
     this.formDescricao = profile.descricao || '';
@@ -291,12 +368,6 @@ export class ProfileListComponent {
     this.selectedPermissions = new Set(
       profile.permissions.map((p) => permissionKey(p.modulo, p.acao)),
     );
-    this.showModal = true;
-  }
-
-  fecharModal() {
-    this.showModal = false;
-    this.editingProfile = null;
   }
 
   isChecked(module: string, action: PermissionAction): boolean {

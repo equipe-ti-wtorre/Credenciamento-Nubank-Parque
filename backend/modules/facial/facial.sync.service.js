@@ -8,6 +8,8 @@ const jobsService = require("./facial.jobs.service");
 const facialCommand = require("./facial.command.service");
 const serviceBusClient = require("./service-bus.client");
 const enrollmentService = require("./facial.enrollment.service");
+const { STATUS_APROVADO } = require("../credentials/credentials.schema");
+const { existsActiveBlockSql } = require("../collaborator-blocklist/blocklist.policy");
 
 const logger = child({ module: "facial-sync" });
 
@@ -30,6 +32,31 @@ function formatAge(ms) {
   return `${hours} h`;
 }
 
+const RELEASED_TODAY_SQL = `
+  AND (
+    EXISTS (
+      SELECT 1
+        FROM service_access_collaborator sac
+        INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+       WHERE (sac.id_collaborator = c.id_collaborator OR sac.id_substitute = c.id_collaborator)
+         AND sa.status = 1
+         AND sa.id_access_status = ${STATUS_APROVADO}
+         AND DATE(sac.facial_released_at) = CURDATE()
+    )
+    OR EXISTS (
+      SELECT 1
+        FROM event_day_company_collaborator edcc
+        INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+        INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+        INNER JOIN event e ON e.id_event = ed.id_event
+       WHERE (edcc.id_collaborator = c.id_collaborator OR edcc.id_substitute = c.id_collaborator)
+         AND edcc.id_access_status = ${STATUS_APROVADO}
+         AND e.ativo = 1
+         AND DATE(edcc.facial_released_at) = CURDATE()
+    )
+  )
+`;
+
 async function countEligibleCollaborators() {
   const [[row]] = await db.execute(
     `SELECT COUNT(*) AS total
@@ -37,10 +64,8 @@ async function countEligibleCollaborators() {
      WHERE c.status = 1
        AND c.picture IS NOT NULL
        AND TRIM(c.picture) <> ''
-       AND NOT EXISTS (
-         SELECT 1 FROM collaborator_block_list b
-         WHERE b.id_collaborator = c.id_collaborator
-       )`,
+       AND NOT ${existsActiveBlockSql("c.id_collaborator")}
+       ${RELEASED_TODAY_SQL}`,
   );
   return Number(row?.total) || 0;
 }
@@ -52,10 +77,8 @@ async function listEligibleCollaborators() {
      WHERE c.status = 1
        AND c.picture IS NOT NULL
        AND TRIM(c.picture) <> ''
-       AND NOT EXISTS (
-         SELECT 1 FROM collaborator_block_list b
-         WHERE b.id_collaborator = c.id_collaborator
-       )
+       AND NOT ${existsActiveBlockSql("c.id_collaborator")}
+       ${RELEASED_TODAY_SQL}
      ORDER BY c.id_collaborator ASC`,
   );
   return rows;

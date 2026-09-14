@@ -529,7 +529,13 @@ function resolveSectorsPolicy(method, path) {
     return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.CREATE, event: "sectors.create" };
   }
   const sectorMatch = path.match(/\/sectors\/(\d+)(?:\/|$)/);
-  if (method === "PUT" && sectorMatch && !path.includes("/members") && !path.includes("/flows")) {
+  if (
+    method === "PUT" &&
+    sectorMatch &&
+    !path.includes("/members") &&
+    !path.includes("/flows") &&
+    !path.includes("/contacts")
+  ) {
     return {
       module: AUDIT_MODULES.SECTORS,
       action: AUDIT_ACTIONS.UPDATE,
@@ -556,6 +562,22 @@ function resolveSectorsPolicy(method, path) {
   if (method === "PUT" && /\/sectors\/\d+\/flows\/?$/.test(path)) {
     const id = Number(path.match(/\/sectors\/(\d+)\/flows/)[1]);
     return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.UPDATE, event: "sectors.flows.update", resourceId: id };
+  }
+  if (method === "GET" && /\/sectors\/\d+\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.READ, event: "sectors.read", resourceId: id };
+  }
+  if (method === "POST" && /\/sectors\/\d+\/contacts\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)\/contacts/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.CREATE, event: "sectors.contacts.add", resourceId: id };
+  }
+  if (method === "PUT" && /\/sectors\/\d+\/contacts\/\d+\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)\/contacts/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.UPDATE, event: "sectors.contacts.update", resourceId: id };
+  }
+  if (method === "DELETE" && /\/sectors\/\d+\/contacts\/\d+\/?$/.test(path)) {
+    const id = Number(path.match(/\/sectors\/(\d+)\/contacts/)[1]);
+    return { module: AUDIT_MODULES.SECTORS, action: AUDIT_ACTIONS.DEACTIVATE, event: "sectors.contacts.remove", resourceId: id };
   }
   return null;
 }

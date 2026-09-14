@@ -13,6 +13,7 @@ const {
 } = require("../patrimonial/service-access-bulk-import");
 const { validateDocumentByType, validateAndNormalizeCollaboratorPayload } = require("./collaborator.schema");
 const { buildFieldDiffs, pickUpdatePatch } = require("../bulk/diff");
+const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
 const {
   savePreviewSession,
   getPreviewSession,
@@ -39,15 +40,6 @@ function emptyVeiculosAxis() {
     a_vincular: 0,
     ja_vinculados: 0,
   };
-}
-
-async function checkBlocklisted(collaboratorId) {
-  const db = require("../../config/db");
-  const [rows] = await db.execute(
-    "SELECT 1 FROM collaborator_block_list WHERE id_collaborator = ? LIMIT 1",
-    [collaboratorId],
-  );
-  return rows.length > 0;
 }
 
 function buildRoleDivergences(masterRoleId, masterRoleDesc, sheetRoleId, sheetRoleDesc) {
@@ -334,7 +326,8 @@ async function previewUnifiedCollaboratorsBulk(ctx) {
       continue;
     }
 
-    if (await checkBlocklisted(existing.id_collaborator)) {
+    const blockInfo = await blocklistPolicy.getActiveBlock(existing.id_collaborator);
+    if (blockInfo) {
       const row = {
         linha: line,
         cadastro: "erro",
@@ -346,7 +339,7 @@ async function previewUnifiedCollaboratorsBulk(ctx) {
         resolvido: { id_collaborator: existing.id_collaborator },
         divergencias: [],
         divergencias_vinculo: [],
-        erros: ["Colaborador consta na lista de bloqueio."],
+        erros: [blocklistPolicy.formatNotice(blockInfo)],
         nome: existing.name,
       };
       colaboradores.push(row);

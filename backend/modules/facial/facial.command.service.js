@@ -14,7 +14,10 @@ const facialGatewayConfig = require("./facial-gateway-config.service");
 const serviceBusClient = require("./service-bus.client");
 const enrollmentService = require("./facial.enrollment.service");
 const jobsService = require("./facial.jobs.service");
-const { resolveCollaboratorValidDates } = require("./facial.valid-dates");
+const {
+  resolveCollaboratorValidDates,
+  hasPortariaReleaseToday,
+} = require("./facial.valid-dates");
 
 const logger = child({ module: "facial-command" });
 
@@ -98,6 +101,10 @@ async function sendEnroll(collaborator, photoBuffer, options = {}) {
   }
   const id = Number(collaborator.id_collaborator ?? collaborator);
   const dates = await resolveCollaboratorValidDates(id, options);
+  if (!dates?.validDateStart || !dates?.validDateEnd) {
+    logger.debug({ collaboratorId: id }, "Enroll facial ignorado — sem liberação da portaria hoje");
+    return { skipped: true, reason: "not_released_today" };
+  }
   return dispatchCommand({
     type: COMMAND_ENROLL,
     collaborator,
@@ -161,10 +168,35 @@ async function sendEnrollIfEligible(collaborator, reason, options = {}) {
   }
 }
 
+async function revokeUnlessReleasedToday(idCollaborator, reason = "awaiting_portaria_release") {
+  const id = Number(idCollaborator);
+  if (!id) return { skipped: true, reason: "invalid" };
+  if (await hasPortariaReleaseToday(id)) {
+    return { skipped: true, reason: "released_today" };
+  }
+  return sendRevokeSafe(id, reason);
+}
+
+function scheduleRevokeUnlessReleasedToday(ids, reason = "approved_without_portaria") {
+  const unique = [...new Set((Array.isArray(ids) ? ids : [ids]).map(Number).filter(Boolean))];
+  if (!unique.length) return;
+  setImmediate(() => {
+    void (async () => {
+      for (const id of unique) {
+        await revokeUnlessReleasedToday(id, reason);
+      }
+    })().catch((err) => {
+      logger.warn({ err, ids: unique, reason }, "Falha ao revogar facial sem liberação da portaria");
+    });
+  });
+}
+
 module.exports = {
   sendEnroll,
   sendRevoke,
   sendRevokeSafe,
   sendEnrollSafe,
   sendEnrollIfEligible,
+  revokeUnlessReleasedToday,
+  scheduleRevokeUnlessReleasedToday,
 };

@@ -43,6 +43,7 @@ async function loadEntityExtras(aprovacao) {
   let colaboradores = null;
   let colaboradoresNomes = [];
   let colaboradoresCount = null;
+  let id_event_accreditation = null;
   if (aprovacao.tipo_entidade === "ACESSO_SERVICO") {
     const [rows] = await db.query(
       `SELECT start_date, end_date, finalidade FROM service_access WHERE id_service_access = ? LIMIT 1`,
@@ -79,6 +80,7 @@ async function loadEntityExtras(aprovacao) {
       finalidade = `${rows[0].name} — Internos`;
       periodo = formatPeriodoBr(rows[0].start, rows[0].end);
     }
+    id_event_accreditation = Number(aprovacao.id_entidade);
     const [collabRows] = await db.query(
       `SELECT u.nome_completo AS nome
          FROM event_accreditation_internal eai
@@ -93,7 +95,7 @@ async function loadEntityExtras(aprovacao) {
     colaboradores = formatCollaboratorsLabel(names);
   } else if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO") {
     const [rows] = await db.query(
-      `SELECT ea.name, ea.start, ea.end, c.fancy_name, c.company_name
+      `SELECT ea.id_event_accreditation, ea.name, ea.start, ea.end, c.fancy_name, c.company_name
          FROM event_accreditation_company eac
          INNER JOIN event_accreditation ea
            ON ea.id_event_accreditation = eac.id_event_accreditation
@@ -107,6 +109,7 @@ async function loadEntityExtras(aprovacao) {
         .filter(Boolean)
         .join(" — ");
       periodo = formatPeriodoBr(rows[0].start, rows[0].end);
+      id_event_accreditation = Number(rows[0].id_event_accreditation);
     }
     const [collabRows] = await db.query(
       `SELECT c.name AS nome
@@ -121,14 +124,21 @@ async function loadEntityExtras(aprovacao) {
     colaboradoresCount = names.length;
     colaboradores = formatCollaboratorsLabel(names);
   }
-  return { periodo, finalidade, colaboradores, colaboradoresNomes, colaboradoresCount };
+  return {
+    periodo,
+    finalidade,
+    colaboradores,
+    colaboradoresNomes,
+    colaboradoresCount,
+    id_event_accreditation,
+  };
 }
 
 function tipoLabelOf(aprovacao) {
   if (aprovacao.tipo_entidade === "EVENTO") return "Evento";
-  if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO") return "Credenciamento Eventos";
+  if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO") return "Credenciamento";
   if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO_INTERNO") {
-    return "Credenciamento Eventos (internos)";
+    return "Credenciamento (internos)";
   }
   return "Acesso de serviço";
 }
@@ -155,24 +165,27 @@ function buildMessage(aprovacao, extra = "", extras = {}) {
   return msg;
 }
 
-function approvalPath(idAprovacao) {
+function approvalPath(idAprovacao, extras = {}) {
+  if (extras.id_event_accreditation) {
+    return `/admin/credenciamento-eventos/${extras.id_event_accreditation}`;
+  }
   return `/aprovacoes/${idAprovacao}`;
 }
 
-function appDetailUrl(idAprovacao) {
+function appDetailUrl(idAprovacao, extras = {}) {
   const base =
     normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
     normalizeHttpsAppUrl(env.msalRedirectUriWeb);
   if (!base) return null;
-  return `${base.replace(/\/$/, "")}${approvalPath(idAprovacao)}`;
+  return `${base.replace(/\/$/, "")}${approvalPath(idAprovacao, extras)}`;
 }
 
 function cardPayloadBase(aprovacao, extras = {}) {
   const tipoLabel = tipoLabelOf(aprovacao);
   // Base SPA https; na entrega o Teams service reescreve OpenUrl para deep link da aba (sem navegador).
   const detailUrl =
-    appDetailUrl(aprovacao.id) ||
-    `https://cred.nbpdev.com.br${approvalPath(aprovacao.id)}`;
+    appDetailUrl(aprovacao.id, extras) ||
+    `https://cred.nbpdev.com.br${approvalPath(aprovacao.id, extras)}`;
   return {
     idAprovacao: aprovacao.id,
     tipoLabel,
@@ -338,7 +351,7 @@ async function notifyApprovalFinalized(idAprovacao, status, comentario) {
       mensagem += ` Comentário: ${comentario}`;
     }
 
-    const path = approvalPath(idAprovacao);
+    const path = approvalPath(idAprovacao, extras);
     const card = buildInfoCard({
       ...cardPayloadBase(ctx, extras),
       titulo: status === "APROVADO" ? "Solicitação aprovada" : "Solicitação reprovada",

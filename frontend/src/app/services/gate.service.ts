@@ -23,7 +23,7 @@ export interface GateValidateSuccess {
   type: 'EVENT';
   collaborator: GateCollaboratorInfo;
   company: GateCompanyInfo;
-  action_registered: 'CHECK_IN' | 'CHECK_OUT';
+  action_registered: 'CHECK_IN' | 'CHECK_OUT' | 'RELEASE_ACCESS';
   access_id?: string;
   id_event_day_company_collaborator?: number;
   event_name?: string;
@@ -38,13 +38,20 @@ export interface GateValidateDenied {
 export type GateValidateResponse = GateValidateSuccess | GateValidateDenied;
 
 export type GateNextAction =
+  | 'RELEASE_ACCESS'
   | 'CHECK_IN'
   | 'CHECK_OUT'
+  | 'PERIOD_EXPIRED'
   | 'COMPLETED'
   | 'PENDING_APPROVAL'
   | 'REJECTED'
   | 'BLOCKED_OPEN_STAY'
   | 'BLOCKED_BLOCKLIST';
+
+export interface GateAccessCycle {
+  check_in: string | null;
+  check_out: string | null;
+}
 
 export interface GateTodayCredential {
   id: number;
@@ -55,6 +62,7 @@ export interface GateTodayCredential {
   event_day_date?: string | null;
   access_check_in: string | null;
   access_check_out: string | null;
+  access_cycles?: GateAccessCycle[];
   next_action: GateNextAction;
   is_blocklisted?: boolean;
   block_reason?: string | null;
@@ -284,6 +292,7 @@ export interface GateTodayService {
   finalidade: string;
   check_in: string | null;
   check_out: string | null;
+  access_cycles?: GateAccessCycle[];
   next_action: GateNextAction;
   is_blocklisted?: boolean;
   block_reason?: string | null;
@@ -315,7 +324,7 @@ export interface GateServiceValidateResponse {
   vehicle?: { plate: string };
   collaborator?: { name: string; document_masked: string; role: string; picture?: string | null };
   company?: { fancy_name: string };
-  action_registered?: 'CHECK_IN' | 'CHECK_OUT';
+  action_registered?: 'CHECK_IN' | 'CHECK_OUT' | 'RELEASE_ACCESS';
   reason?: string;
   error_code?: string;
 }

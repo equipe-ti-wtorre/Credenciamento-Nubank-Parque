@@ -2,15 +2,28 @@ const Joi = require("joi");
 
 const SECTOR_PAPEIS = ["SOLICITANTE", "APROVADOR", "GESTOR"];
 
+const contactSchema = Joi.object({
+  id: Joi.number().integer().positive().optional(),
+  nome: Joi.string().trim().min(2).max(200).required(),
+  telefone: Joi.string().trim().max(30).allow("", null).optional(),
+  ramal: Joi.string().trim().max(20).allow("", null).optional(),
+  email: Joi.string().email().trim().max(200).allow("", null).optional(),
+});
+
 const sectorCreateSchema = Joi.object({
   nome: Joi.string().trim().min(2).max(100).required(),
   descricao: Joi.string().trim().max(255).allow("", null).optional(),
+  contacts: Joi.array().items(contactSchema).optional(),
 });
 
 const sectorUpdateSchema = Joi.object({
   nome: Joi.string().trim().min(2).max(100).optional(),
   descricao: Joi.string().trim().max(255).allow("", null).optional(),
+  contacts: Joi.array().items(contactSchema).optional(),
 }).min(1);
+
+const contactCreateSchema = contactSchema.fork("id", (s) => s.forbidden());
+const contactUpdateSchema = contactSchema;
 
 const sectorStatusSchema = Joi.object({
   ativo: Joi.boolean().required(),
@@ -46,6 +59,9 @@ const flowsUpdateSchema = Joi.object({
 
 module.exports = {
   SECTOR_PAPEIS,
+  contactSchema,
+  contactCreateSchema,
+  contactUpdateSchema,
   sectorCreateSchema,
   sectorUpdateSchema,
   sectorStatusSchema,

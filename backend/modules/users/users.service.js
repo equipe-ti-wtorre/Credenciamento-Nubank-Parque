@@ -330,6 +330,11 @@ async function syncAdUsers() {
   return runAdUsersSync({ triggeredBy: "api" });
 }
 
+function getAdSyncStatus() {
+  const { getAdUsersSyncStatus } = require("../../utils/adUsersSync");
+  return getAdUsersSyncStatus();
+}
+
 async function syncUserDepartment(id) {
   const row = await findById(id);
   if (!row) throw new AppError("Usuário não encontrado.", 404);
@@ -352,6 +357,7 @@ module.exports = {
   updateUser,
   syncDepartments,
   syncAdUsers,
+  getAdSyncStatus,
   syncUserDepartment,
   parseListQuery,
   parseListFilters,

@@ -25,6 +25,8 @@ const canSearch = [
     { modulo: "gate", acao: "view" },
     { modulo: "merchandise_entry", acao: "view" },
     { modulo: "merchandise_exit", acao: "view" },
+    { modulo: "event_accreditation", acao: "view" },
+    { modulo: "event_accreditation", acao: "edit" },
   ]),
 ];
 
@@ -95,8 +97,6 @@ router.post(
 );
 router.put("/:id", ...canEdit, collaboratorController.update);
 router.patch("/:id/status", ...canEdit, collaboratorController.patchStatus);
-router.post("/:id/blocklist", ...canEdit, collaboratorController.addBlocklist);
-router.delete("/:id/blocklist", ...canEdit, collaboratorController.removeBlocklist);
 router.delete("/:id", ...canDelete, collaboratorController.deleteCollaborator);
 
 module.exports = router;

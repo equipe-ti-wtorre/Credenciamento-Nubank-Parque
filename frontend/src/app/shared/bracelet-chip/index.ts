@@ -1,5 +1,7 @@
 export { BraceletChipComponent } from './bracelet-chip.component';
 export { BraceletVisualPickerComponent } from './bracelet-visual-picker.component';
+export { BraceletSelectComponent } from './bracelet-select.component';
+export type { BraceletSelectOption } from './bracelet-select.component';
 export {
   BRACELET_COLORS,
   BRACELET_ICON_KEYS,

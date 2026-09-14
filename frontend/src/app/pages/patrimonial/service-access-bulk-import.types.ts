@@ -25,8 +25,12 @@ export interface UnifiedCollaboratorRow {
   divergencias_vinculo?: UnifiedDivergence[];
   erros: string[];
   nome?: string | null;
+  /** Nome da pulseira resolvida (ou o valor da planilha). */
+  pulseira?: string | null;
   /** Só falta Função / Cargo — pode corrigir na revisão. */
   pendente_funcao?: boolean;
+  /** Só falta Pulseira — pode corrigir na revisão. */
+  pendente_pulseira?: boolean;
 }
 
 export interface UnifiedVehicleDados {
@@ -84,6 +88,8 @@ export interface UnifiedColaboradorDecision {
   aplicarFuncao?: boolean;
   /** Correção de função em linhas pendente_funcao. */
   id_collaborator_role?: number;
+  /** Correção de pulseira em linhas pendente_pulseira. */
+  id_bracelet_type?: number;
 }
 
 export interface UnifiedVeiculoDecision {

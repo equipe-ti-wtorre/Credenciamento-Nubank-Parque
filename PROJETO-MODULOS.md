@@ -822,7 +822,8 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 
 | Arquivo | Exports |
 |---------|---------|
-| `admin-menu.config.ts` | `AdminMenuItem`, `SettingsNavItem`, menus de navegação |
+| `admin-menu.config.ts` | `SettingsNavItem`, nav interno de Configurações |
+| `sidebar-nav.config.ts` | `SIDEBAR_NAV_GROUPS`, itens do menu lateral |
 | `msal-runtime.config.ts` | `setMsalRuntimeConfig()`, `getMsalClientId()`, `getMsalAuthority()`, `isValidMsalClientId()` |
 
 ### Bootstrap (`app.config.ts`)

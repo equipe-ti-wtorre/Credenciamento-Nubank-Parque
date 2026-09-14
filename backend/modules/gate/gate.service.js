@@ -4,6 +4,7 @@ const { child } = require("../../config/logger");
 const AppError = require("../../utils/AppError");
 const { maskDocument, formatDocument } = require("../../utils/privacy");
 const collaboratorService = require("../collaborators/collaborator.service");
+const { activeBlockJoinSql } = require("../collaborator-blocklist/blocklist.policy");
 const vehicleService = require("../patrimonial/vehicle.service");
 const approvalsService = require("../approvals/approvals.service");
 const {
@@ -17,6 +18,15 @@ const {
   assertNoOverlappingServiceCollaborator,
 } = require("../patrimonial/service-access.service");
 const facialCommand = require("../facial/facial.command.service");
+const {
+  selectCollaboratorGateTarget,
+  resolveEventNextAction,
+  resolveServiceCollaboratorNextAction,
+  resolvePortariaListAction,
+  wasReleasedToday,
+  isServicePeriodEnded,
+  isCheckoutListAction,
+} = require("./gate.collaborator-target");
 
 const logger = child({ module: "gate" });
 
@@ -53,6 +63,7 @@ const GATE_CREDENTIAL_SELECT = `
   INNER JOIN company co ON co.id_company = edc.id_company
   LEFT JOIN collaborator_block_list bl
     ON bl.id_collaborator = COALESCE(edcc.id_substitute, edcc.id_collaborator)
+   AND ${activeBlockJoinSql("bl")}
   WHERE edcc.access_id = ?
   LIMIT 1
 `;
@@ -64,8 +75,11 @@ const DENIAL_MESSAGES = {
   INVALID_DATE_WINDOW: "Data incorreta para este credenciamento.",
   BLOCK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
   ACCESS_ALREADY_COMPLETED: "Entrada e saída já registradas para esta credencial.",
+  ACCESS_ACTION_MISMATCH: "A direção do acesso não corresponde ao estado da portaria.",
   FACIAL_ENTRY_NOT_RELEASED:
-    "A entrada ainda não foi liberada. Registre a entrada antes de reenviar o facial.",
+    "A entrada ainda não foi liberada na portaria. Confira a documentação e a pulseira.",
+  ENTRY_VIA_FACIAL_ONLY:
+    "A entrada é registrada pelo facial após a liberação na portaria.",
 };
 
 function buildDenial(errorCode, statusCode = 403) {
@@ -162,7 +176,8 @@ function validateCredentialRow(row) {
   if (Number(row.id_access_status) !== STATUS_APROVADO) {
     return buildDenial("CREDENTIAL_NOT_APPROVED");
   }
-  if (!isWithinEventDayWindow(row.event_day_date)) {
+  const openStay = !!(row.access_check_in && !row.access_check_out);
+  if (!openStay && !isWithinEventDayWindow(row.event_day_date)) {
     return buildDenial("INVALID_DATE_WINDOW");
   }
   if (row.blocklisted_id != null) {
@@ -177,20 +192,67 @@ function validateCredentialRow(row) {
 }
 
 function resolveNextAction(row) {
-  if (!row.access_check_in) return "CHECK_IN";
-  if (!row.access_check_out) return "CHECK_OUT";
-  return null;
+  return resolveEventNextAction(row);
 }
 
-function resolveNextActionLabel(row) {
-  const action = resolveNextAction(row);
+function portariaListActionOptions(row) {
+  if (row && row.event_day_date != null) {
+    return { periodEnded: !isWithinEventDayWindow(row.event_day_date) };
+  }
+  return {};
+}
+
+function resolveNextActionLabel(row, todayKey) {
+  const action = resolvePortariaListAction(row, todayKey, portariaListActionOptions(row));
   return action || "COMPLETED";
 }
 
-function mapTodayCredentialRow(row) {
+/** Ação do POST da portaria/QR vs. ação forçada do facial. */
+function resolveGateValidateAction(row, todayKey, options = {}) {
+  const listAction = resolvePortariaListAction(row, todayKey, portariaListActionOptions(row));
+  if (options.action === "CHECK_IN") {
+    if (listAction === "RELEASE_ACCESS") return { denial: "FACIAL_ENTRY_NOT_RELEASED" };
+    if (isCheckoutListAction(listAction)) return { denial: "ACCESS_ACTION_MISMATCH" };
+    return { action: "CHECK_IN" };
+  }
+  if (options.action === "CHECK_OUT") {
+    if (!isCheckoutListAction(listAction)) return { denial: "ACCESS_ACTION_MISMATCH" };
+    return { action: "CHECK_OUT" };
+  }
+  if (options.action === "RELEASE_ACCESS") {
+    if (isCheckoutListAction(listAction)) return { denial: "ACCESS_ACTION_MISMATCH" };
+    return { action: "RELEASE_ACCESS" };
+  }
+  if (options.action) {
+    return { denial: "ACCESS_ACTION_MISMATCH" };
+  }
+  if (listAction === "RELEASE_ACCESS") return { action: "RELEASE_ACCESS" };
+  if (isCheckoutListAction(listAction)) return { action: "CHECK_OUT" };
+  return { denial: "ENTRY_VIA_FACIAL_ONLY" };
+}
+
+async function revokeFacialIfPeriodExpired(idCollaborator, periodEnded) {
+  if (!periodEnded || !idCollaborator) return;
+  await facialCommand.revokeUnlessReleasedToday(idCollaborator, "period_expired");
+}
+
+function fallbackCyclesFromRow(checkIn, checkOut, todayKey) {
+  if (!checkIn) return [];
+  const openStay = !!(checkIn && !checkOut);
+  if (!openStay && !isTimestampToday(checkIn, todayKey) && !isTimestampToday(checkOut, todayKey)) {
+    return [];
+  }
+  return [{ check_in: checkIn, check_out: checkOut || null }];
+}
+
+function mapTodayCredentialRow(row, todayKey, cycles = []) {
   const effective = resolveEffectiveCollaborator(row);
   const blocklisted = row.blocklisted_id != null;
-  const nextAction = blocklisted ? "BLOCKED_BLOCKLIST" : resolveNextActionLabel(row);
+  const nextAction = blocklisted ? "BLOCKED_BLOCKLIST" : resolveNextActionLabel(row, todayKey);
+  const accessCycles =
+    cycles.length > 0
+      ? cycles
+      : fallbackCyclesFromRow(row.access_check_in, row.access_check_out, todayKey);
   return {
     id: row.id_event_day_company_collaborator,
     access_id: row.access_id,
@@ -210,6 +272,7 @@ function mapTodayCredentialRow(row) {
     event_day_date: toDateKey(row.event_day_date),
     access_check_in: row.access_check_in || null,
     access_check_out: row.access_check_out || null,
+    access_cycles: accessCycles,
     next_action: nextAction,
     is_blocklisted: blocklisted,
     block_reason: blocklisted
@@ -225,6 +288,7 @@ const GATE_TODAY_LIST_SELECT = `
          edcc.id_substitute,
          edcc.access_check_in,
          edcc.access_check_out,
+         edcc.facial_released_at,
          c.name AS collaborator_name,
          c.document AS collaborator_document,
          c.picture AS collaborator_picture,
@@ -253,8 +317,12 @@ const GATE_TODAY_LIST_SELECT = `
   INNER JOIN company co ON co.id_company = edc.id_company
   LEFT JOIN collaborator_block_list bl
     ON bl.id_collaborator = COALESCE(edcc.id_substitute, edcc.id_collaborator)
+   AND ${activeBlockJoinSql("bl")}
   WHERE e.id_access_status = ?
-    AND ${EVENT_DAY_WINDOW_SQL.trim()}
+    AND (
+      ${EVENT_DAY_WINDOW_SQL.trim()}
+      OR (edcc.access_check_in IS NOT NULL AND edcc.access_check_out IS NULL)
+    )
     AND (
       (edcc.id_access_status = ? AND edcc.access_id IS NOT NULL)
       OR (edcc.id_access_status = ? AND bl.id_collaborator IS NOT NULL)
@@ -272,11 +340,26 @@ async function listTodayExpectedCredentials() {
     STATUS_APROVADO,
     STATUS_NEGADO,
   ];
-  const [rows] = await db.execute(GATE_TODAY_LIST_SELECT, params);
-  return rows.map(mapTodayCredentialRow);
+  const [todayKey, result] = await Promise.all([
+    getMysqlTodayKey(),
+    db.execute(GATE_TODAY_LIST_SELECT, params),
+  ]);
+  const rows = result[0];
+  const cyclesByRef = await loadDayLogCycles(
+    "event",
+    rows.map((r) => r.id_event_day_company_collaborator),
+    todayKey,
+  );
+  return rows.map((row) =>
+    mapTodayCredentialRow(
+      row,
+      todayKey,
+      cyclesByRef.get(Number(row.id_event_day_company_collaborator)) || [],
+    ),
+  );
 }
 
-async function validateEventAccess(accessId) {
+async function validateEventAccess(accessId, options = {}) {
   const row = await findCredentialByAccessId(accessId);
   const denial = validateCredentialRow(row);
   if (denial) {
@@ -284,26 +367,62 @@ async function validateEventAccess(accessId) {
     return denial;
   }
 
-  const action = resolveNextAction(row);
-  if (!action) {
-    logger.warn({ accessId }, "Credencial com fluxo já concluído");
-    return buildDenial("ACCESS_ALREADY_COMPLETED");
+  const todayKey = await getMysqlTodayKey();
+  const resolved = resolveGateValidateAction(row, todayKey, options);
+  if (resolved.denial) {
+    return buildDenial(resolved.denial);
   }
+  const action = resolved.action;
+  const effective = resolveEffectiveCollaborator(row);
 
-  const column = action === "CHECK_IN" ? "access_check_in" : "access_check_out";
-  await db.execute(
-    `UPDATE event_day_company_collaborator SET ${column} = NOW() WHERE id_event_day_company_collaborator = ?`,
-    [row.id_event_day_company_collaborator],
-  );
+  if (action === "RELEASE_ACCESS") {
+    await db.execute(
+      `UPDATE event_day_company_collaborator
+       SET facial_released_at = NOW()
+       WHERE id_event_day_company_collaborator = ?`,
+      [row.id_event_day_company_collaborator],
+    );
+    if (!options.skipFacialEnroll) {
+      await enrollFacialForGateRelease({
+        idCollaborator: effective.id,
+        validDateStart: todayKey,
+        validDateEnd: todayKey,
+      });
+    }
+    const updated = await findCredentialByAccessId(accessId);
+    logger.info(
+      { accessId, action, credentialId: row.id_event_day_company_collaborator },
+      "Acesso facial liberado na portaria",
+    );
+    return buildSuccessPayload(updated, action);
+  }
 
   if (action === "CHECK_IN") {
-    const effective = resolveEffectiveCollaborator(row);
-    await enrollFacialForGateRelease({
-      idCollaborator: effective.id,
-      validDateStart: row.event_day_date,
-      validDateEnd: row.event_day_date,
-    });
+    await db.execute(
+      `UPDATE event_day_company_collaborator
+       SET access_check_in = NOW(), access_check_out = NULL
+       WHERE id_event_day_company_collaborator = ?`,
+      [row.id_event_day_company_collaborator],
+    );
+  } else {
+    await db.execute(
+      `UPDATE event_day_company_collaborator SET access_check_out = NOW()
+       WHERE id_event_day_company_collaborator = ?`,
+      [row.id_event_day_company_collaborator],
+    );
+    await revokeFacialIfPeriodExpired(
+      effective.id,
+      !isWithinEventDayWindow(row.event_day_date),
+    );
   }
+
+  await recordGateDayLog({
+    kind: "event",
+    idRef: row.id_event_day_company_collaborator,
+    idEvent: row.id_event,
+    accessId,
+    action,
+  });
 
   const updated = await findCredentialByAccessId(accessId);
   logger.info(
@@ -434,7 +553,9 @@ const SERVICE_COLLABORATOR_SELECT = `
     ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN collaborator_block_list bl_main ON bl_main.id_collaborator = c.id_collaborator
+   AND ${activeBlockJoinSql("bl_main")}
   LEFT JOIN collaborator_block_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
+   AND ${activeBlockJoinSql("bl_sub")}
   WHERE sac.access_id = ?
   LIMIT 1
 `;
@@ -445,12 +566,15 @@ const SERVICE_DENIAL_MESSAGES = {
   SERVICE_DISABLED: "Acesso de serviço desabilitado.",
   INVALID_SERVICE_DATE: "Data não autorizada para este serviço.",
   SERVICE_ACCESS_COMPLETED: "Entrada e saída já registradas.",
+  ACCESS_ACTION_MISMATCH: "A direção do acesso não corresponde ao estado da portaria.",
   OPEN_STAY_PENDING:
     "Há entrada sem saída registrada. Registre a saída antes de uma nova entrada.",
   VEHICLE_BLOCK_LIST_BLOCKED: "Veículo consta na lista de bloqueio de segurança da arena.",
   COLLABORATOR_BLOCK_LIST_BLOCKED: "Colaborador consta na lista de bloqueio de segurança da arena.",
   FACIAL_ENTRY_NOT_RELEASED:
-    "A entrada ainda não foi liberada. Registre a entrada antes de reenviar o facial.",
+    "A entrada ainda não foi liberada na portaria. Confira a documentação e a pulseira.",
+  ENTRY_VIA_FACIAL_ONLY:
+    "A entrada é registrada pelo facial após a liberação na portaria.",
   FACIAL_NOT_COLLABORATOR: "Reenvio facial disponível apenas para colaboradores.",
 };
 
@@ -471,6 +595,188 @@ async function findServiceVehicleByAccessId(accessId) {
 async function findServiceCollaboratorByAccessId(accessId) {
   const [rows] = await db.execute(SERVICE_COLLABORATOR_SELECT, [accessId]);
   return rows[0] || null;
+}
+
+const SERVICE_COLLABORATOR_BY_PERSON_SELECT = `
+  SELECT sac.*,
+         sa.id_service_access,
+         sa.id_company,
+         sa.id_access_status,
+         sa.status AS service_enabled,
+         sa.start_date,
+         sa.end_date,
+         COALESCE(sa.finalidade, sa.service_type) AS finalidade,
+         ast.description AS access_status_description,
+         c.name AS collaborator_name,
+         c.document AS collaborator_document,
+         c.picture AS collaborator_picture,
+         cdt.description AS document_type_description,
+         cr.description AS role_description,
+         sub.name AS substitute_name,
+         sub.document AS substitute_document,
+         sub.picture AS substitute_picture,
+         sub_cdt.description AS substitute_document_type_description,
+         co.fancy_name AS company_fancy_name,
+         bl_main.id_collaborator AS main_blocklisted_id,
+         bl_sub.id_collaborator AS sub_blocklisted_id
+  FROM service_access_collaborator sac
+  INNER JOIN service_access sa ON sa.id_service_access = sac.id_service_access
+  INNER JOIN access_status ast ON ast.id_access_status = sa.id_access_status
+  INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
+  INNER JOIN collaborator_document_type cdt
+    ON cdt.id_collaborator_document_type = c.id_collaborator_document_type
+  INNER JOIN collaborator_role cr ON cr.id_collaborator_role = sac.id_collaborator_role
+  LEFT JOIN collaborator sub ON sub.id_collaborator = sac.id_substitute
+  LEFT JOIN collaborator_document_type sub_cdt
+    ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
+  INNER JOIN company co ON co.id_company = sa.id_company
+  LEFT JOIN collaborator_block_list bl_main ON bl_main.id_collaborator = c.id_collaborator
+   AND ${activeBlockJoinSql("bl_main")}
+  LEFT JOIN collaborator_block_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
+   AND ${activeBlockJoinSql("bl_sub")}
+  WHERE (sac.id_collaborator = ? OR sac.id_substitute = ?)
+    AND sa.status = 1
+    AND sa.id_access_status = ?
+    AND sac.access_id IS NOT NULL
+    AND (
+      CURDATE() BETWEEN sa.start_date AND sa.end_date
+      OR (sac.access_check_in IS NOT NULL AND sac.access_check_out IS NULL)
+    )
+  ORDER BY
+    CASE WHEN sac.access_check_in IS NOT NULL AND sac.access_check_out IS NULL THEN 0 ELSE 1 END,
+    sa.end_date DESC,
+    sa.start_date ASC
+`;
+
+const GATE_CREDENTIAL_BY_PERSON_SELECT = `
+  SELECT edcc.*,
+         ast.description AS access_status_description,
+         c.name AS collaborator_name,
+         c.document AS collaborator_document,
+         c.picture AS collaborator_picture,
+         cdt.description AS document_type_description,
+         cr.description AS role_description,
+         sub.name AS substitute_name,
+         sub.document AS substitute_document,
+         sub.picture AS substitute_picture,
+         sub_cdt.description AS substitute_document_type_description,
+         co.fancy_name AS company_fancy_name,
+         ed.date AS event_day_date,
+         e.id_event,
+         e.name AS event_name,
+         e.ativo AS event_ativo,
+         bl.id_collaborator AS blocklisted_id
+  FROM event_day_company_collaborator edcc
+  INNER JOIN access_status ast ON ast.id_access_status = edcc.id_access_status
+  INNER JOIN collaborator c ON c.id_collaborator = edcc.id_collaborator
+  INNER JOIN collaborator_document_type cdt
+    ON cdt.id_collaborator_document_type = c.id_collaborator_document_type
+  INNER JOIN collaborator_role cr ON cr.id_collaborator_role = edcc.id_collaborator_role
+  LEFT JOIN collaborator sub ON sub.id_collaborator = edcc.id_substitute
+  LEFT JOIN collaborator_document_type sub_cdt
+    ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
+  INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+  INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+  INNER JOIN event e ON e.id_event = ed.id_event
+  INNER JOIN company co ON co.id_company = edc.id_company
+  LEFT JOIN collaborator_block_list bl
+    ON bl.id_collaborator = COALESCE(edcc.id_substitute, edcc.id_collaborator)
+   AND ${activeBlockJoinSql("bl")}
+  WHERE (edcc.id_collaborator = ? OR edcc.id_substitute = ?)
+    AND e.ativo = 1
+    AND e.id_access_status = ?
+    AND edcc.id_access_status = ?
+    AND edcc.access_id IS NOT NULL
+    AND (
+      ${EVENT_DAY_WINDOW_SQL.trim()}
+      OR (edcc.access_check_in IS NOT NULL AND edcc.access_check_out IS NULL)
+    )
+  ORDER BY
+    CASE WHEN edcc.access_check_in IS NOT NULL AND edcc.access_check_out IS NULL THEN 0 ELSE 1 END,
+    ed.date ASC
+`;
+
+async function findServiceCollaboratorsForCollaborator(idCollaborator) {
+  const [rows] = await db.execute(SERVICE_COLLABORATOR_BY_PERSON_SELECT, [
+    idCollaborator,
+    idCollaborator,
+    STATUS_APROVADO,
+  ]);
+  return rows;
+}
+
+async function findEventCredentialsForCollaborator(idCollaborator) {
+  const [rows] = await db.execute(GATE_CREDENTIAL_BY_PERSON_SELECT, [
+    idCollaborator,
+    idCollaborator,
+    STATUS_APROVADO,
+    STATUS_APROVADO,
+    ...eventDayWindowParams(),
+  ]);
+  return rows;
+}
+
+function buildNoGateTargetDenial() {
+  return {
+    allowed: false,
+    statusCode: 404,
+    error_code: "NO_GATE_TARGET",
+    reason: "Nenhum acesso vigente encontrado para este colaborador.",
+  };
+}
+
+/**
+ * Aplica CHECK_IN/CHECK_OUT pelo colaborador (fluxo facial).
+ * A ação é forçada pela direção do terminal; não faz o toggle automático do QR.
+ */
+async function applyCollaboratorGateAction(idCollaborator, action, options = {}) {
+  const id = Number(idCollaborator);
+  if (!id || (action !== "CHECK_IN" && action !== "CHECK_OUT")) {
+    return {
+      allowed: false,
+      statusCode: 400,
+      error_code: "INVALID_GATE_ACTION",
+      reason: "Ação de portaria inválida.",
+    };
+  }
+
+  const todayKey = await getMysqlTodayKey();
+  const [serviceRows, eventRows] = await Promise.all([
+    findServiceCollaboratorsForCollaborator(id),
+    findEventCredentialsForCollaborator(id),
+  ]);
+
+  const selected = selectCollaboratorGateTarget(action, {
+    serviceRows,
+    eventRows,
+    todayKey,
+  });
+
+  if (selected.blocked === "OPEN_STAY_PENDING") {
+    return buildServiceDenial("OPEN_STAY_PENDING");
+  }
+  if (selected.blocked === "FACIAL_ENTRY_NOT_RELEASED") {
+    return selected.type === "EVENT"
+      ? buildDenial("FACIAL_ENTRY_NOT_RELEASED")
+      : buildServiceDenial("FACIAL_ENTRY_NOT_RELEASED");
+  }
+  if (selected.completed) {
+    if (selected.type === "EVENT") return buildDenial("ACCESS_ALREADY_COMPLETED");
+    return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
+  }
+  if (!selected.type || !selected.row?.access_id) {
+    return buildNoGateTargetDenial();
+  }
+
+  const applyOptions = {
+    action,
+    skipFacialEnroll: options.skipFacialEnroll === true,
+  };
+
+  if (selected.type === "EVENT") {
+    return validateEventAccess(selected.row.access_id, applyOptions);
+  }
+  return validateServiceCollaboratorAccess(selected.row.access_id, applyOptions);
 }
 
 async function isServiceDateAllowed(serviceRow) {
@@ -507,6 +813,7 @@ const FACIAL_SKIP_MESSAGES = {
   no_picture: "Colaborador sem foto. Cadastre a foto antes de reenviar o facial.",
   blocklist: "Colaborador consta na lista de bloqueio.",
   disabled: "Integração facial desabilitada.",
+  not_released_today: "Facial só é liberado após a liberação na portaria no dia.",
 };
 
 function facialEnrollFailure(result) {
@@ -575,14 +882,16 @@ async function resendEventFacialEnroll(accessId) {
   const row = await findCredentialByAccessId(accessId);
   const denial = validateCredentialRow(row);
   if (denial) return denial;
-  if (!row.access_check_in) {
+  const todayKey = await getMysqlTodayKey();
+  const openStay = !!(row.access_check_in && !row.access_check_out);
+  if (!openStay && !wasReleasedToday(row, todayKey)) {
     return buildDenial("FACIAL_ENTRY_NOT_RELEASED");
   }
   const effective = resolveEffectiveCollaborator(row);
   const result = await enrollFacialForGateRelease({
     idCollaborator: effective.id,
-    validDateStart: row.event_day_date,
-    validDateEnd: row.event_day_date,
+    validDateStart: todayKey,
+    validDateEnd: todayKey,
   });
   const failure = facialEnrollFailure(result);
   if (failure) return failure;
@@ -616,13 +925,15 @@ async function resendServiceFacialEnroll(accessId) {
       id_collaborator: row.id_substitute || row.id_collaborator,
     };
   }
-  if (!row.access_check_in) {
+  const todayKey = await getMysqlTodayKey();
+  const openStay = !!(row.access_check_in && !row.access_check_out);
+  if (!openStay && !wasReleasedToday(row, todayKey)) {
     return buildServiceDenial("FACIAL_ENTRY_NOT_RELEASED");
   }
   const result = await enrollFacialForGateRelease({
     idCollaborator: row.id_substitute || row.id_collaborator,
-    validDateStart: row.start_date,
-    validDateEnd: row.end_date,
+    validDateStart: todayKey,
+    validDateEnd: todayKey,
   });
   const failure = facialEnrollFailure(result);
   if (failure) return failure;
@@ -738,12 +1049,13 @@ async function findOpenVehicleStay(idVehicle, excludeSavId) {
  * inclusive mais de um no mesmo dia (após reaprovação). CHECK_OUT fecha a
  * entrada aberta mais recente (mesmo que seja de outro dia).
  */
-async function recordServiceDayLog(kind, idRef, idServiceAccess, accessId, action) {
+async function recordGateDayLog({ kind, idRef, idServiceAccess = null, idEvent = null, accessId, action }) {
   if (action === "CHECK_IN") {
     await db.execute(
-      `INSERT INTO gate_access_day_log (kind, id_ref, id_service_access, access_id, access_date, check_in)
-       VALUES (?, ?, ?, ?, CURDATE(), NOW())`,
-      [kind, idRef, idServiceAccess, accessId],
+      `INSERT INTO gate_access_day_log
+         (kind, id_ref, id_service_access, id_event, access_id, access_date, check_in)
+       VALUES (?, ?, ?, ?, ?, CURDATE(), NOW())`,
+      [kind, idRef, idServiceAccess, idEvent, accessId],
     );
     return;
   }
@@ -764,29 +1076,32 @@ async function recordServiceDayLog(kind, idRef, idServiceAccess, accessId, actio
   }
 
   await db.execute(
-    `INSERT INTO gate_access_day_log (kind, id_ref, id_service_access, access_id, access_date, check_out)
-     VALUES (?, ?, ?, ?, CURDATE(), NOW())`,
-    [kind, idRef, idServiceAccess, accessId],
+    `INSERT INTO gate_access_day_log
+       (kind, id_ref, id_service_access, id_event, access_id, access_date, check_out)
+     VALUES (?, ?, ?, ?, ?, CURDATE(), NOW())`,
+    [kind, idRef, idServiceAccess, idEvent, accessId],
   );
+}
+
+async function recordServiceDayLog(kind, idRef, idServiceAccess, accessId, action) {
+  return recordGateDayLog({
+    kind,
+    idRef,
+    idServiceAccess,
+    accessId,
+    action,
+  });
 }
 
 /** Entrada aberta (qualquer dia) exige saída; ciclo completo hoje = concluído; senão nova entrada. */
 function resolveServiceVehicleNextAction(row, todayKey) {
-  if (row.check_in && !row.check_out) return "CHECK_OUT";
+  if (row.check_in && !row.check_out) {
+    if (isServicePeriodEnded(row.end_date, todayKey)) return "PERIOD_EXPIRED";
+    return "CHECK_OUT";
+  }
   if (
     isTimestampToday(row.check_in, todayKey) &&
     isTimestampToday(row.check_out, todayKey)
-  ) {
-    return null;
-  }
-  return "CHECK_IN";
-}
-
-function resolveServiceCollaboratorNextAction(row, todayKey) {
-  if (row.access_check_in && !row.access_check_out) return "CHECK_OUT";
-  if (
-    isTimestampToday(row.access_check_in, todayKey) &&
-    isTimestampToday(row.access_check_out, todayKey)
   ) {
     return null;
   }
@@ -909,7 +1224,7 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
       ? "REJECTED"
       : pending
         ? "PENDING_APPROVAL"
-        : resolveServiceCollaboratorNextAction(row, todayKey) || "COMPLETED";
+        : resolvePortariaListAction(row, todayKey);
   const openStay = !!(row.access_check_in && !row.access_check_out);
   const checkInDisplay =
     openStay || isTimestampToday(row.access_check_in, todayKey)
@@ -921,6 +1236,14 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
   const accessedDates =
     ctx.logDates.get(`collaborator:${row.id_service_access_collaborator}`) || new Set();
   const pendingInfo = ctx.pendingApprovals.get(Number(row.id_service_access)) || null;
+  const accessCycles =
+    (ctx.cyclesByCollaborator &&
+      ctx.cyclesByCollaborator.get(Number(row.id_service_access_collaborator))) ||
+    [];
+  const cycles =
+    accessCycles.length > 0
+      ? accessCycles
+      : fallbackCyclesFromRow(row.access_check_in, row.access_check_out, todayKey);
   return {
     kind: "collaborator",
     id: row.id_service_access_collaborator,
@@ -938,6 +1261,7 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
     finalidade: row.finalidade,
     check_in: checkInDisplay,
     check_out: checkOutDisplay,
+    access_cycles: cycles,
     next_action: next,
     is_blocklisted: blocklisted,
     block_reason: blocklisted
@@ -1021,6 +1345,7 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
          sac.access_id,
          sac.access_check_in,
          sac.access_check_out,
+         sac.facial_released_at,
          sac.id_collaborator,
          sac.id_substitute,
          sa.id_service_access,
@@ -1053,7 +1378,9 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
     ON sub_cdt.id_collaborator_document_type = sub.id_collaborator_document_type
   INNER JOIN company co ON co.id_company = sa.id_company
   LEFT JOIN collaborator_block_list bl_main ON bl_main.id_collaborator = c.id_collaborator
+   AND ${activeBlockJoinSql("bl_main")}
   LEFT JOIN collaborator_block_list bl_sub ON bl_sub.id_collaborator = sac.id_substitute
+   AND ${activeBlockJoinSql("bl_sub")}
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND (
@@ -1191,6 +1518,30 @@ async function loadPendingApprovals(serviceAccessIds) {
   return pending;
 }
 
+/** Ciclos do dia: Map<id_ref, [{check_in, check_out}]>. */
+async function loadDayLogCycles(kind, ids, todayKey) {
+  const map = new Map();
+  const refs = (ids || []).map((id) => Number(id)).filter((id) => Number.isFinite(id));
+  if (!refs.length || !todayKey) return map;
+  const placeholders = refs.map(() => "?").join(",");
+  const [rows] = await db.execute(
+    `SELECT id_ref, check_in, check_out
+     FROM gate_access_day_log
+     WHERE kind = ? AND access_date = ? AND id_ref IN (${placeholders})
+     ORDER BY id ASC`,
+    [kind, todayKey, ...refs],
+  );
+  for (const row of rows) {
+    const key = Number(row.id_ref);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push({
+      check_in: row.check_in || null,
+      check_out: row.check_out || null,
+    });
+  }
+  return map;
+}
+
 /** Dias com check_in na semana: Map<"kind:id_ref", Set<YYYY-MM-DD>>. */
 async function loadWeekDayLogs(weekDates, vehicleIds, collaboratorIds) {
   const logDates = new Map();
@@ -1249,17 +1600,30 @@ async function listTodayExpectedServices() {
       [...vehicleRows, ...collaboratorRows].map((r) => Number(r.id_service_access)),
     ),
   ];
-  const [approvers, rejectors, pendingApprovals, logDates] = await Promise.all([
-    loadServiceApprovers(serviceAccessIds),
-    loadServiceRejectors(serviceAccessIds),
-    loadPendingApprovals(serviceAccessIds),
-    loadWeekDayLogs(
-      weekDates,
-      vehicleRows.map((r) => r.id_service_access_vehicle),
-      collaboratorRows.map((r) => r.id_service_access_collaborator),
-    ),
-  ]);
-  const ctx = { weekDates, approvers, rejectors, pendingApprovals, logDates };
+  const [approvers, rejectors, pendingApprovals, logDates, cyclesByCollaborator] =
+    await Promise.all([
+      loadServiceApprovers(serviceAccessIds),
+      loadServiceRejectors(serviceAccessIds),
+      loadPendingApprovals(serviceAccessIds),
+      loadWeekDayLogs(
+        weekDates,
+        vehicleRows.map((r) => r.id_service_access_vehicle),
+        collaboratorRows.map((r) => r.id_service_access_collaborator),
+      ),
+      loadDayLogCycles(
+        "collaborator",
+        collaboratorRows.map((r) => r.id_service_access_collaborator),
+        todayKey,
+      ),
+    ]);
+  const ctx = {
+    weekDates,
+    approvers,
+    rejectors,
+    pendingApprovals,
+    logDates,
+    cyclesByCollaborator,
+  };
 
   const vehicles = vehicleRows.map((row) => mapTodayServiceVehicleRow(row, todayKey, ctx));
   const collaborators = collaboratorRows.map((row) =>
@@ -1275,7 +1639,7 @@ function applyOpenStayEntryBlocks(list) {
   const openCollaboratorIds = new Set();
   const openVehiclePlates = new Set();
   for (const row of list) {
-    if (row.next_action !== "CHECK_OUT") continue;
+    if (!isCheckoutListAction(row.next_action)) continue;
     if (row.kind === "collaborator" && row.collaborator?.id_collaborator != null) {
       openCollaboratorIds.add(Number(row.collaborator.id_collaborator));
     }
@@ -1309,10 +1673,11 @@ function sortTodayServicesByAccessPriority(list) {
     CHECK_IN: 0,
     BLOCKED_OPEN_STAY: 0,
     PENDING_APPROVAL: 1,
-    CHECK_OUT: 2,
-    COMPLETED: 3,
-    BLOCKED_BLOCKLIST: 4,
-    REJECTED: 5,
+    PERIOD_EXPIRED: 2,
+    CHECK_OUT: 3,
+    COMPLETED: 4,
+    BLOCKED_BLOCKLIST: 5,
+    REJECTED: 6,
   };
   return list.sort((a, b) => {
     const ra = rank[a.next_action] ?? 9;
@@ -1395,7 +1760,8 @@ async function validateServiceVehicleAccess(accessId) {
   if (denial) return denial;
 
   const todayKey = await getMysqlTodayKey();
-  const action = resolveServiceVehicleNextAction(row, todayKey);
+  const resolvedAction = resolveServiceVehicleNextAction(row, todayKey);
+  const action = resolvedAction === "PERIOD_EXPIRED" ? "CHECK_OUT" : resolvedAction;
   if (!action) {
     return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
   }
@@ -1447,7 +1813,7 @@ async function validateServiceVehicleAccess(accessId) {
   return buildServiceVehicleSuccessPayload(updated, action);
 }
 
-async function validateServiceCollaboratorAccess(accessId) {
+async function validateServiceCollaboratorAccess(accessId, options = {}) {
   const row = await findServiceCollaboratorByAccessId(accessId);
   const denial = validateServiceAccessBase(row);
   if (denial) return denial;
@@ -1464,12 +1830,38 @@ async function validateServiceCollaboratorAccess(accessId) {
   }
 
   const todayKey = await getMysqlTodayKey();
-  const action = resolveServiceCollaboratorNextAction(row, todayKey);
-  if (!action) {
-    return buildServiceDenial("SERVICE_ACCESS_COMPLETED");
+  const resolved = resolveGateValidateAction(row, todayKey, options);
+  if (resolved.denial) {
+    return buildServiceDenial(resolved.denial);
   }
-  if (action === "CHECK_IN" && !(await isServiceDateAllowed(row))) {
+  const action = resolved.action;
+  if (
+    (action === "CHECK_IN" || action === "RELEASE_ACCESS") &&
+    !(await isServiceDateAllowed(row))
+  ) {
     return buildServiceDenial("INVALID_SERVICE_DATE");
+  }
+
+  if (action === "RELEASE_ACCESS") {
+    await db.execute(
+      `UPDATE service_access_collaborator
+       SET facial_released_at = NOW()
+       WHERE id_service_access_collaborator = ?`,
+      [row.id_service_access_collaborator],
+    );
+    if (!options.skipFacialEnroll) {
+      await enrollFacialForGateRelease({
+        idCollaborator: row.id_substitute || row.id_collaborator,
+        validDateStart: todayKey,
+        validDateEnd: todayKey,
+      });
+    }
+    const updated = await findServiceCollaboratorByAccessId(accessId);
+    logger.info(
+      { accessId, action, id: row.id_service_access_collaborator, kind: "collaborator" },
+      "Acesso facial liberado na portaria",
+    );
+    return buildServiceCollaboratorSuccessPayload(updated, action);
   }
 
   if (action === "CHECK_IN") {
@@ -1494,6 +1886,10 @@ async function validateServiceCollaboratorAccess(accessId) {
        WHERE id_service_access_collaborator = ?`,
       [row.id_service_access_collaborator],
     );
+    await revokeFacialIfPeriodExpired(
+      row.id_substitute || row.id_collaborator,
+      isServicePeriodEnded(row.end_date, todayKey),
+    );
   }
   await recordServiceDayLog(
     "collaborator",
@@ -1502,14 +1898,6 @@ async function validateServiceCollaboratorAccess(accessId) {
     accessId,
     action,
   );
-
-  if (action === "CHECK_IN") {
-    await enrollFacialForGateRelease({
-      idCollaborator: row.id_substitute || row.id_collaborator,
-      validDateStart: row.start_date,
-      validDateEnd: row.end_date,
-    });
-  }
 
   const updated = await findServiceCollaboratorByAccessId(accessId);
   logger.info(
@@ -2397,5 +2785,6 @@ module.exports = {
   cancelPendingServiceApproval,
   resendEventFacialEnroll,
   resendServiceFacialEnroll,
+  applyCollaboratorGateAction,
   DENIAL_MESSAGES,
 };

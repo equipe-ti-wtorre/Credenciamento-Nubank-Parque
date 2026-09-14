@@ -469,11 +469,175 @@ function notifyInternalUsersInvited({ item, usuarioId = null, requestId = null }
   });
 }
 
+async function listSectorManagers(idSetor) {
+  const [rows] = await db.execute(
+    `SELECT u.id, u.email, u.nome_completo
+       FROM setor_usuarios su
+       INNER JOIN usuarios u ON u.id = su.id_usuario
+      WHERE su.id_setor = ? AND su.ativo = 1 AND u.ativo = 1
+        AND su.papel IN ('GESTOR', 'APROVADOR')`,
+    [idSetor],
+  );
+  return rows;
+}
+
+function notifySectorsToInviteCompanies({ item, setores, usuarioId = null }) {
+  schedule(async () => {
+    const link = buildItemUrl(item.id_event_accreditation);
+    const deadline = formatDateTimeBr(item.inscription_end);
+    const mensagem = `O credenciamento "${item.name}" foi criado. Indique as empresas do seu setor. Prazo de inscrição: ${deadline}.`;
+    const path = `/admin/credenciamento-eventos/${item.id_event_accreditation}`;
+    const card = buildInfoCard({
+      titulo: `Indicar empresas — ${item.name}`,
+      mensagem,
+      tipoLabel: kindLabel(item.event_kind),
+      finalidade: item.name,
+      periodo: deadline,
+      setorNome: null,
+      detailUrl: buildTeamsItemUrl(item.id_event_accreditation),
+    });
+    const userIds = new Set();
+    for (const setor of setores || []) {
+      const managers = await listSectorManagers(setor.id_setor || setor.id);
+      for (const user of managers) {
+        if (usuarioId && Number(user.id) === Number(usuarioId)) continue;
+        userIds.add(Number(user.id));
+        if (user.email) {
+          try {
+            await teamsService.notifyUser(user.email, mensagem, {
+              path,
+              adaptiveCard: card,
+              activityMessage: `Indicar empresas — ${item.name}`,
+            });
+          } catch (err) {
+            logger.warn({ err, to: user.email }, "Falha ao notificar setor para indicar empresas");
+          }
+        }
+      }
+    }
+    if (userIds.size) {
+      await alertsService.createAlertsForUsers([...userIds], {
+        tipo: "event_accreditation.sector_invite",
+        titulo: `Indicar empresas — ${item.name}`,
+        mensagem,
+        link: path,
+        tipoReferencia: "event_accreditation",
+        idReferencia: item.id_event_accreditation,
+      });
+    }
+  });
+}
+
+function notifySectorIndication({
+  item,
+  companyName,
+  idSetor,
+  usuarioId = null,
+}) {
+  schedule(async () => {
+    const link = buildItemUrl(item.id_event_accreditation);
+    const path = `/admin/credenciamento-eventos/${item.id_event_accreditation}`;
+    const mensagem = `${companyName} concluiu a indicação de colaboradores em "${item.name}". Valide os dados.`;
+    const card = buildInfoCard({
+      titulo: `Indicação concluída — ${item.name}`,
+      mensagem,
+      tipoLabel: kindLabel(item.event_kind),
+      finalidade: `${item.name} — ${companyName}`,
+      periodo: formatDateTimeBr(item.inscription_end),
+      setorNome: item.setor_nome || null,
+      detailUrl: buildTeamsItemUrl(item.id_event_accreditation),
+    });
+    const managers = await listSectorManagers(idSetor);
+    const userIds = [];
+    for (const user of managers) {
+      if (usuarioId && Number(user.id) === Number(usuarioId)) continue;
+      userIds.push(Number(user.id));
+      if (user.email) {
+        try {
+          await teamsService.notifyUser(user.email, mensagem, {
+            path,
+            adaptiveCard: card,
+            activityMessage: `Indicação concluída — ${item.name}`,
+          });
+        } catch (err) {
+          logger.warn({ err, to: user.email }, "Falha ao notificar setor sobre indicação");
+        }
+      }
+    }
+    if (userIds.length) {
+      await alertsService.createAlertsForUsers(userIds, {
+        tipo: "event_accreditation.sector_indication",
+        titulo: `Indicação concluída — ${item.name}`,
+        mensagem,
+        link: path,
+        tipoReferencia: "event_accreditation",
+        idReferencia: item.id_event_accreditation,
+      });
+    }
+  });
+}
+
+async function notifyOwnerValidated({
+  item,
+  companyName,
+  status,
+  usuarioId = null,
+}) {
+  const ownerId = item.id_solicitante;
+  if (!ownerId) return { sent: 0 };
+  const [users] = await db.execute(
+    `SELECT id, email, nome_completo FROM usuarios WHERE id = ? AND ativo = 1 LIMIT 1`,
+    [ownerId],
+  );
+  const owner = users[0];
+  if (!owner) return { sent: 0 };
+  if (usuarioId && Number(owner.id) === Number(usuarioId)) {
+    /* still alert in-app so the log exists */
+  }
+  const label = status === "APROVADO" ? "aprovou" : "reprovou";
+  const mensagem = `O setor ${label} a indicação de ${companyName} no credenciamento "${item.name}".`;
+  const path = `/admin/credenciamento-eventos/${item.id_event_accreditation}`;
+  const link = buildItemUrl(item.id_event_accreditation);
+  const card = buildInfoCard({
+    titulo: `Validação do setor — ${item.name}`,
+    mensagem,
+    tipoLabel: kindLabel(item.event_kind),
+    finalidade: `${item.name} — ${companyName}`,
+    periodo: formatDateTimeBr(item.inscription_end),
+    setorNome: item.setor_nome || null,
+    detailUrl: buildTeamsItemUrl(item.id_event_accreditation),
+  });
+  if (owner.email) {
+    try {
+      await teamsService.notifyUser(owner.email, mensagem, {
+        path,
+        adaptiveCard: card,
+        activityMessage: `Validação do setor — ${item.name}`,
+      });
+    } catch (err) {
+      logger.warn({ err, to: owner.email }, "Falha ao notificar responsável do credenciamento");
+    }
+  }
+  await alertsService.createAlert({
+    idUsuario: owner.id,
+    tipo: "event_accreditation.owner_validated",
+    titulo: `Validação do setor — ${item.name}`,
+    mensagem,
+    link: path,
+    tipoReferencia: "event_accreditation",
+    idReferencia: item.id_event_accreditation,
+  });
+  return { sent: 1 };
+}
+
 module.exports = {
   notifyCompaniesInvited,
   sendCompaniesReminder,
   sendInviteToCompanies,
   notifyInternalUsersInvited,
+  notifySectorsToInviteCompanies,
+  notifySectorIndication,
+  notifyOwnerValidated,
   listInternalNotifyRecipients,
   buildItemUrl,
   resolveCompanyEmails,

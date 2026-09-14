@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import Swal from 'sweetalert2';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService, hasPermission } from '../../core/services/auth.service';
 import {
@@ -177,7 +178,8 @@ function fmtDateTimeShort(value?: string | null): string {
                           }
                         </div>
                         <div class="eal-evento__sub">
-                          {{ e.companies_total ?? 0 }} empresa(s) convidada(s)
+                          {{ setoresLabel(e) }}
+                          · {{ e.companies_total ?? 0 }} empresa(s)
                         </div>
                       </div>
                     </div>
@@ -218,6 +220,9 @@ function fmtDateTimeShort(value?: string | null): string {
                   <td class="eal-acoes" (click)="$event.stopPropagation()">
                     <app-action-menu>
                       <app-action-btn icon="grid" title="Gerenciar" variant="neutral" (action)="abrir(e)" />
+                      @if (e.can_delete || e.can_toggle_active) {
+                        <app-action-btn icon="delete" title="Excluir" variant="danger" (action)="excluir(e)" />
+                      }
                       @if (e.can_toggle_active) {
                         <app-action-dropdown>
                           <button appActionDropdownItem type="button" (click)="alterarStatus(e)">
@@ -1063,6 +1068,28 @@ export class EventAccreditationListComponent implements OnInit {
     });
   }
 
+  excluir(item: EventAccreditationItem): void {
+    if (!item.can_delete && !item.can_toggle_active) return;
+    Swal.fire({
+      title: 'Excluir credenciamento?',
+      text: `Excluir "${item.name}" apaga empresas, indicações, convites e aprovações ligadas. Esta ação não pode ser desfeita.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Excluir',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#dc2626',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.service.remove(item.id_event_accreditation).subscribe({
+        next: () => {
+          this.notification.success('Credenciamento excluído.');
+          this.carregar();
+        },
+        error: (err) => this.notification.notifyHttpError(err, 'Falha ao excluir credenciamento.'),
+      });
+    });
+  }
+
   activeBraceletCount(): number {
     return this.bracelets().filter((t) => t.ativo).length;
   }
@@ -1174,6 +1201,12 @@ export class EventAccreditationListComponent implements OnInit {
       start && end > start ? Math.min(100, Math.max(4, Math.round(((now - start) / (end - start)) * 100))) : 0;
     if (horas <= 24) return { txt: `aberta · faltam ${horas}h`, cls: 'urg', pct };
     return { txt: `aberta · faltam ${dias} dia(s)`, cls: '', pct };
+  }
+
+  setoresLabel(e: EventAccreditationItem): string {
+    const names = (e.setores || []).map((s) => s.nome).filter(Boolean);
+    if (names.length) return names.join(', ');
+    return e.setor_nome || 'Sem setor';
   }
 
   indicationPct(e: EventAccreditationItem): number {

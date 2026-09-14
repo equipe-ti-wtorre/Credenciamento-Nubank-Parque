@@ -6,6 +6,7 @@ const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const companyService = require("../companies/company.service");
 const collaboratorService = require("../collaborators/collaborator.service");
+const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
 const approvalsService = require("../approvals/approvals.service");
 const {
   STATUS_AGUARDANDO_PRODUTORA,
@@ -39,6 +40,12 @@ const INDICATION = Object.freeze({
 
 const ENTITY_TYPE = "CREDENCIAMENTO_EVENTO";
 const ENTITY_TYPE_INTERNAL = "CREDENCIAMENTO_EVENTO_INTERNO";
+const SECTOR_MANAGE_PAPEIS = Object.freeze(["GESTOR", "APROVADOR"]);
+const NOTIFY_TIPO = Object.freeze({
+  COMPANY_INVITE: "COMPANY_INVITE",
+  SECTOR_INDICATION: "SECTOR_INDICATION",
+  OWNER_VALIDATED: "OWNER_VALIDATED",
+});
 
 function uniquePositiveIds(ids) {
   if (!Array.isArray(ids)) return [];
@@ -259,6 +266,7 @@ function mapItemRow(row) {
     access_status_description: row.access_status_description || null,
     id_setor: row.id_setor != null ? Number(row.id_setor) : null,
     setor_nome: row.setor_nome || null,
+    setores: Array.isArray(row.setores) ? row.setores : undefined,
     id_solicitante: row.id_solicitante != null ? Number(row.id_solicitante) : null,
     id_company_responsavel:
       row.id_company_responsavel != null ? Number(row.id_company_responsavel) : null,
@@ -354,27 +362,22 @@ function buildScopeWhere(scope, alias = "ea") {
     };
   }
   if (scope.mode === "sector_approver") {
+    const sectorExists = `EXISTS (
+        SELECT 1 FROM event_accreditation_setor eas_scope
+         INNER JOIN setor_usuarios su
+           ON su.id_setor = eas_scope.id_setor
+          AND su.id_usuario = ?
+          AND su.ativo = 1
+        WHERE eas_scope.id_event_accreditation = ${alias}.id_event_accreditation
+      )`;
     if (scope.includeInternal) {
       return {
-        sql: ` AND (
-          EXISTS (
-            SELECT 1 FROM setor_usuarios su
-             WHERE su.id_setor = ${alias}.id_setor
-               AND su.id_usuario = ?
-               AND su.ativo = 1
-          )
-          OR ${alias}.internal_enabled = 1
-        )`,
+        sql: ` AND (${sectorExists} OR ${alias}.internal_enabled = 1)`,
         params: [scope.userId],
       };
     }
     return {
-      sql: ` AND EXISTS (
-        SELECT 1 FROM setor_usuarios su
-         WHERE su.id_setor = ${alias}.id_setor
-           AND su.id_usuario = ?
-           AND su.ativo = 1
-      )`,
+      sql: ` AND ${sectorExists}`,
       params: [scope.userId],
     };
   }
@@ -403,13 +406,11 @@ async function assertCanRead(req, row) {
     throw new AppError("Sem permissão para ver este credenciamento.", 403);
   }
   if (scope.mode === "sector_approver") {
-    const [rows] = await db.execute(
-      `SELECT 1 FROM setor_usuarios
-        WHERE id_setor = ? AND id_usuario = ? AND ativo = 1
-        LIMIT 1`,
-      [row.id_setor, scope.userId],
+    const memberships = await listUserSectorsOnAccreditation(
+      scope.userId,
+      row.id_event_accreditation,
     );
-    if (rows.length) return;
+    if (memberships.length) return;
     if (scope.includeInternal && Number(row.internal_enabled)) return;
   }
   if (scope.mode === "internal" && Number(row.internal_enabled)) return;
@@ -425,10 +426,184 @@ function canManageItem(req, row) {
   return false;
 }
 
+function seesAllCompanies(req, item) {
+  return isSuperAdmin(req.user) || canManageItem(req, item);
+}
+
+function canDecideInternal(req, item) {
+  return seesAllCompanies(req, item);
+}
+
+function canDeleteItem(req, row) {
+  if (isSuperAdmin(req.user)) return true;
+  const canAct =
+    hasPermission(req.user, "event_accreditation", "delete") ||
+    hasPermission(req.user, "event_accreditation", "edit");
+  if (!canAct) return false;
+  return canManageItem(req, row);
+}
+
+function companySectorId(link, item) {
+  return Number(link?.id_setor || item?.id_setor);
+}
+
+async function listSectorsOf(idAccreditation, conn = db) {
+  const [rows] = await conn.execute(
+    `SELECT eas.id_setor, s.nome
+       FROM event_accreditation_setor eas
+       INNER JOIN setores s ON s.id = eas.id_setor
+      WHERE eas.id_event_accreditation = ?
+      ORDER BY s.nome ASC`,
+    [idAccreditation],
+  );
+  return rows.map((r) => ({
+    id_setor: Number(r.id_setor),
+    nome: r.nome,
+  }));
+}
+
+async function attachSectors(items) {
+  if (!items.length) return items;
+  const ids = items.map((i) => i.id_event_accreditation);
+  const placeholders = ids.map(() => "?").join(",");
+  const [rows] = await db.execute(
+    `SELECT eas.id_event_accreditation, eas.id_setor, s.nome
+       FROM event_accreditation_setor eas
+       INNER JOIN setores s ON s.id = eas.id_setor
+      WHERE eas.id_event_accreditation IN (${placeholders})
+      ORDER BY s.nome ASC`,
+    ids,
+  );
+  const map = new Map();
+  for (const row of rows) {
+    const id = Number(row.id_event_accreditation);
+    const list = map.get(id) || [];
+    list.push({ id_setor: Number(row.id_setor), nome: row.nome });
+    map.set(id, list);
+  }
+  return items.map((item) => {
+    const setores = map.get(item.id_event_accreditation);
+    return {
+      ...item,
+      setores: setores?.length
+        ? setores
+        : item.id_setor
+          ? [{ id_setor: item.id_setor, nome: item.setor_nome }]
+          : [],
+    };
+  });
+}
+
+async function listUserSectorsOnAccreditation(userId, accreditationId, conn = db) {
+  if (!userId || !accreditationId) return [];
+  const [rows] = await conn.execute(
+    `SELECT eas.id_setor, su.papel, s.nome
+       FROM event_accreditation_setor eas
+       INNER JOIN setor_usuarios su
+         ON su.id_setor = eas.id_setor AND su.id_usuario = ? AND su.ativo = 1
+       INNER JOIN setores s ON s.id = eas.id_setor
+      WHERE eas.id_event_accreditation = ?`,
+    [userId, accreditationId],
+  );
+  return rows.map((r) => ({
+    id_setor: Number(r.id_setor),
+    papel: r.papel,
+    nome: r.nome,
+  }));
+}
+
+async function assertActiveSectors(ids, conn = db) {
+  const unique = uniquePositiveIds(ids);
+  if (!unique.length) {
+    throw new AppError("Selecione ao menos um setor participante.", 400);
+  }
+  const placeholders = unique.map(() => "?").join(",");
+  const [rows] = await conn.execute(
+    `SELECT id FROM setores WHERE id IN (${placeholders}) AND ativo = 1`,
+    unique,
+  );
+  if (rows.length !== unique.length) {
+    throw new AppError("Um ou mais setores são inválidos ou estão inativos.", 400);
+  }
+  return unique;
+}
+
+async function replaceSectors(conn, accreditationId, sectorIds) {
+  await conn.execute(
+    `DELETE FROM event_accreditation_setor WHERE id_event_accreditation = ?`,
+    [accreditationId],
+  );
+  for (const idSetor of sectorIds) {
+    await conn.execute(
+      `INSERT INTO event_accreditation_setor (id_event_accreditation, id_setor) VALUES (?, ?)`,
+      [accreditationId, idSetor],
+    );
+  }
+}
+
+async function assertSectorParticipates(accreditationId, idSetor, conn = db) {
+  const [rows] = await conn.execute(
+    `SELECT 1 FROM event_accreditation_setor
+      WHERE id_event_accreditation = ? AND id_setor = ?
+      LIMIT 1`,
+    [accreditationId, idSetor],
+  );
+  if (!rows.length) {
+    throw new AppError("Este setor não participa deste credenciamento.", 404);
+  }
+}
+
+async function canManageSectorCompanies(req, row, idSetor) {
+  if (isSuperAdmin(req.user)) return true;
+  if (canManageItem(req, row)) return true;
+  const memberships = await listUserSectorsOnAccreditation(
+    req.user?.id,
+    row.id_event_accreditation,
+  );
+  const m = memberships.find((x) => x.id_setor === Number(idSetor));
+  return !!m && SECTOR_MANAGE_PAPEIS.includes(m.papel);
+}
+
+async function canDecideForSector(req, row, idSetor) {
+  if (isSuperAdmin(req.user)) return true;
+  if (canManageItem(req, row) && hasPermission(req.user, "event_accreditation", "edit")) {
+    return true;
+  }
+  return userIsSectorApprover(idSetor, req.user?.id);
+}
+
+async function logNotify({
+  idAccreditation,
+  idCompanyLink = null,
+  idSetor = null,
+  tipo,
+  userId = null,
+  conn = db,
+}) {
+  await conn.execute(
+    `INSERT INTO event_accreditation_notify_log
+       (id_event_accreditation, id_event_accreditation_company, id_setor, tipo, id_usuario)
+     VALUES (?, ?, ?, ?, ?)`,
+    [idAccreditation, idCompanyLink, idSetor, tipo, userId],
+  );
+}
+
+async function listCreateSectors(_req) {
+  await approvalsService.ensureActiveFlowsForTipo(ENTITY_TYPE);
+  const sectorsService = require("../sectors/sectors.service");
+  return sectorsService.listSectorsSelect();
+}
+
 function canIndicateForCompany(req, row, idCompany) {
   const userCompany =
     req.user?.id_company != null ? Number(req.user.id_company) : null;
   return userCompany != null && userCompany === Number(idCompany);
+}
+
+function canAddCollaboratorsForCompany(req, row, idCompany) {
+  if (canIndicateForCompany(req, row, idCompany)) return true;
+  if (canManageItem(req, row) && hasPermission(req.user, "event_accreditation", "edit")) return true;
+  return false;
 }
 
 function isPendingStatus(status) {
@@ -470,6 +645,13 @@ async function canDecideItem(req, row) {
   if (isSuperAdmin(req.user)) return true;
   if (canManageItem(req, row) && hasPermission(req.user, "event_accreditation", "edit")) {
     return true;
+  }
+  const memberships = await listUserSectorsOnAccreditation(
+    req.user?.id,
+    row.id_event_accreditation,
+  );
+  for (const m of memberships) {
+    if (await userIsSectorApprover(m.id_setor, req.user?.id)) return true;
   }
   return userIsSectorApprover(row.id_setor, req.user?.id);
 }
@@ -529,15 +711,17 @@ async function listCompaniesOf(id, partnerOnlyCompanyId = null) {
   }
   const [rows] = await db.execute(
     `SELECT eac.*, c.company_name, c.fancy_name,
+            s.nome AS setor_nome,
             a.id AS id_aprovacao, a.status AS aprovacao_status
        FROM event_accreditation_company eac
        INNER JOIN company c ON c.id_company = eac.id_company
+       LEFT JOIN setores s ON s.id = eac.id_setor
        LEFT JOIN aprovacoes a
          ON a.tipo_entidade = ?
         AND a.id_entidade = eac.id_event_accreditation_company
         AND a.status = 'PENDENTE'
       WHERE eac.id_event_accreditation = ?${extra}
-      ORDER BY c.company_name ASC`,
+      ORDER BY s.nome ASC, c.company_name ASC`,
     [ENTITY_TYPE, ...params],
   );
   return rows;
@@ -750,7 +934,7 @@ async function completeCompanyIndicationInternal(conn, link, item, { auto = fals
     approval = await approvalsService.createApprovalFor(conn, {
       tipoEntidade: ENTITY_TYPE,
       idEntidade: link.id_event_accreditation_company,
-      idSetor: item.id_setor,
+      idSetor: companySectorId(link, item),
       idSolicitante: item.id_solicitante,
     });
   }
@@ -800,7 +984,7 @@ async function hydrateDetail(req, row) {
         const { notifyApprovalCreated } = require("../approvals/approvals.notifications");
         notifyApprovalCreated({
           idAprovacao: approval.id,
-          idSetor: row.id_setor,
+          idSetor: approval.id_setor || row.id_setor,
           idSolicitante: row.id_solicitante,
         }).catch(() => {});
       } catch {
@@ -810,12 +994,26 @@ async function hydrateDetail(req, row) {
   }
   const fresh = await findById(row.id_event_accreditation);
   const onlyCompany = partnerOnlyCompanyId(req, fresh);
-  const companyRows = await listCompaniesOf(fresh.id_event_accreditation, onlyCompany);
+  let companyRows = await listCompaniesOf(fresh.id_event_accreditation, onlyCompany);
+  const memberships = await listUserSectorsOnAccreditation(
+    req.user?.id,
+    fresh.id_event_accreditation,
+  );
+  const scope = buildAccreditationScope(req.user);
+  const seesAll = seesAllCompanies(req, fresh);
+  if (!seesAll && scope.mode !== "company") {
+    const allowed = new Set(memberships.map((m) => m.id_setor));
+    companyRows = companyRows.filter((c) => allowed.has(Number(c.id_setor || fresh.id_setor)));
+  }
   const companies = [];
   for (const c of companyRows) {
+    const idSetor = Number(c.id_setor || fresh.id_setor);
+    const canDecideCompany = await canDecideForSector(req, fresh, idSetor);
     companies.push({
       id_event_accreditation_company: c.id_event_accreditation_company,
       id_company: Number(c.id_company),
+      id_setor: idSetor,
+      setor_nome: c.setor_nome || null,
       company_name: c.company_name,
       fancy_name: c.fancy_name || null,
       indication_status: c.indication_status,
@@ -823,15 +1021,25 @@ async function hydrateDetail(req, row) {
       id_aprovacao: c.id_aprovacao != null ? Number(c.id_aprovacao) : null,
       aprovacao_status: c.aprovacao_status || null,
       can_indicate:
-        c.indication_status === INDICATION.INDICACAO &&
         isInscriptionOpen(fresh) &&
         !!Number(fresh.ativo) &&
-        canIndicateForCompany(req, fresh, c.id_company),
+        canAddCollaboratorsForCompany(req, fresh, c.id_company),
       can_complete:
         c.indication_status === INDICATION.INDICACAO &&
         isInscriptionOpen(fresh) &&
         !!Number(fresh.ativo) &&
         canIndicateForCompany(req, fresh, c.id_company),
+      can_notify_sector:
+        canIndicateForCompany(req, fresh, c.id_company) &&
+        c.indication_status !== INDICATION.INDICACAO,
+      can_notify_owner:
+        canDecideCompany &&
+        (c.indication_status === INDICATION.APROVADO ||
+          c.indication_status === INDICATION.NEGADO),
+      can_decide: canDecideCompany,
+      can_remove:
+        c.indication_status === INDICATION.INDICACAO &&
+        (await canManageSectorCompanies(req, fresh, idSetor)),
       collaborators: await listCollaboratorsOfCompany(c.id_event_accreditation_company),
     });
   }
@@ -847,7 +1055,7 @@ async function hydrateDetail(req, row) {
   const canManage =
     canManageItem(req, fresh) && hasPermission(req.user, "event_accreditation", "edit");
   const canDecide = await canDecideItem(req, fresh);
-  const scope = buildAccreditationScope(req.user);
+  const decideInternal = canDecideInternal(req, fresh);
   const hideCompanies = scope.mode === "internal";
   const visibleCompanies = hideCompanies ? [] : companies;
   const internalEnabled = !!Number(fresh.internal_enabled);
@@ -862,42 +1070,58 @@ async function hydrateDetail(req, row) {
     isInscriptionOpen(fresh) &&
     !!Number(fresh.ativo) &&
     !myInternal;
-  const internalsPending = internals.some((r) => isPendingStatus(r.id_access_status));
+  const visibleInternals = decideInternal ? internals : myInternal ? [myInternal] : [];
+  const internalsPending = visibleInternals.some((r) => isPendingStatus(r.id_access_status));
   const internalsTerminal =
     !internalEnabled ||
     internals.length === 0 ||
     internals.every((r) => !isPendingStatus(r.id_access_status));
   const cycleComplete = allTerminal && internalsTerminal;
   let setorApproversCount = 0;
-  if (fresh.id_setor) {
+  const setorList = await listSectorsOf(fresh.id_event_accreditation);
+  const allowedSetores = new Set(memberships.map((m) => m.id_setor));
+  const visibleSetorList = seesAll
+    ? setorList
+    : setorList.filter((s) => allowedSetores.has(Number(s.id_setor)));
+  const setores = [];
+  for (const s of visibleSetorList) {
+    const canManageSector = await canManageSectorCompanies(req, fresh, s.id_setor);
+    const approvers = await approvalsService.listEligibleApprovers(s.id_setor, 1);
+    setorApproversCount += approvers.length;
+    setores.push({
+      ...s,
+      approvers_count: approvers.length,
+      can_add_companies: canManageSector && isInscriptionOpen(fresh) && !!Number(fresh.ativo),
+      can_notify_companies: canManageSector,
+    });
+  }
+  if (!setores.length && fresh.id_setor && seesAll) {
     const approvers = await approvalsService.listEligibleApprovers(fresh.id_setor, 1);
     setorApproversCount = approvers.length;
   }
 
   return {
     ...mapItemRow(fresh),
+    setores,
     event_dates: await listEventDates(fresh.id_event_accreditation),
     bracelet_types: await listBraceletsOf(fresh.id_event_accreditation),
     internal_bracelet_types: internalEnabled
       ? await listInternalBraceletsOf(fresh.id_event_accreditation)
       : [],
     companies: visibleCompanies,
-    internals:
-      scope.mode === "internal" && !canManage && !canDecide
-        ? myInternal
-          ? [myInternal]
-          : []
-        : internals,
+    internals: visibleInternals,
     my_internal: myInternal,
     can_register_internal: canRegisterInternal,
-    kpis: buildKpis(visibleCompanies, internals),
+    kpis: buildKpis(visibleCompanies, decideInternal ? internals : []),
     setor_approvers_count: setorApproversCount,
     can_manage: canManage,
     can_decide: canDecide,
+    can_decide_internal: decideInternal,
     can_notify: canManage,
     can_toggle_active:
       (isSuperAdmin(req.user) || Number(fresh.id_solicitante) === Number(req.user?.id)) &&
       hasPermission(req.user, "event_accreditation", "edit"),
+    can_delete: canDeleteItem(req, fresh),
     can_export:
       cycleComplete && hasPermission(req.user, "event_accreditation", "view"),
     cycle_complete: cycleComplete,
@@ -949,11 +1173,14 @@ async function listItems(req, { page, limit, filters }) {
     [...allParams, limit, (page - 1) * limit],
   );
 
-  const items = (await attachCoverThumbs(await attachEventDates(rows.map(mapItemRow)))).map((item) => ({
+  const items = (
+    await attachCoverThumbs(await attachSectors(await attachEventDates(rows.map(mapItemRow))))
+  ).map((item) => ({
     ...item,
     can_toggle_active:
       (isSuperAdmin(req.user) || Number(item.id_solicitante) === Number(req.user?.id)) &&
       hasPermission(req.user, "event_accreditation", "edit"),
+    can_delete: canDeleteItem(req, item),
   }));
 
   return {
@@ -1025,10 +1252,8 @@ async function createItem(req, data) {
   if (!eventDates.length) throw new AppError("Selecione ao menos um dia do evento.", 400);
   const start = eventDates[0];
   const end = eventDates[eventDates.length - 1];
-  const companyIds = uniquePositiveIds(data.companies);
-  if (!companyIds.length) {
-    throw new AppError("Selecione ao menos uma empresa para indicar colaboradores.", 400);
-  }
+  const setorIds = await assertActiveSectors(data.setores || [data.id_setor]);
+  const primarySetor = setorIds[0];
   const braceletIds = await resolveBraceletIds(data.bracelet_types, data.event_kind);
   const idSolicitante = req.user?.id;
   if (!idSolicitante) throw new AppError("Usuário não autenticado.", 401);
@@ -1036,17 +1261,9 @@ async function createItem(req, data) {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    await approvalsService.assertUserCanOpenForSector(conn, data.id_setor, req.user);
     await approvalsService.ensureActiveFlowsForTipo(ENTITY_TYPE);
     if (data.internal_enabled === true) {
       await approvalsService.ensureActiveFlowsForTipo(ENTITY_TYPE_INTERNAL);
-    }
-
-    for (const idCompany of companyIds) {
-      const company = await companyService.findActiveCompanyById(idCompany);
-      if (!company) {
-        throw new AppError("Uma ou mais empresas selecionadas não existem ou estão inativas.", 400);
-      }
     }
 
     const internalEnabled = data.internal_enabled === true;
@@ -1065,7 +1282,7 @@ async function createItem(req, data) {
         end,
         data.inscription_start,
         data.inscription_end,
-        data.id_setor,
+        primarySetor,
         idSolicitante,
         STATUS_AGUARDANDO_PRODUTORA,
         internalEnabled ? 1 : 0,
@@ -1073,13 +1290,7 @@ async function createItem(req, data) {
     );
     const id = result.insertId;
     await replaceEventDates(conn, id, eventDates);
-    for (const idCompany of companyIds) {
-      await conn.execute(
-        `INSERT INTO event_accreditation_company (id_event_accreditation, id_company)
-         VALUES (?, ?)`,
-        [id, idCompany],
-      );
-    }
+    await replaceSectors(conn, id, setorIds);
     for (const idBracelet of braceletIds) {
       await conn.execute(
         `INSERT INTO event_accreditation_bracelet (id_event_accreditation, id_bracelet_type)
@@ -1096,13 +1307,87 @@ async function createItem(req, data) {
     }
     await conn.commit();
     const detail = await getById(req, id);
-    return { ...detail, invitedCompanyIds: companyIds, internalEnabled };
+    return { ...detail, invitedCompanyIds: [], invitedSectorIds: setorIds, internalEnabled };
   } catch (err) {
     await conn.rollback();
     throw err;
   } finally {
     conn.release();
   }
+}
+
+function copyNameWithSuffix(name, suffix = " (cópia)", max = 200) {
+  const base = String(name || "").trim() || "Evento";
+  const next = `${base}${suffix}`;
+  if (next.length <= max) return next;
+  const cut = Math.max(1, max - suffix.length);
+  return `${base.slice(0, cut)}${suffix}`;
+}
+
+async function copyAccreditationCover(sourceCover, destId) {
+  const name = path.basename(String(sourceCover || ""));
+  if (!name || name === "." || name.includes("..")) return;
+  const src = path.join(notifications.COVER_DIR, name);
+  if (!fs.existsSync(src)) return;
+  const ext = path.extname(name).toLowerCase() || ".jpg";
+  const safeExt = [".jpg", ".jpeg", ".png", ".webp"].includes(ext) ? ext : ".jpg";
+  const filename = `${uuidv4()}${safeExt}`;
+  fs.mkdirSync(notifications.COVER_DIR, { recursive: true });
+  fs.copyFileSync(src, path.join(notifications.COVER_DIR, filename));
+  await writeCoverThumb(filename);
+  await db.execute(`UPDATE event_accreditation SET cover = ? WHERE id_event_accreditation = ?`, [
+    filename,
+    destId,
+  ]);
+}
+
+async function duplicateItem(req, id) {
+  const itemId = Number(id);
+  const row = await findById(itemId);
+  if (!row) throw new AppError("Credenciamento não encontrado.", 404);
+  await assertCanRead(req, row);
+  if (!canManageItem(req, row)) {
+    throw new AppError("Sem permissão para duplicar este credenciamento.", 403);
+  }
+
+  const eventDates = await listEventDates(itemId);
+  const setores = await listSectorsOf(itemId);
+  const bracelets = await listBraceletsOf(itemId);
+  const internalEnabled = !!Number(row.internal_enabled);
+  const internalBracelets = internalEnabled ? await listInternalBraceletsOf(itemId) : [];
+
+  const created = await createItem(req, {
+    name: copyNameWithSuffix(row.name),
+    event_kind: row.event_kind,
+    event_dates: eventDates.length
+      ? eventDates
+      : [formatDateField(row.start), formatDateField(row.end)].filter(Boolean),
+    start: formatDateField(row.start),
+    end: formatDateField(row.end),
+    inscription_start: row.inscription_start,
+    inscription_end: row.inscription_end,
+    setores: setores.map((s) => s.id_setor),
+    id_setor: row.id_setor,
+    bracelet_types: bracelets.map((b) => b.id_bracelet_type),
+    internal_enabled: internalEnabled,
+    internal_bracelet_types: internalBracelets.map((b) => b.id_bracelet_type),
+  });
+
+  if (row.cover) {
+    try {
+      await copyAccreditationCover(row.cover, created.id_event_accreditation);
+    } catch {
+      /* capa opcional — o evento já foi criado */
+    }
+  }
+
+  const detail = await getById(req, created.id_event_accreditation);
+  return {
+    ...detail,
+    invitedCompanyIds: created.invitedCompanyIds || [],
+    invitedSectorIds: created.invitedSectorIds || [],
+    internalEnabled: created.internalEnabled,
+  };
 }
 
 async function updateItem(req, id, data) {
@@ -1122,6 +1407,7 @@ async function updateItem(req, id, data) {
     inscription_start: data.inscription_start != null ? data.inscription_start : row.inscription_start,
     inscription_end: data.inscription_end != null ? data.inscription_end : row.inscription_end,
     id_setor: data.id_setor != null ? Number(data.id_setor) : Number(row.id_setor),
+    setores: data.setores != null ? uniquePositiveIds(data.setores) : null,
   };
   let nextDates = null;
   if (data.event_dates != null) {
@@ -1142,8 +1428,11 @@ async function updateItem(req, id, data) {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    if (next.id_setor !== Number(row.id_setor)) {
-      await approvalsService.assertUserCanOpenForSector(conn, next.id_setor, req.user);
+    if (next.setores) {
+      next.setores = await assertActiveSectors(next.setores, conn);
+      next.id_setor = next.setores[0];
+    } else if (next.id_setor !== Number(row.id_setor)) {
+      next.setores = await assertActiveSectors([next.id_setor], conn);
     }
     const nextInternalEnabled =
       data.internal_enabled != null ? !!data.internal_enabled : !!Number(row.internal_enabled);
@@ -1182,6 +1471,47 @@ async function updateItem(req, id, data) {
       await replaceEventDates(conn, itemId, nextDates);
     }
 
+    if (next.setores) {
+      const [currentSectors] = await conn.execute(
+        `SELECT id_setor FROM event_accreditation_setor WHERE id_event_accreditation = ?`,
+        [itemId],
+      );
+      const nextSet = new Set(next.setores);
+      const removed = currentSectors
+        .map((r) => Number(r.id_setor))
+        .filter((id) => !nextSet.has(id));
+      if (removed.length) {
+        const ph = removed.map(() => "?").join(",");
+        const [blocking] = await conn.execute(
+          `SELECT eac.id_setor
+             FROM event_accreditation_company eac
+            WHERE eac.id_event_accreditation = ?
+              AND eac.id_setor IN (${ph})
+              AND (
+                eac.indication_status <> ?
+                OR EXISTS (
+                  SELECT 1 FROM event_accreditation_collaborator eacol
+                   WHERE eacol.id_event_accreditation_company = eac.id_event_accreditation_company
+                )
+              )`,
+          [itemId, ...removed, INDICATION.INDICACAO],
+        );
+        if (blocking.length) {
+          throw new AppError(
+            "Não é possível remover um setor que já possui empresas em andamento ou aprovadas.",
+            409,
+          );
+        }
+        await conn.execute(
+          `DELETE FROM event_accreditation_company
+            WHERE id_event_accreditation = ?
+              AND id_setor IN (${ph})`,
+          [itemId, ...removed],
+        );
+      }
+      await replaceSectors(conn, itemId, next.setores);
+    }
+
     if (braceletIds) {
       const [used] = await conn.execute(
         `SELECT DISTINCT eacol.id_bracelet_type
@@ -1210,71 +1540,6 @@ async function updateItem(req, id, data) {
           `INSERT INTO event_accreditation_bracelet (id_event_accreditation, id_bracelet_type)
            VALUES (?, ?)`,
           [itemId, idBracelet],
-        );
-      }
-    }
-
-    if (data.companies != null) {
-      const companyIds = uniquePositiveIds(data.companies);
-      if (!companyIds.length) {
-        throw new AppError("Selecione ao menos uma empresa para indicar colaboradores.", 400);
-      }
-      const [current] = await conn.execute(
-        `SELECT id_event_accreditation_company, id_company
-           FROM event_accreditation_company
-          WHERE id_event_accreditation = ?`,
-        [itemId],
-      );
-      const currentByCompany = new Map(
-        current.map((r) => [Number(r.id_company), Number(r.id_event_accreditation_company)]),
-      );
-      const nextSet = new Set(companyIds);
-
-      for (const idCompany of companyIds) {
-        if (currentByCompany.has(idCompany)) continue;
-        const company = await companyService.findActiveCompanyById(idCompany);
-        if (!company) {
-          throw new AppError("Uma ou mais empresas selecionadas não existem ou estão inativas.", 400);
-        }
-      }
-
-      const toRemove = current.filter((r) => !nextSet.has(Number(r.id_company)));
-      if (toRemove.length) {
-        const linkIds = toRemove.map((r) => Number(r.id_event_accreditation_company));
-        const placeholders = linkIds.map(() => "?").join(",");
-        const [used] = await conn.execute(
-          `SELECT DISTINCT id_event_accreditation_company
-             FROM event_accreditation_collaborator
-            WHERE id_event_accreditation_company IN (${placeholders})`,
-          linkIds,
-        );
-        const [approved] = await conn.execute(
-          `SELECT DISTINCT id_entidade
-             FROM aprovacoes
-            WHERE tipo_entidade = ?
-              AND id_entidade IN (${placeholders})`,
-          [ENTITY_TYPE, ...linkIds],
-        );
-        if (used.length || approved.length) {
-          throw new AppError(
-            "Não é possível remover uma empresa que já indicou colaboradores.",
-            409,
-          );
-        }
-        await conn.execute(
-          `DELETE FROM event_accreditation_company
-            WHERE id_event_accreditation = ?
-              AND id_company IN (${toRemove.map(() => "?").join(",")})`,
-          [itemId, ...toRemove.map((r) => Number(r.id_company))],
-        );
-      }
-
-      for (const idCompany of companyIds) {
-        if (currentByCompany.has(idCompany)) continue;
-        await conn.execute(
-          `INSERT INTO event_accreditation_company (id_event_accreditation, id_company)
-           VALUES (?, ?)`,
-          [itemId, idCompany],
         );
       }
     }
@@ -1383,6 +1648,88 @@ async function patchStatus(req, id, ativo) {
   };
 }
 
+async function deleteAccreditationFiles(row, inviteFiles) {
+  if (row.cover) {
+    const name = path.basename(row.cover);
+    const stored = path.join(notifications.COVER_DIR, name);
+    try {
+      if (fs.existsSync(stored)) fs.unlinkSync(stored);
+    } catch {
+      /* arquivo ausente ou sem permissão */
+    }
+    removeCoverThumb(name);
+  }
+  for (const file of inviteFiles) {
+    const stored = path.join(notifications.INVITE_FILE_DIR, path.basename(file.filename));
+    try {
+      if (fs.existsSync(stored)) fs.unlinkSync(stored);
+    } catch {
+      /* arquivo ausente ou sem permissão */
+    }
+  }
+}
+
+async function deleteApprovalsByIds(conn, ids) {
+  if (!ids.length) return;
+  const placeholders = ids.map(() => "?").join(", ");
+  await conn.execute(`DELETE FROM aprovacao_decisoes WHERE id_aprovacao IN (${placeholders})`, ids);
+  await conn.execute(`DELETE FROM aprovacoes WHERE id IN (${placeholders})`, ids);
+}
+
+async function deleteItem(req, id) {
+  const itemId = Number(id);
+  if (!Number.isInteger(itemId) || itemId <= 0) {
+    throw new AppError("Credenciamento inválido.", 400);
+  }
+  const row = await findById(itemId);
+  if (!row) throw new AppError("Credenciamento não encontrado.", 404);
+  await assertCanRead(req, row);
+  if (!canDeleteItem(req, row)) {
+    throw new AppError("Sem permissão para excluir este credenciamento.", 403);
+  }
+
+  const invite = await findInviteByAccreditation(itemId);
+  const inviteFiles = invite ? await listInviteFiles(invite.id_event_accreditation_invite) : [];
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [companies] = await conn.execute(
+      `SELECT id_event_accreditation_company FROM event_accreditation_company
+        WHERE id_event_accreditation = ?`,
+      [itemId],
+    );
+    const companyIds = companies.map((c) => Number(c.id_event_accreditation_company));
+    const approvalSql = companyIds.length
+      ? `SELECT id FROM aprovacoes
+          WHERE (tipo_entidade = ? AND id_entidade IN (${companyIds.map(() => "?").join(", ")}))
+             OR (tipo_entidade = ? AND id_entidade = ?)`
+      : `SELECT id FROM aprovacoes WHERE tipo_entidade = ? AND id_entidade = ?`;
+    const approvalParams = companyIds.length
+      ? [ENTITY_TYPE, ...companyIds, ENTITY_TYPE_INTERNAL, itemId]
+      : [ENTITY_TYPE_INTERNAL, itemId];
+    const [aprovacoes] = await conn.execute(approvalSql, approvalParams);
+    await deleteApprovalsByIds(
+      conn,
+      aprovacoes.map((a) => a.id),
+    );
+    await conn.execute(`DELETE FROM event_accreditation WHERE id_event_accreditation = ?`, [itemId]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  await deleteAccreditationFiles(row, inviteFiles);
+  return {
+    deleted: true,
+    id_event_accreditation: itemId,
+    name: row.name,
+  };
+}
+
 async function addCollaborator(req, id, idCompany, payload) {
   const itemId = Number(id);
   const companyId = Number(idCompany);
@@ -1393,7 +1740,7 @@ async function addCollaborator(req, id, idCompany, payload) {
   if (!isInscriptionOpen(row)) {
     throw new AppError("O prazo de inscrição já encerrou.", 409);
   }
-  if (!canIndicateForCompany(req, row, companyId)) {
+  if (!canAddCollaboratorsForCompany(req, row, companyId)) {
     throw new AppError("Sem permissão para indicar colaboradores desta empresa.", 403);
   }
 
@@ -1405,9 +1752,6 @@ async function addCollaborator(req, id, idCompany, payload) {
   );
   const link = links[0];
   if (!link) throw new AppError("Empresa não convidada neste credenciamento.", 404);
-  if (link.indication_status !== INDICATION.INDICACAO) {
-    throw new AppError("A indicação desta empresa já foi concluída.", 409);
-  }
 
   const [bracelets] = await db.execute(
     `SELECT * FROM bracelet_type WHERE id_bracelet_type = ? AND ativo = 1 LIMIT 1`,
@@ -1435,13 +1779,7 @@ async function addCollaborator(req, id, idCompany, payload) {
   if (!Number(collabs[0].status)) {
     throw new AppError("Colaborador inativo.", 400);
   }
-  const [blocked] = await db.execute(
-    `SELECT 1 FROM collaborator_block_list WHERE id_collaborator = ? LIMIT 1`,
-    [payload.id_collaborator],
-  );
-  if (blocked.length) {
-    throw new AppError("Colaborador na lista de restrição não pode ser indicado.", 403);
-  }
+  await blocklistPolicy.assertNotBlocklisted(payload.id_collaborator);
 
   const [roles] = await db.execute(
     `SELECT 1 FROM collaborator_role WHERE id_collaborator_role = ? LIMIT 1`,
@@ -1453,25 +1791,36 @@ async function addCollaborator(req, id, idCompany, payload) {
     await collaboratorService.linkCollaboratorToCompany(payload.id_collaborator, companyId);
   }
 
+  const conn = await db.getConnection();
   try {
-    await db.execute(
-      `INSERT INTO event_accreditation_collaborator
-         (id_event_accreditation_company, id_collaborator, id_collaborator_role,
-          id_bracelet_type, id_access_status)
-       VALUES (?, ?, ?, ?, ?)`,
-      [
-        link.id_event_accreditation_company,
-        payload.id_collaborator,
-        payload.id_collaborator_role,
-        payload.id_bracelet_type,
-        STATUS_AGUARDANDO_PRODUTORA,
-      ],
-    );
-  } catch (err) {
-    if (err && err.code === "ER_DUP_ENTRY") {
-      throw new AppError("Colaborador já indicado por esta empresa.", 409);
+    await conn.beginTransaction();
+    try {
+      await conn.execute(
+        `INSERT INTO event_accreditation_collaborator
+           (id_event_accreditation_company, id_collaborator, id_collaborator_role,
+            id_bracelet_type, id_access_status)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          link.id_event_accreditation_company,
+          payload.id_collaborator,
+          payload.id_collaborator_role,
+          payload.id_bracelet_type,
+          STATUS_AGUARDANDO_PRODUTORA,
+        ],
+      );
+    } catch (err) {
+      if (err && err.code === "ER_DUP_ENTRY") {
+        throw new AppError("Colaborador já indicado por esta empresa.", 409);
+      }
+      throw err;
     }
+    await promoteLateIndications(conn, link, row);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
     throw err;
+  } finally {
+    conn.release();
   }
   return getById(req, itemId);
 }
@@ -1486,7 +1835,7 @@ async function removeCollaborator(req, id, idCompany, linkId) {
   if (!isInscriptionOpen(row)) {
     throw new AppError("O prazo de inscrição já encerrou.", 409);
   }
-  if (!canIndicateForCompany(req, row, companyId)) {
+  if (!canAddCollaboratorsForCompany(req, row, companyId)) {
     throw new AppError("Sem permissão para alterar a indicação desta empresa.", 403);
   }
   const [links] = await db.execute(
@@ -1497,16 +1846,33 @@ async function removeCollaborator(req, id, idCompany, linkId) {
   );
   const link = links[0];
   if (!link) throw new AppError("Empresa não convidada neste credenciamento.", 404);
-  if (link.indication_status !== INDICATION.INDICACAO) {
-    throw new AppError("A indicação desta empresa já foi concluída.", 409);
-  }
+  const submitted = indicationAlreadySubmitted(link);
   const [result] = await db.execute(
-    `DELETE FROM event_accreditation_collaborator
-      WHERE id_event_accreditation_collaborator = ?
-        AND id_event_accreditation_company = ?`,
-    [linkId, link.id_event_accreditation_company],
+    submitted
+      ? `DELETE FROM event_accreditation_collaborator
+          WHERE id_event_accreditation_collaborator = ?
+            AND id_event_accreditation_company = ?
+            AND id_access_status IN (?, ?)`
+      : `DELETE FROM event_accreditation_collaborator
+          WHERE id_event_accreditation_collaborator = ?
+            AND id_event_accreditation_company = ?`,
+    submitted
+      ? [
+          linkId,
+          link.id_event_accreditation_company,
+          STATUS_AGUARDANDO_PRODUTORA,
+          STATUS_AGUARDANDO_APROVACAO,
+        ]
+      : [linkId, link.id_event_accreditation_company],
   );
-  if (!result.affectedRows) throw new AppError("Indicação não encontrada.", 404);
+  if (!result.affectedRows) {
+    throw new AppError(
+      submitted
+        ? "Só é possível remover colaboradores ainda pendentes."
+        : "Indicação não encontrada.",
+      submitted ? 409 : 404,
+    );
+  }
   return getById(req, itemId);
 }
 
@@ -1543,7 +1909,6 @@ async function completeCompany(req, id, idCompany) {
   let approval = null;
   try {
     await conn.beginTransaction();
-    await approvalsService.assertUserCanOpenForSector(conn, row.id_setor, req.user);
     const result = await completeCompanyIndicationInternal(conn, link, row, { auto: false });
     approval = result?.approval || null;
     await conn.commit();
@@ -1609,6 +1974,37 @@ async function closePendingApprovalIfSettled(conn, linkId, user, companyStatus) 
   );
 }
 
+function indicationAlreadySubmitted(link) {
+  return (
+    !!link.indicated_complete_at ||
+    (link.indication_status && link.indication_status !== INDICATION.INDICACAO)
+  );
+}
+
+async function promoteLateIndications(conn, link, item) {
+  if (!indicationAlreadySubmitted(link)) return;
+  await conn.execute(
+    `UPDATE event_accreditation_collaborator
+        SET id_access_status = ?
+      WHERE id_event_accreditation_company = ?
+        AND id_access_status = ?`,
+    [STATUS_AGUARDANDO_APROVACAO, link.id_event_accreditation_company, STATUS_AGUARDANDO_PRODUTORA],
+  );
+  await conn.execute(
+    `UPDATE event_accreditation_company
+        SET indication_status = ?
+      WHERE id_event_accreditation_company = ?`,
+    [INDICATION.AGUARDANDO_APROVACAO, link.id_event_accreditation_company],
+  );
+  await reopenApprovalIfNeeded(
+    conn,
+    { ...link, indication_status: INDICATION.AGUARDANDO_APROVACAO },
+    item,
+    INDICATION.AGUARDANDO_APROVACAO,
+  );
+  await syncParentStatus(item.id_event_accreditation, conn);
+}
+
 async function reopenApprovalIfNeeded(conn, link, item, companyStatus) {
   if (companyStatus !== INDICATION.AGUARDANDO_APROVACAO) return;
   if (!link.indicated_complete_at) return;
@@ -1624,7 +2020,7 @@ async function reopenApprovalIfNeeded(conn, link, item, companyStatus) {
     await approvalsService.createApprovalFor(conn, {
       tipoEntidade: ENTITY_TYPE,
       idEntidade: link.id_event_accreditation_company,
-      idSetor: item.id_setor,
+      idSetor: companySectorId(link, item),
       idSolicitante: item.id_solicitante,
     });
   } catch (err) {
@@ -1790,6 +2186,9 @@ async function unregisterInternal(req, id) {
 }
 
 async function decideInternals(req, itemId, row, payload) {
+  if (!canDecideInternal(req, row)) {
+    throw new AppError("Sem permissão para decidir colaboradores internos.", 403);
+  }
   const ids = uniquePositiveIds(payload.ids);
   if (!ids.length) throw new AppError("Selecione ao menos um colaborador interno.", 400);
   const action = payload.action;
@@ -1871,9 +2270,7 @@ async function changeBracelet(req, id, payload) {
   if (!row) throw new AppError("Credenciamento não encontrado.", 404);
   await assertCanRead(req, row);
   assertActive(row);
-  if (!(await canDecideItem(req, row))) {
-    throw new AppError("Sem permissão para alterar a pulseira deste credenciamento.", 403);
-  }
+  const canDecide = await canDecideItem(req, row);
 
   const braceletId = Number(payload.id_bracelet_type);
   const [bracelets] = await db.execute(
@@ -1890,6 +2287,9 @@ async function changeBracelet(req, id, payload) {
   const placeholders = ids.map(() => "?").join(",");
 
   if (payload.target === "internal") {
+    if (!canDecideInternal(req, row)) {
+      throw new AppError("Sem permissão para alterar a pulseira deste credenciamento.", 403);
+    }
     const [allowed] = await db.execute(
       `SELECT 1 FROM event_accreditation_internal_bracelet
         WHERE id_event_accreditation = ? AND id_bracelet_type = ?
@@ -1931,7 +2331,8 @@ async function changeBracelet(req, id, payload) {
     throw new AppError("Esta pulseira não está liberada neste credenciamento.", 400);
   }
   const [rows] = await db.execute(
-    `SELECT eacol.id_event_accreditation_collaborator, eacol.id_access_status, eacol.id_bracelet_type
+    `SELECT eacol.id_event_accreditation_collaborator, eacol.id_access_status, eacol.id_bracelet_type,
+            eac.id_company, eac.indication_status, eac.id_setor
        FROM event_accreditation_collaborator eacol
        INNER JOIN event_accreditation_company eac
          ON eac.id_event_accreditation_company = eacol.id_event_accreditation_company
@@ -1941,6 +2342,23 @@ async function changeBracelet(req, id, payload) {
   );
   if (rows.length !== ids.length) {
     throw new AppError("Um ou mais colaboradores não pertencem a este credenciamento.", 400);
+  }
+  if (!canDecide) {
+    if (!isInscriptionOpen(row)) {
+      throw new AppError("O prazo de inscrição já encerrou.", 409);
+    }
+    for (const item of rows) {
+      if (!canAddCollaboratorsForCompany(req, row, item.id_company)) {
+        throw new AppError("Sem permissão para alterar a pulseira deste credenciamento.", 403);
+      }
+    }
+  } else {
+    for (const item of rows) {
+      const idSetor = companySectorId(item, row);
+      if (!(await canDecideForSector(req, row, idSetor))) {
+        throw new AppError("Sem permissão para alterar a pulseira deste setor.", 403);
+      }
+    }
   }
   if (rows.some((r) => !isPendingStatus(Number(r.id_access_status)))) {
     throw new AppError("Só é possível trocar a pulseira de colaboradores pendentes.", 409);
@@ -1983,7 +2401,8 @@ async function decideCollaborators(req, id, payload) {
             eacol.id_access_status,
             eac.indication_status,
             eac.indicated_complete_at,
-            eac.id_event_accreditation
+            eac.id_event_accreditation,
+            eac.id_setor
        FROM event_accreditation_collaborator eacol
        INNER JOIN event_accreditation_company eac
          ON eac.id_event_accreditation_company = eacol.id_event_accreditation_company
@@ -1993,6 +2412,13 @@ async function decideCollaborators(req, id, payload) {
   );
   if (rows.length !== ids.length) {
     throw new AppError("Um ou mais colaboradores não pertencem a este credenciamento.", 400);
+  }
+
+  for (const col of rows) {
+    const idSetor = companySectorId(col, row);
+    if (!(await canDecideForSector(req, row, idSetor))) {
+      throw new AppError("Sem permissão para decidir colaboradores deste setor.", 403);
+    }
   }
 
   for (const col of rows) {
@@ -2015,6 +2441,7 @@ async function decideCollaborators(req, id, payload) {
       `SELECT c.name
          FROM collaborator c
          INNER JOIN collaborator_block_list bl ON bl.id_collaborator = c.id_collaborator
+          AND ${blocklistPolicy.activeBlockJoinSql("bl")}
         WHERE c.id_collaborator IN (${ph})`,
       collabIds,
     );
@@ -2026,6 +2453,7 @@ async function decideCollaborators(req, id, payload) {
     }
   }
 
+  const companyIds = [...new Set(rows.map((r) => Number(r.id_event_accreditation_company)))];
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -2052,7 +2480,6 @@ async function decideCollaborators(req, id, payload) {
       );
     }
 
-    const companyIds = [...new Set(rows.map((r) => Number(r.id_event_accreditation_company)))];
     for (const linkId of companyIds) {
       const [links] = await conn.execute(
         `SELECT * FROM event_accreditation_company
@@ -2079,6 +2506,313 @@ async function decideCollaborators(req, id, payload) {
   } finally {
     conn.release();
   }
+  if (action === "approve") {
+    const facialCommand = require("../facial/facial.command.service");
+    facialCommand.scheduleRevokeUnlessReleasedToday(
+      rows.map((r) => r.id_collaborator),
+      "accreditation_approved_without_portaria",
+    );
+  }
+  const detail = await getById(req, itemId);
+  for (const company of detail.companies || []) {
+    if (
+      companyIds.includes(Number(company.id_event_accreditation_company)) &&
+      (company.indication_status === INDICATION.APROVADO ||
+        company.indication_status === INDICATION.NEGADO)
+    ) {
+      notifications
+        .notifyOwnerValidated({
+          item: detail,
+          companyName: company.fancy_name || company.company_name,
+          status: company.indication_status,
+          usuarioId: req.user?.id,
+        })
+        .catch(() => {});
+      logNotify({
+        idAccreditation: itemId,
+        idCompanyLink: company.id_event_accreditation_company,
+        idSetor: company.id_setor,
+        tipo: NOTIFY_TIPO.OWNER_VALIDATED,
+        userId: req.user?.id,
+      }).catch(() => {});
+    }
+  }
+  return detail;
+}
+
+async function sendCompanyInvites(req, item, companyIds, { reminder = false } = {}) {
+  const mapped = mapItemRow(item);
+  const invite = await findInviteByAccreditation(item.id_event_accreditation);
+  const files = invite ? await listInviteFiles(invite.id_event_accreditation_invite) : [];
+  return notifications.sendInviteToCompanies({
+    item: mapped,
+    companyIds,
+    subject: reminder
+      ? `Lembrete: ${invite?.subject || notifications.buildDefaultInviteSubject(mapped)}`
+      : invite?.subject || notifications.buildDefaultInviteSubject(mapped),
+    html: invite?.html || notifications.buildDefaultInviteHtml(mapped),
+    files,
+    usuarioId: req.user?.id,
+    requestId: req.requestId,
+    context: reminder ? { reminder: true } : {},
+  });
+}
+
+async function addSectorCompanies(req, id, idSetor, payload) {
+  const itemId = Number(id);
+  const setorId = Number(idSetor);
+  const row = await findById(itemId);
+  if (!row) throw new AppError("Credenciamento não encontrado.", 404);
+  await assertCanRead(req, row);
+  assertActive(row);
+  await assertSectorParticipates(itemId, setorId);
+  if (!(await canManageSectorCompanies(req, row, setorId))) {
+    throw new AppError("Sem permissão para indicar empresas deste setor.", 403);
+  }
+  await approvalsService.ensureActiveFlowsForTipo(ENTITY_TYPE);
+  if (!isInscriptionOpen(row)) {
+    throw new AppError("O prazo de inscrição já encerrou.", 409);
+  }
+  const companyIds = uniquePositiveIds(payload.companies);
+  if (!companyIds.length) {
+    throw new AppError("Selecione ao menos uma empresa.", 400);
+  }
+
+  const added = [];
+  for (const idCompany of companyIds) {
+    const company = await companyService.findActiveCompanyById(idCompany);
+    if (!company) {
+      throw new AppError("Uma ou mais empresas selecionadas não existem ou estão inativas.", 400);
+    }
+    const [existing] = await db.execute(
+      `SELECT id_event_accreditation_company, id_setor
+         FROM event_accreditation_company
+        WHERE id_event_accreditation = ? AND id_company = ?
+        LIMIT 1`,
+      [itemId, idCompany],
+    );
+    if (existing.length) {
+      if (Number(existing[0].id_setor) !== setorId) {
+        throw new AppError(
+          "Esta empresa já participa deste credenciamento em outro setor.",
+          409,
+        );
+      }
+      continue;
+    }
+    await db.execute(
+      `INSERT INTO event_accreditation_company (id_event_accreditation, id_company, id_setor)
+       VALUES (?, ?, ?)`,
+      [itemId, idCompany, setorId],
+    );
+    added.push(idCompany);
+  }
+  if (added.length) {
+    await sendCompanyInvites(req, row, added);
+    for (const idCompany of added) {
+      const [links] = await db.execute(
+        `SELECT id_event_accreditation_company FROM event_accreditation_company
+          WHERE id_event_accreditation = ? AND id_company = ? LIMIT 1`,
+        [itemId, idCompany],
+      );
+      await logNotify({
+        idAccreditation: itemId,
+        idCompanyLink: links[0]?.id_event_accreditation_company || null,
+        idSetor: setorId,
+        tipo: NOTIFY_TIPO.COMPANY_INVITE,
+        userId: req.user?.id,
+      });
+    }
+  }
+  const item = await getById(req, itemId);
+  return { item, added: added.length };
+}
+
+async function removeSectorCompany(req, id, idSetor, idCompany) {
+  const itemId = Number(id);
+  const setorId = Number(idSetor);
+  const companyId = Number(idCompany);
+  const row = await findById(itemId);
+  if (!row) throw new AppError("Credenciamento não encontrado.", 404);
+  await assertCanRead(req, row);
+  assertActive(row);
+  await assertSectorParticipates(itemId, setorId);
+  if (!(await canManageSectorCompanies(req, row, setorId))) {
+    throw new AppError("Sem permissão para remover empresas deste setor.", 403);
+  }
+  const [links] = await db.execute(
+    `SELECT * FROM event_accreditation_company
+      WHERE id_event_accreditation = ? AND id_company = ? AND id_setor = ?
+      LIMIT 1`,
+    [itemId, companyId, setorId],
+  );
+  const link = links[0];
+  if (!link) throw new AppError("Empresa não encontrada neste setor.", 404);
+  if (link.indication_status !== INDICATION.INDICACAO) {
+    throw new AppError("Só é possível remover empresas ainda em indicação.", 409);
+  }
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `DELETE FROM event_accreditation_collaborator
+        WHERE id_event_accreditation_company = ?
+          AND id_access_status IN (?, ?)`,
+      [
+        link.id_event_accreditation_company,
+        STATUS_AGUARDANDO_PRODUTORA,
+        STATUS_AGUARDANDO_APROVACAO,
+      ],
+    );
+    const leftover = await countCollaborators(link.id_event_accreditation_company, conn);
+    if (leftover > 0) {
+      throw new AppError(
+        "Não é possível remover uma empresa com colaboradores já decididos.",
+        409,
+      );
+    }
+    const [aprovacoes] = await conn.execute(
+      `SELECT id FROM aprovacoes WHERE tipo_entidade = ? AND id_entidade = ?`,
+      [ENTITY_TYPE, link.id_event_accreditation_company],
+    );
+    await deleteApprovalsByIds(
+      conn,
+      aprovacoes.map((a) => a.id),
+    );
+    await conn.execute(
+      `DELETE FROM event_accreditation_company WHERE id_event_accreditation_company = ?`,
+      [link.id_event_accreditation_company],
+    );
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+  return getById(req, itemId);
+}
+
+async function notifySectorCompanies(req, id, idSetor, payload = {}) {
+  const itemId = Number(id);
+  const setorId = Number(idSetor);
+  const row = await findById(itemId);
+  if (!row) throw new AppError("Credenciamento não encontrado.", 404);
+  await assertCanRead(req, row);
+  await assertSectorParticipates(itemId, setorId);
+  if (!(await canManageSectorCompanies(req, row, setorId))) {
+    throw new AppError("Sem permissão para notificar empresas deste setor.", 403);
+  }
+  const [links] = await db.execute(
+    `SELECT id_company, id_event_accreditation_company FROM event_accreditation_company
+      WHERE id_event_accreditation = ? AND id_setor = ? AND indication_status = ?`,
+    [itemId, setorId, INDICATION.INDICACAO],
+  );
+  let companyIds = links.map((r) => Number(r.id_company));
+  if (payload.id_company) {
+    const target = Number(payload.id_company);
+    if (!companyIds.includes(target)) {
+      throw new AppError("A empresa não está em indicação neste setor.", 409);
+    }
+    companyIds = [target];
+  }
+  if (!companyIds.length) {
+    throw new AppError("Nenhuma empresa em indicação para notificar.", 409);
+  }
+  const results = await sendCompanyInvites(req, row, companyIds, { reminder: true });
+  for (const link of links.filter((r) => companyIds.includes(Number(r.id_company)))) {
+    await logNotify({
+      idAccreditation: itemId,
+      idCompanyLink: link.id_event_accreditation_company,
+      idSetor: setorId,
+      tipo: NOTIFY_TIPO.COMPANY_INVITE,
+      userId: req.user?.id,
+    });
+  }
+  const sent = results.reduce((acc, r) => acc + Number(r.sent || 0), 0);
+  const item = await getById(req, itemId);
+  return { item, sent, companies: results.length };
+}
+
+async function notifySectorIndication(req, id, idCompany) {
+  const itemId = Number(id);
+  const companyId = Number(idCompany);
+  const row = await findById(itemId);
+  if (!row) throw new AppError("Credenciamento não encontrado.", 404);
+  await assertCanRead(req, row);
+  const [links] = await db.execute(
+    `SELECT eac.*, c.company_name, c.fancy_name
+       FROM event_accreditation_company eac
+       INNER JOIN company c ON c.id_company = eac.id_company
+      WHERE eac.id_event_accreditation = ? AND eac.id_company = ?
+      LIMIT 1`,
+    [itemId, companyId],
+  );
+  const link = links[0];
+  if (!link) throw new AppError("Empresa não convidada neste credenciamento.", 404);
+  if (!canIndicateForCompany(req, row, companyId) && !canManageItem(req, row)) {
+    throw new AppError("Sem permissão para notificar o setor desta empresa.", 403);
+  }
+  if (link.indication_status === INDICATION.INDICACAO) {
+    throw new AppError("Conclua a indicação antes de notificar o setor.", 409);
+  }
+  const mapped = mapItemRow(row);
+  notifications.notifySectorIndication({
+    item: mapped,
+    companyName: link.fancy_name || link.company_name,
+    idSetor: companySectorId(link, row),
+    usuarioId: req.user?.id,
+  });
+  await logNotify({
+    idAccreditation: itemId,
+    idCompanyLink: link.id_event_accreditation_company,
+    idSetor: companySectorId(link, row),
+    tipo: NOTIFY_TIPO.SECTOR_INDICATION,
+    userId: req.user?.id,
+  });
+  return getById(req, itemId);
+}
+
+async function notifyOwnerValidated(req, id, idCompany) {
+  const itemId = Number(id);
+  const companyId = Number(idCompany);
+  const row = await findById(itemId);
+  if (!row) throw new AppError("Credenciamento não encontrado.", 404);
+  await assertCanRead(req, row);
+  const [links] = await db.execute(
+    `SELECT eac.*, c.company_name, c.fancy_name
+       FROM event_accreditation_company eac
+       INNER JOIN company c ON c.id_company = eac.id_company
+      WHERE eac.id_event_accreditation = ? AND eac.id_company = ?
+      LIMIT 1`,
+    [itemId, companyId],
+  );
+  const link = links[0];
+  if (!link) throw new AppError("Empresa não convidada neste credenciamento.", 404);
+  const idSetor = companySectorId(link, row);
+  if (!(await canDecideForSector(req, row, idSetor))) {
+    throw new AppError("Sem permissão para notificar o responsável deste credenciamento.", 403);
+  }
+  if (
+    link.indication_status !== INDICATION.APROVADO &&
+    link.indication_status !== INDICATION.NEGADO
+  ) {
+    throw new AppError("Valide a indicação antes de notificar o responsável.", 409);
+  }
+  const mapped = mapItemRow(row);
+  await notifications.notifyOwnerValidated({
+    item: mapped,
+    companyName: link.fancy_name || link.company_name,
+    status: link.indication_status,
+    usuarioId: req.user?.id,
+  });
+  await logNotify({
+    idAccreditation: itemId,
+    idCompanyLink: link.id_event_accreditation_company,
+    idSetor: idSetor,
+    tipo: NOTIFY_TIPO.OWNER_VALIDATED,
+    userId: req.user?.id,
+  });
   return getById(req, itemId);
 }
 
@@ -2089,17 +2823,24 @@ async function notifyCompanies(req, id, payload = {}) {
   await assertCanRead(req, row);
   const canManage =
     canManageItem(req, row) && hasPermission(req.user, "event_accreditation", "edit");
-  if (!canManage) {
+  const memberships = await listUserSectorsOnAccreditation(req.user?.id, itemId);
+  const canSector = memberships.some((m) => SECTOR_MANAGE_PAPEIS.includes(m.papel));
+  if (!canManage && !canSector) {
     throw new AppError("Sem permissão para notificar empresas deste credenciamento.", 403);
   }
 
+  const sectorFilter = !canManage
+    ? memberships.filter((m) => SECTOR_MANAGE_PAPEIS.includes(m.papel)).map((m) => m.id_setor)
+    : [];
   const [links] = await db.execute(
-    `SELECT id_company FROM event_accreditation_company
+    `SELECT id_company, id_setor FROM event_accreditation_company
       WHERE id_event_accreditation = ?
         AND indication_status = ?`,
     [itemId, INDICATION.INDICACAO],
   );
-  let companyIds = links.map((r) => Number(r.id_company));
+  let companyIds = links
+    .filter((r) => !sectorFilter.length || sectorFilter.includes(Number(r.id_setor)))
+    .map((r) => Number(r.id_company));
   if (payload.id_company) {
     const target = Number(payload.id_company);
     if (!companyIds.includes(target)) {
@@ -2202,6 +2943,7 @@ async function markApproved(conn, idEntidade, ctx = {}) {
          FROM event_accreditation_collaborator eacol
          INNER JOIN collaborator c ON c.id_collaborator = eacol.id_collaborator
          INNER JOIN collaborator_block_list bl ON bl.id_collaborator = eacol.id_collaborator
+          AND ${blocklistPolicy.activeBlockJoinSql("bl")}
         WHERE eacol.id_event_accreditation_company = ?
           AND eacol.id_event_accreditation_collaborator IN (${approvedIds.map(() => "?").join(",")})`,
       [linkId, ...approvedIds],
@@ -2239,6 +2981,11 @@ async function markApproved(conn, idEntidade, ctx = {}) {
     [companyStatus, linkId],
   );
   await syncParentStatus(link.id_event_accreditation, conn);
+  const facialCommand = require("../facial/facial.command.service");
+  facialCommand.scheduleRevokeUnlessReleasedToday(
+    all.filter((row) => selected.has(Number(row.id_event_accreditation_collaborator))).map((row) => row.id_collaborator),
+    "accreditation_approved_without_portaria",
+  );
 }
 
 async function markRejected(conn, idEntidade) {
@@ -2268,6 +3015,66 @@ async function markExpired(conn, idEntidade) {
   return markRejected(conn, idEntidade);
 }
 
+const EXPORT_COLUMNS = [
+  { header: "Empresa", key: "empresa", width: 32 },
+  { header: "Colaborador", key: "nome", width: 32 },
+  { header: "Documento", key: "documento", width: 18 },
+  { header: "Função", key: "funcao", width: 22 },
+  { header: "Pulseira", key: "pulseira", width: 22 },
+  { header: "Status", key: "status", width: 22 },
+];
+
+function sanitizeExportSheetName(raw, used) {
+  let name = String(raw || "Setor")
+    .replace(/[\\/*?:[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 31);
+  if (!name) name = "Setor";
+  let candidate = name;
+  let i = 2;
+  while (used.has(candidate.toLowerCase())) {
+    const suffix = ` (${i})`;
+    candidate = `${name.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`;
+    i += 1;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+function addExportSheet(workbook, name, rows, usedNames) {
+  const sheet = workbook.addWorksheet(sanitizeExportSheetName(name, usedNames));
+  sheet.columns = EXPORT_COLUMNS;
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow(row);
+  }
+  return sheet;
+}
+
+function companyExportRows(company) {
+  if (!(company.collaborators || []).length) {
+    return [
+      {
+        empresa: company.fancy_name || company.company_name,
+        nome: "—",
+        documento: "",
+        funcao: "",
+        pulseira: "",
+        status: company.indication_status === INDICATION.NEGADO ? "Sem indicação" : "—",
+      },
+    ];
+  }
+  return (company.collaborators || []).map((c) => ({
+    empresa: company.fancy_name || company.company_name,
+    nome: c.collaborator_name,
+    documento: c.collaborator_document,
+    funcao: c.role_description,
+    pulseira: c.bracelet_name,
+    status: c.access_status_description,
+  }));
+}
+
 async function exportXlsx(req, id) {
   const detail = await getById(req, id);
   if (!detail.cycle_complete) {
@@ -2279,52 +3086,32 @@ async function exportXlsx(req, id) {
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Credenciamento";
-  const sheet = workbook.addWorksheet("Colaboradores");
-  sheet.columns = [
-    { header: "Empresa", key: "empresa", width: 32 },
-    { header: "Colaborador", key: "nome", width: 32 },
-    { header: "Documento", key: "documento", width: 18 },
-    { header: "Função", key: "funcao", width: 22 },
-    { header: "Pulseira", key: "pulseira", width: 22 },
-    { header: "Status", key: "status", width: 22 },
-  ];
-  sheet.getRow(1).font = { bold: true };
+  const usedNames = new Set();
+  const companies = detail.companies || [];
 
   if ((detail.internals || []).length) {
-    for (const c of detail.internals) {
-      sheet.addRow({
+    addExportSheet(
+      workbook,
+      "Colaboradores internos",
+      detail.internals.map((c) => ({
         empresa: "Colaboradores internos",
         nome: c.nome_completo,
         documento: c.email,
         funcao: c.departamento || "Interno AD",
         pulseira: c.bracelet_name,
         status: c.access_status_description,
-      });
-    }
+      })),
+      usedNames,
+    );
   }
 
-  for (const company of detail.companies) {
-    if (!company.collaborators.length) {
-      sheet.addRow({
-        empresa: company.fancy_name || company.company_name,
-        nome: "—",
-        documento: "",
-        funcao: "",
-        pulseira: "",
-        status: company.indication_status === INDICATION.NEGADO ? "Sem indicação" : "—",
-      });
-      continue;
-    }
-    for (const c of company.collaborators) {
-      sheet.addRow({
-        empresa: company.fancy_name || company.company_name,
-        nome: c.collaborator_name,
-        documento: c.collaborator_document,
-        funcao: c.role_description,
-        pulseira: c.bracelet_name,
-        status: c.access_status_description,
-      });
-    }
+  for (const company of companies) {
+    addExportSheet(
+      workbook,
+      company.fancy_name || company.company_name,
+      companyExportRows(company),
+      usedNames,
+    );
   }
 
   const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
@@ -2743,6 +3530,88 @@ async function dispatchDueInvites() {
   return { ok: failed === 0, sent, failed, total: rows.length };
 }
 
+async function assertCanBulkIndicate(req, id, idCompany) {
+  const itemId = Number(id);
+  const companyId = Number(idCompany);
+  const row = await findById(itemId);
+  if (!row) throw new AppError("Credenciamento não encontrado.", 404);
+  await assertCanRead(req, row);
+  assertActive(row);
+  if (!isInscriptionOpen(row)) {
+    throw new AppError("O prazo de inscrição já encerrou.", 409);
+  }
+  if (!canAddCollaboratorsForCompany(req, row, companyId)) {
+    throw new AppError("Sem permissão para indicar colaboradores desta empresa.", 403);
+  }
+  const [links] = await db.execute(
+    `SELECT eac.*, c.company_name, c.fancy_name
+       FROM event_accreditation_company eac
+       INNER JOIN company c ON c.id_company = eac.id_company
+      WHERE eac.id_event_accreditation = ? AND eac.id_company = ?
+      LIMIT 1`,
+    [itemId, companyId],
+  );
+  const link = links[0];
+  if (!link) throw new AppError("Empresa não convidada neste credenciamento.", 404);
+  const bracelets = (await listBraceletsOf(itemId)).filter((b) => b.ativo);
+  return { row, link, bracelets };
+}
+
+async function getCompanyBulkImportTemplate(req, id, idCompany) {
+  const { bracelets } = await assertCanBulkIndicate(req, id, idCompany);
+  const helpers = require("../patrimonial/service-access-bulk-import");
+  const { types, roles } = await helpers.loadLookups();
+  const flow = require("./event-accreditation-bulk-import.flow");
+  return flow.buildTemplate({ types, roles, bracelets });
+}
+
+async function previewCompanyBulkImport(req, id, idCompany, file) {
+  const { row, link, bracelets } = await assertCanBulkIndicate(req, id, idCompany);
+  const flow = require("./event-accreditation-bulk-import.flow");
+  return flow.previewUnifiedBulkImport({
+    accreditationId: Number(id),
+    companyId: Number(idCompany),
+    accreditationCompanyId: Number(link.id_event_accreditation_company),
+    eventName: row.name,
+    companyName: link.fancy_name || link.company_name || null,
+    bracelets,
+    file,
+    userId: req.user?.id || null,
+  });
+}
+
+async function confirmCompanyBulkImport(req, id, idCompany, body) {
+  const { row, link, bracelets } = await assertCanBulkIndicate(req, id, idCompany);
+  const previewToken = body.previewToken || body.previewId;
+  if (!previewToken) {
+    throw new AppError("previewToken é obrigatório.", 400);
+  }
+  const flow = require("./event-accreditation-bulk-import.flow");
+  const result = await flow.confirmUnifiedBulkImport({
+    accreditationId: Number(id),
+    companyId: Number(idCompany),
+    accreditationCompanyId: Number(link.id_event_accreditation_company),
+    previewToken,
+    decisoes: body.decisoes || {},
+    userId: req.user?.id || null,
+    allowedBraceletIds: bracelets.map((b) => b.id_bracelet_type),
+  });
+  if (indicationAlreadySubmitted(link)) {
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      await promoteLateIndications(conn, link, row);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+  return result;
+}
+
 module.exports = {
   ENTITY_TYPE,
   INDICATION,
@@ -2751,11 +3620,19 @@ module.exports = {
   listItems,
   getById,
   createItem,
+  duplicateItem,
   updateItem,
   patchStatus,
+  deleteItem,
   addCollaborator,
   removeCollaborator,
   completeCompany,
+  addSectorCompanies,
+  removeSectorCompany,
+  notifySectorCompanies,
+  notifySectorIndication,
+  notifyOwnerValidated,
+  listCreateSectors,
   registerInternal,
   unregisterInternal,
   changeBracelet,
@@ -2780,4 +3657,7 @@ module.exports = {
   deleteInviteFile,
   sendInvite,
   dispatchDueInvites,
+  getCompanyBulkImportTemplate,
+  previewCompanyBulkImport,
+  confirmCompanyBulkImport,
 };

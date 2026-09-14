@@ -72,6 +72,29 @@ async function countUsersByProfile(idPerfil) {
   return total;
 }
 
+function mapProfileUserRow(row) {
+  return {
+    id: row.id,
+    nome_completo: row.nome_completo,
+    email: row.email,
+    departamento: row.departamento || null,
+    company_nome: row.company_nome || null,
+  };
+}
+
+async function listUsersByProfile(idPerfil) {
+  const [rows] = await db.execute(
+    `SELECT u.id, u.nome_completo, u.email, u.departamento,
+            COALESCE(NULLIF(TRIM(c.fancy_name), ''), c.company_name) AS company_nome
+     FROM usuarios u
+     LEFT JOIN company c ON c.id_company = u.id_company
+     WHERE u.id_perfil = ? AND u.ativo = 1
+     ORDER BY u.nome_completo ASC`,
+    [idPerfil],
+  );
+  return rows.map(mapProfileUserRow);
+}
+
 async function findById(id) {
   const [rows] = await db.execute("SELECT * FROM perfis WHERE id = ? LIMIT 1", [id]);
   return rows[0] || null;
@@ -98,8 +121,11 @@ async function getProfileById(id) {
   const row = await findById(id);
   if (!row) throw new AppError("Perfil não encontrado.", 404);
   const permissions = await loadPermissionsForProfile(id);
-  const userCount = await countUsersByProfile(id);
-  return mapProfileRow(row, permissions, userCount);
+  const [userCount, users] = await Promise.all([
+    countUsersByProfile(id),
+    listUsersByProfile(id),
+  ]);
+  return { ...mapProfileRow(row, permissions, userCount), users };
 }
 
 async function replacePermissions(idPerfil, permissions, connection = null) {

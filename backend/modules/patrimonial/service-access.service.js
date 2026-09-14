@@ -3,6 +3,7 @@ const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const { buildCompanyScope, applyScopeToWhere } = require("../companies/company.service");
 const collaboratorService = require("../collaborators/collaborator.service");
+const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
 const vehicleService = require("./vehicle.service");
 const {
   STATUS_AGUARDANDO_PRODUTORA,
@@ -850,6 +851,7 @@ async function generateAccessIds(conn, idServiceAccess, {
          FROM service_access_collaborator sac
          INNER JOIN collaborator c ON c.id_collaborator = sac.id_collaborator
          INNER JOIN collaborator_block_list bl ON bl.id_collaborator = sac.id_collaborator
+          AND ${blocklistPolicy.activeBlockJoinSql("bl")}
         WHERE sac.id_service_access = ?
           AND sac.id_service_access_collaborator IN (${placeholders})`,
       [idServiceAccess, ...selectedCollaborators],
@@ -866,10 +868,7 @@ async function generateAccessIds(conn, idServiceAccess, {
       `SELECT id_service_access_collaborator FROM service_access_collaborator
         WHERE id_service_access = ? AND access_id IS NULL
           AND id_service_access_collaborator IN (${placeholders})
-          AND NOT EXISTS (
-            SELECT 1 FROM collaborator_block_list bl
-             WHERE bl.id_collaborator = service_access_collaborator.id_collaborator
-          )`,
+          AND NOT ${blocklistPolicy.existsActiveBlockSql("service_access_collaborator.id_collaborator")}`,
       [idServiceAccess, ...selectedCollaborators],
     );
     await assignAccessIds(
@@ -882,10 +881,7 @@ async function generateAccessIds(conn, idServiceAccess, {
     const [collaborators] = await conn.execute(
       `SELECT id_service_access_collaborator FROM service_access_collaborator
        WHERE id_service_access = ? AND access_id IS NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM collaborator_block_list bl
-            WHERE bl.id_collaborator = service_access_collaborator.id_collaborator
-         )`,
+         AND NOT ${blocklistPolicy.existsActiveBlockSql("service_access_collaborator.id_collaborator")}`,
       [idServiceAccess],
     );
     await assignAccessIds(
@@ -968,6 +964,18 @@ async function updateServiceAccessStatus(req, id, { id_access_status: targetStat
 
     if (targetStatus === STATUS_APROVADO) {
       await generateAccessIds(conn, id);
+      const [approvedPeople] = await conn.execute(
+        `SELECT id_collaborator, id_substitute
+           FROM service_access_collaborator
+          WHERE id_service_access = ?
+            AND access_id IS NOT NULL`,
+        [id],
+      );
+      const facialCommand = require("../facial/facial.command.service");
+      facialCommand.scheduleRevokeUnlessReleasedToday(
+        approvedPeople.flatMap((row) => [row.id_collaborator, row.id_substitute]),
+        "service_approved_without_portaria",
+      );
     }
 
     if (targetStatus === STATUS_NEGADO && reason) {
@@ -1004,10 +1012,7 @@ async function assertCollaboratorForService(serviceRow, collaborator) {
   if (!collaborator.status) {
     throw new AppError("Colaborador está inativo.", 400);
   }
-  const isBlocklisted = await collaboratorService.checkBlocklist(collaborator.id_collaborator);
-  if (isBlocklisted) {
-    throw new AppError("Colaborador consta na lista de bloqueio.", 400);
-  }
+  await blocklistPolicy.assertNotBlocklisted(collaborator.id_collaborator);
 }
 
 /**
@@ -1919,6 +1924,18 @@ async function markApproved(conn, idEntidade, ctx = {}) {
     approvedCollaboratorIds: ctx.approvedCollaboratorIds,
     approvedVehicleIds: ctx.approvedVehicleIds,
   });
+  const [approvedPeople] = await conn.execute(
+    `SELECT id_collaborator, id_substitute
+       FROM service_access_collaborator
+      WHERE id_service_access = ?
+        AND access_id IS NOT NULL`,
+    [idEntidade],
+  );
+  const facialCommand = require("../facial/facial.command.service");
+  facialCommand.scheduleRevokeUnlessReleasedToday(
+    approvedPeople.flatMap((row) => [row.id_collaborator, row.id_substitute]),
+    "service_approved_without_portaria",
+  );
 }
 
 async function markRejected(conn, idEntidade) {

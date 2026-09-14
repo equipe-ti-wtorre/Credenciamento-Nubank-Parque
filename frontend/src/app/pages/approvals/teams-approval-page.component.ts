@@ -26,8 +26,13 @@ import {
   toPositiveIdSet,
 } from '../../services/approval.service';
 import { CollaboratorService } from '../../services/collaborator.service';
+import { EventAccreditationService } from '../../services/event-accreditation.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { TeamsContextService } from '../../services/teams-context.service';
+import {
+  BraceletChipComponent,
+  BraceletSelectComponent,
+} from '../../shared/bracelet-chip';
 
 /**
  * Página focada em uma aprovação — usada pelo deep link do Teams (/aprovacoes/:id).
@@ -37,7 +42,7 @@ import { TeamsContextService } from '../../services/teams-context.service';
   selector: 'app-teams-approval-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, BraceletChipComponent, BraceletSelectComponent],
   template: `
     <div class="min-h-[calc(100vh-0px)] bg-slate-100" [class.min-h-screen]="standaloneShell()">
       <header
@@ -164,10 +169,25 @@ import { TeamsContextService } from '../../services/teams-context.service';
                     <span class="font-medium text-slate-800">{{ c.nome }}</span>
                     <span class="text-slate-500">
                       {{ c.documento }} · {{ c.funcao }}
-                      <ng-container *ngIf="c.pulseira"> · {{ c.pulseira }}</ng-container>
                       <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
                       <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
                     </span>
+                    <app-bracelet-select
+                      *ngIf="canEditBracelet(c)"
+                      class="shrink-0"
+                      [options]="braceletOptions()"
+                      [value]="c.idBraceletType ?? null"
+                      [disabled]="acting()"
+                      [ariaLabel]="'Pulseira de ' + c.nome"
+                      (valueChange)="onPickBracelet(c, $event)"
+                    />
+                    <app-bracelet-chip
+                      *ngIf="!canEditBracelet(c) && (c.pulseira || c.idBraceletType)"
+                      class="shrink-0"
+                      [name]="c.pulseira || ''"
+                      [icon]="c.braceletIcon"
+                      [color]="c.braceletColor"
+                    />
                     <span
                       class="ml-auto inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
                       [ngClass]="liberacaoBadgeClass(c.statusLiberacao)"
@@ -297,78 +317,98 @@ import { TeamsContextService } from '../../services/teams-context.service';
                 </p>
 
                 <div class="flex flex-col gap-2" *ngIf="d.entidade?.collaborators?.length">
-                  <button
-                    type="button"
+                  <div
                     *ngFor="let c of d.entidade?.collaborators"
-                    class="flex items-center gap-3 w-full text-left px-3.5 py-2.5 rounded-xl border transition-colors"
+                    class="flex items-center gap-3 w-full px-3.5 py-2.5 rounded-xl border transition-colors"
                     [ngClass]="
                       isCollaboratorSelected(c.id)
-                        ? 'bg-white border-slate-200 hover:border-slate-300'
+                        ? 'bg-white border-slate-200'
                         : 'bg-slate-50/80 border-dashed border-slate-200'
                     "
-                    (click)="toggleCollaborator(c.id)"
                   >
-                    <span
-                      class="shrink-0 w-5 h-5 rounded-md border-[1.5px] grid place-items-center transition-colors"
-                      [ngClass]="
-                        isCollaboratorSelected(c.id)
-                          ? 'bg-[var(--wtorre)] border-[var(--wtorre)] text-white'
-                          : 'bg-white border-slate-300 text-transparent'
-                      "
+                    <button
+                      type="button"
+                      class="flex items-center gap-3 min-w-0 flex-1 text-left"
+                      (click)="toggleCollaborator(c.id)"
                     >
-                      <svg
-                        class="w-3 h-3"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="3"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
+                      <span
+                        class="shrink-0 w-5 h-5 rounded-md border-[1.5px] grid place-items-center transition-colors"
+                        [ngClass]="
+                          isCollaboratorSelected(c.id)
+                            ? 'bg-[var(--wtorre)] border-[var(--wtorre)] text-white'
+                            : 'bg-white border-slate-300 text-transparent'
+                        "
                       >
-                        <path d="M20 6 9 17l-5-5" />
-                      </svg>
-                    </span>
-                    <img
-                      *ngIf="pictureUrl(c) as url"
-                      [src]="url"
-                      [alt]="'Foto de ' + c.nome"
-                      class="shrink-0 w-[34px] h-[34px] rounded-full object-cover border border-slate-200"
+                        <svg
+                          class="w-3 h-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="3"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M20 6 9 17l-5-5" />
+                        </svg>
+                      </span>
+                      <img
+                        *ngIf="pictureUrl(c) as url"
+                        [src]="url"
+                        [alt]="'Foto de ' + c.nome"
+                        class="shrink-0 w-[34px] h-[34px] rounded-full object-cover border border-slate-200"
+                      />
+                      <span
+                        *ngIf="!pictureUrl(c)"
+                        class="shrink-0 w-[34px] h-[34px] rounded-full grid place-items-center text-[13px] font-semibold"
+                        [ngClass]="
+                          isCollaboratorSelected(c.id)
+                            ? 'bg-[var(--wtorre-tonal-bg)] text-[var(--wtorre)]'
+                            : 'bg-slate-100 text-slate-400'
+                        "
+                      >
+                        {{ initials(c.nome) }}
+                      </span>
+                      <span class="min-w-0 flex-1">
+                        <span
+                          class="block text-sm font-medium truncate"
+                          [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-900' : 'text-slate-400'"
+                        >
+                          {{ c.nome }}
+                        </span>
+                        <span
+                          class="block text-[12.5px] truncate"
+                          [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-500' : 'text-slate-400'"
+                        >
+                          {{ c.documento }} · {{ c.funcao }}
+                          <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
+                          <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
+                        </span>
+                      </span>
+                    </button>
+                    <app-bracelet-select
+                      *ngIf="canEditBracelet(c)"
+                      class="shrink-0"
+                      [options]="braceletOptions()"
+                      [value]="c.idBraceletType ?? null"
+                      [disabled]="acting()"
+                      [ariaLabel]="'Pulseira de ' + c.nome"
+                      (valueChange)="onPickBracelet(c, $event)"
                     />
-                    <span
-                      *ngIf="!pictureUrl(c)"
-                      class="shrink-0 w-[34px] h-[34px] rounded-full grid place-items-center text-[13px] font-semibold"
-                      [ngClass]="
-                        isCollaboratorSelected(c.id)
-                          ? 'bg-[var(--wtorre-tonal-bg)] text-[var(--wtorre)]'
-                          : 'bg-slate-100 text-slate-400'
-                      "
-                    >
-                      {{ initials(c.nome) }}
-                    </span>
-                    <span class="min-w-0 flex-1">
-                      <span
-                        class="block text-sm font-medium truncate"
-                        [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-900' : 'text-slate-400'"
-                      >
-                        {{ c.nome }}
-                      </span>
-                      <span
-                        class="block text-[12.5px] truncate"
-                        [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-500' : 'text-slate-400'"
-                      >
-                        {{ c.documento }} · {{ c.funcao }}
-                        <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
-                        <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
-                      </span>
-                    </span>
+                    <app-bracelet-chip
+                      *ngIf="!canEditBracelet(c) && (c.pulseira || c.idBraceletType)"
+                      class="shrink-0"
+                      [name]="c.pulseira || ''"
+                      [icon]="c.braceletIcon"
+                      [color]="c.braceletColor"
+                    />
                     <span
                       *ngIf="!isCollaboratorSelected(c.id)"
                       class="shrink-0 text-[11px] font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full"
                     >
                       Bloqueado
                     </span>
-                  </button>
+                  </div>
                 </div>
               </section>
 
@@ -619,6 +659,7 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     private route: ActivatedRoute,
     private approvalService: ApprovalService,
     private collaboratorService: CollaboratorService,
+    private eventAccreditation: EventAccreditationService,
     private notification: NotificationService,
     private teamsContext: TeamsContextService,
     private cdr: ChangeDetectorRef,
@@ -749,6 +790,83 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     );
     this.selectedVehicleIds.set(toPositiveIdSet((item.entidade?.vehicles ?? []).map((v) => v.id)));
     this.loadThumbnails(item.entidade?.collaborators ?? []);
+  }
+
+  isAccreditationEntity(item = this.approval()): boolean {
+    const tipo = item?.tipoEntidade;
+    return tipo === 'CREDENCIAMENTO_EVENTO' || tipo === 'CREDENCIAMENTO_EVENTO_INTERNO';
+  }
+
+  braceletOptions() {
+    return this.approval()?.entidade?.braceletTypes ?? [];
+  }
+
+  braceletTarget(): 'company' | 'internal' {
+    return this.approval()?.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO' ? 'internal' : 'company';
+  }
+
+  canEditBracelet(c: ApprovalEntityCollaborator): boolean {
+    const d = this.approval();
+    if (!d || d.status !== 'PENDENTE' || !this.isAccreditationEntity(d)) return false;
+    if (c.statusLiberacao && c.statusLiberacao !== 'PENDENTE') return false;
+    return (this.braceletOptions().length || 0) > 0;
+  }
+
+  onPickBracelet(c: ApprovalEntityCollaborator, idBracelet: number | null): void {
+    const d = this.approval();
+    const accreditationId = toPositiveId(d?.entidade?.idAccreditation);
+    const braceletId = toPositiveId(idBracelet);
+    if (!d || !c || accreditationId == null || braceletId == null) return;
+    if (c.idBraceletType === braceletId) return;
+    this.acting.set(true);
+    this.eventAccreditation
+      .changeBracelet(accreditationId, {
+        target: this.braceletTarget(),
+        ids: [c.id],
+        id_bracelet_type: braceletId,
+      })
+      .subscribe({
+        next: () => {
+          const option = this.braceletOptions().find((b) => b.id_bracelet_type === braceletId);
+          this.applyLocalBracelet(c.id, braceletId, option?.name, option?.icon, option?.color);
+          this.acting.set(false);
+          this.notification.success('Pulseira atualizada.');
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.acting.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao trocar a pulseira.');
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  private applyLocalBracelet(
+    collaboratorId: number,
+    idBraceletType: number,
+    name?: string | null,
+    icon?: string | null,
+    color?: string | null,
+  ): void {
+    const current = this.approval();
+    if (!current?.entidade) return;
+    this.approval.set({
+      ...current,
+      entidade: {
+        ...current.entidade,
+        collaborators: current.entidade.collaborators.map((row) =>
+          row.id === collaboratorId
+            ? {
+                ...row,
+                idBraceletType,
+                pulseira: name ?? row.pulseira,
+                braceletIcon: icon ?? row.braceletIcon,
+                braceletColor: color ?? row.braceletColor,
+              }
+            : row,
+        ),
+      },
+    });
   }
 
   isCollaboratorSelected(id: number) {

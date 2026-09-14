@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import Swal from 'sweetalert2';
 import {
@@ -13,7 +13,7 @@ import { NotificationService } from '../../../core/services/notification.service
   imports: [CommonModule],
   template: `
     <div class="w-full max-w-4xl">
-      <h2 class="page-section-title">Aprovações de documento</h2>
+      <h2 *ngIf="!embedded()" class="page-section-title">Aprovações de documento</h2>
       <p class="page-section-subtitle mb-5">Solicitações pendentes de correção de CPF/documento.</p>
 
       <div class="card-surface overflow-hidden">
@@ -52,6 +52,7 @@ import { NotificationService } from '../../../core/services/notification.service
   `,
 })
 export class DocumentApprovalsComponent implements OnInit {
+  embedded = input(false);
   requests = signal<DocumentChangeRequest[]>([]);
   loading = signal(false);
 

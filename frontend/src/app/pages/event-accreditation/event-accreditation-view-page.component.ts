@@ -337,7 +337,7 @@ import { EventKindBadgeComponent } from './event-kind-badge.component';
                 </span>
                 <div>
                   <div class="k">Setor aprovador</div>
-                  <div class="v">{{ ev.setor_nome || '—' }}</div>
+                  <div class="v">{{ setoresLabel(ev) }}</div>
                 </div>
               </div>
             </div>
@@ -360,6 +360,7 @@ import { EventKindBadgeComponent } from './event-kind-badge.component';
                         [name]="b.name"
                         [icon]="b.icon"
                         [color]="b.color"
+                        [selectable]="true"
                         [selected]="pickBracelet === b.id_bracelet_type"
                       />
                     </button>
@@ -441,6 +442,12 @@ export class EventAccreditationViewPageComponent implements OnInit {
       return;
     }
     this.load(id);
+  }
+
+  setoresLabel(ev: EventAccreditationItem): string {
+    const names = (ev.setores || []).map((s) => s.nome).filter(Boolean);
+    if (names.length) return names.join(', ');
+    return ev.setor_nome || '—';
   }
 
   bracelets(ev: EventAccreditationItem): BraceletType[] {

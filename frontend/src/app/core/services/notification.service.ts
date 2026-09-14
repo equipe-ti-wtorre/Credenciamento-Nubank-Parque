@@ -59,6 +59,25 @@ export class NotificationService {
     return this.fire('warning', title, text);
   }
 
+  confirm(options: {
+    title: string;
+    text?: string;
+    confirmButtonText?: string;
+    cancelButtonText?: string;
+  }) {
+    return Swal.fire({
+      icon: 'warning',
+      title: options.title,
+      text: options.text,
+      showCancelButton: true,
+      reverseButtons: true,
+      focusCancel: true,
+      confirmButtonText: options.confirmButtonText || 'Confirmar',
+      cancelButtonText: options.cancelButtonText || 'Cancelar',
+      confirmButtonColor: '#b45309',
+    });
+  }
+
   info(title: string, text?: string) {
     return this.fire('info', title, text);
   }

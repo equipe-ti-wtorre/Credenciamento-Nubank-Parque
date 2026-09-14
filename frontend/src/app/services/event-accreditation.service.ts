@@ -85,9 +85,19 @@ export interface AccreditationCollaborator {
   decision_reason?: string | null;
 }
 
+export interface AccreditationSector {
+  id_setor: number;
+  nome: string;
+  approvers_count?: number;
+  can_add_companies?: boolean;
+  can_notify_companies?: boolean;
+}
+
 export interface AccreditationCompany {
   id_event_accreditation_company: number;
   id_company: number;
+  id_setor?: number | null;
+  setor_nome?: string | null;
   company_name: string;
   fancy_name?: string | null;
   indication_status: IndicationStatus;
@@ -96,6 +106,10 @@ export interface AccreditationCompany {
   aprovacao_status: string | null;
   can_indicate: boolean;
   can_complete: boolean;
+  can_notify_sector?: boolean;
+  can_notify_owner?: boolean;
+  can_decide?: boolean;
+  can_remove?: boolean;
   collaborators: AccreditationCollaborator[];
 }
 
@@ -150,6 +164,7 @@ export interface EventAccreditationItem {
   access_status_description: string | null;
   id_setor: number | null;
   setor_nome?: string | null;
+  setores?: AccreditationSector[];
   id_solicitante?: number | null;
   id_company_responsavel?: number | null;
   company_responsavel?: AccreditationCompanyBrief | null;
@@ -170,8 +185,10 @@ export interface EventAccreditationItem {
   setor_approvers_count?: number;
   can_manage?: boolean;
   can_decide?: boolean;
+  can_decide_internal?: boolean;
   can_notify?: boolean;
   can_toggle_active?: boolean;
+  can_delete?: boolean;
   can_export?: boolean;
   cycle_complete?: boolean;
   companies_total?: number;
@@ -216,8 +233,9 @@ export interface EventAccreditationCreatePayload {
   event_dates?: string[];
   inscription_start: string;
   inscription_end: string;
-  id_setor: number;
-  companies: number[];
+  id_setor?: number;
+  setores: number[];
+  companies?: number[];
   bracelet_types: number[];
   internal_enabled?: boolean;
   internal_bracelet_types?: number[];
@@ -338,6 +356,10 @@ export class EventAccreditationService {
     return this.api.post<{ item: EventAccreditationItem }>('/event-accreditations', payload);
   }
 
+  duplicate(id: number): Observable<{ item: EventAccreditationItem }> {
+    return this.api.post<{ item: EventAccreditationItem }>(`/event-accreditations/${id}/duplicate`, {});
+  }
+
   update(id: number, payload: Partial<EventAccreditationCreatePayload>): Observable<{ item: EventAccreditationItem }> {
     return this.api.patch<{ item: EventAccreditationItem }>(`/event-accreditations/${id}`, payload);
   }
@@ -346,6 +368,14 @@ export class EventAccreditationService {
     return this.api.patch<{ item: EventAccreditationItem }>(`/event-accreditations/${id}/status`, {
       ativo,
     });
+  }
+
+  remove(id: number): Observable<{
+    removed: { deleted: boolean; id_event_accreditation: number; name: string };
+  }> {
+    return this.api.delete<{
+      removed: { deleted: boolean; id_event_accreditation: number; name: string };
+    }>(`/event-accreditations/${id}`);
   }
 
   addCollaborator(
@@ -357,6 +387,34 @@ export class EventAccreditationService {
       `/event-accreditations/${id}/companies/${idCompany}/collaborators`,
       payload,
     );
+  }
+
+  downloadCompanyBulkTemplate(id: number, idCompany: number): Observable<Blob> {
+    return this.api.getBlob(
+      `/event-accreditations/${id}/companies/${idCompany}/bulk-import/template`,
+    );
+  }
+
+  bulkImportPreview(id: number, idCompany: number, file: File) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.api.postFormData<
+      import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkPreviewResult
+    >(`/event-accreditations/${id}/companies/${idCompany}/bulk-import/preview`, form);
+  }
+
+  bulkImportConfirm(
+    id: number,
+    idCompany: number,
+    previewToken: string,
+    decisoes: import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmBody['decisoes'],
+  ) {
+    return this.api.post<
+      import('../pages/patrimonial/service-access-bulk-import.types').UnifiedBulkConfirmResult
+    >(`/event-accreditations/${id}/companies/${idCompany}/bulk-import/confirm`, {
+      previewToken,
+      decisoes,
+    });
   }
 
   removeCollaborator(
@@ -372,6 +430,56 @@ export class EventAccreditationService {
   completeCompany(id: number, idCompany: number): Observable<{ item: EventAccreditationItem }> {
     return this.api.post<{ item: EventAccreditationItem }>(
       `/event-accreditations/${id}/companies/${idCompany}/complete`,
+      {},
+    );
+  }
+
+  listSectors(): Observable<{ sectors: { id: number; nome: string }[] }> {
+    return this.api.get<{ sectors: { id: number; nome: string }[] }>('/event-accreditations/sectors');
+  }
+
+  addSectorCompanies(
+    id: number,
+    idSetor: number,
+    companies: number[],
+  ): Observable<{ item: EventAccreditationItem; added: number }> {
+    return this.api.post<{ item: EventAccreditationItem; added: number }>(
+      `/event-accreditations/${id}/sectors/${idSetor}/companies`,
+      { companies },
+    );
+  }
+
+  removeSectorCompany(
+    id: number,
+    idSetor: number,
+    idCompany: number,
+  ): Observable<{ item: EventAccreditationItem }> {
+    return this.api.delete<{ item: EventAccreditationItem }>(
+      `/event-accreditations/${id}/sectors/${idSetor}/companies/${idCompany}`,
+    );
+  }
+
+  notifySectorCompanies(
+    id: number,
+    idSetor: number,
+    payload: { id_company?: number } = {},
+  ): Observable<{ item: EventAccreditationItem; sent: number; companies: number }> {
+    return this.api.post<{ item: EventAccreditationItem; sent: number; companies: number }>(
+      `/event-accreditations/${id}/sectors/${idSetor}/notify-companies`,
+      payload,
+    );
+  }
+
+  notifySectorIndication(id: number, idCompany: number): Observable<{ item: EventAccreditationItem }> {
+    return this.api.post<{ item: EventAccreditationItem }>(
+      `/event-accreditations/${id}/companies/${idCompany}/notify-sector`,
+      {},
+    );
+  }
+
+  notifyOwnerValidated(id: number, idCompany: number): Observable<{ item: EventAccreditationItem }> {
+    return this.api.post<{ item: EventAccreditationItem }>(
+      `/event-accreditations/${id}/companies/${idCompany}/notify-owner`,
       {},
     );
   }

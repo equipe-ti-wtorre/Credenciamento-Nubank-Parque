@@ -12,6 +12,7 @@ import {
   host: {
     class: 'bc-host',
     '[class.bc-host--on]': 'selected',
+    '[class.bc-host--off]': 'selectable && !selected',
     '[class.bc-host--preview]': 'preview',
     '[style.--bc-color]': 'resolvedColor',
     '[attr.title]': 'name',
@@ -67,6 +68,20 @@ import {
       }
       :host.bc-host--on {
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--bc-color) 55%, #fff);
+      }
+      :host.bc-host--off {
+        border-color: #d5d8de;
+        box-shadow: none;
+      }
+      :host.bc-host--off .bc__clasp {
+        background: #f3f4f6;
+      }
+      :host.bc-host--off .bc__waves {
+        stroke: #c5c9d2;
+      }
+      :host.bc-host--off .bc__face {
+        background: #8b93a1;
+        color: #fff;
       }
       :host.bc-host--preview {
         width: 100%;
@@ -168,6 +183,7 @@ export class BraceletChipComponent {
   @Input() color: string | null | undefined = DEFAULT_BRACELET_COLOR;
   @Input() kind: string | null | undefined;
   @Input() selected = false;
+  @Input() selectable = false;
   @Input() preview = false;
 
   get resolvedColor(): string {

@@ -26,6 +26,7 @@ import {
   toPositiveIdSet,
 } from '../../services/approval.service';
 import { NotificationService } from '../../core/services/notification.service';
+import { formatBlocklistNotice } from '../../shared/blocklist-notice';
 import { AuthService, AuthUser, hasPermission, isSuperAdmin } from '../../core/services/auth.service';
 import { ModalComponent } from '../../shared/modal/modal.component';
 import { ActionBtnComponent } from '../../shared/actions';
@@ -1734,7 +1735,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
 
   selecionarHeaderColab(item: CollaboratorItem) {
     if (item.is_blocklisted) {
-      this.notification.error('Colaborador está na blocklist.');
+      this.notification.error(formatBlocklistNotice(item));
       return;
     }
     const roleId = item.id_collaborator_role || this.colabRoleId;
@@ -2431,7 +2432,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
 
   selecionarColaborador(item: CollaboratorItem) {
     if (item.is_blocklisted) {
-      this.notification.error('Colaborador está na blocklist.');
+      this.notification.error(formatBlocklistNotice(item));
       return;
     }
     this.colabCandidate.set(item);
@@ -2459,7 +2460,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       return;
     }
     if (candidate.is_blocklisted) {
-      this.notification.error('Colaborador está na blocklist.');
+      this.notification.error(formatBlocklistNotice(candidate));
       return;
     }
     this.addCollaboratorToDraft(candidate, this.colabRoleId);

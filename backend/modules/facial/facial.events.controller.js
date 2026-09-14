@@ -39,6 +39,10 @@ async function handleFacialEvent(req, res, next) {
         blocked: value.blocked,
         antipassback: value.antipassback,
         duplicate: result.duplicate,
+        direcao: result.direcao || null,
+        gate_applied: !!result.gate?.applied,
+        action_registered: result.gate?.action_registered || null,
+        gate_error_code: result.gate?.error_code || null,
       },
     });
 

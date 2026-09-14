@@ -63,8 +63,9 @@ const createSchema = Joi.object({
   inscription_end: Joi.alternatives()
     .try(Joi.date().iso(), Joi.string().isoDate())
     .required(),
-  id_setor: Joi.number().integer().positive().required(),
-  companies: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
+  id_setor: Joi.number().integer().positive().optional(),
+  setores: Joi.array().items(Joi.number().integer().positive()).min(1).optional(),
+  companies: Joi.array().items(Joi.number().integer().positive()).optional(),
   bracelet_types: Joi.array()
     .items(Joi.number().integer().positive())
     .min(1)
@@ -100,9 +101,20 @@ const createSchema = Joi.object({
     if (value.internal_enabled && !(value.internal_bracelet_types || []).length) {
       return helpers.error("ea.internalBracelets");
     }
+    const setores = [
+      ...new Set(
+        [...(value.setores || []), value.id_setor]
+          .map((n) => Number(n))
+          .filter((n) => Number.isInteger(n) && n > 0),
+      ),
+    ];
+    if (!setores.length) return helpers.error("ea.setores");
+    value.setores = setores;
+    value.id_setor = setores[0];
     return value;
   })
   .messages({
+    "ea.setores": "Selecione ao menos um setor participante.",
     "ea.eventDates": "Selecione ao menos um dia do evento.",
     "ea.dateRange": "A data de início deve ser anterior ou igual à data de término.",
     "ea.inscriptionInvalid": "Informe o período de inscrição com data e horário válidos.",
@@ -122,13 +134,8 @@ const updateSchema = Joi.object({
     .try(Joi.date().iso(), Joi.string().isoDate())
     .optional(),
   id_setor: Joi.number().integer().positive().optional(),
-  companies: Joi.array()
-    .items(Joi.number().integer().positive())
-    .min(1)
-    .optional()
-    .messages({
-      "array.min": "Selecione ao menos uma empresa para indicar colaboradores.",
-    }),
+  setores: Joi.array().items(Joi.number().integer().positive()).min(1).optional(),
+  companies: Joi.array().items(Joi.number().integer().positive()).optional(),
   bracelet_types: Joi.array()
     .items(Joi.number().integer().positive())
     .min(1)
@@ -171,9 +178,22 @@ const updateSchema = Joi.object({
     if (value.internal_enabled && value.internal_bracelet_types != null && !value.internal_bracelet_types.length) {
       return helpers.error("ea.internalBracelets");
     }
+    if (value.setores != null) {
+      const setores = [
+        ...new Set(
+          [...(value.setores || []), value.id_setor]
+            .map((n) => Number(n))
+            .filter((n) => Number.isInteger(n) && n > 0),
+        ),
+      ];
+      if (!setores.length) return helpers.error("ea.setores");
+      value.setores = setores;
+      value.id_setor = setores[0];
+    }
     return value;
   })
   .messages({
+    "ea.setores": "Selecione ao menos um setor participante.",
     "ea.eventDates": "Selecione ao menos um dia do evento.",
     "ea.dateRange": "A data de início deve ser anterior ou igual à data de término.",
     "ea.inscriptionRange": "O início da inscrição deve ser anterior ou igual ao limite.",
@@ -256,6 +276,10 @@ const notifyCompaniesSchema = Joi.object({
   id_company: Joi.number().integer().positive().optional(),
 });
 
+const sectorCompaniesSchema = Joi.object({
+  companies: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
+});
+
 const internalRegisterSchema = Joi.object({
   id_bracelet_type: Joi.number().integer().positive().required(),
 });
@@ -267,6 +291,14 @@ const inviteSchema = Joi.object({
 
 const inviteSendSchema = Joi.object({
   mode: Joi.string().valid("now", "schedule", "skip").required(),
+});
+
+const bulkConfirmSchema = Joi.object({
+  previewToken: Joi.string().required(),
+  decisoes: Joi.object({
+    colaboradores: Joi.array().items(Joi.object().unknown(true)).default([]),
+    veiculos: Joi.array().items(Joi.object().unknown(true)).default([]),
+  }).default({}),
 });
 
 module.exports = {
@@ -288,7 +320,9 @@ module.exports = {
   decideSchema,
   changeBraceletSchema,
   notifyCompaniesSchema,
+  sectorCompaniesSchema,
   internalRegisterSchema,
   inviteSchema,
   inviteSendSchema,
+  bulkConfirmSchema,
 };

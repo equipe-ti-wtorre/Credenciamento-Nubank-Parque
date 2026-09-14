@@ -5,6 +5,8 @@ const {
   sectorCreateSchema,
   sectorUpdateSchema,
   sectorStatusSchema,
+  contactCreateSchema,
+  contactUpdateSchema,
   memberCreateSchema,
   memberUpdateSchema,
   flowsUpdateSchema,
@@ -18,6 +20,16 @@ exports.listSelect = async (req, res, next) => {
   try {
     const sectors = await sectorsService.listSectorsSelect();
     res.json({ sectors });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getById = async (req, res, next) => {
+  try {
+    await assertCanManageSector(req);
+    const sector = await sectorsService.getSectorById(req.params.id);
+    res.json({ sector });
   } catch (err) {
     next(err);
   }
@@ -97,6 +109,83 @@ exports.patchStatus = async (req, res, next) => {
     });
 
     res.json({ sector });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listContacts = async (req, res, next) => {
+  try {
+    await assertCanManageSector(req);
+    const contacts = await sectorsService.listContacts(req.params.id);
+    res.json({ contacts });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.addContact = async (req, res, next) => {
+  try {
+    await assertCanManageSector(req);
+    const { error, value } = contactCreateSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const contacts = await sectorsService.addContact(req.params.id, value);
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "sectors",
+      event: "sectors.contacts.add",
+      resource: { type: "sector", id: Number(req.params.id) },
+      changes: value,
+    });
+
+    res.status(201).json({ contacts });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateContact = async (req, res, next) => {
+  try {
+    await assertCanManageSector(req);
+    const { error, value } = contactUpdateSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const contacts = await sectorsService.updateContact(
+      req.params.id,
+      req.params.contactId,
+      value,
+    );
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "sectors",
+      event: "sectors.contacts.update",
+      resource: { type: "sector", id: Number(req.params.id) },
+      metadata: { contactId: Number(req.params.contactId), ...value },
+    });
+
+    res.json({ contacts });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.removeContact = async (req, res, next) => {
+  try {
+    await assertCanManageSector(req);
+    const contacts = await sectorsService.removeContact(req.params.id, req.params.contactId);
+
+    attachAudit(req, {
+      action: "DEACTIVATE",
+      module: "sectors",
+      event: "sectors.contacts.remove",
+      resource: { type: "sector", id: Number(req.params.id) },
+      metadata: { contactId: Number(req.params.contactId) },
+    });
+
+    res.json({ contacts });
   } catch (err) {
     next(err);
   }

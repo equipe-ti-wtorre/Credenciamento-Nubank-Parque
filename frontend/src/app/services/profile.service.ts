@@ -8,6 +8,14 @@ export interface ProfilePermission {
   acao: PermissionAction;
 }
 
+export interface ProfileUser {
+  id: number;
+  nome_completo: string;
+  email: string;
+  departamento: string | null;
+  company_nome: string | null;
+}
+
 export interface AccessProfile {
   id: number;
   codigo: string;
@@ -18,6 +26,7 @@ export interface AccessProfile {
   requires_company: boolean;
   ativo: boolean;
   user_count?: number;
+  users?: ProfileUser[];
   permissions: ProfilePermission[];
   criado_em?: string;
   atualizado_em?: string;

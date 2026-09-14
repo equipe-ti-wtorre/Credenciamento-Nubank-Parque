@@ -1,4 +1,5 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, Routes } from '@angular/router';
 import { AuthLayoutComponent } from './layouts/auth-layout.component';
 import { MainLayoutComponent } from './layouts/main-layout.component';
 import { SettingsLayoutComponent } from './layouts/settings-layout.component';
@@ -19,6 +20,7 @@ import { UserListComponent } from './pages/admin/users/user-list.component';
 import { CompanyUserListComponent } from './pages/admin/company-users/company-user-list.component';
 import { CompanyListComponent } from './pages/admin/companies/company-list.component';
 import { CollaboratorListComponent } from './pages/admin/collaborators/collaborator-list.component';
+import { BlocklistListComponent } from './pages/admin/blocklist/blocklist-list.component';
 import { EventListComponent } from './pages/admin/events/event-list.component';
 import { EventDetailComponent } from './pages/admin/events/event-detail.component';
 import { EventCollaboratorsComponent } from './pages/admin/events/event-collaborators.component';
@@ -106,7 +108,7 @@ export const routes: Routes = [
         { module: 'approvals', action: 'view' },
       ],
       allowAdInternal: true,
-      title: 'Credenciamento Eventos',
+      title: 'Credenciamento',
     },
   },
   {
@@ -125,7 +127,13 @@ export const routes: Routes = [
         path: 'aprovacoes',
         component: ApprovalsInboxComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'approvals', action: 'view' }, title: 'Aprovações' },
+        data: {
+          permissionAny: [
+            { module: 'approvals', action: 'view' },
+            { module: 'document_approvals', action: 'view' },
+          ],
+          title: 'Aprovações',
+        },
       },
       {
         path: 'portaria',
@@ -160,7 +168,7 @@ export const routes: Routes = [
         path: 'operacao/negacoes-credenciamento',
         component: CredentialDenialsReportComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'credential_denials', action: 'view' }, title: 'Negações de credenciamento' },
+        data: { permission: { module: 'credential_denials', action: 'view' }, title: 'Negações' },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -181,14 +189,14 @@ export const routes: Routes = [
         path: 'admin/usuarios',
         component: UserListComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'users', action: 'view' }, title: 'Usuários' },
+        data: { permission: { module: 'users', action: 'view' }, title: 'Usuários internos' },
         runGuardsAndResolvers: 'always',
       },
       {
         path: 'admin/usuarios-empresas',
         component: CompanyUserListComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'company_users', action: 'view' }, title: 'Usuários Empresas' },
+        data: { permission: { module: 'company_users', action: 'view' }, title: 'Usuários de empresas' },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -206,11 +214,21 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
-        path: 'admin/aprovacoes-documento',
-        component: DocumentApprovalsComponent,
+        path: 'admin/gestao-bloqueio',
+        component: BlocklistListComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'document_approvals', action: 'view' }, title: 'Aprovações de documento' },
+        data: {
+          permission: { module: 'collaborator_blocklist', action: 'view' },
+          title: 'Gestão de bloqueio',
+        },
         runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/aprovacoes-documento',
+        canActivate: [
+          () => inject(Router).createUrlTree(['/aprovacoes'], { queryParams: { tab: 'documentos' } }),
+        ],
+        component: DocumentApprovalsComponent,
       },
       {
         path: 'admin/frota',
@@ -255,7 +273,7 @@ export const routes: Routes = [
             { module: 'approvals', action: 'view' },
           ],
           allowAdInternal: true,
-          title: 'Credenciamento Eventos',
+          title: 'Credenciamento',
         },
         runGuardsAndResolvers: 'always',
       },
@@ -327,7 +345,7 @@ export const routes: Routes = [
         path: 'admin/mercadorias/relatorios',
         component: MerchandiseReportsComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'merchandise_reports', action: 'view' }, title: 'Relatórios de mercadorias' },
+        data: { permission: { module: 'merchandise_reports', action: 'view' }, title: 'Relatório de mercadorias' },
         runGuardsAndResolvers: 'always',
       },
       {

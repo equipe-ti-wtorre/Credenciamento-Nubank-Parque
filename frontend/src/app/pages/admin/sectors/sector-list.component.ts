@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, OnInit, 
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { SectorItem, SectorService } from '../../../services/sector.service';
+import { SectorContact, SectorItem, SectorService } from '../../../services/sector.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { ModalComponent } from '../../../shared/modal/modal.component';
@@ -46,6 +46,7 @@ import {
               <th class="px-4 py-3 text-left">Nome</th>
               <th class="px-4 py-3 text-left hidden md:table-cell">Descrição</th>
               <th class="px-4 py-3 text-left">Membros</th>
+              <th class="px-4 py-3 text-left hidden md:table-cell">Contatos</th>
               <th class="px-4 py-3 text-left">Fluxos</th>
               <th class="px-4 py-3 text-left">Status</th>
               <th class="px-4 py-3 text-right">Ações</th>
@@ -56,6 +57,7 @@ import {
               <td class="px-4 py-3 font-medium">{{ s.nome }}</td>
               <td class="px-4 py-3 text-slate-600 hidden md:table-cell">{{ s.descricao || '—' }}</td>
               <td class="px-4 py-3">{{ s.membrosAtivos }}</td>
+              <td class="px-4 py-3 hidden md:table-cell">{{ s.contatosCadastrados ?? 0 }}</td>
               <td class="px-4 py-3">{{ s.fluxosConfigurados }}</td>
               <td class="px-4 py-3">
                 <span
@@ -72,6 +74,22 @@ import {
                 <app-action-menu>
                   <app-action-btn icon="grid" title="Gerenciar setor" variant="neutral" (action)="gerenciar(s)" />
                   <app-action-dropdown>
+                    <button *ngIf="isAdmin" appActionDropdownItem type="button" (click)="abrirModal(s)">
+                      <svg
+                        class="action-dropdown__item-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.75"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                      Editar cadastro
+                    </button>
                     <button appActionDropdownItem type="button" (click)="toggleStatus(s)">
                       <svg
                         class="action-dropdown__item-icon"
@@ -93,7 +111,7 @@ import {
               </td>
             </tr>
             <tr *ngIf="!loading() && sectors().length === 0">
-              <td colspan="6" class="px-4 py-8 text-center text-slate-500">Nenhum setor cadastrado.</td>
+              <td colspan="7" class="px-4 py-8 text-center text-slate-500">Nenhum setor cadastrado.</td>
             </tr>
           </tbody>
         </table>
@@ -103,7 +121,7 @@ import {
     <app-modal
       [open]="showModal()"
       [title]="editing() ? 'Editar setor' : 'Novo setor'"
-      size="sm"
+      size="lg"
       (close)="fecharModal()"
     >
       <form id="sector-form" class="space-y-3" (ngSubmit)="salvar()">
@@ -114,6 +132,61 @@ import {
         <div>
           <label class="form-label" for="sector-descricao">Descrição <span class="form-label__optional">(opcional)</span></label>
           <input id="sector-descricao" [(ngModel)]="formDescricao" name="descricao" class="form-field" />
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="form-label mb-0">Contatos</label>
+            <button type="button" (click)="adicionarContato()" class="btn-action-tonal text-xs">+ Contato</button>
+          </div>
+          <div *ngIf="formContacts.length === 0" class="text-sm text-slate-500 py-2">Nenhum contato adicionado.</div>
+          <div
+            *ngFor="let contact of formContacts; let i = index"
+            class="border border-[var(--app-border)] rounded-xl p-3 mb-2 grid grid-cols-1 md:grid-cols-2 gap-2"
+          >
+            <div class="md:col-span-2 flex justify-between items-center">
+              <span class="text-xs font-semibold text-slate-600">Contato {{ i + 1 }}</span>
+              <button type="button" (click)="removerContato(i)" class="text-xs text-rose-600 hover:underline">Remover</button>
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" [attr.for]="'sector-contact-nome-' + i">Nome</label>
+              <input
+                [id]="'sector-contact-nome-' + i"
+                [(ngModel)]="contact.nome"
+                [name]="'contact_nome_' + i"
+                required
+                class="form-field mt-0.5"
+              />
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" [attr.for]="'sector-contact-email-' + i">E-mail <span class="form-label__optional">(opcional)</span></label>
+              <input
+                [id]="'sector-contact-email-' + i"
+                type="email"
+                [(ngModel)]="contact.email"
+                [name]="'contact_email_' + i"
+                class="form-field mt-0.5"
+              />
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" [attr.for]="'sector-contact-telefone-' + i">Telefone <span class="form-label__optional">(opcional)</span></label>
+              <input
+                [id]="'sector-contact-telefone-' + i"
+                [(ngModel)]="contact.telefone"
+                [name]="'contact_telefone_' + i"
+                class="form-field mt-0.5"
+              />
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" [attr.for]="'sector-contact-ramal-' + i">Ramal <span class="form-label__optional">(opcional)</span></label>
+              <input
+                [id]="'sector-contact-ramal-' + i"
+                [(ngModel)]="contact.ramal"
+                [name]="'contact_ramal_' + i"
+                maxlength="20"
+                class="form-field mt-0.5"
+              />
+            </div>
+          </div>
         </div>
       </form>
       <div modal-footer class="modal-footer">
@@ -137,6 +210,7 @@ export class SectorListComponent implements OnInit {
 
   formNome = '';
   formDescricao = '';
+  formContacts: SectorContact[] = [];
   isAdmin = false;
 
   constructor(
@@ -172,12 +246,52 @@ export class SectorListComponent implements OnInit {
     this.editing.set(sector || null);
     this.formNome = sector?.nome || '';
     this.formDescricao = sector?.descricao || '';
+    this.formContacts = [];
     this.showModal.set(true);
+    this.cdr.markForCheck();
+
+    if (sector) {
+      this.sectorService.getById(sector.id).subscribe({
+        next: (res) => {
+          this.formContacts = (res.sector.contacts || []).map((ct) => ({
+            id: ct.id,
+            nome: ct.nome,
+            telefone: ct.telefone || '',
+            ramal: ct.ramal || '',
+            email: ct.email || '',
+          }));
+          this.cdr.markForCheck();
+        },
+        error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar contatos do setor.'),
+      });
+    }
   }
 
   fecharModal() {
     this.showModal.set(false);
     this.editing.set(null);
+    this.formContacts = [];
+  }
+
+  adicionarContato() {
+    this.formContacts.push({ nome: '', telefone: '', ramal: '', email: '' });
+    this.cdr.markForCheck();
+  }
+
+  removerContato(index: number) {
+    this.formContacts.splice(index, 1);
+    this.cdr.markForCheck();
+  }
+
+  private contatosPayload() {
+    return this.formContacts
+      .filter((c) => c.nome?.trim())
+      .map((c) => ({
+        nome: c.nome.trim(),
+        telefone: c.telefone?.trim() || null,
+        ramal: c.ramal?.trim() || null,
+        email: c.email?.trim() || null,
+      }));
   }
 
   gerenciar(s: SectorItem) {
@@ -190,16 +304,21 @@ export class SectorListComponent implements OnInit {
       return;
     }
     this.saving.set(true);
-    const payload = { nome: this.formNome.trim(), descricao: this.formDescricao.trim() || undefined };
-    const req = this.editing()
-      ? this.sectorService.update(this.editing()!.id, payload)
+    const payload = {
+      nome: this.formNome.trim(),
+      descricao: this.formDescricao.trim() || undefined,
+      contacts: this.contatosPayload(),
+    };
+    const editing = this.editing();
+    const req = editing
+      ? this.sectorService.update(editing.id, payload)
       : this.sectorService.create(payload);
     req.subscribe({
       next: (res) => {
         this.saving.set(false);
         this.fecharModal();
         this.notification.success('Setor salvo.');
-        if (!this.editing()) {
+        if (!editing) {
           this.router.navigate(['/admin/setores', res.sector.id]);
         } else {
           this.carregar();

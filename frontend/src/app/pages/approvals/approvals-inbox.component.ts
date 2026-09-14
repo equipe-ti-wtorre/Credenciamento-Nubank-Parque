@@ -27,17 +27,34 @@ import {
   toPositiveIdSet,
 } from '../../services/approval.service';
 import { CollaboratorService } from '../../services/collaborator.service';
+import { EventAccreditationService } from '../../services/event-accreditation.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { ModalComponent } from '../../shared/modal/modal.component';
+import {
+  BraceletChipComponent,
+  BraceletSelectComponent,
+} from '../../shared/bracelet-chip';
+import { DocumentApprovalsComponent } from '../admin/document-approvals/document-approvals.component';
+import { AuthService, hasPermission } from '../../core/services/auth.service';
+import { DocumentChangeService } from '../../services/document-change.service';
+
+type InboxTab = 'pending' | 'mine' | 'team' | 'documentos';
 
 @Component({
   selector: 'app-approvals-inbox',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ModalComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ModalComponent,
+    BraceletChipComponent,
+    BraceletSelectComponent,
+    DocumentApprovalsComponent,
+  ],
   template: `
     <div class="w-full">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+      <div *ngIf="canViewApprovals()" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
         <div class="stat-card">
           <div class="stat-card__icon">
             <svg
@@ -127,7 +144,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
             </svg>
           </div>
           <div class="min-w-0">
-            <p class="text-sm text-slate-500 font-medium">Credenciamento Eventos</p>
+            <p class="text-sm text-slate-500 font-medium">Credenciamento</p>
             <p class="text-2xl font-bold text-slate-900 leading-tight mt-0.5">
               {{ summaryAccreditationCount() }}
             </p>
@@ -163,6 +180,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
 
       <div class="flex gap-2 mb-4 border-b border-slate-200 overflow-x-auto">
         <button
+          *ngIf="canViewApprovals()"
           type="button"
           class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2 whitespace-nowrap"
           [class.border-[var(--color-primary)]]="tab() === 'pending'"
@@ -179,6 +197,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
           </span>
         </button>
         <button
+          *ngIf="canViewApprovals()"
           type="button"
           class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2 whitespace-nowrap"
           [class.border-[var(--color-primary)]]="tab() === 'mine'"
@@ -195,6 +214,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
           </span>
         </button>
         <button
+          *ngIf="canViewApprovals()"
           type="button"
           class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2 whitespace-nowrap"
           [class.border-[var(--color-primary)]]="tab() === 'team'"
@@ -210,11 +230,30 @@ import { ModalComponent } from '../../shared/modal/modal.component';
             {{ summaryTeamCount() }}
           </span>
         </button>
+        <button
+          *ngIf="canViewDocuments()"
+          type="button"
+          class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2 whitespace-nowrap"
+          [class.border-[var(--color-primary)]]="tab() === 'documentos'"
+          [class.text-[var(--color-primary-dark)]]="tab() === 'documentos'"
+          [class.border-transparent]="tab() !== 'documentos'"
+          [class.text-slate-500]="tab() !== 'documentos'"
+          (click)="setTab('documentos')"
+        >
+          Documentos
+          <span
+            class="inline-flex min-w-[1.25rem] h-5 px-1.5 items-center justify-center rounded-full text-[11px] font-bold bg-slate-100 text-slate-700"
+          >
+            {{ pendingDocuments() }}
+          </span>
+        </button>
       </div>
 
-      <p *ngIf="loading()" class="text-center text-slate-500 py-8">Carregando...</p>
+      <p *ngIf="loading() && tab() !== 'documentos'" class="text-center text-slate-500 py-8">Carregando...</p>
 
-      <div *ngIf="!loading()" class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+      <app-document-approvals *ngIf="tab() === 'documentos'" [embedded]="true" />
+
+      <div *ngIf="!loading() && tab() !== 'documentos'" class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
         <section class="min-w-0">
           <div class="flex items-center gap-2 mb-3">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-100 text-sky-800">
@@ -284,7 +323,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
         <section class="min-w-0">
           <div class="flex items-center gap-2 mb-3">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-              Credenciamento Eventos
+              Credenciamento
               <span class="inline-flex min-w-[1.15rem] h-4 px-1 items-center justify-center rounded-full text-[10px] font-bold bg-amber-600 text-white">
                 {{ accreditationItems().length }}
               </span>
@@ -308,9 +347,9 @@ import { ModalComponent } from '../../shared/modal/modal.component';
           <span aria-hidden="true" class="absolute inset-y-0 left-0 w-1" [ngClass]="cardBarClass(item)"></span>
 
           <div class="p-5 pl-6 sm:p-6 sm:pl-7">
-            <div class="flex items-start justify-between gap-4">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div class="min-w-0">
-                <div class="flex items-center gap-2 text-xs font-medium text-slate-500">
+                <div class="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
                   <span class="tabular-nums">{{ entityLabel(item.tipoEntidade) }} #{{ item.idEntidade }}</span>
                   <span class="h-1 w-1 rounded-full bg-slate-300"></span>
                   <span
@@ -362,13 +401,13 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                     {{ item.setor.nome }}
                   </span>
                 </div>
-                <h2 class="mt-1.5 truncate text-2xl font-semibold tracking-tight text-slate-900">
+                <h2 class="mt-1.5 break-words text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
                   {{ itemTitle(item) }}
                 </h2>
               </div>
 
               <span
-                class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset"
+                class="inline-flex shrink-0 self-start items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset"
                 [ngClass]="statusPillClass(item)"
               >
                 <span class="h-1.5 w-1.5 rounded-full" [ngClass]="statusPillDotClass(item)"></span>
@@ -376,8 +415,8 @@ import { ModalComponent } from '../../shared/modal/modal.component';
               </span>
             </div>
 
-            <div class="mt-5 grid gap-5 md:grid-cols-[1fr_auto] md:gap-8">
-              <dl class="grid grid-cols-1 gap-x-6 gap-y-3.5 self-start sm:grid-cols-2 md:grid-cols-1">
+            <div class="mt-5 grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:gap-8 xl:grid-cols-1 xl:gap-5">
+              <dl class="grid min-w-0 grid-cols-1 gap-x-6 gap-y-3.5 self-start sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-1">
                 <div
                   class="flex items-start gap-2.5"
                   *ngIf="item.entidadeResumo?.startDate || item.entidadeResumo?.endDate"
@@ -397,7 +436,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   </svg>
                   <div class="min-w-0">
                     <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Período</dt>
-                    <dd class="tabular-nums text-sm font-medium text-slate-800">
+                    <dd class="break-words tabular-nums text-sm font-medium text-slate-800">
                       {{ periodLabel(item) }}
                       <span
                         *ngIf="periodDays(item) as days"
@@ -449,14 +488,14 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                     <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                       Solicitante
                     </dt>
-                    <dd class="flex items-center gap-2 text-sm font-medium text-slate-800">
+                    <dd class="flex min-w-0 items-start gap-2 text-sm font-medium text-slate-800">
                       <span
                         *ngIf="item.solicitante?.nome"
-                        class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600"
+                        class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600"
                       >
                         {{ initials(item.solicitante.nome) }}
                       </span>
-                      {{ item.solicitante?.nome || '—' }}
+                      <span class="min-w-0 break-words">{{ item.solicitante?.nome || '—' }}</span>
                     </dd>
                   </div>
                 </div>
@@ -464,7 +503,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
 
               <div
                 *ngIf="item.liberacaoResumo"
-                class="grid gap-3 sm:grid-cols-2 md:w-[340px] md:grid-cols-1"
+                class="grid min-w-0 w-full gap-3 sm:grid-cols-2 md:w-[min(340px,100%)] md:grid-cols-1 xl:w-full"
                 aria-label="Resumo de liberação"
               >
                 <div class="rounded-xl border px-4 py-3" [ngClass]="axisCardClass(item, 'colaboradores')">
@@ -692,7 +731,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
               </div>
             </div>
 
-            <div class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+            <div class="mt-5 flex flex-col items-stretch gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <p class="flex items-center gap-1.5 text-xs text-slate-400">
                 <svg
                   class="h-3.5 w-3.5"
@@ -713,11 +752,11 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                 </span>
               </p>
 
-              <div class="flex flex-wrap items-center gap-2">
+              <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <ng-container *ngIf="tab() === 'pending' && item.status === 'PENDENTE'">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded-lg bg-[var(--wtorre)] px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
+                    class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--wtorre)] px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 sm:w-auto"
                     (click)="abrirAcao(item, 'approve')"
                   >
                     <svg
@@ -736,7 +775,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   </button>
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
+                    class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50 sm:w-auto"
                     (click)="abrirAcao(item, 'reject')"
                   >
                     <svg
@@ -759,7 +798,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                 <button
                   *ngIf="tab() === 'mine' && item.status === 'PENDENTE'"
                   type="button"
-                  class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                  class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 sm:w-auto"
                   (click)="cancelar(item)"
                 >
                   Cancelar
@@ -767,7 +806,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
 
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 focus-visible:ring-offset-2"
+                  class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 focus-visible:ring-offset-2 sm:w-auto"
                   (click)="abrirDetalhe(item)"
                 >
                   Ver detalhes
@@ -898,6 +937,7 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   <th class="py-2 pr-3 font-semibold">Nome</th>
                   <th class="py-2 pr-3 font-semibold">Documento</th>
                   <th class="py-2 pr-3 font-semibold">Função</th>
+                  <th class="py-2 pr-3 font-semibold">Pulseira</th>
                   <th class="py-2 font-semibold">Status</th>
                 </tr>
               </thead>
@@ -917,7 +957,25 @@ import { ModalComponent } from '../../shared/modal/modal.component';
                   </td>
                   <td class="py-2 pr-3 text-slate-600">{{ c.documento }}</td>
                   <td class="py-2 pr-3 text-slate-600">{{ c.funcao }}</td>
-                  <td class="py-2 pr-3 text-slate-600" *ngIf="c.pulseira">{{ c.pulseira }}</td>
+                  <td class="py-2 pr-3">
+                    <app-bracelet-select
+                      *ngIf="canEditBracelet(c, d)"
+                      [options]="braceletOptions(d)"
+                      [value]="c.idBraceletType ?? null"
+                      [disabled]="acting()"
+                      [ariaLabel]="'Pulseira de ' + c.nome"
+                      (valueChange)="onPickBracelet(c, $event, d)"
+                    />
+                    <app-bracelet-chip
+                      *ngIf="!canEditBracelet(c, d) && (c.pulseira || c.idBraceletType)"
+                      [name]="c.pulseira || ''"
+                      [icon]="c.braceletIcon"
+                      [color]="c.braceletColor"
+                    />
+                    <span *ngIf="!canEditBracelet(c, d) && !c.pulseira && !c.idBraceletType" class="text-slate-400">
+                      —
+                    </span>
+                  </td>
                   <td class="py-2">
                     <span
                       class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
@@ -1097,79 +1155,98 @@ import { ModalComponent } from '../../shared/modal/modal.component';
             </p>
 
             <div class="flex flex-col gap-2" *ngIf="approveCollaborators().length">
-              <button
-                type="button"
+              <div
                 *ngFor="let c of approveCollaborators()"
-                class="flex items-center gap-3 w-full text-left px-3.5 py-2.5 rounded-xl border transition-colors"
+                class="flex items-center gap-3 w-full px-3.5 py-2.5 rounded-xl border transition-colors"
                 [ngClass]="
                   isCollaboratorSelected(c.id)
-                    ? 'bg-white border-slate-200 hover:border-slate-300'
+                    ? 'bg-white border-slate-200'
                     : 'bg-slate-50/80 border-dashed border-slate-200'
                 "
-                (click)="toggleCollaborator(c.id)"
               >
-                <span
-                  class="shrink-0 w-5 h-5 rounded-md border-[1.5px] grid place-items-center transition-colors"
-                  [ngClass]="
-                    isCollaboratorSelected(c.id)
-                      ? 'bg-[var(--wtorre)] border-[var(--wtorre)] text-white'
-                      : 'bg-white border-slate-300 text-transparent'
-                  "
+                <button
+                  type="button"
+                  class="flex items-center gap-3 min-w-0 flex-1 text-left"
+                  (click)="toggleCollaborator(c.id)"
                 >
-                  <svg
-                    class="w-3 h-3"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="3"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
+                  <span
+                    class="shrink-0 w-5 h-5 rounded-md border-[1.5px] grid place-items-center transition-colors"
+                    [ngClass]="
+                      isCollaboratorSelected(c.id)
+                        ? 'bg-[var(--wtorre)] border-[var(--wtorre)] text-white'
+                        : 'bg-white border-slate-300 text-transparent'
+                    "
                   >
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                </span>
-                <img
-                  *ngIf="pictureUrl(c) as url"
-                  [src]="url"
-                  [alt]="'Foto de ' + c.nome"
-                  class="shrink-0 w-[34px] h-[34px] rounded-full object-cover border border-slate-200"
+                    <svg
+                      class="w-3 h-3"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  </span>
+                  <img
+                    *ngIf="pictureUrl(c) as url"
+                    [src]="url"
+                    [alt]="'Foto de ' + c.nome"
+                    class="shrink-0 w-[34px] h-[34px] rounded-full object-cover border border-slate-200"
+                  />
+                  <span
+                    *ngIf="!pictureUrl(c)"
+                    class="shrink-0 w-[34px] h-[34px] rounded-full grid place-items-center text-[13px] font-semibold"
+                    [ngClass]="
+                      isCollaboratorSelected(c.id)
+                        ? 'bg-[var(--wtorre-tonal-bg)] text-[var(--wtorre)]'
+                        : 'bg-slate-100 text-slate-400'
+                    "
+                  >
+                    {{ initials(c.nome) }}
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span
+                      class="block text-sm font-medium truncate"
+                      [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-900' : 'text-slate-400'"
+                    >
+                      {{ c.nome }}
+                    </span>
+                    <span
+                      class="block text-[12.5px] truncate"
+                      [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-500' : 'text-slate-400'"
+                    >
+                      {{ c.documento }} · {{ c.funcao }}
+                      <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
+                      <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
+                    </span>
+                  </span>
+                </button>
+                <app-bracelet-select
+                  *ngIf="canEditBracelet(c, actionDetail())"
+                  class="shrink-0"
+                  [options]="braceletOptions(actionDetail())"
+                  [value]="c.idBraceletType ?? null"
+                  [disabled]="acting()"
+                  [ariaLabel]="'Pulseira de ' + c.nome"
+                  (valueChange)="onPickBracelet(c, $event, actionDetail())"
                 />
-                <span
-                  *ngIf="!pictureUrl(c)"
-                  class="shrink-0 w-[34px] h-[34px] rounded-full grid place-items-center text-[13px] font-semibold"
-                  [ngClass]="
-                    isCollaboratorSelected(c.id)
-                      ? 'bg-[var(--wtorre-tonal-bg)] text-[var(--wtorre)]'
-                      : 'bg-slate-100 text-slate-400'
-                  "
-                >
-                  {{ initials(c.nome) }}
-                </span>
-                <span class="min-w-0 flex-1">
-                  <span
-                    class="block text-sm font-medium truncate"
-                    [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-900' : 'text-slate-400'"
-                  >
-                    {{ c.nome }}
-                  </span>
-                  <span
-                    class="block text-[12.5px] truncate"
-                    [ngClass]="isCollaboratorSelected(c.id) ? 'text-slate-500' : 'text-slate-400'"
-                  >
-                    {{ c.documento }} · {{ c.funcao }}
-                    <ng-container *ngIf="c.pulseira"> · {{ c.pulseira }}</ng-container>
-                    <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
-                    <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
-                  </span>
-                </span>
+                <app-bracelet-chip
+                  *ngIf="!canEditBracelet(c, actionDetail()) && (c.pulseira || c.idBraceletType)"
+                  class="shrink-0"
+                  [name]="c.pulseira || ''"
+                  [icon]="c.braceletIcon"
+                  [color]="c.braceletColor"
+                />
                 <span
                   *ngIf="!isCollaboratorSelected(c.id)"
                   class="shrink-0 text-[11px] font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full"
                 >
                   Bloqueado
                 </span>
-              </button>
+              </div>
             </div>
           </section>
 
@@ -1385,8 +1462,13 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly collaboratorService = inject(CollaboratorService);
+  private readonly authService = inject(AuthService);
+  private readonly documentChangeService = inject(DocumentChangeService);
 
-  tab = signal<'pending' | 'mine' | 'team'>('pending');
+  tab = signal<InboxTab>('pending');
+  canViewApprovals = signal(false);
+  canViewDocuments = signal(false);
+  pendingDocuments = signal(0);
   items = signal<ApprovalItem[]>([]);
   pendingSummary = signal<ApprovalItem[]>([]);
   teamSummary = signal<ApprovalItem[]>([]);
@@ -1422,10 +1504,30 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
 
   constructor(
     private approvalService: ApprovalService,
+    private eventAccreditation: EventAccreditationService,
     private notification: NotificationService,
   ) {}
 
-  ngOnInit() {
+  async ngOnInit() {
+    const user = await this.authService.getCurrentUser();
+    this.canViewApprovals.set(hasPermission(user, 'approvals', 'view'));
+    this.canViewDocuments.set(hasPermission(user, 'document_approvals', 'view'));
+
+    const tabParam = this.route.snapshot.queryParamMap.get('tab');
+    if (tabParam === 'documentos' && this.canViewDocuments()) {
+      this.tab.set('documentos');
+    } else if (!this.canViewApprovals() && this.canViewDocuments()) {
+      this.tab.set('documentos');
+    }
+
+    if (this.canViewDocuments()) {
+      this.loadDocumentCount();
+    }
+    if (this.tab() === 'documentos') {
+      if (this.canViewApprovals()) this.refreshSummaries();
+      this.cdr.markForCheck();
+      return;
+    }
     this.carregar();
   }
 
@@ -1507,6 +1609,92 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
 
   approveCollaborators(): ApprovalEntityCollaborator[] {
     return this.actionDetail()?.entidade?.collaborators ?? [];
+  }
+
+  isAccreditationItem(item: ApprovalItem | null | undefined): boolean {
+    const tipo = item?.tipoEntidade;
+    return tipo === 'CREDENCIAMENTO_EVENTO' || tipo === 'CREDENCIAMENTO_EVENTO_INTERNO';
+  }
+
+  braceletOptions(item: ApprovalItem | null | undefined) {
+    return item?.entidade?.braceletTypes ?? [];
+  }
+
+  braceletTarget(item: ApprovalItem | null | undefined): 'company' | 'internal' {
+    return item?.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO' ? 'internal' : 'company';
+  }
+
+  canEditBracelet(
+    c: ApprovalEntityCollaborator,
+    item: ApprovalItem | null | undefined,
+  ): boolean {
+    if (!item || item.status !== 'PENDENTE' || !this.isAccreditationItem(item)) return false;
+    if (c.statusLiberacao && c.statusLiberacao !== 'PENDENTE') return false;
+    return (this.braceletOptions(item).length || 0) > 0;
+  }
+
+  onPickBracelet(
+    c: ApprovalEntityCollaborator,
+    idBracelet: number | null,
+    item: ApprovalItem | null | undefined,
+  ): void {
+    const accreditationId = toPositiveId(item?.entidade?.idAccreditation);
+    const braceletId = toPositiveId(idBracelet);
+    if (!item || !c || accreditationId == null || braceletId == null) return;
+    if (c.idBraceletType === braceletId) return;
+    this.acting.set(true);
+    this.eventAccreditation
+      .changeBracelet(accreditationId, {
+        target: this.braceletTarget(item),
+        ids: [c.id],
+        id_bracelet_type: braceletId,
+      })
+      .subscribe({
+        next: () => {
+          const option = this.braceletOptions(item).find((b) => b.id_bracelet_type === braceletId);
+          this.applyLocalBracelet(item, c.id, braceletId, option?.name, option?.icon, option?.color);
+          this.acting.set(false);
+          this.notification.success('Pulseira atualizada.');
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.acting.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao trocar a pulseira.');
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  private applyLocalBracelet(
+    item: ApprovalItem,
+    collaboratorId: number,
+    idBraceletType: number,
+    name?: string | null,
+    icon?: string | null,
+    color?: string | null,
+  ): void {
+    const patch = (current: ApprovalItem | null): ApprovalItem | null => {
+      if (!current?.entidade || current.id !== item.id) return current;
+      return {
+        ...current,
+        entidade: {
+          ...current.entidade,
+          collaborators: current.entidade.collaborators.map((row) =>
+            row.id === collaboratorId
+              ? {
+                  ...row,
+                  idBraceletType,
+                  pulseira: name ?? row.pulseira,
+                  braceletIcon: icon ?? row.braceletIcon,
+                  braceletColor: color ?? row.braceletColor,
+                }
+              : row,
+          ),
+        },
+      };
+    };
+    this.actionDetail.set(patch(this.actionDetail()));
+    this.detail.set(patch(this.detail()));
   }
 
   approveVehicles(): ApprovalEntityVehicle[] {
@@ -1706,10 +1894,35 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  setTab(t: 'pending' | 'mine' | 'team') {
+  setTab(t: InboxTab) {
     this.tab.set(t);
     this.fecharDetalhe();
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: t === 'pending' ? null : t },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+    if (t === 'documentos') {
+      this.loading.set(false);
+      this.loadDocumentCount();
+      this.cdr.markForCheck();
+      return;
+    }
     this.carregar();
+  }
+
+  private loadDocumentCount(): void {
+    this.documentChangeService.countPending().subscribe({
+      next: (res) => {
+        this.pendingDocuments.set(res.total ?? 0);
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.pendingDocuments.set(0);
+        this.cdr.markForCheck();
+      },
+    });
   }
 
   abrirAcao(item: ApprovalItem, mode: 'approve' | 'reject') {

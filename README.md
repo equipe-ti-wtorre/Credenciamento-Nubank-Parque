@@ -267,6 +267,7 @@ Rotas legadas em `/api` respondem igualmente, com header de depreciação.
 | GET | `/api/v1/users` | Lista paginada (`?page=1&limit=20`, filtros: `search`, `perfil`) — somente ativos com departamento |
 | GET | `/api/v1/users/:id` | Detalhe do usuário |
 | PATCH | `/api/v1/users/:id` | Atualizar `perfil`, `ativo`; usuários **locais** também: `email`, `password`, `nome_completo` |
+| GET | `/api/v1/users/sync-ad-status` | Status da sync automática (cron, última execução) |
 | POST | `/api/v1/users/sync-departments` | Sincronizar departamentos do Azure AD para usuários Microsoft sem departamento |
 | POST | `/api/v1/users/sync-ad-users` | Importar/atualizar todos os usuários do Azure AD (mesma rotina da cron) |
 | POST | `/api/v1/users/:id/sync-ad` | Sincronizar departamento de um usuário Microsoft |
@@ -278,7 +279,7 @@ Ao bloquear (`ativo: false`), refresh tokens do usuário são revogados imediata
 | Variável | Padrão | Descrição |
 |----------|--------|-----------|
 | `AD_USERS_SYNC_ENABLED` | `true` | Ativa cron interna ao iniciar a API |
-| `AD_USERS_SYNC_CRON` | `0 2 * * *` | Expressão cron (todo dia às 02:00) |
+| `AD_USERS_SYNC_CRON` | `0 * * * *` | Expressão cron (a cada 1 hora) |
 | `AD_USERS_SYNC_TIMEZONE` | `America/Sao_Paulo` | Timezone da cron |
 
 Execução manual: `npm run sync-ad-users` na pasta `backend`. Requer permissão **User.Read.All** (aplicação) em cada tenant Azure.
@@ -499,7 +500,7 @@ Leituras (`LIST`, `READ`) geram muito volume. Registros antigos são exportados 
 | Variável | Padrão | Descrição |
 |----------|--------|-----------|
 | `AUDIT_RETENTION_ENABLED` | `true` | Cron interna ao iniciar a API |
-| `AUDIT_RETENTION_CRON` | `0 3 * * *` | Após sync AD (`02:00`) |
+| `AUDIT_RETENTION_CRON` | `0 3 * * *` | Diária às 03:00 |
 | `AUDIT_RETENTION_TIMEZONE` | `America/Sao_Paulo` | Timezone IANA |
 | `AUDIT_RETENTION_READ_DAYS` | `90` | Hot storage LIST/READ |
 | `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Hot storage demais ações |

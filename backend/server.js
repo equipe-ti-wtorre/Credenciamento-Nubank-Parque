@@ -50,6 +50,11 @@ async function start() {
     if (env.approvalsExpirationEnabled) {
       startApprovalsExpirationCron();
       startupCron(`Expiração de aprovações agendada (${env.approvalsExpirationCron}).`);
+    } else {
+      const facialExpire = require("./modules/facial/facial.expire.service");
+      facialExpire.revokeFacialForExpiredAccesses().catch((err) => {
+        logger.error({ err }, "Falha ao revogar facial de acessos expirados no startup");
+      });
     }
 
     startFacialJobsStaleCron();

@@ -43,7 +43,7 @@ type GateReleaseStep = 'docs' | 'photo' | 'confirm';
 
 /**
  * Wizard de liberação de acesso na portaria (3 etapas):
- * conferência de documentos → validação da foto → confirmação da entrada.
+ * conferência de documentos → validação da foto → liberação do facial.
  */
 @Component({
   selector: 'app-gate-release-modal',

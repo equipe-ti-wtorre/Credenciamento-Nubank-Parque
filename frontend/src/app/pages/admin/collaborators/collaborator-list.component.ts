@@ -15,6 +15,7 @@ import {
   normalizeCpfInput,
 } from '../../../services/collaborator.service';
 import { NotificationService } from '../../../core/services/notification.service';
+import { formatBlocklistPeriod } from '../../../shared/blocklist-notice';
 import { AuthService } from '../../../core/services/auth.service';
 import { ActionBtnComponent } from '../../../shared/actions/action-btn.component';
 import { ActionMenuComponent } from '../../../shared/actions/action-menu.component';
@@ -311,31 +312,6 @@ interface CollaboratorFormState {
                           </svg>
                           {{ c.status ? 'Desativar' : 'Ativar' }}
                         </button>
-                        <button
-                          appActionDropdownItem
-                          type="button"
-                          (click)="c.is_blocklisted ? removerBlocklist(c) : incluirBlocklist(c)"
-                        >
-                          <svg
-                            class="action-dropdown__item-icon"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.75"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                            @if (c.is_blocklisted) {
-                              <path d="M9 12l2 2 4-4" />
-                            } @else {
-                              <path d="m9 9 6 6" />
-                              <path d="m15 9-6 6" />
-                            }
-                          </svg>
-                          {{ c.is_blocklisted ? 'Remover da blocklist' : 'Adicionar à blocklist' }}
-                        </button>
                         @if (c.can_delete) {
                           <hr class="action-dropdown__divider" />
                           <button
@@ -534,6 +510,9 @@ interface CollaboratorFormState {
             <div class="cdet-blocklist__lbl">Motivo da blocklist</div>
             <div class="cdet-blocklist__val">
               {{ d.collaborator.blocklist_reason || 'Motivo não informado.' }}
+            </div>
+            <div class="cdet-blocklist__val" *ngIf="blocklistPeriodText(d.collaborator)">
+              {{ blocklistPeriodText(d.collaborator) }}
             </div>
           </div>
 
@@ -822,9 +801,9 @@ interface CollaboratorFormState {
             ></button>
           </div>
 
-          <div class="collab-status__divider"></div>
+          <div class="collab-status__divider" *ngIf="form.isBlocklisted"></div>
 
-          <div class="collab-status__row">
+          <div class="collab-status__row" *ngIf="form.isBlocklisted">
             <span class="collab-status__icon collab-status__icon--danger" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="9" />
@@ -832,21 +811,12 @@ interface CollaboratorFormState {
               </svg>
             </span>
             <span class="collab-status__text">
-              <span class="collab-status__title">Blocklist</span>
-              <span class="collab-status__desc">Bloqueia o colaborador em credenciamento e portaria.</span>
-              <span *ngIf="form.isBlocklisted && blocklistReason()" class="collab-status__reason">
+              <span class="collab-status__title">Na lista de bloqueio</span>
+              <span class="collab-status__desc">Gerenciado no módulo Gestão de bloqueio.</span>
+              <span *ngIf="blocklistReason()" class="collab-status__reason">
                 Motivo: {{ blocklistReason() }}
               </span>
             </span>
-            <button
-              type="button"
-              class="collab-switch collab-switch--danger"
-              [class.is-on]="form.isBlocklisted"
-              role="switch"
-              [attr.aria-checked]="form.isBlocklisted"
-              [attr.aria-label]="form.isBlocklisted ? 'Remover da blocklist' : 'Adicionar à blocklist'"
-              (click)="onBlocklistToggleClick()"
-            ></button>
           </div>
         </div>
       </form>
@@ -1577,6 +1547,10 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
     return Math.max(0, Math.round((end - start) / 86400000));
   }
 
+  blocklistPeriodText(c: CollaboratorItem): string {
+    return formatBlocklistPeriod(c);
+  }
+
   detailStatusLabel(c: CollaboratorItem): string {
     if (c.is_blocklisted) return 'Blocklist';
     return c.status ? 'Ativo' : 'Inativo';
@@ -1692,7 +1666,7 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
           status: col.status,
           isBlocklisted: col.is_blocklisted,
         };
-        this.blocklistReason.set(null);
+        this.blocklistReason.set(col.blocklist_reason || null);
         this.loading.set(false);
         this.revokePicturePreview();
         this.pendingPictureFile.set(null);
@@ -1963,13 +1937,6 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
     }
 
     const id = this.editingId();
-    const applyBlocklistOnCreate = !id && this.form.isBlocklisted;
-    const blocklistReasonPending = this.blocklistReason()?.trim() || '';
-
-    if (applyBlocklistOnCreate && blocklistReasonPending.length < 10) {
-      this.notification.error('Informe um motivo de blocklist com pelo menos 10 caracteres.');
-      return;
-    }
 
     const payload = {
       id_collaborator_document_type: this.form.id_collaborator_document_type,
@@ -2003,22 +1970,7 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
         };
 
         const afterPicture = () => {
-          if (!applyBlocklistOnCreate) {
-            finish();
-            return;
-          }
-          this.collaboratorService.addBlocklist(savedId, blocklistReasonPending).subscribe({
-            next: () => finish(),
-            error: (err) => {
-              this.saving.set(false);
-              this.notification.error(
-                this.extractError(err) ||
-                  'Colaborador criado, mas falhou ao aplicar a blocklist.',
-              );
-              this.fecharModal();
-              this.carregar(1);
-            },
-          });
+          finish();
         };
 
         this.uploadPictureIfNeeded(savedId, afterPicture);
@@ -2053,151 +2005,6 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
         },
         error: (err) => {
           this.notification.error(this.extractError(err) || 'Falha ao alterar status.');
-        },
-      });
-    });
-  }
-
-  onBlocklistToggleClick() {
-    this.onBlocklistToggle(!this.form.isBlocklisted);
-  }
-
-  onBlocklistToggle(checked: boolean) {
-    const id = this.editingId();
-
-    if (checked) {
-      Swal.fire({
-        title: 'Adicionar à blocklist?',
-        html: `<p class="text-sm text-slate-600 mb-3">O colaborador <strong>${this.form.name || 'novo'}</strong> será bloqueado em credenciamento e portaria.</p>`,
-        input: 'textarea',
-        inputLabel: 'Motivo (mín. 10 caracteres)',
-        inputPlaceholder: 'Descreva o motivo da restrição...',
-        inputAttributes: { maxlength: '500' },
-        showCancelButton: true,
-        confirmButtonText: 'Adicionar à blocklist',
-        cancelButtonText: 'Cancelar',
-        confirmButtonColor: '#dc2626',
-        inputValidator: (value) => {
-          if (!value || value.trim().length < 10) {
-            return 'Informe um motivo com pelo menos 10 caracteres.';
-          }
-          return null;
-        },
-      }).then((result) => {
-        if (!result.isConfirmed || !result.value) {
-          this.form.isBlocklisted = false;
-          return;
-        }
-        const reason = result.value.trim();
-
-        // No cadastro, a blocklist só é persistida após salvar.
-        if (!id) {
-          this.form.isBlocklisted = true;
-          this.blocklistReason.set(reason);
-          return;
-        }
-
-        this.collaboratorService.addBlocklist(id, reason).subscribe({
-          next: () => {
-            this.form.isBlocklisted = true;
-            this.blocklistReason.set(reason);
-            this.notification.success('Colaborador adicionado à blocklist.');
-            this.carregar();
-          },
-          error: (err) => {
-            this.form.isBlocklisted = false;
-            this.notification.error(this.extractError(err) || 'Falha ao adicionar à blocklist.');
-          },
-        });
-      });
-      return;
-    }
-
-    // Remover blocklist ainda não persistida (novo cadastro).
-    if (!id) {
-      this.form.isBlocklisted = false;
-      this.blocklistReason.set(null);
-      return;
-    }
-
-    Swal.fire({
-      title: 'Remover da blocklist?',
-      text: `"${this.form.name}" voltará a poder ser credenciado.`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Remover da blocklist',
-      cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#059669',
-    }).then((result) => {
-      if (!result.isConfirmed) {
-        this.form.isBlocklisted = true;
-        return;
-      }
-      this.collaboratorService.removeBlocklist(id).subscribe({
-        next: () => {
-          this.form.isBlocklisted = false;
-          this.blocklistReason.set(null);
-          this.notification.success('Colaborador removido da blocklist.');
-          this.carregar();
-        },
-        error: (err) => {
-          this.form.isBlocklisted = true;
-          this.notification.error(this.extractError(err) || 'Falha ao remover da blocklist.');
-        },
-      });
-    });
-  }
-
-  incluirBlocklist(c: CollaboratorItem) {
-    Swal.fire({
-      title: 'Adicionar à blocklist?',
-      html: `<p class="text-sm text-slate-600 mb-3">O colaborador <strong>${c.name}</strong> será bloqueado em credenciamento e portaria.</p>`,
-      input: 'textarea',
-      inputLabel: 'Motivo (mín. 10 caracteres)',
-      inputPlaceholder: 'Descreva o motivo da restrição...',
-      inputAttributes: { maxlength: '500' },
-      showCancelButton: true,
-      confirmButtonText: 'Adicionar à blocklist',
-      cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#dc2626',
-      inputValidator: (value) => {
-        if (!value || value.trim().length < 10) {
-          return 'Informe um motivo com pelo menos 10 caracteres.';
-        }
-        return null;
-      },
-    }).then((result) => {
-      if (!result.isConfirmed || !result.value) return;
-      this.collaboratorService.addBlocklist(c.id_collaborator, result.value.trim()).subscribe({
-        next: () => {
-          this.notification.success('Colaborador adicionado à blocklist.');
-          this.carregar();
-        },
-        error: (err) => {
-          this.notification.error(this.extractError(err) || 'Falha ao adicionar à blocklist.');
-        },
-      });
-    });
-  }
-
-  removerBlocklist(c: CollaboratorItem) {
-    Swal.fire({
-      title: 'Remover da blocklist?',
-      text: `"${c.name}" voltará a poder ser credenciado.`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Remover da blocklist',
-      cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#059669',
-    }).then((result) => {
-      if (!result.isConfirmed) return;
-      this.collaboratorService.removeBlocklist(c.id_collaborator).subscribe({
-        next: () => {
-          this.notification.success('Colaborador removido da blocklist.');
-          this.carregar();
-        },
-        error: (err) => {
-          this.notification.error(this.extractError(err) || 'Falha ao remover da blocklist.');
         },
       });
     });

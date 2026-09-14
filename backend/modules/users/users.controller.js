@@ -90,6 +90,14 @@ exports.syncAdUsers = async (req, res, next) => {
   }
 };
 
+exports.getAdSyncStatus = async (req, res, next) => {
+  try {
+    res.json(usersService.getAdSyncStatus());
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.syncUserDepartment = async (req, res, next) => {
   try {
     const user = await usersService.syncUserDepartment(req.params.id);

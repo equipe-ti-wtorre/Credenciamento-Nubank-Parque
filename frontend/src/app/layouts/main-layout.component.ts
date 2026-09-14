@@ -34,12 +34,18 @@ import { ThemeService } from '../core/services/theme.service';
 import { StorageService } from '../core/services/storage.service';
 import { ApprovalService } from '../services/approval.service';
 import { DocumentChangeService } from '../services/document-change.service';
-import { ADMIN_MENU_ITEMS, ADMIN_MENU_MODULE_MAP, AdminMenuItem, MenuIconLibrary } from '../config/admin-menu.config';
+import { MenuIconLibrary } from '../config/admin-menu.config';
+import {
+  SETORES_NAV_ITEM,
+  SIDEBAR_NAV_GROUPS,
+  SidebarNavItemDef,
+} from '../config/sidebar-nav.config';
 import { NotificationsDropdownComponent } from './notifications-dropdown.component';
 import { GlobalSearchComponent } from './global-search.component';
 import { TeamsContextService } from '../services/teams-context.service';
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
+const SIDEBAR_NAV_GROUPS_KEY_PREFIX = 'sidebarNavGroups:';
 const DEFAULT_TITLE = 'Credenciamento';
 
 interface NavItem {
@@ -53,9 +59,10 @@ interface NavItem {
   /** Mostra o badge de pendencias (aprovacoes de evento/acesso ou documentos). */
   showBadge?: boolean;
   /** Fonte do contador do badge; default = approvals. */
-  badgeSource?: 'approvals' | 'document';
+  badgeSource?: 'combined' | 'approvals' | 'document';
 }
 interface NavGroup {
+  id?: string;
   title?: string;
   items: NavItem[];
 }
@@ -87,6 +94,7 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   navCanScrollDown = signal(false);
 
   readonly navGroups = signal<NavGroup[]>([]);
+  readonly collapsedGroups = signal<Set<string>>(new Set());
 
   userName = signal('');
   userRoleLabel = signal('');
@@ -165,12 +173,22 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     return this.iconMap.get(key) ?? '';
   }
 
-  private mapMenuItem(item: AdminMenuItem): NavItem {
+  private canSeeItem(user: AuthUser | null, item: SidebarNavItemDef): boolean {
+    if (item.allowAdInternal && isAdInternalUser(user)) return true;
+    if (item.permissionAny?.length) {
+      return item.permissionAny.some((module) => hasPermission(user, module, 'view'));
+    }
+    if (item.module) return hasPermission(user, item.module, 'view');
+    return true;
+  }
+
+  private mapNavDef(item: SidebarNavItemDef): NavItem {
     const nav: NavItem = {
       label: item.label,
       route: item.route,
-      showBadge: item.route === '/admin/aprovacoes-documento',
-      badgeSource: item.route === '/admin/aprovacoes-documento' ? 'document' : undefined,
+      exact: item.exact,
+      showBadge: item.showBadge,
+      badgeSource: item.badgeSource,
     };
     if (item.iconLibrary === 'image' && item.iconSrc) {
       nav.iconLibrary = 'image';
@@ -214,12 +232,14 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const cached = await this.authService.getCurrentUser();
     this.applyUser(cached);
+    await this.loadCollapsedGroups();
     this.buildNav();
     this.loadPendingBadges();
 
     const fresh = await this.authService.refreshCurrentUser();
     if (fresh) {
       this.applyUser(fresh);
+      await this.loadCollapsedGroups();
       this.buildNav();
       this.loadPendingBadges();
     }
@@ -233,6 +253,7 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
       .subscribe(() => {
         this.resolveTitle();
         this.resolveGatePage();
+        this.ensureActiveGroupOpen();
         this.loadPendingBadges();
       });
   }
@@ -299,90 +320,97 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   private buildNav(): void {
     const user = this.currentUser;
     const groups: NavGroup[] = [];
+    let hasCadastrosOrGestao = false;
 
-    const baseItems: NavItem[] = [];
-    if (hasPermission(user, 'dashboard', 'view')) {
-      baseItems.push({ label: 'Início', route: '/dashboard', iconHtml: this.iconFor('home'), exact: true });
-    }
-    if (hasPermission(user, 'approvals', 'view')) {
-      baseItems.push({
-        label: 'Aprovações',
-        route: '/aprovacoes',
-        iconHtml: this.iconFor('doc'),
-        showBadge: true,
-        badgeSource: 'approvals',
-      });
-    }
-    if (baseItems.length) {
-      groups.push({ items: baseItems });
-    }
+    for (const def of SIDEBAR_NAV_GROUPS) {
+      const items = def.items.filter((item) => this.canSeeItem(user, item)).map((item) => this.mapNavDef(item));
+      if (!items.length) continue;
 
-    const operacaoItems: NavItem[] = [];
-    if (hasPermission(user, 'gate', 'view')) {
-      operacaoItems.push({ label: 'Portaria', route: '/portaria', iconHtml: this.iconFor('gate'), exact: true });
-    }
-    if (hasPermission(user, 'merchandise_entry', 'view')) {
-      operacaoItems.push({ label: 'Registrar entrada', route: '/mercadorias/entrada', iconHtml: this.iconFor('in') });
-    }
-    if (hasPermission(user, 'merchandise_exit', 'view')) {
-      operacaoItems.push({ label: 'Registrar saída', route: '/mercadorias/saida', iconHtml: this.iconFor('out') });
-    }
-    if (hasPermission(user, 'credential_denials', 'view')) {
-      operacaoItems.push({
-        label: 'Negações de credenciamento',
-        route: '/operacao/negacoes-credenciamento',
-        iconHtml: this.iconFor('chart'),
-      });
-    }
-    if (hasPermission(user, 'access_reports', 'view')) {
-      operacaoItems.push({
-        label: 'Relatório de acessos',
-        route: '/operacao/relatorio-acessos',
-        iconHtml: this.iconFor('chart'),
-      });
-    }
-    if (hasPermission(user, 'events', 'view') || hasPermission(user, 'approvals', 'view')) {
-      operacaoItems.push({ label: 'Eventos', route: '/admin/eventos', iconHtml: this.iconFor('calendar') });
-    }
-    if (
-      hasPermission(user, 'event_accreditation', 'view') ||
-      hasPermission(user, 'approvals', 'view') ||
-      isAdInternalUser(user)
-    ) {
-      operacaoItems.push({
-        label: 'Credenciamento Eventos',
-        route: '/admin/credenciamento-eventos',
-        iconHtml: this.iconFor('badge'),
-      });
-    }
-    if (hasPermission(user, 'service_access', 'view')) {
-      operacaoItems.push({
-        label: 'Acessos de Serviço',
-        route: '/admin/acessos-servico',
-        iconHtml: this.iconFor('wrench'),
-      });
-    }
-    if (operacaoItems.length) {
-      groups.push({ title: 'Operação', items: operacaoItems });
+      if (
+        def.id === 'cadastros' &&
+        items.length === 1 &&
+        items[0].route === '/admin/setores' &&
+        isSectorGestor(user)
+      ) {
+        groups.push({ id: 'gestao', title: 'Gestão', items });
+        hasCadastrosOrGestao = true;
+        continue;
+      }
+
+      groups.push({ id: def.id, title: def.title, items });
+      if (def.id === 'cadastros') hasCadastrosOrGestao = true;
     }
 
-    const adminItems = ADMIN_MENU_ITEMS.filter((item) => {
-      const module = ADMIN_MENU_MODULE_MAP[item.route];
-      return module ? hasPermission(user, module, 'view') : true;
-    }).map((item) => this.mapMenuItem(item));
-
-    if (adminItems.length) {
-      groups.push({ title: 'Administração', items: adminItems });
-    } else if (isSectorGestor(user) && hasPermission(user, 'sectors', 'view')) {
+    if (!hasCadastrosOrGestao && isSectorGestor(user)) {
       groups.push({
+        id: 'gestao',
         title: 'Gestão',
-        items: [{ label: 'Setores', route: '/admin/setores', iconHtml: this.iconFor('users') }],
+        items: [this.mapNavDef(SETORES_NAV_ITEM)],
       });
     }
 
     this.navGroups.set(groups);
+    this.ensureActiveGroupOpen();
     this.scheduleNavScrollHintUpdate();
     this.cdr.markForCheck();
+  }
+
+  isGroupOpen(groupId: string | undefined): boolean {
+    if (!groupId) return true;
+    return !this.collapsedGroups().has(groupId);
+  }
+
+  toggleGroup(groupId: string | undefined): void {
+    if (!groupId) return;
+    const next = new Set(this.collapsedGroups());
+    if (next.has(groupId)) next.delete(groupId);
+    else next.add(groupId);
+    this.collapsedGroups.set(next);
+    void this.persistCollapsedGroups();
+    this.scheduleNavScrollHintUpdate();
+  }
+
+  private itemMatchesPath(path: string, item: NavItem): boolean {
+    if (item.exact) return path === item.route;
+    return path === item.route || path.startsWith(`${item.route}/`);
+  }
+
+  private ensureActiveGroupOpen(): void {
+    const path = this.router.url.split('?')[0];
+    const active = this.navGroups().find((group) =>
+      group.items.some((item) => this.itemMatchesPath(path, item)),
+    );
+    if (!active?.id || !this.collapsedGroups().has(active.id)) return;
+    const next = new Set(this.collapsedGroups());
+    next.delete(active.id);
+    this.collapsedGroups.set(next);
+    void this.persistCollapsedGroups();
+  }
+
+  private navGroupsStorageKey(): string | null {
+    const userId = this.currentUser?.id;
+    return userId != null ? `${SIDEBAR_NAV_GROUPS_KEY_PREFIX}${userId}` : null;
+  }
+
+  private async loadCollapsedGroups(): Promise<void> {
+    const key = this.navGroupsStorageKey();
+    if (!key) {
+      this.collapsedGroups.set(new Set());
+      return;
+    }
+    const raw = await this.storage.get(key);
+    try {
+      const ids = raw ? (JSON.parse(raw) as unknown) : [];
+      this.collapsedGroups.set(new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []));
+    } catch {
+      this.collapsedGroups.set(new Set());
+    }
+  }
+
+  private async persistCollapsedGroups(): Promise<void> {
+    const key = this.navGroupsStorageKey();
+    if (!key) return;
+    await this.storage.set(key, JSON.stringify([...this.collapsedGroups()]));
   }
 
   private applyUser(user: AuthUser | null): void {
@@ -392,9 +420,11 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   badgeCountFor(item: NavItem): number {
-    return item.badgeSource === 'document'
-      ? this.pendingDocumentApprovals()
-      : this.pendingApprovals();
+    if (item.badgeSource === 'document') return this.pendingDocumentApprovals();
+    if (item.badgeSource === 'combined') {
+      return this.pendingApprovals() + this.pendingDocumentApprovals();
+    }
+    return this.pendingApprovals();
   }
 
   private loadPendingBadges(): void {

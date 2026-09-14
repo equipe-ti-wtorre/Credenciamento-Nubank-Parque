@@ -31,7 +31,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
     <div class="w-full">
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5 shrink-0">
         <div>
-          <h2 class="page-section-title">Usuários Empresas</h2>
+          <h2 class="page-section-title">Usuários de empresas</h2>
           <p class="page-section-subtitle">
             Gestores e solicitantes vinculados às empresas cadastradas.
           </p>

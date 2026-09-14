@@ -15,16 +15,32 @@ function isAdminUser(user) {
   return isSuperAdmin(user);
 }
 
-function mapSectorRow(row) {
-  return {
+function mapSectorRow(row, contacts = null) {
+  const sector = {
     id: row.id,
     nome: row.nome,
     descricao: row.descricao,
     ativo: !!row.ativo,
     membrosAtivos: Number(row.membros_ativos || 0),
     fluxosConfigurados: Number(row.fluxos_configurados || 0),
+    contatosCadastrados: Number(row.contatos_cadastrados || 0),
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
+  };
+  if (contacts !== null) {
+    sector.contacts = contacts;
+  }
+  return sector;
+}
+
+function mapContactRow(row) {
+  return {
+    id: row.id,
+    idSetor: row.id_setor,
+    nome: row.nome,
+    telefone: row.telefone || null,
+    ramal: row.ramal || null,
+    email: row.email || null,
   };
 }
 
@@ -110,7 +126,8 @@ async function listSectors({ page, limit, offset, user }) {
   let listSql = `
     SELECT s.*,
            (SELECT COUNT(*) FROM setor_usuarios su WHERE su.id_setor = s.id AND su.ativo = 1) AS membros_ativos,
-           (SELECT COUNT(*) FROM setor_fluxos sf WHERE sf.id_setor = s.id AND sf.ativo = 1) AS fluxos_configurados
+           (SELECT COUNT(*) FROM setor_fluxos sf WHERE sf.id_setor = s.id AND sf.ativo = 1) AS fluxos_configurados,
+           (SELECT COUNT(*) FROM setor_contatos sc WHERE sc.id_setor = s.id) AS contatos_cadastrados
       FROM setores s`;
   const params = [];
 
@@ -144,13 +161,48 @@ async function findSectorById(id) {
   return rows[0] || null;
 }
 
-async function createSector(data, userId) {
-  const [result] = await db.execute(
-    `INSERT INTO setores (nome, descricao, criado_por) VALUES (?, ?, ?)`,
-    [data.nome.trim(), data.descricao?.trim() || null, userId || null],
+async function findContactsBySectorId(idSetor, conn = db) {
+  const [rows] = await conn.execute(
+    `SELECT * FROM setor_contatos WHERE id_setor = ? ORDER BY nome ASC`,
+    [idSetor],
   );
-  const sector = await findSectorById(result.insertId);
-  return mapSectorRow({ ...sector, membros_ativos: 0, fluxos_configurados: 0 });
+  return rows.map(mapContactRow);
+}
+
+async function insertContacts(conn, sectorId, contacts) {
+  if (!contacts || contacts.length === 0) return;
+  for (const contact of contacts) {
+    await conn.execute(
+      `INSERT INTO setor_contatos (id_setor, nome, telefone, ramal, email)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        sectorId,
+        contact.nome.trim(),
+        contact.telefone?.trim() || null,
+        contact.ramal?.trim() || null,
+        contact.email?.trim() || null,
+      ],
+    );
+  }
+}
+
+async function createSector(data, userId) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [result] = await conn.execute(
+      `INSERT INTO setores (nome, descricao, criado_por) VALUES (?, ?, ?)`,
+      [data.nome.trim(), data.descricao?.trim() || null, userId || null],
+    );
+    await insertContacts(conn, result.insertId, data.contacts);
+    await conn.commit();
+    return getSectorById(result.insertId);
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 async function updateSector(id, data) {
@@ -161,12 +213,26 @@ async function updateSector(id, data) {
   const descricao =
     data.descricao !== undefined ? data.descricao?.trim() || null : existing.descricao;
 
-  await db.execute(`UPDATE setores SET nome = ?, descricao = ? WHERE id = ?`, [
-    nome,
-    descricao,
-    id,
-  ]);
-  return getSectorById(id);
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(`UPDATE setores SET nome = ?, descricao = ? WHERE id = ?`, [
+      nome,
+      descricao,
+      id,
+    ]);
+    if (data.contacts !== undefined) {
+      await conn.execute(`DELETE FROM setor_contatos WHERE id_setor = ?`, [id]);
+      await insertContacts(conn, id, data.contacts);
+    }
+    await conn.commit();
+    return getSectorById(id);
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 async function assertNoPendingApprovals(idSetor) {
@@ -196,14 +262,71 @@ async function getSectorById(id) {
   const [rows] = await db.execute(
     `SELECT s.*,
             (SELECT COUNT(*) FROM setor_usuarios su WHERE su.id_setor = s.id AND su.ativo = 1) AS membros_ativos,
-            (SELECT COUNT(*) FROM setor_fluxos sf WHERE sf.id_setor = s.id AND sf.ativo = 1) AS fluxos_configurados
+            (SELECT COUNT(*) FROM setor_fluxos sf WHERE sf.id_setor = s.id AND sf.ativo = 1) AS fluxos_configurados,
+            (SELECT COUNT(*) FROM setor_contatos sc WHERE sc.id_setor = s.id) AS contatos_cadastrados
        FROM setores s
       WHERE s.id = ?
       LIMIT 1`,
     [id],
   );
   if (!rows.length) throw new AppError("Setor não encontrado.", 404);
-  return mapSectorRow(rows[0]);
+  const contacts = await findContactsBySectorId(id);
+  return mapSectorRow(rows[0], contacts);
+}
+
+async function listContacts(idSetor) {
+  const sector = await findSectorById(idSetor);
+  if (!sector) throw new AppError("Setor não encontrado.", 404);
+  return findContactsBySectorId(idSetor);
+}
+
+async function addContact(idSetor, data) {
+  const sector = await findSectorById(idSetor);
+  if (!sector) throw new AppError("Setor não encontrado.", 404);
+
+  await db.execute(
+    `INSERT INTO setor_contatos (id_setor, nome, telefone, ramal, email)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      idSetor,
+      data.nome.trim(),
+      data.telefone?.trim() || null,
+      data.ramal?.trim() || null,
+      data.email?.trim() || null,
+    ],
+  );
+  return listContacts(idSetor);
+}
+
+async function updateContact(idSetor, contactId, data) {
+  const [rows] = await db.execute(
+    `SELECT * FROM setor_contatos WHERE id = ? AND id_setor = ? LIMIT 1`,
+    [contactId, idSetor],
+  );
+  if (!rows.length) throw new AppError("Contato não encontrado.", 404);
+
+  await db.execute(
+    `UPDATE setor_contatos SET nome = ?, telefone = ?, ramal = ?, email = ? WHERE id = ?`,
+    [
+      data.nome.trim(),
+      data.telefone?.trim() || null,
+      data.ramal?.trim() || null,
+      data.email?.trim() || null,
+      contactId,
+    ],
+  );
+  return listContacts(idSetor);
+}
+
+async function removeContact(idSetor, contactId) {
+  const [rows] = await db.execute(
+    `SELECT id FROM setor_contatos WHERE id = ? AND id_setor = ? LIMIT 1`,
+    [contactId, idSetor],
+  );
+  if (!rows.length) throw new AppError("Contato não encontrado.", 404);
+
+  await db.execute(`DELETE FROM setor_contatos WHERE id = ?`, [contactId]);
+  return listContacts(idSetor);
 }
 
 async function listMembers(idSetor) {
@@ -324,6 +447,10 @@ module.exports = {
   createSector,
   updateSector,
   patchSectorStatus,
+  listContacts,
+  addContact,
+  updateContact,
+  removeContact,
   listMembers,
   addMember,
   updateMember,

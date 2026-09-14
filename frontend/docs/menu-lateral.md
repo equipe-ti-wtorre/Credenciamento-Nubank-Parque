@@ -34,7 +34,7 @@ O chrome do menu é **sempre escuro** (gradiente), nas paletas WTorre e Nubank. 
 | `.wt-sidebar` | Coluna do menu |
 | `.wt-nav-item` | Item de navegação |
 | `.wt-nav-item.active` | Rota ativa |
-| `.nav-label` | Título de seção (Operação, Administração…) |
+| `.nav-label` | Cabeçalho clicável de seção (Geral, Acessos, Mercadorias…) |
 
 Não há componente `Sidebar` / `NavItem` reutilizável separado: a lógica vive no `MainLayoutComponent`.
 
@@ -83,40 +83,30 @@ interface NavItem {
   iconSrc?: string;
   exact?: boolean;           // true em Início e Portaria
   showBadge?: boolean;
-  badgeSource?: 'approvals' | 'document';
+  badgeSource?: 'combined' | 'approvals' | 'document';
 }
 
 interface NavGroup {
-  title?: string;            // omitido no grupo base
+  id?: string;               // chave de persistência do recolhimento
+  title?: string;
   items: NavItem[];
 }
 ```
 
 ### Origem dos itens
 
-| Grupo | Fonte | Observação |
-|-------|--------|------------|
-| *(sem título)* | Hardcoded em `buildNav()` | Início, Aprovações |
-| `Operação` | Hardcoded em `buildNav()` | Portaria, mercadorias, eventos… |
-| `Administração` | `ADMIN_MENU_ITEMS` + `ADMIN_MENU_MODULE_MAP` | `admin-menu.config.ts` |
-| `Gestão` | Fallback | Só Setores, se gestor de setor sem itens admin |
+Fonte: `SIDEBAR_NAV_GROUPS` em `src/app/config/sidebar-nav.config.ts`. `buildNav()` filtra por permissão e omite grupo vazio.
 
-Config de administração:
+| Grupo | Itens |
+|-------|--------|
+| `Geral` | Início, Aprovações (badge somado) |
+| `Acessos` | Portaria, Acessos de Serviço, Eventos, Credenciamento, Relatório de acessos, Negações |
+| `Mercadorias` | Entrada, Saída, Produtos, Locais, Relatório de mercadorias |
+| `Cadastros` | Empresas, Colaboradores, Frota, Setores |
+| `Sistema` | Perfis, Usuários internos, Usuários de empresas, Configurações |
+| `Gestão` | Fallback: só Setores, se gestor de setor sem outros cadastros |
 
-```ts
-// src/app/config/admin-menu.config.ts
-export interface AdminMenuItem {
-  label: string;
-  icon: string;              // emoji legado (UI usa SVG/iconKey)
-  iconKey?: string;          // chave em rawIcons do MainLayout
-  iconLibrary?: MenuIconLibrary;
-  iconName?: string;
-  iconSrc?: string;
-  route: string;
-}
-```
-
-Cada rota admin mapeia para um módulo de permissão em `ADMIN_MENU_MODULE_MAP`.
+Cada item declara `module` ou `permissionAny` (+ `allowAdInternal` quando couber).
 
 ---
 
@@ -125,17 +115,8 @@ Cada rota admin mapeia para um módulo de permissão em `ADMIN_MENU_MODULE_MAP`.
 - Visibilidade: `hasPermission(user, module, 'view')` (`AuthService`).
 - Super admin vê tudo.
 - Roles legados (`ADMIN`, `CONTROLADOR`…) só alimentam o label do perfil — **não** filtram o menu.
-- Rotas devem espelhar o menu com `PermissionGuard` + `data.permission`.
-
-Filtro dos itens admin:
-
-```ts
-ADMIN_MENU_ITEMS.filter((item) => {
-  const module = ADMIN_MENU_MODULE_MAP[item.route];
-  return module ? hasPermission(user, module, 'view') : true;
-}).map((item) => this.mapMenuItem(item));
-```
-
+- Rotas devem espelhar o menu com `PermissionGuard` + `data.permission` / `data.permissionAny`.
+- Grupo sem itens visíveis não aparece.
 ---
 
 ## Template do item
@@ -169,33 +150,28 @@ Novos SVGs: registrar path em `rawIcons` no `MainLayoutComponent` e referenciar 
 
 | Item | `badgeSource` | Serviço |
 |------|---------------|---------|
-| Aprovações | `approvals` | `ApprovalService.countPending()` |
-| Aprovações documento | `document` | `DocumentChangeService.countPending()` |
+| Aprovações | `combined` | `ApprovalService.countPending()` + `DocumentChangeService.countPending()` (só o que o usuário pode ver) |
+
+A página `/aprovacoes` unifica o fluxo de aprovação e a aba **Documentos**. A rota antiga `/admin/aprovacoes-documento` redireciona para `/aprovacoes?tab=documentos`.
 
 ---
 
 ## Collapse
 
-- Signal `collapsed`; toggle via `toggleSidebar()`.
-- Persistência: chave `sidebarCollapsed` no `StorageService` (`'1'` / `'0'`).
-- Collapsed: esconde textos, badges e labels de seção; troca `logo-full` → `logo-mark`; tooltip via `title`.
+- Sidebar inteira: signal `collapsed`; toggle via `toggleSidebar()`. Persistência: `sidebarCollapsed` no `StorageService` (`'1'` / `'0'`).
+- Collapsed: esconde textos, badges e labels de seção; troca `logo-full` → `logo-mark`; tooltip via `title`. Neste modo os itens de todos os grupos continuam visíveis.
+- Grupos: `.nav-label` é botão; estado fechado por usuário em `sidebarNavGroups:${userId}` (JSON de ids).
+- Primeira visita: todos abertos. O grupo da rota ativa reabre sempre (prefixo de rota, inclusive após F5).
 - Overflow: hints de scroll (cima/baixo) no `nav-shell`.
 
 ---
 
 ## Como adicionar um item
 
-### Administração (config)
-
 1. Rota em `app.routes.ts` (filho do `MainLayoutComponent`) com `PermissionGuard` e `data.permission` / `data.title`.
-2. Módulo em `modules.config.ts` (se novo).
-3. Entrada em `ADMIN_MENU_ITEMS` + rota→módulo em `ADMIN_MENU_MODULE_MAP`.
+2. Módulo em `modules.config.ts` (e `backend/config/modules.config.js`) se for novo.
+3. Entrada no grupo certo de `SIDEBAR_NAV_GROUPS` (`sidebar-nav.config.ts`), com `module` ou `permissionAny`.
 4. Se SVG novo: chave em `rawIcons` + `iconKey` no item.
-
-### Base / Operação
-
-1. Mesmos passos de rota + permissão.
-2. `push` condicional em `buildNav()` no grupo certo, com `iconFor('chave')` e `exact` se for rota “raiz” do módulo.
 
 ---
 

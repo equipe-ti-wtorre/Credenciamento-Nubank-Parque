@@ -5,7 +5,6 @@ const {
   validateAndNormalizeCollaboratorPayload,
   validateSearchQuery,
   collaboratorStatusSchema,
-  blocklistSchema,
   roleCreateSchema,
   roleUpdateSchema,
 } = require("./collaborator.schema");
@@ -126,7 +125,10 @@ exports.search = async (req, res, next) => {
         res.json({ results: [] });
         return;
       }
-      const result = await collaboratorService.searchCollaboratorsByTerm(req, { q });
+      const result = await collaboratorService.searchCollaboratorsByTerm(req, {
+        q,
+        id_company: req.query.id_company,
+      });
       res.json(result);
       return;
     }
@@ -274,8 +276,11 @@ exports.uploadPicture = async (req, res, next) => {
       filename,
     );
 
-    const facialCommand = require("../facial/facial.command.service");
-    await facialCommand.sendEnrollSafe(collaborator, req.file.buffer);
+    const { hasPortariaReleaseToday } = require("../facial/facial.valid-dates");
+    if (await hasPortariaReleaseToday(collaborator.id_collaborator)) {
+      const facialCommand = require("../facial/facial.command.service");
+      await facialCommand.sendEnrollSafe(collaborator, req.file.buffer);
+    }
 
     attachAudit(req, {
       action: "UPDATE",
@@ -344,8 +349,12 @@ exports.facialEnroll = async (req, res, next) => {
       collaborator.picture = filename;
     }
 
+    const { hasPortariaReleaseToday } = require("../facial/facial.valid-dates");
     const facialCommand = require("../facial/facial.command.service");
-    const result = await facialCommand.sendEnroll(collaborator, photoBuffer);
+    const releasedToday = await hasPortariaReleaseToday(collaborator.id_collaborator);
+    const result = releasedToday
+      ? await facialCommand.sendEnroll(collaborator, photoBuffer)
+      : { skipped: true, reason: "not_released_today" };
 
     attachAudit(req, {
       action: "UPDATE",
@@ -518,58 +527,6 @@ exports.patchStatus = async (req, res, next) => {
         document: collaboratorService.maskDocumentForAudit(collaborator),
       },
       changes: { status: collaborator.status, ...changes },
-    });
-
-    res.json({ collaborator });
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.addBlocklist = async (req, res, next) => {
-  try {
-    const { error, value } = blocklistSchema.validate(req.body);
-    if (error) throw new AppError(error.details[0].message, 400);
-
-    const collaborator = await collaboratorService.addToBlocklist(
-      req.params.id,
-      value.reason,
-      req.user?.id,
-    );
-
-    attachAudit(req, {
-      action: "CREATE",
-      module: "collaborators",
-      event: "collaborator.blocklist.add",
-      resource: {
-        type: "collaborator",
-        id: collaborator.id_collaborator,
-        document: collaboratorService.maskDocumentForAudit(collaborator),
-      },
-      changes: { reason: value.reason },
-      metadata: { alertLevel: "critical", reason: value.reason },
-    });
-
-    res.status(201).json({ collaborator });
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.removeBlocklist = async (req, res, next) => {
-  try {
-    const collaborator = await collaboratorService.removeFromBlocklist(req.params.id);
-
-    attachAudit(req, {
-      action: "DELETE",
-      module: "collaborators",
-      event: "collaborator.blocklist.remove",
-      resource: {
-        type: "collaborator",
-        id: collaborator.id_collaborator,
-        document: collaboratorService.maskDocumentForAudit(collaborator),
-      },
-      metadata: { alertLevel: "critical" },
     });
 
     res.json({ collaborator });

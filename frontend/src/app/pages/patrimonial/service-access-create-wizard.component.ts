@@ -11,6 +11,7 @@ import { CommonModule } from '@angular/common';
 import { FormControl, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { NotificationService } from '../../core/services/notification.service';
+import { formatBlocklistNotice } from '../../shared/blocklist-notice';
 import { AuthService } from '../../core/services/auth.service';
 import {
   PatrimonialService,
@@ -2379,7 +2380,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   addCollaborator(item: CollaboratorItem) {
     if (item.is_blocklisted) {
-      this.notification.error('Colaborador está na blocklist.');
+      this.notification.error(formatBlocklistNotice(item));
       return;
     }
     if (this.draftCollaborators().some((c) => c.id_collaborator === item.id_collaborator)) {

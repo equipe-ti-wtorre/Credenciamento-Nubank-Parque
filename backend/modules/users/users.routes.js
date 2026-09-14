@@ -9,6 +9,7 @@ const canEdit = [authMiddleware, authorizePermission("users", "edit")];
 
 router.get("/", ...canView, usersController.list);
 router.post("/sync-departments", ...canEdit, usersController.syncDepartments);
+router.get("/sync-ad-status", ...canView, usersController.getAdSyncStatus);
 router.post("/sync-ad-users", ...canEdit, usersController.syncAdUsers);
 router.get("/:id", ...canView, usersController.getById);
 router.patch("/:id", ...canEdit, usersController.update);

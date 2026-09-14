@@ -313,11 +313,12 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         total: list.length,
         wait: list.filter(
           (r) =>
+            r.next_action === 'RELEASE_ACCESS' ||
             r.next_action === 'CHECK_IN' ||
             r.next_action === 'PENDING_APPROVAL' ||
             r.next_action === 'BLOCKED_OPEN_STAY',
         ).length,
-        in: list.filter((r) => r.next_action === 'CHECK_OUT').length,
+        in: list.filter((r) => this.isInsideAction(r.next_action)).length,
         done: list.filter((r) => r.next_action === 'COMPLETED').length,
         veiculo: list.filter((r) => r.kind === 'vehicle').length,
         colaborador: list.filter((r) => r.kind === 'collaborator').length,
@@ -326,8 +327,10 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const list = this.todayCredentials();
     return {
       total: list.length,
-      wait: list.filter((r) => r.next_action === 'CHECK_IN').length,
-      in: list.filter((r) => r.next_action === 'CHECK_OUT').length,
+      wait: list.filter(
+        (r) => r.next_action === 'RELEASE_ACCESS' || r.next_action === 'CHECK_IN',
+      ).length,
+      in: list.filter((r) => this.isInsideAction(r.next_action)).length,
       done: list.filter((r) => r.next_action === 'COMPLETED').length,
       veiculo: 0,
       colaborador: list.length,
@@ -340,14 +343,22 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const status = this.statusFilter();
     const rank: Record<string, number> = {
       BLOCKED_BLOCKLIST: 0,
-      CHECK_IN: 1,
-      CHECK_OUT: 2,
-      COMPLETED: 3,
+      RELEASE_ACCESS: 1,
+      CHECK_IN: 2,
+      PERIOD_EXPIRED: 3,
+      CHECK_OUT: 4,
+      COMPLETED: 5,
     };
     return this.todayCredentials()
       .filter((row) => {
-        if (status === 'wait' && row.next_action !== 'CHECK_IN') return false;
-        if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
+        if (
+          status === 'wait' &&
+          row.next_action !== 'RELEASE_ACCESS' &&
+          row.next_action !== 'CHECK_IN'
+        ) {
+          return false;
+        }
+        if (status === 'in' && !this.isInsideAction(row.next_action)) return false;
         if (status === 'done' && row.next_action !== 'COMPLETED') return false;
         if (
           q &&
@@ -385,13 +396,15 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const status = this.statusFilter();
     const type = this.typeFilter();
     const rank: Record<string, number> = {
+      RELEASE_ACCESS: 0,
       CHECK_IN: 0,
       BLOCKED_OPEN_STAY: 0,
       PENDING_APPROVAL: 1,
-      CHECK_OUT: 2,
-      COMPLETED: 3,
-      BLOCKED_BLOCKLIST: 4,
-      REJECTED: 5,
+      PERIOD_EXPIRED: 2,
+      CHECK_OUT: 3,
+      COMPLETED: 4,
+      BLOCKED_BLOCKLIST: 5,
+      REJECTED: 6,
     };
     const entryTs = (row: GateTodayService): number => {
       const raw =
@@ -409,13 +422,14 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         if (type === 'colaborador' && row.kind !== 'collaborator') return false;
         if (
           status === 'wait' &&
+          row.next_action !== 'RELEASE_ACCESS' &&
           row.next_action !== 'CHECK_IN' &&
           row.next_action !== 'PENDING_APPROVAL' &&
           row.next_action !== 'BLOCKED_OPEN_STAY'
         ) {
           return false;
         }
-        if (status === 'in' && row.next_action !== 'CHECK_OUT') return false;
+        if (status === 'in' && !this.isInsideAction(row.next_action)) return false;
         if (status === 'done' && row.next_action !== 'COMPLETED') return false;
         if (q) {
           const parts: Array<string | null | undefined> = [
@@ -492,8 +506,8 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     document.addEventListener('fullscreenchange', this.onFullscreenChange);
     this.relTimer = setInterval(() => {
       const hasInside =
-        this.todayCredentials().some((r) => r.next_action === 'CHECK_OUT') ||
-        this.todayServices().some((r) => r.next_action === 'CHECK_OUT');
+        this.todayCredentials().some((r) => this.isInsideAction(r.next_action)) ||
+        this.todayServices().some((r) => this.isInsideAction(r.next_action));
       if (hasInside) {
         this.relTick.update((n) => n + 1);
         this.cdr.markForCheck();
@@ -575,7 +589,13 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  actionLabel(action: 'CHECK_IN' | 'CHECK_OUT'): string {
+  isInsideAction(action: string | null | undefined): boolean {
+    return action === 'CHECK_OUT' || action === 'PERIOD_EXPIRED';
+  }
+
+  actionLabel(action: 'CHECK_IN' | 'CHECK_OUT' | 'RELEASE_ACCESS' | 'PERIOD_EXPIRED'): string {
+    if (action === 'RELEASE_ACCESS') return 'Acesso liberado';
+    if (action === 'PERIOD_EXPIRED') return 'Baixa';
     return action === 'CHECK_IN' ? 'Entrada' : 'Saída';
   }
 
@@ -1054,8 +1074,12 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       return;
     }
     this.skipNextFocusRestore = true;
-    if (row.next_action === 'CHECK_IN') {
+    if (row.next_action === 'RELEASE_ACCESS') {
       this.openReleaseModal(this.releaseTargetFromEvent(row));
+      return;
+    }
+    if (row.next_action === 'PERIOD_EXPIRED') {
+      void this.confirmAndCheckoutExpired(row.collaborator.name, row.access_id);
       return;
     }
     this.processScan(row.access_id);
@@ -1083,11 +1107,29 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       return;
     }
     this.skipNextFocusRestore = true;
-    if (row.next_action === 'CHECK_IN' && row.kind === 'collaborator' && row.collaborator) {
+    if (row.next_action === 'RELEASE_ACCESS' && row.kind === 'collaborator' && row.collaborator) {
       this.openReleaseModal(this.releaseTargetFromService(row));
       return;
     }
+    if (row.next_action === 'PERIOD_EXPIRED') {
+      const label = row.collaborator?.name || row.vehicle?.plate || 'este acesso';
+      void this.confirmAndCheckoutExpired(label, row.access_id);
+      return;
+    }
     this.processScan(row.access_id);
+  }
+
+  private async confirmAndCheckoutExpired(name: string, accessId: string): Promise<void> {
+    const result = await this.notify.confirm({
+      title: 'Dar baixa neste acesso?',
+      text: `${name} está com o período expirado. A baixa registra a saída e remove o facial.`,
+      confirmButtonText: 'Dar baixa',
+    });
+    if (!result.isConfirmed) {
+      this.focusScanInput();
+      return;
+    }
+    this.processScan(accessId);
   }
 
   private releaseTargetFromService(row: GateTodayService): GateReleaseTarget {
@@ -1116,21 +1158,21 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Scan de colaborador aguardando entrada abre o wizard de liberação;
+   * Scan de colaborador aguardando liberação abre o wizard;
    * demais casos (saída, veículos, código fora da lista) validam direto.
    */
   private tryOpenReleaseFromScan(accessId: string): boolean {
     if (this.showReleaseModal()) return false;
     if (this.gateMode() === 'patrimonial') {
       const row = this.todayServices().find((r) => r.access_id === accessId);
-      if (row && row.kind === 'collaborator' && row.collaborator && row.next_action === 'CHECK_IN') {
+      if (row && row.kind === 'collaborator' && row.collaborator && row.next_action === 'RELEASE_ACCESS') {
         this.openReleaseModal(this.releaseTargetFromService(row));
         return true;
       }
       return false;
     }
     const row = this.todayCredentials().find((r) => r.access_id === accessId);
-    if (row && row.next_action === 'CHECK_IN') {
+    if (row && row.next_action === 'RELEASE_ACCESS') {
       this.openReleaseModal(this.releaseTargetFromEvent(row));
       return true;
     }
@@ -1168,16 +1210,13 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   facialResendingIds = signal<Record<string, boolean>>({});
 
   canResendEventFacial(row: GateTodayCredential): boolean {
-    return !!row.access_check_in && row.next_action !== 'BLOCKED_BLOCKLIST';
+    return row.next_action === 'CHECK_IN' || row.next_action === 'CHECK_OUT';
   }
 
   canResendServiceFacial(row: GateTodayService): boolean {
     return (
       row.kind === 'collaborator' &&
-      !!row.check_in &&
-      row.next_action !== 'BLOCKED_BLOCKLIST' &&
-      row.next_action !== 'PENDING_APPROVAL' &&
-      row.next_action !== 'REJECTED'
+      (row.next_action === 'CHECK_IN' || row.next_action === 'CHECK_OUT')
     );
   }
 

@@ -52,6 +52,11 @@ export interface CollaboratorItem {
   status: boolean;
   is_blocklisted: boolean;
   blocklist_reason?: string | null;
+  block_type?: 'permanent' | 'days' | 'events' | null;
+  block_value?: number | null;
+  blocked_until?: string | null;
+  remaining_days?: number | null;
+  remaining_events?: number | null;
   can_delete?: boolean;
   criado_em: string;
   atualizado_em: string;
@@ -90,6 +95,7 @@ export interface CollaboratorListFilters {
   is_blocklisted?: boolean;
   id_collaborator_role?: number;
   id_collaborator_document_type?: number;
+  id_company?: number;
 }
 
 export interface CollaboratorListResponse {
@@ -184,8 +190,9 @@ export class CollaboratorService {
   }
 
   /** Typeahead por nome ou documento parcial. */
-  searchByTerm(q: string): Observable<{ results: CollaboratorItem[] }> {
-    const params = new HttpParams().set('q', q);
+  searchByTerm(q: string, idCompany?: number): Observable<{ results: CollaboratorItem[] }> {
+    let params = new HttpParams().set('q', q);
+    if (idCompany != null && idCompany > 0) params = params.set('id_company', String(idCompany));
     return this.api.get<{ results: CollaboratorItem[] }>('/collaborators/search', params);
   }
 
@@ -208,17 +215,6 @@ export class CollaboratorService {
       `/collaborators/${id}/status`,
       { status },
     );
-  }
-
-  addBlocklist(id: number, reason: string): Observable<{ collaborator: CollaboratorItem }> {
-    return this.api.post<{ collaborator: CollaboratorItem }>(
-      `/collaborators/${id}/blocklist`,
-      { reason },
-    );
-  }
-
-  removeBlocklist(id: number): Observable<{ collaborator: CollaboratorItem }> {
-    return this.api.delete<{ collaborator: CollaboratorItem }>(`/collaborators/${id}/blocklist`);
   }
 
   delete(id: number): Observable<{ success: boolean; unlinked?: boolean }> {
@@ -297,6 +293,9 @@ export class CollaboratorService {
         'id_collaborator_document_type',
         String(filters.id_collaborator_document_type),
       );
+    }
+    if (filters.id_company != null && filters.id_company > 0) {
+      params = params.set('id_company', String(filters.id_company));
     }
     return params;
   }

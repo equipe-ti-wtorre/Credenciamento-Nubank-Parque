@@ -56,6 +56,13 @@ export interface ApprovalLiberacaoResumo {
 
 export type ApprovalLiberacaoStatus = 'APROVADO' | 'BLOQUEADO' | 'REPROVADO' | 'PENDENTE';
 
+export interface ApprovalBraceletType {
+  id_bracelet_type: number;
+  name: string;
+  icon?: string | null;
+  color?: string | null;
+}
+
 export interface ApprovalEntityCollaborator {
   id: number;
   idCollaborator: number;
@@ -66,6 +73,9 @@ export interface ApprovalEntityCollaborator {
   empresa?: string | null;
   fase?: string | null;
   pulseira?: string | null;
+  idBraceletType?: number | null;
+  braceletIcon?: string | null;
+  braceletColor?: string | null;
   dataDia?: string | null;
   criadoEm?: string | null;
   statusLiberacao?: ApprovalLiberacaoStatus;
@@ -87,6 +97,7 @@ export interface ApprovalEntityVehicle {
 export interface ApprovalEntityDetail {
   tipo: ApprovalEntityType;
   id: number;
+  idAccreditation?: number | null;
   nome: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -95,6 +106,7 @@ export interface ApprovalEntityDetail {
   observacao: string | null;
   criadoEm?: string | null;
   atualizadoEm?: string | null;
+  braceletTypes?: ApprovalBraceletType[];
   collaborators: ApprovalEntityCollaborator[];
   vehicles: ApprovalEntityVehicle[];
 }
@@ -253,8 +265,8 @@ export function liberacaoStatusBadgeClass(status?: ApprovalLiberacaoStatus | str
 
 export function approvalEntityLabel(tipo: ApprovalEntityType | string): string {
   if (tipo === 'EVENTO') return 'Evento';
-  if (tipo === 'CREDENCIAMENTO_EVENTO') return 'Credenciamento Eventos';
-  if (tipo === 'CREDENCIAMENTO_EVENTO_INTERNO') return 'Credenciamento Eventos (internos)';
+  if (tipo === 'CREDENCIAMENTO_EVENTO') return 'Credenciamento';
+  if (tipo === 'CREDENCIAMENTO_EVENTO_INTERNO') return 'Credenciamento (internos)';
   return 'Acesso de serviço';
 }
 

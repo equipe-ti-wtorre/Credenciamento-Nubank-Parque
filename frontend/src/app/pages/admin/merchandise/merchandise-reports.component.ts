@@ -19,7 +19,7 @@ import { NotificationService } from '../../../core/services/notification.service
   template: `
     <div class="w-full max-w-6xl mx-auto">
       <div class="mb-5">
-        <h2 class="page-section-title">Relatórios de mercadorias</h2>
+        <h2 class="page-section-title">Relatório de mercadorias</h2>
         <p class="page-section-subtitle">Estoque atual, fluxo de entradas/saídas e histórico de movimentações.</p>
       </div>
 

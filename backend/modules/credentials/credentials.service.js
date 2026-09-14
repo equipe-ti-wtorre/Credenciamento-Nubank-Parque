@@ -4,6 +4,7 @@ const env = require("../../config/env");
 const { child } = require("../../config/logger");
 const AppError = require("../../utils/AppError");
 const collaboratorService = require("../collaborators/collaborator.service");
+const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
 const companyService = require("../companies/company.service");
 const teamsService = require("../teams/teams.service");
 const smtpService = require("../smtp/smtp.service");
@@ -510,10 +511,7 @@ async function listCredentials(req, { page, limit, filters }) {
 async function createCredential(req, data) {
   assertCanCreate(req);
 
-  const isBlocklisted = await collaboratorService.checkBlocklist(data.id_collaborator);
-  if (isBlocklisted) {
-    throw new AppError("Colaborador está na lista de restrição e não pode ser credenciado.", 403);
-  }
+  await blocklistPolicy.assertNotBlocklisted(data.id_collaborator);
 
   const collaborator = await collaboratorService.findCollaboratorById(data.id_collaborator);
   if (!collaborator) {
@@ -621,23 +619,9 @@ async function assertFinalApprovalAllowed(req, row, targetStatus) {
   }
 
   if (targetStatus === STATUS_APROVADO) {
-    const isBlocklisted = await collaboratorService.checkBlocklist(row.id_collaborator);
-    if (isBlocklisted) {
-      throw new AppError(
-        "Colaborador está na lista de restrição e não pode ser aprovado.",
-        403,
-      );
-    }
+    await blocklistPolicy.assertNotBlocklisted(row.id_collaborator);
     if (row.id_substitute) {
-      const substituteBlocklisted = await collaboratorService.checkBlocklist(
-        row.id_substitute,
-      );
-      if (substituteBlocklisted) {
-        throw new AppError(
-          "Substituto está na lista de restrição e a credencial não pode ser aprovada.",
-          403,
-        );
-      }
+      await blocklistPolicy.assertNotBlocklisted(row.id_substitute);
     }
 
     const eventStatus = Number(row.event_access_status);

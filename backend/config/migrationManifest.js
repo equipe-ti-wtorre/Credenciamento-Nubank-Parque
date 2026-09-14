@@ -510,6 +510,69 @@ const migrations = [
     filename: "066_bracelet_type_icon_color.sql",
     validate: (conn) => allColumnsExist(conn, "bracelet_type", ["icon", "color"]),
   },
+  {
+    filename: "067_gate_day_log_event.sql",
+    validate: (conn) => columnExists(conn, "gate_access_day_log", "id_event"),
+  },
+  {
+    filename: "068_facial_released_at.sql",
+    validate: async (conn) =>
+      (await allColumnsExist(conn, "service_access_collaborator", ["facial_released_at"])) &&
+      (await allColumnsExist(conn, "event_day_company_collaborator", ["facial_released_at"])),
+  },
+  {
+    filename: "069_event_accreditation_multi_setor.sql",
+    validate: async (conn) =>
+      (await tableExists(conn, "event_accreditation_setor")) &&
+      (await columnExists(conn, "event_accreditation_company", "id_setor")) &&
+      (await tableExists(conn, "event_accreditation_notify_log")),
+  },
+  {
+    filename: "070_event_accreditation_delete_permission.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT 1 FROM perfil_permissoes pp
+           INNER JOIN perfis p ON p.id = pp.id_perfil
+          WHERE pp.modulo = 'event_accreditation' AND pp.acao = 'delete'
+            AND (p.codigo = 'ADMIN' OR p.is_super_admin = 1)
+          LIMIT 1`,
+      );
+      return rows.length > 0;
+    },
+  },
+  {
+    filename: "071_collaborator_blocklist_period.sql",
+    validate: (conn) =>
+      allColumnsExist(conn, "collaborator_block_list", [
+        "block_type",
+        "block_value",
+        "blocked_until",
+      ]),
+  },
+  {
+    filename: "072_event_accreditation_delete_for_editors.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT 1
+           FROM perfil_permissoes e
+          WHERE e.modulo = 'event_accreditation' AND e.acao IN ('edit', 'create')
+            AND NOT EXISTS (
+              SELECT 1 FROM perfil_permissoes d
+               WHERE d.id_perfil = e.id_perfil
+                 AND d.modulo = 'event_accreditation'
+                 AND d.acao = 'delete'
+            )
+          LIMIT 1`,
+      );
+      return rows.length === 0;
+    },
+  },
+  {
+    filename: "073_setor_contatos.sql",
+    validate: (conn) =>
+      tableExists(conn, "setor_contatos") &&
+      allColumnsExist(conn, "setor_contatos", ["nome", "telefone", "ramal", "email"]),
+  },
 ];
 
 module.exports = migrations;

@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import Swal from 'sweetalert2';
-import { UserItem, UserService } from '../../../services/user.service';
+import { AdUsersSyncStatus, UserItem, UserService } from '../../../services/user.service';
 import { AccessProfile, ProfileService } from '../../../services/profile.service';
 import { CompanyItem, CompanyService } from '../../../services/company.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -34,9 +34,19 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
     <div class="w-full">
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5 shrink-0">
         <div>
-          <h2 class="page-section-title">Usuários</h2>
+          <h2 class="page-section-title">Usuários internos</h2>
           <p class="page-section-subtitle">
             Apenas usuários ativos com departamento cadastrado. Bloqueados não são exibidos.
+            @if (adSyncStatus(); as adSync) {
+              @if (adSync.enabled) {
+                Sincronização automática com o Azure AD a cada {{ adSync.intervalLabel }}.
+                @if (adSync.last; as lastSync) {
+                  @if (lastSync.startedAt) {
+                    Última execução: {{ lastSync.startedAt | date:'dd/MM/yyyy HH:mm' }}.
+                  }
+                }
+              }
+            }
           </p>
         </div>
         <div class="flex flex-wrap gap-2 shrink-0">
@@ -351,6 +361,7 @@ export class UserListComponent implements SettingsReloadable {
   loading = signal(true);
   saving = signal(false);
   syncing = signal(false);
+  adSyncStatus = signal<AdUsersSyncStatus | null>(null);
   pagination = signal({ page: 1, limit: 20, total: 0, totalPages: 1 });
   stats = signal({ total: 0, admins: 0, users: 0 });
 
@@ -387,7 +398,20 @@ export class UserListComponent implements SettingsReloadable {
     this.carregarSessionDefault();
     this.carregarPerfis();
     this.carregarEmpresas();
+    this.carregarAdSyncStatus();
     this.carregar(1);
+  }
+
+  private carregarAdSyncStatus() {
+    this.userService.getAdSyncStatus().subscribe({
+      next: (res) => {
+        this.adSyncStatus.set(res);
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.adSyncStatus.set(null);
+      },
+    });
   }
 
   get selectedEditProfile(): AccessProfile | null {
@@ -444,6 +468,7 @@ export class UserListComponent implements SettingsReloadable {
             `Azure AD: ${res.created || 0} novo(s), ${res.updated || 0} atualizado(s), ${res.linked || 0} vinculado(s).`,
           );
         }
+        this.carregarAdSyncStatus();
         this.carregarStats();
         this.carregar(this.pagination().page);
         this.cdr.markForCheck();
