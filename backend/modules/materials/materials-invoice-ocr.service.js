@@ -2,6 +2,11 @@ const Tesseract = require("tesseract.js");
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const { hasPermission } = require("../../utils/permissions");
+const env = require("../../config/env");
+const { extractKeyCandidates, isValidNfeKey, parseNfeKey } = require("./nfe-key");
+const { extractCnpjs, repairCnpj } = require("./cnpj-ocr");
+const { decodeCode128FromBuffer } = require("./nfe-barcode");
+const materialsService = require("./materials.service");
 
 const MATCH_THRESHOLD = 0.55;
 const SUGGEST_THRESHOLD = 0.22;
@@ -117,20 +122,16 @@ function similarityScore(raw, productDescription) {
 }
 
 async function preprocessImage(buffer) {
-  try {
-    // Lazy-load: sharp pode falhar em CPUs sem binário pré-compilado.
-    const sharp = require("sharp");
-    return await sharp(buffer)
-      .rotate()
-      .resize({ width: 1800, height: 1800, fit: "inside", withoutEnlargement: false })
-      .grayscale()
-      .normalize()
-      .sharpen()
-      .png()
-      .toBuffer();
-  } catch {
-    return buffer;
-  }
+  // Lazy-load: sharp pode falhar em CPUs sem binário pré-compilado.
+  const sharp = require("sharp");
+  return sharp(buffer)
+    .rotate()
+    .resize({ width: 1800, height: 1800, fit: "inside", withoutEnlargement: false })
+    .grayscale()
+    .normalize()
+    .sharpen()
+    .png()
+    .toBuffer();
 }
 
 async function runOcr(imageBuffer) {
@@ -304,8 +305,90 @@ async function loadActiveProducts() {
   }));
 }
 
+function extractLegalName(block) {
+  const text = String(block || "");
+  const labeled = text.match(/raz[aã]o\s*social\s*[:\-]?\s*([^\n]{3,160})/i);
+  if (labeled?.[1]) return labeled[1].replace(/\s+/g, " ").trim().slice(0, 160);
+  const nome = text.match(/nome\s*\/?\s*raz[aã]o\s*social\s*[:\-]?\s*([^\n]{3,160})/i);
+  if (nome?.[1]) return nome[1].replace(/\s+/g, " ").trim().slice(0, 160);
+  return null;
+}
+
+function pickEmitente(text, barcodeDigits) {
+  const own = env.ownCnpjs;
+  const warnings = [];
+
+  const fromBarcode = barcodeDigits && isValidNfeKey(barcodeDigits) ? barcodeDigits : null;
+  const keys = fromBarcode ? [fromBarcode] : extractKeyCandidates(text);
+  if (fromBarcode) {
+    /* chave do código de barras tem prioridade */
+  } else if (barcodeDigits && !fromBarcode) {
+    warnings.push("Chave de acesso com DV inválido foi descartada.");
+  }
+
+  if (keys.length) {
+    const parsed = parseNfeKey(keys[0]);
+    if (!own.has(parsed.cnpj_emitente)) {
+      return {
+        cnpj: parsed.cnpj_emitente,
+        numero_nf: parsed.numero_nf,
+        uf: parsed.uf,
+        nfe_key: parsed.chave,
+        fonte: "CHAVE_ACESSO",
+        confianca: 0.95,
+        warnings,
+      };
+    }
+    warnings.push("CNPJ do destinatário ignorado (empresa própria).");
+  }
+
+  const upper = String(text || "").toUpperCase();
+  const cut = upper.search(/DESTINAT[ÁA]RIO\s*\/?\s*REMETENTE|DESTINAT[ÁA]RIO/);
+  const emitenteBlock = cut > 0 ? text.slice(0, cut) : text;
+  const found = extractCnpjs(emitenteBlock).filter((c) => !own.has(c));
+  if (found.length) {
+    return {
+      cnpj: found[0],
+      numero_nf: null,
+      uf: null,
+      nfe_key: keys[0] || null,
+      fonte: "OCR_BLOCO",
+      confianca: 0.7,
+      legal_name: extractLegalName(emitenteBlock),
+      warnings,
+    };
+  }
+
+  const any = extractCnpjs(text).filter((c) => !own.has(c));
+  const ownHits = extractCnpjs(text).filter((c) => own.has(c));
+  if (ownHits.length && !any.length) {
+    warnings.push("CNPJ do destinatário ignorado (empresa própria).");
+  }
+  if (any.length) {
+    return {
+      cnpj: any[0],
+      numero_nf: null,
+      uf: null,
+      nfe_key: keys[0] || null,
+      fonte: "OCR_TEXTO",
+      confianca: 0.45,
+      warnings,
+    };
+  }
+
+  return {
+    cnpj: null,
+    numero_nf: null,
+    uf: null,
+    nfe_key: keys[0] || null,
+    fonte: null,
+    confianca: 0,
+    warnings,
+  };
+}
+
 /**
- * Lê foto de NF (OCR), extrai número e itens, faz match com catálogo.
+ * Lê foto de NF (OCR + código de barras), extrai número, emitente e itens.
  * Não persiste arquivo nem movimentação.
  */
 async function parseInvoiceFromPhoto(req, file) {
@@ -315,49 +398,85 @@ async function parseInvoiceFromPhoto(req, file) {
     throw new AppError("Envie a foto da NF para leitura.", 400);
   }
 
-  let processed;
+  let barcodeDigits = null;
+  try {
+    barcodeDigits = await decodeCode128FromBuffer(file.buffer);
+  } catch {
+    barcodeDigits = null;
+  }
+
+  let processed = null;
   try {
     processed = await preprocessImage(file.buffer);
   } catch {
-    throw new AppError("Não foi possível processar a imagem da NF.", 400);
+    processed = null;
   }
 
-  let ocrText;
-  try {
-    ocrText = await runOcr(processed);
-  } catch (err) {
-    throw new AppError(err.message || "Falha ao ler a NF (OCR).", 500);
+  let ocrText = "";
+  if (processed) {
+    try {
+      ocrText = await runOcr(processed);
+    } catch {
+      ocrText = "";
+    }
   }
 
-  if (!ocrText || ocrText.length < 8) {
-    throw new AppError(
-      "Não foi possível ler texto na imagem. Tente outra foto mais nítida e alinhada.",
-      422,
-    );
+  const picked = pickEmitente(ocrText, barcodeDigits);
+  const invoiceFromKey = picked.numero_nf || null;
+  const invoiceFromBody = extractInvoiceNumber(ocrText);
+  let invoiceNumber = invoiceFromKey || invoiceFromBody;
+  const warnings = [...(picked.warnings || [])];
+
+  if (invoiceFromKey && invoiceFromBody && invoiceFromKey !== invoiceFromBody.replace(/^0+/, "")) {
+    const bodyNorm = String(Number(invoiceFromBody));
+    if (invoiceFromKey !== bodyNorm) {
+      warnings.push("Número da NF da chave difere do corpo do DANFE; usando o da chave.");
+    }
   }
 
-  const invoiceNumber = extractInvoiceNumber(ocrText);
-  const parsedItems = extractLineItems(ocrText);
+  const parsedItems = ocrText ? extractLineItems(ocrText) : [];
   const products = await loadActiveProducts();
-  const { items, warnings } = matchProducts(parsedItems, products);
+  const matched = matchProducts(parsedItems, products);
+  warnings.push(...matched.warnings);
 
-  if (!invoiceNumber && items.length === 0) {
+  let emitente = null;
+  if (picked.cnpj) {
+    const known = await materialsService.lookupExternalCompanyByDocument(picked.cnpj, null);
+    emitente = {
+      cnpj: picked.cnpj,
+      legal_name: known?.legal_name || picked.legal_name || null,
+      uf: known?.uf || picked.uf || null,
+      municipio: known?.municipio || null,
+      source: picked.fonte,
+      confidence: picked.confianca,
+      known: !!known,
+      id_external_company: known?.id_external_company || null,
+      id_company: known?.id_company || null,
+      total_movimentos_anteriores: known?.total_movimentos || 0,
+    };
+  }
+
+  if (!ocrText && !picked.cnpj && !invoiceNumber) {
+    warnings.push("Não foi possível ler texto na imagem. A foto ainda pode ser anexada no lançamento.");
+  } else if (!invoiceNumber && matched.items.length === 0 && !picked.cnpj) {
     warnings.push("Nenhum dado útil foi reconhecido na NF");
-  } else if (!items.length) {
+  } else if (!matched.items.length) {
     warnings.push("Número da NF pode ter sido lido, mas nenhum item foi reconhecido");
   }
 
   return {
     invoice_number: invoiceNumber,
-    items,
+    nfe_key: picked.nfe_key && isValidNfeKey(picked.nfe_key) ? picked.nfe_key : null,
+    emitente,
+    items: matched.items,
     warnings,
-    ocr_preview: ocrText.slice(0, 500),
+    ocr_preview: String(ocrText || "").slice(0, 500),
   };
 }
 
 module.exports = {
   parseInvoiceFromPhoto,
-  // exported for unit-style reuse / tests
+  pickEmitente,
   normalizeText,
   similarityScore,
   extractInvoiceNumber,

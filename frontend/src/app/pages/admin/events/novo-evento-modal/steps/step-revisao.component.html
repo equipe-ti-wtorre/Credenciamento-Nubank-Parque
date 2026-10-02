@@ -1,4 +1,14 @@
 <div class="review__grid">
+  <div class="rv rv--cover">
+    <small>Foto</small>
+    <div class="wcrt-rev-cover" [class.empty]="!coverPreview()">
+      @if (coverPreview()) {
+        <img [src]="coverPreview()" alt="" />
+      } @else {
+        <span>Sem foto</span>
+      }
+    </div>
+  </div>
   <div class="rv">
     <small>Nome</small>
     <span>{{ nome() || '—' }}</span>
@@ -49,13 +59,13 @@
 
   <div class="rvcards">
     @for (c of cards(); track c.iso) {
-      <div class="rvcard" [attr.data-tipo]="c.tipoNome">
+      <div class="rvcard" [attr.data-tipo]="c.tipos[0]">
         <div class="rvcard__top">
           <div class="rvcard__num">
             {{ c.day }}<small>/{{ c.month }}</small>
           </div>
           <div class="rvcard__ic">
-            @switch (c.tipoNome) {
+            @switch (c.tipos[0]) {
               @case ('Montagem') {
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2-2 2.1-2.1Z"/></svg>
               }
@@ -72,7 +82,11 @@
           </div>
         </div>
         <div class="rvcard__wd">{{ c.weekday }}</div>
-        <span class="rvcard__tag">{{ c.tipoNome }}</span>
+        <div class="rvcard__tags">
+          @for (nome of c.tipos; track nome) {
+            <span class="rvcard__tag" [attr.data-tipo]="nome">{{ nome }}</span>
+          }
+        </div>
       </div>
     }
   </div>

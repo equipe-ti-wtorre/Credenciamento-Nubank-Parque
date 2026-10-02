@@ -2,7 +2,9 @@ const fs = require("fs");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const ExcelJS = require("exceljs");
+const PDFDocument = require("pdfkit");
 const db = require("../../config/db");
+const { safePicturePath } = require("../storage/picture-src");
 const AppError = require("../../utils/AppError");
 const companyService = require("../companies/company.service");
 const collaboratorService = require("../collaborators/collaborator.service");
@@ -279,6 +281,7 @@ function mapItemRow(row) {
       : null,
     ativo: row.ativo == null ? true : !!Number(row.ativo),
     internal_enabled: !!Number(row.internal_enabled),
+    photo_required: !!Number(row.photo_required),
     cover: row.cover || null,
     cover_url: row.cover
       ? `/storage/event-accreditation-covers?filename=${encodeURIComponent(path.basename(row.cover))}`
@@ -614,6 +617,64 @@ function isPendingStatus(status) {
 function isBlockedStatus(status) {
   const st = Number(status);
   return st === STATUS_NEGADO || st === STATUS_EXPIRADO;
+}
+
+function hasCollaboratorPicture(picture) {
+  return !!(picture && String(picture).trim());
+}
+
+function countsTowardPhotoGate(status) {
+  const st = Number(status);
+  return isPendingStatus(st) || st === STATUS_APROVADO;
+}
+
+function isPhotoRequiredActive(row) {
+  return !!Number(row?.photo_required);
+}
+
+function countMissingPhotosFromList(collaborators) {
+  return (collaborators || []).filter(
+    (c) =>
+      countsTowardPhotoGate(c.id_access_status) && !hasCollaboratorPicture(c.collaborator_picture),
+  ).length;
+}
+
+function missingPhotoNotifyMessage(count) {
+  const n = Number(count) || 0;
+  if (n <= 1) {
+    return "1 colaborador sem foto. O responsável só pode ser avisado quando todos tiverem foto.";
+  }
+  return `${n} colaboradores sem foto. O responsável só pode ser avisado quando todos tiverem foto.`;
+}
+
+function missingPhotoSectorMessage(count) {
+  const n = Number(count) || 0;
+  if (n <= 1) {
+    return "1 colaborador sem foto. O setor só pode ser avisado quando todos tiverem foto.";
+  }
+  return `${n} colaboradores sem foto. O setor só pode ser avisado quando todos tiverem foto.`;
+}
+
+async function assertPhotosReadyForNotify(row, linkId, conn = db) {
+  if (!isPhotoRequiredActive(row)) return 0;
+  const missing = await countMissingPhotos(linkId, conn);
+  if (missing > 0) {
+    throw new AppError(missingPhotoSectorMessage(missing), 409);
+  }
+  return missing;
+}
+
+async function countMissingPhotos(idCompanyLink, conn = db) {
+  const [rows] = await conn.execute(
+    `SELECT COUNT(*) AS total
+       FROM event_accreditation_collaborator eacol
+       INNER JOIN collaborator c ON c.id_collaborator = eacol.id_collaborator
+      WHERE eacol.id_event_accreditation_company = ?
+        AND eacol.id_access_status IN (?, ?, ?)
+        AND (c.picture IS NULL OR TRIM(c.picture) = '')`,
+    [idCompanyLink, STATUS_AGUARDANDO_PRODUTORA, STATUS_AGUARDANDO_APROVACAO, STATUS_APROVADO],
+  );
+  return Number(rows[0]?.total || 0);
 }
 
 async function countCompanyStatuses(linkId, conn = db) {
@@ -963,6 +1024,10 @@ async function closeOverdueIndications(item) {
   try {
     await conn.beginTransaction();
     for (const link of links) {
+      if (isPhotoRequiredActive(item)) {
+        const missing = await countMissingPhotos(link.id_event_accreditation_company, conn);
+        if (missing > 0) continue;
+      }
       const result = await completeCompanyIndicationInternal(conn, link, item, { auto: true });
       if (result?.approval) created.push(result.approval);
     }
@@ -1009,6 +1074,10 @@ async function hydrateDetail(req, row) {
   for (const c of companyRows) {
     const idSetor = Number(c.id_setor || fresh.id_setor);
     const canDecideCompany = await canDecideForSector(req, fresh, idSetor);
+    const collaborators = await listCollaboratorsOfCompany(c.id_event_accreditation_company);
+    const missingPhotoCount = isPhotoRequiredActive(fresh)
+      ? countMissingPhotosFromList(collaborators)
+      : 0;
     companies.push({
       id_event_accreditation_company: c.id_event_accreditation_company,
       id_company: Number(c.id_company),
@@ -1035,12 +1104,14 @@ async function hydrateDetail(req, row) {
       can_notify_owner:
         canDecideCompany &&
         (c.indication_status === INDICATION.APROVADO ||
-          c.indication_status === INDICATION.NEGADO),
+          c.indication_status === INDICATION.NEGADO) &&
+        missingPhotoCount === 0,
+      missing_photo_count: missingPhotoCount,
       can_decide: canDecideCompany,
       can_remove:
         c.indication_status === INDICATION.INDICACAO &&
         (await canManageSectorCompanies(req, fresh, idSetor)),
-      collaborators: await listCollaboratorsOfCompany(c.id_event_accreditation_company),
+      collaborators,
     });
   }
 
@@ -1267,14 +1338,15 @@ async function createItem(req, data) {
     }
 
     const internalEnabled = data.internal_enabled === true;
+    const photoRequired = data.photo_required === true;
     const internalBraceletIds = internalEnabled
       ? await resolveBraceletIds(data.internal_bracelet_types, data.event_kind, conn)
       : [];
     const [result] = await conn.execute(
       `INSERT INTO event_accreditation
          (name, event_kind, start, end, inscription_start, inscription_end,
-          id_setor, id_solicitante, id_company_responsavel, id_access_status, ativo, internal_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 1, ?)`,
+          id_setor, id_solicitante, id_company_responsavel, id_access_status, ativo, internal_enabled, photo_required)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 1, ?, ?)`,
       [
         data.name.trim(),
         data.event_kind,
@@ -1286,6 +1358,7 @@ async function createItem(req, data) {
         idSolicitante,
         STATUS_AGUARDANDO_PRODUTORA,
         internalEnabled ? 1 : 0,
+        photoRequired ? 1 : 0,
       ],
     );
     const id = result.insertId;
@@ -1370,6 +1443,7 @@ async function duplicateItem(req, id) {
     id_setor: row.id_setor,
     bracelet_types: bracelets.map((b) => b.id_bracelet_type),
     internal_enabled: internalEnabled,
+    photo_required: !!Number(row.photo_required),
     internal_bracelet_types: internalBracelets.map((b) => b.id_bracelet_type),
   });
 
@@ -1436,6 +1510,8 @@ async function updateItem(req, id, data) {
     }
     const nextInternalEnabled =
       data.internal_enabled != null ? !!data.internal_enabled : !!Number(row.internal_enabled);
+    const nextPhotoRequired =
+      data.photo_required != null ? !!data.photo_required : !!Number(row.photo_required);
     if (!nextInternalEnabled) {
       const [insc] = await conn.execute(
         `SELECT COUNT(*) AS total FROM event_accreditation_internal
@@ -1453,7 +1529,7 @@ async function updateItem(req, id, data) {
     await conn.execute(
       `UPDATE event_accreditation
           SET name = ?, start = ?, end = ?, inscription_start = ?, inscription_end = ?,
-              id_setor = ?, internal_enabled = ?
+              id_setor = ?, internal_enabled = ?, photo_required = ?
         WHERE id_event_accreditation = ?`,
       [
         next.name,
@@ -1463,6 +1539,7 @@ async function updateItem(req, id, data) {
         next.inscription_end,
         next.id_setor,
         nextInternalEnabled ? 1 : 0,
+        nextPhotoRequired ? 1 : 0,
         itemId,
       ],
     );
@@ -1904,6 +1981,7 @@ async function completeCompany(req, id, idCompany) {
   if (total === 0) {
     throw new AppError("Indique ao menos um colaborador antes de concluir.", 422);
   }
+  await assertPhotosReadyForNotify(row, link.id_event_accreditation_company);
 
   const conn = await db.getConnection();
   let approval = null;
@@ -2520,6 +2598,8 @@ async function decideCollaborators(req, id, payload) {
       (company.indication_status === INDICATION.APROVADO ||
         company.indication_status === INDICATION.NEGADO)
     ) {
+      const missingPhotos = Number(company.missing_photo_count || 0);
+      if (detail.photo_required && missingPhotos > 0) continue;
       notifications
         .notifyOwnerValidated({
           item: detail,
@@ -2756,6 +2836,7 @@ async function notifySectorIndication(req, id, idCompany) {
   if (link.indication_status === INDICATION.INDICACAO) {
     throw new AppError("Conclua a indicação antes de notificar o setor.", 409);
   }
+  await assertPhotosReadyForNotify(row, link.id_event_accreditation_company);
   const mapped = mapItemRow(row);
   notifications.notifySectorIndication({
     item: mapped,
@@ -2798,6 +2879,12 @@ async function notifyOwnerValidated(req, id, idCompany) {
     link.indication_status !== INDICATION.NEGADO
   ) {
     throw new AppError("Valide a indicação antes de notificar o responsável.", 409);
+  }
+  if (isPhotoRequiredActive(row)) {
+    const missing = await countMissingPhotos(link.id_event_accreditation_company);
+    if (missing > 0) {
+      throw new AppError(missingPhotoNotifyMessage(missing), 409);
+    }
   }
   const mapped = mapItemRow(row);
   await notifications.notifyOwnerValidated({
@@ -3022,7 +3109,12 @@ const EXPORT_COLUMNS = [
   { header: "Função", key: "funcao", width: 22 },
   { header: "Pulseira", key: "pulseira", width: 22 },
   { header: "Status", key: "status", width: 22 },
+  { header: "Foto", key: "foto", width: 12 },
+  { header: "Arquivo da foto", key: "arquivo_foto", width: 36 },
 ];
+
+const PDF_FONT_REGULAR = "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf";
+const PDF_FONT_BOLD = "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf";
 
 function sanitizeExportSheetName(raw, used) {
   let name = String(raw || "Setor")
@@ -3042,37 +3134,279 @@ function sanitizeExportSheetName(raw, used) {
   return candidate;
 }
 
-function addExportSheet(workbook, name, rows, usedNames) {
-  const sheet = workbook.addWorksheet(sanitizeExportSheetName(name, usedNames));
-  sheet.columns = EXPORT_COLUMNS;
-  sheet.getRow(1).font = { bold: true };
-  for (const row of rows) {
-    sheet.addRow(row);
-  }
-  return sheet;
+function sanitizePersonFileName(raw) {
+  const base = String(raw || "colaborador")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+  return base || "colaborador";
 }
 
-function companyExportRows(company) {
+function uniquePhotoName(rawName, ext, used) {
+  const base = sanitizePersonFileName(rawName);
+  const suffix = ext && String(ext).startsWith(".") ? String(ext).toLowerCase() : `.${String(ext || "jpg").toLowerCase()}`;
+  let candidate = `${base}${suffix}`;
+  let i = 2;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${base}-${i}${suffix}`;
+    i += 1;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+function resolveCollaboratorPhoto(picture, personName, usedNames) {
+  const file = safePicturePath(picture);
+  if (!file) return null;
+  return {
+    filePath: file.filePath,
+    zipName: uniquePhotoName(personName, file.ext || ".jpg", usedNames),
+  };
+}
+
+async function readPhotoThumb(filePath, size = 96) {
+  const sharp = require("sharp");
+  return sharp(filePath)
+    .rotate()
+    .resize(size, size, { fit: "cover" })
+    .jpeg({ quality: 80, mozjpeg: true })
+    .toBuffer();
+}
+
+function companyExportRows(company, usedPhotoNames) {
+  const empresa = company.fancy_name || company.company_name;
   if (!(company.collaborators || []).length) {
     return [
       {
-        empresa: company.fancy_name || company.company_name,
+        empresa,
         nome: "—",
         documento: "",
         funcao: "",
         pulseira: "",
         status: company.indication_status === INDICATION.NEGADO ? "Sem indicação" : "—",
+        foto: "",
+        arquivo_foto: "",
+        photoFile: null,
       },
     ];
   }
-  return (company.collaborators || []).map((c) => ({
-    empresa: company.fancy_name || company.company_name,
-    nome: c.collaborator_name,
-    documento: c.collaborator_document,
-    funcao: c.role_description,
-    pulseira: c.bracelet_name,
-    status: c.access_status_description,
-  }));
+  return (company.collaborators || []).map((c) => {
+    const photoFile = resolveCollaboratorPhoto(
+      c.collaborator_picture,
+      c.collaborator_name,
+      usedPhotoNames,
+    );
+    return {
+      empresa,
+      nome: c.collaborator_name,
+      documento: c.collaborator_document,
+      funcao: c.role_description,
+      pulseira: c.bracelet_name,
+      status: c.access_status_description,
+      foto: photoFile ? "" : "Sem foto",
+      arquivo_foto: photoFile ? `fotos/${photoFile.zipName}` : "Sem foto",
+      photoFile,
+    };
+  });
+}
+
+function collectExportPeople(detail, usedPhotoNames) {
+  const people = [];
+  const sheetGroups = [];
+
+  if ((detail.internals || []).length) {
+    const rows = detail.internals.map((c) => ({
+      empresa: "Colaboradores internos",
+      nome: c.nome_completo,
+      documento: c.email,
+      funcao: c.departamento || "Interno AD",
+      pulseira: c.bracelet_name,
+      status: c.access_status_description,
+      foto: "Sem foto",
+      arquivo_foto: "Sem foto",
+      photoFile: null,
+    }));
+    sheetGroups.push({ name: "Colaboradores internos", rows });
+    people.push(...rows);
+  }
+
+  for (const company of detail.companies || []) {
+    const rows = companyExportRows(company, usedPhotoNames);
+    sheetGroups.push({
+      name: company.fancy_name || company.company_name,
+      rows,
+    });
+    people.push(...rows.filter((r) => r.nome !== "—"));
+  }
+
+  return { people, sheetGroups };
+}
+
+async function addExportSheet(workbook, name, rows, usedNames) {
+  const sheet = workbook.addWorksheet(sanitizeExportSheetName(name, usedNames));
+  sheet.columns = EXPORT_COLUMNS;
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).alignment = { vertical: "middle" };
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const excelRow = sheet.addRow({
+      empresa: row.empresa,
+      nome: row.nome,
+      documento: row.documento,
+      funcao: row.funcao,
+      pulseira: row.pulseira,
+      status: row.status,
+      foto: row.photoFile ? "" : row.foto || "",
+      arquivo_foto: row.arquivo_foto || "",
+    });
+    excelRow.alignment = { vertical: "middle", wrapText: true };
+    if (!row.photoFile) continue;
+    try {
+      const thumb = await readPhotoThumb(row.photoFile.filePath, 96);
+      const imageId = workbook.addImage({ buffer: thumb, extension: "jpeg" });
+      excelRow.height = 52;
+      sheet.addImage(imageId, {
+        tl: { col: 6, row: i + 1 },
+        ext: { width: 48, height: 48 },
+        editAs: "oneCell",
+      });
+    } catch {
+      excelRow.getCell("foto").value = "Sem foto";
+    }
+  }
+  return sheet;
+}
+
+async function buildExportWorkbook(sheetGroups) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Credenciamento";
+  const usedNames = new Set();
+  if (!sheetGroups.length) {
+    await addExportSheet(workbook, "Lista", [], usedNames);
+  } else {
+    for (const group of sheetGroups) {
+      await addExportSheet(workbook, group.name, group.rows, usedNames);
+    }
+  }
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+function drawPdfNoPhoto(doc, x, y, size, font) {
+  doc.save();
+  doc.roundedRect(x, y, size, size, 6).lineWidth(1).strokeColor("#cccccc").stroke();
+  doc.font(font).fontSize(11).fillColor("#888888").text("Sem foto", x, y + size / 2 - 6, {
+    width: size,
+    align: "center",
+  });
+  doc.restore();
+}
+
+async function buildExportPdf(title, people) {
+  const chunks = [];
+  const doc = new PDFDocument({
+    size: "A4",
+    margin: 48,
+    info: { Title: title, Author: "Credenciamento" },
+  });
+  const done = new Promise((resolve, reject) => {
+    doc.on("data", (c) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
+
+  const hasRegular = fs.existsSync(PDF_FONT_REGULAR);
+  const hasBold = fs.existsSync(PDF_FONT_BOLD);
+  if (hasRegular) doc.registerFont("ExportSans", PDF_FONT_REGULAR);
+  if (hasBold) doc.registerFont("ExportSansBold", PDF_FONT_BOLD);
+  const regular = hasRegular ? "ExportSans" : "Helvetica";
+  const bold = hasBold ? "ExportSansBold" : "Helvetica-Bold";
+
+  const list = people.length
+    ? people
+    : [
+        {
+          empresa: "—",
+          nome: "Nenhum colaborador",
+          documento: "",
+          funcao: "",
+          pulseira: "",
+          status: "—",
+          photoFile: null,
+        },
+      ];
+
+  for (let i = 0; i < list.length; i += 1) {
+    if (i > 0) doc.addPage();
+    const person = list[i];
+    doc.font(bold).fontSize(16).fillColor("#111111").text(title, { width: 500 });
+    doc.moveDown(0.25);
+    doc.font(regular).fontSize(10).fillColor("#666666").text("Ficha de credenciamento", { width: 500 });
+    doc.moveDown(1);
+
+    const photoX = 48;
+    const photoY = doc.y;
+    const photoSize = 140;
+    const textX = photoX + photoSize + 24;
+    const textW = doc.page.width - textX - 48;
+
+    if (person.photoFile) {
+      try {
+        const thumb = await readPhotoThumb(person.photoFile.filePath, 280);
+        doc.image(thumb, photoX, photoY, {
+          width: photoSize,
+          height: photoSize,
+          fit: [photoSize, photoSize],
+        });
+      } catch {
+        drawPdfNoPhoto(doc, photoX, photoY, photoSize, regular);
+      }
+    } else {
+      drawPdfNoPhoto(doc, photoX, photoY, photoSize, regular);
+    }
+
+    const fields = [
+      ["Nome", person.nome],
+      ["Documento", person.documento],
+      ["Empresa", person.empresa],
+      ["Função", person.funcao],
+      ["Pulseira", person.pulseira],
+      ["Situação", person.status],
+    ];
+    let y = photoY;
+    for (const [label, value] of fields) {
+      doc.font(regular).fontSize(9).fillColor("#666666").text(label, textX, y, { width: textW });
+      doc.font(bold).fontSize(12).fillColor("#111111").text(value || "—", textX, y + 12, { width: textW });
+      y += 28;
+    }
+  }
+
+  doc.end();
+  return done;
+}
+
+async function archiveExportPack({ slug, xlsxBuffer, pdfBuffer, photos }) {
+  const { ZipArchive } = await import("archiver");
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    archive.on("data", (c) => chunks.push(c));
+    archive.on("end", () => resolve(Buffer.concat(chunks)));
+    archive.on("error", reject);
+
+    archive.append(xlsxBuffer, { name: `${slug}.xlsx` });
+    archive.append(pdfBuffer, { name: `${slug}.pdf` });
+    if (photos.length) {
+      for (const photo of photos) {
+        archive.file(photo.filePath, { name: `fotos/${photo.zipName}` });
+      }
+    } else {
+      archive.append("", { name: "fotos/" });
+    }
+    archive.finalize();
+  });
 }
 
 async function exportXlsx(req, id) {
@@ -3084,47 +3418,24 @@ async function exportXlsx(req, id) {
     );
   }
 
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Credenciamento";
-  const usedNames = new Set();
-  const companies = detail.companies || [];
+  const usedPhotoNames = new Set();
+  const { people, sheetGroups } = collectExportPeople(detail, usedPhotoNames);
+  const photos = people.map((p) => p.photoFile).filter(Boolean);
 
-  if ((detail.internals || []).length) {
-    addExportSheet(
-      workbook,
-      "Colaboradores internos",
-      detail.internals.map((c) => ({
-        empresa: "Colaboradores internos",
-        nome: c.nome_completo,
-        documento: c.email,
-        funcao: c.departamento || "Interno AD",
-        pulseira: c.bracelet_name,
-        status: c.access_status_description,
-      })),
-      usedNames,
-    );
-  }
+  const [xlsxBuffer, pdfBuffer] = await Promise.all([
+    buildExportWorkbook(sheetGroups),
+    buildExportPdf(detail.name || "Credenciamento", people),
+  ]);
 
-  for (const company of companies) {
-    addExportSheet(
-      workbook,
-      company.fancy_name || company.company_name,
-      companyExportRows(company),
-      usedNames,
-    );
-  }
-
-  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
   const safe = String(detail.name || "credenciamento")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .toLowerCase();
-  return {
-    buffer,
-    filename: `credenciamento-eventos-${safe || detail.id_event_accreditation}.xlsx`,
-  };
+  const slug = `credenciamento-eventos-${safe || detail.id_event_accreditation}`;
+  const buffer = await archiveExportPack({ slug, xlsxBuffer, pdfBuffer, photos });
+  return { buffer, filename: `${slug}.zip` };
 }
 
 async function listBraceletTypes({ event_kind, includeInactive = false } = {}) {
@@ -3644,11 +3955,19 @@ module.exports = {
   markApprovedInternal,
   markRejectedInternal,
   exportXlsx,
+  sanitizePersonFileName,
+  uniquePhotoName,
+  collectExportPeople,
   listBraceletTypes,
   createBraceletType,
   updateBraceletType,
   listLinkableCompanies,
   findById,
+  hasCollaboratorPicture,
+  countsTowardPhotoGate,
+  countMissingPhotosFromList,
+  missingPhotoNotifyMessage,
+  missingPhotoSectorMessage,
   mapBraceletRow,
   uploadCover,
   getInvite,

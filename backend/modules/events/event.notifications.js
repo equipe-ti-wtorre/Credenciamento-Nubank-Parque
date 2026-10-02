@@ -3,6 +3,11 @@ const env = require("../../config/env");
 const logger = require("../../config/logger");
 const smtpService = require("../smtp/smtp.service");
 const emailTemplatesService = require("../email-templates/email-templates.service");
+const {
+  emphasis,
+  buildLinkNote,
+  buildBrandedEmail,
+} = require("../email-templates/email-template.layout");
 
 function resolveAppBaseUrl() {
   if (env.appPublicUrl) return env.appPublicUrl;
@@ -136,16 +141,21 @@ function notifyEventCreated({
       ]
         .filter(Boolean)
         .join("\n");
+    const safeLink = escapeHtml(link);
     const html =
       rendered?.html ||
-      [
-        `<h2>Novo evento</h2>`,
-        `<p>A empresa foi definida como responsável pelo evento <strong>${name}</strong>.</p>`,
-        `<p>Próximo passo: vincular empresas parceiras e acompanhar o cadastro de colaboradores.</p>`,
-        link
-          ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
-          : "",
-      ].join("");
+      buildBrandedEmail({
+        preheader: `A empresa foi definida como responsável pelo evento ${name} no Credenciamento do Nubank Parque.`,
+        title: "Novo evento",
+        kicker: "Notificação de evento",
+        paragraphs: [
+          "Olá,",
+          `A empresa foi definida como responsável pelo evento ${emphasis(name)}.`,
+          "Próximo passo: vincular empresas parceiras e acompanhar o cadastro de colaboradores.",
+        ],
+        cta: link ? { href: safeLink, label: "Abrir evento" } : null,
+        noteHtml: link ? buildLinkNote({ url: safeLink }) : null,
+      });
 
     await sendCompanyEmails({
       idCompany: idCompanyResponsavel,
@@ -196,16 +206,21 @@ function notifyPartnerLinked({
       ]
         .filter(Boolean)
         .join("\n");
+    const safeLink = escapeHtml(link);
     const html =
       rendered?.html ||
-      [
-        `<h2>Empresa vinculada ao evento</h2>`,
-        `<p><strong>${partner}</strong> foi vinculada ao evento <strong>${name}</strong>.</p>`,
-        `<p>Cadastre os colaboradores e, ao concluir, use <strong>Notificar término</strong>.</p>`,
-        link
-          ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
-          : "",
-      ].join("");
+      buildBrandedEmail({
+        preheader: `${partner} foi vinculada ao evento ${name}.`,
+        title: "Empresa vinculada ao evento",
+        kicker: "Notificação de evento",
+        paragraphs: [
+          "Olá,",
+          `${emphasis(partner)} foi vinculada ao evento ${emphasis(name)}.`,
+          `Cadastre os colaboradores e, ao concluir, use ${emphasis("Notificar término")}.`,
+        ],
+        cta: link ? { href: safeLink, label: "Abrir evento" } : null,
+        noteHtml: link ? buildLinkNote({ url: safeLink }) : null,
+      });
 
     await sendCompanyEmails({
       idCompany: idCompanyPartner,
@@ -255,16 +270,21 @@ function notifyPartnerComplete({
       ]
         .filter(Boolean)
         .join("\n");
+    const safeLink = escapeHtml(link);
     const html =
       rendered?.html ||
-      [
-        `<h2>Cadastro de colaboradores concluído</h2>`,
-        `<p>A empresa parceira <strong>${partner}</strong> notificou o término do cadastro no evento <strong>${name}</strong>.</p>`,
-        `<p>Quando estiver pronto, use <strong>Notificar</strong> para enviar o evento ao setor de aprovação.</p>`,
-        link
-          ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir evento</a></p>`
-          : "",
-      ].join("");
+      buildBrandedEmail({
+        preheader: `${partner} concluiu o cadastro de colaboradores no evento ${name}.`,
+        title: "Cadastro de colaboradores concluído",
+        kicker: "Notificação de evento",
+        paragraphs: [
+          "Olá,",
+          `A empresa parceira ${emphasis(partner)} notificou o término do cadastro no evento ${emphasis(name)}.`,
+          `Quando estiver pronto, use ${emphasis("Notificar")} para enviar o evento ao setor de aprovação.`,
+        ],
+        cta: link ? { href: safeLink, label: "Abrir evento" } : null,
+        noteHtml: link ? buildLinkNote({ url: safeLink }) : null,
+      });
 
     await sendCompanyEmails({
       idCompany: idCompanyResponsavel,

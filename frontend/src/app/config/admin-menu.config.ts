@@ -80,4 +80,11 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     subtitle: 'Aviso interno AD',
     module: 'settings_event_accreditation',
   },
+  {
+    path: 'horarios-acesso',
+    label: 'Horários de acesso',
+    icon: '🕒',
+    subtitle: 'Comercial / Noturno',
+    module: 'settings_access_schedule',
+  },
 ];

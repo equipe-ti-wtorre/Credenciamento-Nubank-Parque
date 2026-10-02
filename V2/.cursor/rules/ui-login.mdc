@@ -1,0 +1,61 @@
+---
+description: Login — hero e painel, Microsoft primeiro, logos por paleta
+globs: "frontend/**/*.{ts,html,scss}"
+alwaysApply: false
+---
+
+# Login
+
+A tela é um split 7fr/5fr, nas duas paletas. Cores só dos tokens (`--menu-bg-top` no hero, `--brand` no painel). Não voltar ao cartão centralizado nem às barras verticais do mosaico.
+
+| Classe | Papel |
+|--------|--------|
+| `.login-screen` | Grid hero + painel; abaixo de 900px empilha |
+| `.login-hero` | Fundo sólido `--menu-bg-top`, pontos e anéis no fundo, logo `logoFullSrc()` |
+| `.login-hero__cards` | Ativos, Licenças e Telefonia; some no mobile |
+| `.login-hero__copy` | “Inventário TI” e o apoio de ativos, licenças e telefonia |
+| `.login-panel` | Superfície clara; miolo até 400px |
+| `.login-panel__kicker` | “Acesso corporativo” em `--brand`; some no mobile |
+| `.login-panel__title` | “Entrar” em `--purple-900` (Nubank) ou `--text-primary` (WTorre) |
+| `.login-panel__ms` | CTA Microsoft preenchido `--brand`, com a marca de quatro quadrados da Microsoft |
+| `.login-panel__divider` | “ou” entre linhas, só no modo Microsoft e só no desktop |
+| `.login-panel__ghost` | “Entrar com usuário e senha”, contorno, abre o formulário |
+| `.login-panel__back` | “Voltar para login Microsoft” |
+| `.login-panel__input` / `__submit` | Campo e envio local (`--brand`, raio 12px) |
+| `.login-panel__msg--warn` / `--info` | Sessão, Teams, aviso de config |
+| `.login-panel__secure` | Escudo em `--success` + “Acesso restrito a colaboradores WTorre” |
+| `.login-panel__copy` | “© 2026 WTorre · Inventário TI” |
+
+O logo fica só no hero. Sem wordmark no painel claro.
+
+## Fluxo
+
+1. Ação principal: **Entrar com Microsoft** (no Teams: “Entrar com Microsoft (Teams)”).
+2. “ou” e “Entrar com usuário e senha” aparecem quando houver tenant.
+3. O formulário substitui o bloco Microsoft. “Voltar para login Microsoft” retorna.
+4. Sem tenant, o formulário local aparece direto, sem passo Microsoft vazio.
+5. Submit local desabilita com `loading`; rótulo “Processando...”.
+6. Microsoft desabilita com `loading` ou espera do provedor.
+
+Mensagens no painel, sem toast solto:
+
+- `?reason=idle` → “Sua sessão expirou por inatividade. Faça login novamente.”
+- Retorno do provedor no Teams → “Concluindo autenticação Microsoft…” no mesmo casco
+- Falha de configuração do provedor → aviso curto no painel
+
+## Logos
+
+Resolver por `ThemeService` (`logoFullSrc` / `logoAlt`), não hardcodar `<img>` por tela.
+
+| Contexto | Asset |
+|----------|--------|
+| WTorre | `assets/logo.png` |
+| Nubank, hero escuro | `assets/logo-nubank-parque-negativo.png` |
+
+## Anti-padrões
+
+- Hex de marca no botão Entrar
+- Formulário de senha sempre visível acima do Microsoft
+- Barras verticais do mosaico no hero
+- Alerta global para sessão expirada
+- Cartão `login-nubank` / `login-wtorre` no lugar do split

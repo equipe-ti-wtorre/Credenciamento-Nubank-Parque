@@ -25,6 +25,8 @@ export interface ProductItem {
 }
 
 export type MovementType = 'ENTRADA' | 'SAIDA';
+export type MovementNature = 'ESTOQUE' | 'ENTREGA';
+export type OriginType = 'CREDENCIADA' | 'EVENTUAL';
 
 export interface MaterialCompanyOption {
   id_company: number;
@@ -59,21 +61,69 @@ export interface InvoiceParseItem {
   suggestions?: InvoiceProductSuggestion[];
 }
 
+export interface InvoiceParseEmitente {
+  cnpj: string | null;
+  legal_name: string | null;
+  uf: string | null;
+  municipio: string | null;
+  source: string | null;
+  confidence: number;
+  known: boolean;
+  id_external_company: number | null;
+  id_company: number | null;
+  total_movimentos_anteriores: number;
+}
+
 export interface InvoiceParseResult {
   invoice_number: string | null;
+  nfe_key?: string | null;
+  emitente?: InvoiceParseEmitente | null;
   items: InvoiceParseItem[];
   warnings: string[];
   ocr_preview?: string;
 }
 
+export interface ExternalCompany {
+  id_external_company: number;
+  cnpj: string | null;
+  cpf: string | null;
+  legal_name: string;
+  trade_name: string | null;
+  ie?: string | null;
+  uf: string | null;
+  municipio: string | null;
+  cep?: string | null;
+  endereco?: string | null;
+  origem: 'OCR' | 'MANUAL' | 'CHAVE_ACESSO' | 'IMPORT';
+  revisado: boolean;
+  id_company: number | null;
+  primeira_entrada?: string | null;
+  ultima_entrada?: string | null;
+  total_movimentos: number;
+}
+
 export interface MovementPayload {
-  id_company: number;
-  invoice_number: string;
-  id_collaborator: number;
+  request_id?: string;
+  movement_nature?: MovementNature;
+  origin_type?: OriginType;
+  id_company?: number;
+  invoice_number?: string | null;
+  no_invoice_reason?: 'DECLARACAO_CONTEUDO' | 'ENCOMENDA_PESSOAL' | 'REMESSA_SEM_NOTA' | 'OUTRO' | null;
+  id_collaborator?: number;
   /** Relação completa: 1º motorista, demais ajudantes. */
   id_collaborators?: number[];
-  id_vehicle: number;
-  items: MovementItemPayload[];
+  id_vehicle?: number;
+  sender_name?: string;
+  sender_document?: string | null;
+  carrier_name?: string | null;
+  driver_name?: string;
+  driver_document?: string;
+  vehicle_plate?: string;
+  volumes?: number | null;
+  content_description?: string | null;
+  id_recipient_collaborator?: number | null;
+  recipient_area?: string | null;
+  items?: MovementItemPayload[];
 }
 
 export interface StockRow {
@@ -112,18 +162,42 @@ export interface MaterialMovementPhoto {
 export interface MaterialMovement {
   id_material_movement: number;
   movement_type: MovementType;
-  id_company: number;
-  company_fancy_name: string;
-  invoice_number: string;
-  id_collaborator: number;
-  collaborator_name: string;
+  movement_nature?: MovementNature;
+  origin_type?: OriginType;
+  origem_nome?: string | null;
+  id_company: number | null;
+  company_fancy_name: string | null;
+  invoice_number: string | null;
+  no_invoice_reason?: string | null;
+  id_collaborator: number | null;
+  collaborator_name: string | null;
   collaborators?: MaterialMovementCollaborator[];
-  id_vehicle: number;
-  vehicle_plate: string;
+  id_vehicle: number | null;
+  vehicle_plate: string | null;
+  sender_name?: string | null;
+  driver_name?: string | null;
+  volumes?: number | null;
+  content_description?: string | null;
   photo: string | null;
   photos?: MaterialMovementPhoto[];
   criado_em: string;
   items: MovementItemDetail[];
+}
+
+export interface LookupPlateResult {
+  found: boolean;
+  origin_type?: OriginType;
+  vehicle?: MaterialVehicleOption & { id_company?: number; company_name?: string };
+  suggestion?: {
+    sender_name?: string | null;
+    sender_document?: string | null;
+    carrier_name?: string | null;
+    driver_name?: string | null;
+    driver_document?: string | null;
+    vehicle_plate?: string | null;
+    movement_nature?: MovementNature;
+    criado_em?: string;
+  };
 }
 
 export interface DashboardSeriesPoint {
@@ -258,5 +332,34 @@ export class MaterialsService {
   getDashboard(days = 7): Observable<MaterialsDashboard> {
     const params = new HttpParams().set('days', String(days));
     return this.api.get<MaterialsDashboard>('/materials/dashboard', params);
+  }
+
+  lookupPlate(plate: string): Observable<LookupPlateResult> {
+    const params = new HttpParams().set('plate', plate || '');
+    return this.api.get<LookupPlateResult>('/materials/movements/lookup-plate', params);
+  }
+
+  suggestExternalCompanies(q: string): Observable<{ companies: ExternalCompany[] }> {
+    const params = new HttpParams().set('q', q || '');
+    return this.api.get<{ companies: ExternalCompany[] }>('/materials/external-companies/suggest', params);
+  }
+
+  listExternalCompanies(filters: { revisado?: number; q?: string } = {}): Observable<{ companies: ExternalCompany[] }> {
+    let params = new HttpParams();
+    if (filters.revisado === 0 || filters.revisado === 1) {
+      params = params.set('revisado', String(filters.revisado));
+    }
+    if (filters.q) params = params.set('q', filters.q);
+    return this.api.get<{ companies: ExternalCompany[] }>('/materials/external-companies', params);
+  }
+
+  patchExternalCompany(id: number, data: Partial<ExternalCompany> & { revisado?: boolean }): Observable<{ company: ExternalCompany }> {
+    return this.api.patch<{ company: ExternalCompany }>(`/materials/external-companies/${id}`, data);
+  }
+
+  mergeExternalCompanies(idSource: number, idTarget: number): Observable<{ company: ExternalCompany }> {
+    return this.api.post<{ company: ExternalCompany }>(`/materials/external-companies/${idSource}/merge`, {
+      id_target: idTarget,
+    });
   }
 }

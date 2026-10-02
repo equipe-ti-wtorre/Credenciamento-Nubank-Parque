@@ -21,6 +21,22 @@ const TEMPLATE_CATALOG = {
       invite_ttl_hours: "72",
     },
   },
+  company_self_register: {
+    variables: [
+      { key: "nome", label: "Nome do convidado" },
+      { key: "organization_name", label: "Nome da organização" },
+      { key: "invite_url", label: "URL do cadastro" },
+      { key: "invite_ttl_hours", label: "Validade do link (horas)" },
+      { key: "company_type_label", label: "Tipo de empresa" },
+    ],
+    sampleVars: {
+      nome: "Maria Silva",
+      organization_name: "Credenciamento",
+      invite_url: "https://exemplo.local/cadastro-empresa?token=abc123",
+      invite_ttl_hours: "72",
+      company_type_label: "Empresa Padrão",
+    },
+  },
   event_created: {
     variables: [
       { key: "event_name", label: "Nome do evento" },

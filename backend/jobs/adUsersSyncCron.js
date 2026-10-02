@@ -2,6 +2,7 @@ const cron = require("node-cron");
 const env = require("../config/env");
 const { child } = require("../config/logger");
 const { runAdUsersSync } = require("../utils/adUsersSync");
+const { captureError } = require("../modules/error-logs/error-logs.helpers");
 
 const logger = child({ module: "ad-users-sync-cron" });
 
@@ -16,6 +17,11 @@ async function runAdUsersSyncCron({ triggeredBy = "manual" } = {}) {
     return result;
   } catch (err) {
     logger.error({ err, triggeredBy }, "Erro ao sincronizar usuários do AD");
+    await captureError(err, {
+      module: "ad-users-sync-cron",
+      origin: "job",
+      metadata: { triggeredBy },
+    });
     return { alreadyRunning: false, ok: false, error: err.message };
   }
 }
@@ -28,6 +34,11 @@ function startAdUsersSyncCron() {
 
   if (!cron.validate(env.adUsersSyncCron)) {
     logger.error({ cron: env.adUsersSyncCron }, "Expressão cron inválida para AD_USERS_SYNC_CRON");
+    void captureError(new Error("Expressão cron inválida para AD_USERS_SYNC_CRON"), {
+      module: "ad-users-sync-cron",
+      origin: "job",
+      metadata: { cron: env.adUsersSyncCron },
+    });
     return null;
   }
 
@@ -38,6 +49,11 @@ function startAdUsersSyncCron() {
   // Cobrir janela em que o processo esteve parado.
   runAdUsersSyncCron({ triggeredBy: "startup" }).catch((err) => {
     logger.error({ err }, "Falha na sync AD no startup");
+    void captureError(err, {
+      module: "ad-users-sync-cron",
+      origin: "job",
+      metadata: { triggeredBy: "startup" },
+    });
   });
 
   scheduledTask = cron.schedule(
@@ -52,6 +68,11 @@ function startAdUsersSyncCron() {
         }
       } catch (err) {
         logger.error({ err }, "Erro na sync AD agendada");
+        void captureError(err, {
+          module: "ad-users-sync-cron",
+          origin: "job",
+          metadata: { triggeredBy: "cron" },
+        });
       }
     },
     { timezone: env.adUsersSyncTimezone },

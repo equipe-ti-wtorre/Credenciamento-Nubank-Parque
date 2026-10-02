@@ -1,7 +1,11 @@
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const db = require("../../config/db");
 const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
+const { createCoverStore } = require("../storage/cover-src");
+const eventCovers = createCoverStore("event-covers");
 const { toDateOnly } = require("./event.schema");
 const companyService = require("../companies/company.service");
 const approvalsService = require("../approvals/approvals.service");
@@ -32,6 +36,12 @@ function isPartnerScopedRole(role) {
 
 function isPartnerScopedUser(req) {
   return isPartnerScopedRole(getProfileCodigo(req?.user));
+}
+
+function assertInternalUserCanCreateEvents(user) {
+  if (user?.requires_company || user?.profile?.requires_company) {
+    throw new AppError("Empresas não podem criar eventos.", 403);
+  }
 }
 
 /** Empresa única visível para usuário parceiro (null = sem restrição). */
@@ -112,6 +122,10 @@ function mapEventRow(row) {
         }
       : null,
     ativo: row.ativo == null ? true : !!Number(row.ativo),
+    cover: row.cover || null,
+    cover_url: row.cover
+      ? `/storage/event-covers?filename=${encodeURIComponent(path.basename(row.cover))}`
+      : null,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
   };
@@ -582,7 +596,7 @@ async function listEvents(req, { page, limit, filters }) {
 
   const [rows] = await db.execute(
     `SELECT DISTINCT e.id_event, e.name, e.start, e.end, e.id_access_status,
-            e.id_company_responsavel, e.id_solicitante, e.ativo, e.criado_em, e.atualizado_em,
+            e.id_company_responsavel, e.id_solicitante, e.cover, e.ativo, e.criado_em, e.atualizado_em,
             ast.description AS access_status_description,
             rc.company_name AS responsavel_company_name,
             rc.fancy_name AS responsavel_fancy_name,
@@ -628,7 +642,7 @@ async function listEvents(req, { page, limit, filters }) {
   });
 
   return {
-    events,
+    events: await eventCovers.attachCoverThumbs(events),
     pagination: {
       page,
       limit,
@@ -837,6 +851,7 @@ async function updateEventPreferences(req, id, prefs = {}) {
 }
 
 async function createEvent(req, data) {
+  assertInternalUserCanCreateEvents(req.user);
   const start = toDateOnly(data.start);
   const end = toDateOnly(data.end);
   if (start > end) {
@@ -1547,6 +1562,10 @@ function dateIsoDistance(a, b) {
   return Math.round((ta - tb) / 86400000);
 }
 
+function eventDayTypeKey(date, idType) {
+  return `${date}|${Number(idType)}`;
+}
+
 async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompanyResponsavel) {
   const desired = new Map();
   for (const day of days || []) {
@@ -1558,7 +1577,8 @@ async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompany
       );
     }
     await assertEventDayTypeExists(day.id_type, conn);
-    desired.set(dayDate, Number(day.id_type));
+    const idType = Number(day.id_type);
+    desired.set(eventDayTypeKey(dayDate, idType), { date: dayDate, idType });
   }
 
   const [existingRows] = await conn.execute(
@@ -1566,25 +1586,25 @@ async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompany
     [eventId],
   );
 
-  const existingByDate = new Map();
+  const existingByKey = new Map();
   for (const row of existingRows) {
-    existingByDate.set(formatDateField(row.date), row);
+    const dayDate = formatDateField(row.date);
+    const idType = Number(row.id_type);
+    existingByKey.set(eventDayTypeKey(dayDate, idType), {
+      id_event_day: Number(row.id_event_day),
+      date: dayDate,
+      id_type: idType,
+    });
   }
 
-  /** date → id_event_day após upsert */
-  const finalDayIdByDate = new Map();
+  /** date|type → id_event_day após insert */
+  const finalDayIdByKey = new Map();
 
-  // 1) Upsert dias desejados (para o alvo da migração já existir)
-  for (const [dayDate, idType] of desired) {
-    const existing = existingByDate.get(dayDate);
+  // 1) Garantir os pares data+tipo desejados (alvo da migração já existe)
+  for (const [key, { date: dayDate, idType }] of desired) {
+    const existing = existingByKey.get(key);
     if (existing) {
-      if (Number(existing.id_type) !== idType) {
-        await conn.execute(`UPDATE event_day SET id_type = ? WHERE id_event_day = ?`, [
-          idType,
-          existing.id_event_day,
-        ]);
-      }
-      finalDayIdByDate.set(dayDate, Number(existing.id_event_day));
+      finalDayIdByKey.set(key, existing.id_event_day);
       continue;
     }
 
@@ -1593,7 +1613,7 @@ async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompany
       [eventId, idType, dayDate],
     );
     const newDayId = Number(dayResult.insertId);
-    finalDayIdByDate.set(dayDate, newDayId);
+    finalDayIdByKey.set(key, newDayId);
     if (idCompanyResponsavel != null) {
       await conn.execute(
         `INSERT INTO event_day_company (id_event_day, id_company, id_producer)
@@ -1603,21 +1623,22 @@ async function syncEventDaysForPeriod(conn, eventId, start, end, days, idCompany
     }
   }
 
-  // 2) Remover dias fora do payload, migrando vínculos pela mesma fase
-  for (const [dayDate, row] of existingByDate) {
-    if (desired.has(dayDate)) continue;
+  // 2) Remover pares fora do payload, migrando vínculos pela mesma fase
+  for (const [key, row] of existingByKey) {
+    if (desired.has(key)) continue;
 
     const fromDayId = Number(row.id_event_day);
     const fromType = Number(row.id_type);
+    const dayDate = row.date;
     const hasData = await eventDayHasLinkedData(conn, fromDayId);
 
     if (hasData) {
       const candidates = [];
-      for (const [keepDate, keepType] of desired) {
-        if (Number(keepType) !== fromType) continue;
-        const keepId = finalDayIdByDate.get(keepDate);
+      for (const [keepKey, keep] of desired) {
+        if (Number(keep.idType) !== fromType) continue;
+        const keepId = finalDayIdByKey.get(keepKey);
         if (!keepId || keepId === fromDayId) continue;
-        candidates.push({ id: keepId, date: keepDate });
+        candidates.push({ id: keepId, date: keep.date });
       }
 
       const target = pickMigrationTarget(candidates, dayDate);
@@ -2029,7 +2050,8 @@ async function addCompanyToEventDay(req, idEventDay, payload) {
   }
 }
 
-async function listProducerCompanies() {
+async function listProducerCompanies(req) {
+  assertInternalUserCanCreateEvents(req?.user);
   const produtoraTypeId = await getProdutoraTypeId();
   const [rows] = await db.execute(
     `SELECT c.id_company, c.company_name, c.fancy_name, c.id_company_type,
@@ -2198,11 +2220,47 @@ async function deleteEvent(req, id) {
     conn.release();
   }
 
+  if (eventRow.cover) eventCovers.removeCoverFile(eventRow.cover);
+
   return {
     deleted: true,
     id_event: eventId,
     name: eventRow.name,
   };
+}
+
+async function uploadCover(req, id) {
+  const eventId = Number(id);
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    throw new AppError("Evento inválido.", 400);
+  }
+  const row = await findEventById(eventId);
+  if (!row) throw new AppError("Evento não encontrado.", 404);
+  await assertCanReadEvent(req, eventId);
+  assertEventActive(row);
+  const isSolicitante = req.user?.id
+    ? await userIsEventSolicitante(req.user.id, eventId)
+    : false;
+  if (
+    !req.user?.is_super_admin &&
+    !userCanManageEventCompanies(req, row) &&
+    !isSolicitante
+  ) {
+    throw new AppError("Sem permissão para alterar a foto deste evento.", 403);
+  }
+  if (!req.file) throw new AppError("Envie o arquivo da capa.", 400);
+
+  fs.mkdirSync(eventCovers.COVER_DIR, { recursive: true });
+  const ext = path.extname(req.file.originalname || ".jpg").toLowerCase() || ".jpg";
+  const safeExt = [".jpg", ".jpeg", ".png", ".webp"].includes(ext) ? ext : ".jpg";
+  const filename = `${crypto.randomUUID()}${safeExt}`;
+  fs.writeFileSync(path.join(eventCovers.COVER_DIR, filename), req.file.buffer);
+  await eventCovers.writeCoverThumb(filename);
+
+  if (row.cover) eventCovers.removeCoverFile(row.cover);
+
+  await db.execute(`UPDATE event SET cover = ? WHERE id_event = ?`, [filename, eventId]);
+  return getEventById(req, eventId);
 }
 
 async function syncCompanyPhases(req, idEvent, idCompany, phases) {
@@ -2676,6 +2734,22 @@ async function removeCompanyVehicle(req, idEvent, idCompany, idVehicle) {
   );
 }
 
+async function removeCompanyVehicles(req, idEvent, idCompany) {
+  return require("./event-company-vehicle.service").removeCompanyVehicles(
+    req,
+    idEvent,
+    idCompany,
+  );
+}
+
+async function removeCompanyCredentials(req, idEvent, idCompany) {
+  return require("../credentials/credentials.service").deleteCompanyEventCredentials(
+    req,
+    idEvent,
+    idCompany,
+  );
+}
+
 async function listEventVehicleCounts(req, idEvent) {
   const row = await findEventById(idEvent);
   if (!row) throw new AppError("Evento não encontrado.", 404);
@@ -2739,6 +2813,7 @@ module.exports = {
   updateEventPreferences,
   updateEventActiveStatus,
   createEvent,
+  uploadCover,
   updateEventPeriod,
   updateEventResponsavel,
   deleteEvent,
@@ -2760,6 +2835,8 @@ module.exports = {
   listCompanyVehicles,
   addCompanyVehicle,
   removeCompanyVehicle,
+  removeCompanyVehicles,
+  removeCompanyCredentials,
   listEventVehicleCounts,
   getCompanyBulkImportTemplate,
   previewCompanyBulkImport,

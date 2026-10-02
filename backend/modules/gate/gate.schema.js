@@ -128,6 +128,7 @@ const calendarDetailQuerySchema = Joi.object({
   date: ISO_DATE.required().messages({
     "any.required": "Informe a data (date).",
   }),
+  id_event_day: Joi.number().integer().positive().optional(),
 });
 
 module.exports = {

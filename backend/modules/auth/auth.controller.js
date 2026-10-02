@@ -161,6 +161,59 @@ exports.getInvite = async (req, res, next) => {
   }
 };
 
+exports.getCompanyRegister = async (req, res, next) => {
+  try {
+    const selfRegisterService = require("../companies/company-self-register.service");
+    const invite = await selfRegisterService.getSelfRegisterInfo(req.params.token);
+    res.json({ invite });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.completeCompanyRegister = async (req, res, next) => {
+  try {
+    const { companyRegisterCompleteSchema } = require("./auth.schema");
+    const selfRegisterService = require("../companies/company-self-register.service");
+    const { error, value } = companyRegisterCompleteSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await selfRegisterService.completeSelfRegister(
+      req.params.token,
+      value,
+      req,
+      req.file || null,
+    );
+
+    await logAudit({
+      userId: result.user.id,
+      action: AUDIT_ACTIONS.LOGIN,
+      module: AUDIT_MODULES.AUTH,
+      req,
+      metadata: buildAuditMetadata({
+        event: "auth.company_self_register",
+        outcome: "success",
+        provider: "company_self_register",
+        resource: {
+          type: "user",
+          id: result.user.id,
+          email: result.user.email,
+          id_company: result.user.id_company,
+        },
+        http: buildHttpContext(req, { statusCode: 200 }),
+      }),
+    });
+    markAuditLogged(req);
+
+    res.status(201).json(result);
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return next(new AppError("CNPJ ou e-mail já cadastrado.", 409));
+    }
+    next(err);
+  }
+};
+
 exports.completeInvite = async (req, res, next) => {
   try {
     const { inviteCompleteSchema } = require("./auth.schema");

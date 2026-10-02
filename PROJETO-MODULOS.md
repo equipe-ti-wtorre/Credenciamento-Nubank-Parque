@@ -369,12 +369,9 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | GET | `/search` | `search` | JWT |
 | GET | `/` | `list` | ADMIN |
 | POST | `/bulk` | `bulkCreate` | JWT |
-| GET | `/document-change/pending` | `listPending` | ADMIN |
-| PATCH | `/document-change/:id/status` | `patchStatus` | ADMIN |
 | GET | `/:id` | `getById` | JWT |
 | POST | `/` | `create` | JWT |
 | POST | `/:id/picture` | `uploadPicture` | ADMIN |
-| POST | `/:id/document-change` | `create` | JWT |
 | PUT | `/:id` | `update` | ADMIN |
 | PATCH | `/:id/status` | `patchStatus` | ADMIN |
 | POST | `/:id/blocklist` | `addBlocklist` | ADMIN |
@@ -399,15 +396,6 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | `removeFromBlocklist()` | Remove da blocklist |
 | `checkBlocklist()` | Verifica blocklist |
 | `maskDocumentForAudit()` | Mascara documento para auditoria |
-
-**Document Change** (`document-change.service.js`):
-
-| Função | Descrição |
-|--------|-----------|
-| `createDocumentChangeRequest()` | Solicita correção de documento |
-| `listPendingDocumentChanges()` | Lista pendentes |
-| `updateDocumentChangeStatus()` | Aprova/rejeita |
-| `getDocumentChangeById()` | Detalhe da solicitação |
 
 **Bulk** (`collaborator.bulk.js`): `parseBulkFile`, `normalizeBulkRow`, `isEmptyBulkRow`
 
@@ -730,7 +718,6 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | `/admin/usuarios` | `UserListComponent` | ADMIN |
 | `/admin/empresas` | `CompanyListComponent` | ADMIN |
 | `/admin/colaboradores` | `CollaboratorListComponent` | ADMIN |
-| `/admin/aprovacoes-documento` | `DocumentApprovalsComponent` | ADMIN |
 | `/admin/frota` | `VehicleListComponent` | ADMIN, PRODUTORA, PADRAO |
 | `/admin/acessos-servico` | `ServiceRequestListComponent` | ADMIN, PRODUTORA, PADRAO |
 | `/admin/acessos-servico/:id` | `ServiceAccessDetailComponent` | ADMIN, PRODUTORA, PADRAO |
@@ -774,7 +761,6 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | `VehicleListComponent` | CRUD frota e blocklist |
 | `ServiceRequestListComponent` | Lista acessos de serviço |
 | `ServiceAccessDetailComponent` | Detalhe, colaboradores, veículos |
-| `DocumentApprovalsComponent` | `aprovar()`, `rejeitar()` |
 | `ProductListComponent` | CRUD produtos |
 | `StorageLocationListComponent` | CRUD locais |
 | `MerchandiseReportsComponent` | `loadDashboard()`, `loadStock()`, `loadHistory()` |
@@ -851,7 +837,6 @@ Registra middlewares globais e monta o router `v1Router` com todos os módulos.
 | **UserService** | `list()`, `getById()`, `update()`, `syncDepartments()`, `syncAdUsers()`, `syncUserAd()` |
 | **CompanyService** | `listTypes()`, `list()`, `get()`, `create()`, `update()`, `patchStatus()` + `formatCnpj()`, `normalizeCnpjInput()` |
 | **CollaboratorService** | `listDocumentTypes()`, `listRoles()`, `list()`, `get()`, `searchByDocument()`, `create()`, `update()`, `patchStatus()`, `addBlocklist()`, `removeBlocklist()`, `bulkUpload()`, `uploadPicture()`, `getPictureBlob()` + `formatCpf()`, `normalizeCpfInput()`, `isCpfDocumentType()` |
-| **DocumentChangeService** | `create()`, `listPending()`, `patchStatus()` |
 | **EventService** | `listTypes()`, `list()`, `get()`, `create()`, `addCompanyToDay()`, `removeCompanyFromDay()` + `formatDateBr()` |
 | **CredentialService** | `list()`, `get()`, `create()`, `updateStatus()` + `statusBadgeClass()` |
 | **GateService** | `validateEvent()`, `substituteEvent()`, `listToday()`, `listTodayServices()`, `validateService()`, `substituteService()` |

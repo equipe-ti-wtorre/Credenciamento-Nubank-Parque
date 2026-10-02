@@ -9,6 +9,10 @@ const { parseEnrollmentStatus } = require("../modules/facial/facial.contract");
 const { enrollmentStatusSchema } = require("../modules/facial/facial.schema");
 const serviceBusClient = require("../modules/facial/service-bus.client");
 const enrollmentService = require("../modules/facial/facial.enrollment.service");
+const { captureError } = require("../modules/error-logs/error-logs.helpers");
+const { registerProcessErrorHandlers } = require("../modules/error-logs/error-logs.process");
+
+registerProcessErrorHandlers({ processName: "facial-enrollment-worker" });
 
 const MAX_DELIVERY_COUNT = 5;
 
@@ -61,6 +65,14 @@ async function start() {
           },
           "Erro ao processar enrollment-status",
         );
+        await captureError(err, {
+          module: "facial-enrollment-worker",
+          origin: "worker",
+          metadata: {
+            messageId: message.messageId,
+            deliveryCount: message.deliveryCount,
+          },
+        });
 
         if (message.deliveryCount >= MAX_DELIVERY_COUNT) {
           await context.deadLetterMessage(message, {
@@ -74,6 +86,11 @@ async function start() {
     },
     async (args) => {
       logger.error({ err: args.error, entity: args.entityPath }, "Erro no receiver facial");
+      await captureError(args.error, {
+        module: "facial-enrollment-worker",
+        origin: "worker",
+        metadata: { entity: args.entityPath, type: "receiver" },
+      });
     },
   );
 
@@ -89,8 +106,13 @@ async function shutdown(signal) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-start().catch((err) => {
+start().catch(async (err) => {
   startupFail(`Worker facial falhou: ${err.message}`);
   logger.fatal({ err }, "Worker facial não iniciou");
+  await captureError(err, {
+    module: "facial-enrollment-worker",
+    origin: "process",
+    metadata: { type: "startup" },
+  });
   process.exit(1);
 });

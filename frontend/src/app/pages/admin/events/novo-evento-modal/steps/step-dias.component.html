@@ -9,7 +9,7 @@
           Preencher período
         </button>
       </div>
-      <p class="days__hint">Escolha um tipo e clique nos dias. Clique de novo para remover ou trocar.</p>
+      <p class="days__hint">Escolha um tipo e clique nos dias. Clique de novo no mesmo tipo para remover. Outro tipo no mesmo dia é adicionado.</p>
 
       <div class="brush" role="group" aria-label="Tipo de dia">
         @for (t of types(); track t.id_event_day_type) {
@@ -49,21 +49,31 @@
         <div class="daylist">
           @for (row of rows(); track row.iso) {
             <div class="dayrow">
-              <span class="dayrow__bar" [attr.data-tipo]="row.tipoNome"></span>
+              <span class="dayrow__bars">
+                @for (chip of row.tipos; track chip.id_type) {
+                  <span class="dayrow__bar" [attr.data-tipo]="chip.nome"></span>
+                }
+              </span>
               <div class="dayrow__date">
                 {{ formatBr(row.iso) }}
                 <small>{{ weekday(row.iso) }}</small>
               </div>
-              <div class="dayrow__sel">
-                <select
-                  class="select"
-                  [ngModel]="row.id_type"
-                  (ngModelChange)="changeType.emit({ iso: row.iso, id_type: $event })"
-                >
-                  @for (t of typeOptions(); track t.id_event_day_type) {
-                    <option [ngValue]="t.id_event_day_type">{{ t.description }}</option>
-                  }
-                </select>
+              <div class="dayrow__chips">
+                @for (chip of row.tipos; track chip.id_type) {
+                  <span class="daychip" [attr.data-tipo]="chip.nome">
+                    {{ chip.nome }}
+                    <button
+                      type="button"
+                      class="daychip__rm"
+                      [attr.aria-label]="'Remover ' + chip.nome + ' de ' + formatBr(row.iso)"
+                      (click)="removeType.emit({ iso: row.iso, id_type: chip.id_type })"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </span>
+                }
               </div>
               <button
                 type="button"

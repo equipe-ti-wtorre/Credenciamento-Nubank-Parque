@@ -9,7 +9,7 @@ export interface SidebarNavItemDef {
   iconSrc?: string;
   exact?: boolean;
   showBadge?: boolean;
-  badgeSource?: 'combined' | 'approvals' | 'document';
+  badgeSource?: 'approvals';
   module?: string;
   permissionAny?: string[];
   allowAdInternal?: boolean;
@@ -22,7 +22,7 @@ export interface SidebarNavGroupDef {
 }
 
 export const SETORES_NAV_ITEM: SidebarNavItemDef = {
-  label: 'Setores',
+  label: 'Times',
   route: '/admin/setores',
   iconKey: 'users',
   module: 'sectors',
@@ -39,8 +39,7 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
         route: '/aprovacoes',
         iconKey: 'doc',
         showBadge: true,
-        badgeSource: 'combined',
-        permissionAny: ['approvals', 'document_approvals'],
+        module: 'approvals',
       },
     ],
   },
@@ -57,18 +56,6 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
         iconKey: 'badge',
         permissionAny: ['event_accreditation', 'approvals'],
         allowAdInternal: true,
-      },
-      {
-        label: 'Relatório de acessos',
-        route: '/operacao/relatorio-acessos',
-        iconKey: 'chart',
-        module: 'access_reports',
-      },
-      {
-        label: 'Negações',
-        route: '/operacao/negacoes-credenciamento',
-        iconKey: 'chart',
-        module: 'credential_denials',
       },
       {
         label: 'Gestão de bloqueio',
@@ -92,10 +79,40 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
         module: 'merchandise_locations',
       },
       {
+        label: 'Empresas eventuais',
+        route: '/admin/mercadorias-eventuais',
+        iconKey: 'box',
+        module: 'merchandise_external_companies',
+      },
+    ],
+  },
+  {
+    id: 'relatorios',
+    title: 'Relatórios',
+    items: [
+      {
+        label: 'Relatório de acessos',
+        route: '/operacao/relatorio-acessos',
+        iconKey: 'chart',
+        module: 'access_reports',
+      },
+      {
+        label: 'Recusas de acessos',
+        route: '/operacao/negacoes-credenciamento',
+        iconKey: 'chart',
+        module: 'credential_denials',
+      },
+      {
         label: 'Relatório de mercadorias',
         route: '/admin/mercadorias/relatorios',
         iconKey: 'chart',
         module: 'merchandise_reports',
+      },
+      {
+        label: 'Auditoria',
+        route: '/operacao/auditoria',
+        iconKey: 'chart',
+        module: 'audit',
       },
     ],
   },

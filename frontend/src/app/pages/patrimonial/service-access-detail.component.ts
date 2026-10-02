@@ -4,11 +4,18 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { switchMap } from 'rxjs/operators';
 import {
+  AccessScheduleType,
   PatrimonialService,
   ServiceAccessCollaborator,
   ServiceAccessItem,
   ServiceAccessVehicle,
+  formatAccessScheduleLabel,
+  formatTimeHm,
 } from '../../services/patrimonial.service';
+import {
+  AccessScheduleSettings,
+  SystemSettingsService,
+} from '../../services/system-settings.service';
 import {
   CollaboratorDocumentType,
   CollaboratorItem,
@@ -28,6 +35,7 @@ import {
 import { NotificationService } from '../../core/services/notification.service';
 import { formatBlocklistNotice } from '../../shared/blocklist-notice';
 import { AuthService, AuthUser, hasPermission, isSuperAdmin } from '../../core/services/auth.service';
+import { CollaboratorPhotoComponent } from '../../shared/collaborator-photo/collaborator-photo.component';
 import { ModalComponent } from '../../shared/modal/modal.component';
 import { ActionBtnComponent } from '../../shared/actions';
 import {
@@ -64,6 +72,7 @@ type ModalMode = 'search' | 'create';
     FormsModule,
     RouterLink,
     ModalComponent,
+    CollaboratorPhotoComponent,
     ActionBtnComponent,
     PeriodoRangePickerComponent,
     ServiceAccessBulkImportWizardComponent,
@@ -444,6 +453,14 @@ type ModalMode = 'search' | 'create';
                   {{ formatDateBr(service()!.start_date) }}
                   <span style="color: var(--cred-ink-3)">—</span>
                   {{ formatDateBr(service()!.end_date) }}
+                </span>
+                <span class="meta-sep"></span>
+                <span class="meta-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
+                  {{ formatAccessScheduleLabel(service()!) }}
                 </span>
                 <span class="meta-sep"></span>
                 <span class="meta-item">
@@ -1024,6 +1041,17 @@ type ModalMode = 'search' | 'create';
             />
           </div>
           <div>
+            <label class="form-label">
+              Foto <span class="form-label__optional">(opcional)</span>
+            </label>
+            <app-collaborator-photo
+              size="md"
+              mode="deferred"
+              [name]="colabForm.name"
+              (fileReady)="pendingColabPicture = $event"
+            />
+          </div>
+          <div>
             <label class="form-label" for="colab-role-create">Função</label>
             <select
               id="colab-role-create"
@@ -1291,6 +1319,48 @@ type ModalMode = 'search' | 'create';
               [controlInvalid]="editPeriodTouched() && !editPeriodRange?.inicio"
               [controlTouched]="editPeriodTouched()"
             />
+            <div>
+              <label class="form-label" for="edit-horario">Horário do acesso</label>
+              <select
+                id="edit-horario"
+                [(ngModel)]="editForm.schedule_type"
+                name="editScheduleType"
+                class="form-select"
+              >
+                <option value="MANUAL">Manual</option>
+                <option value="COMERCIAL">Comercial {{ comercialLabel() }}</option>
+                <option value="NOTURNO">Noturno {{ noturnoLabel() }}</option>
+              </select>
+              <ng-container *ngIf="editForm.schedule_type === 'MANUAL'; else editPresetHint">
+                <div class="grid grid-cols-2 gap-3 mt-2">
+                  <div>
+                    <label class="form-label" for="edit-hora-inicio">Início</label>
+                    <input
+                      id="edit-hora-inicio"
+                      type="time"
+                      [(ngModel)]="editForm.schedule_start"
+                      name="editScheduleStart"
+                      class="form-field"
+                    />
+                  </div>
+                  <div>
+                    <label class="form-label" for="edit-hora-fim">Fim</label>
+                    <input
+                      id="edit-hora-fim"
+                      type="time"
+                      [(ngModel)]="editForm.schedule_end"
+                      name="editScheduleEnd"
+                      class="form-field"
+                    />
+                  </div>
+                </div>
+              </ng-container>
+              <ng-template #editPresetHint>
+                <p class="text-xs text-slate-500 mt-1">
+                  {{ editForm.schedule_type === 'NOTURNO' ? noturnoLabel() : comercialLabel() }}
+                </p>
+              </ng-template>
+            </div>
           </div>
           <div class="edit-dados__right">
             <div>
@@ -1522,6 +1592,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   togglingEnabled = signal(false);
   private currentUser: AuthUser | null = null;
   formatDateBr = formatDateBr;
+  formatAccessScheduleLabel = formatAccessScheduleLabel;
   readonly liberacaoLabel = liberacaoStatusLabel;
   readonly liberacaoBadgeClass = liberacaoStatusBadgeClass;
 
@@ -1530,12 +1601,16 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   editPeriodTouched = signal(false);
   editPeriodRange: PeriodoRangeValue | null = null;
   sectors = signal<EligibleSector[]>([]);
+  schedulePresets = signal<AccessScheduleSettings | null>(null);
   editForm = {
     start_date: '',
     end_date: '',
     finalidade: '',
     observacao: '',
     id_setor: null as number | null,
+    schedule_type: 'COMERCIAL' as AccessScheduleType,
+    schedule_start: '',
+    schedule_end: '',
     notificar_entrada_colaborador: true,
     notificar_entrada_veiculo: true,
   };
@@ -1570,6 +1645,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   colabSaving = signal(false);
   colabRoleId: number | null = null;
   colabForm = this.emptyColabForm();
+  pendingColabPicture: File | null = null;
   private colabSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
   thumbnailUrls = signal<Record<number, string>>({});
@@ -1632,6 +1708,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     private approvalService: ApprovalService,
     private notification: NotificationService,
     private authService: AuthService,
+    private systemSettings: SystemSettingsService,
     private cdr: ChangeDetectorRef,
   ) {}
 
@@ -1640,6 +1717,10 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     this.serviceId = Number(this.route.snapshot.paramMap.get('id'));
     this.carregar();
     this.carregarSetores();
+    this.systemSettings.getAccessScheduleSettings().subscribe({
+      next: (res) => this.schedulePresets.set(res.settings),
+      error: () => this.schedulePresets.set(null),
+    });
     this.collaboratorService.listDocumentTypes().subscribe({
       next: (res) => {
         this.documentTypes.set(res.types);
@@ -2265,6 +2346,9 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       finalidade: svc.finalidade || '',
       observacao: svc.observacao || '',
       id_setor: svc.id_setor ?? null,
+      schedule_type: (svc.schedule_type as AccessScheduleType) || 'MANUAL',
+      schedule_start: formatTimeHm(svc.schedule_start),
+      schedule_end: formatTimeHm(svc.schedule_end),
       notificar_entrada_colaborador: svc.notificar_entrada_colaborador !== false,
       notificar_entrada_veiculo: svc.notificar_entrada_veiculo !== false,
     };
@@ -2335,6 +2419,14 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       this.notification.error('Data fim deve ser igual ou posterior à data início.');
       return;
     }
+    if (this.editForm.schedule_type === 'MANUAL') {
+      const startTime = formatTimeHm(this.editForm.schedule_start);
+      const endTime = formatTimeHm(this.editForm.schedule_end);
+      if (!startTime || !endTime || startTime === endTime) {
+        this.notification.error('Informe o horário de início e fim para o acesso manual.');
+        return;
+      }
+    }
     const setorNome = this.sectors().find((s) => s.id === this.editForm.id_setor)?.nome?.trim();
     if (!setorNome) {
       this.notification.error('Setor aprovador inválido.');
@@ -2349,6 +2441,15 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
         requesting_department: setorNome,
         observacao: this.editForm.observacao.trim(),
         id_setor: this.editForm.id_setor,
+        schedule_type: this.editForm.schedule_type,
+        schedule_start:
+          this.editForm.schedule_type === 'MANUAL'
+            ? formatTimeHm(this.editForm.schedule_start)
+            : undefined,
+        schedule_end:
+          this.editForm.schedule_type === 'MANUAL'
+            ? formatTimeHm(this.editForm.schedule_end)
+            : undefined,
         notificar_entrada_colaborador: this.editForm.notificar_entrada_colaborador,
         notificar_entrada_veiculo: this.editForm.notificar_entrada_veiculo,
       })
@@ -2389,6 +2490,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     this.colabSearchResults.set([]);
     this.colabCandidate.set(null);
     this.colabForm = this.emptyColabForm();
+    this.pendingColabPicture = null;
     const types = this.documentTypes();
     if (types[0]) this.colabForm.id_collaborator_document_type = types[0].id_collaborator_document_type;
     this.colabForm.id_collaborator_role = this.colabRoleId;
@@ -2400,6 +2502,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
 
   fecharModalColab() {
     this.showColabModal.set(false);
+    this.pendingColabPicture = null;
     if (this.colabSearchTimer) clearTimeout(this.colabSearchTimer);
   }
 
@@ -2491,9 +2594,23 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       })
       .subscribe({
         next: (res) => {
-          this.colabSaving.set(false);
-          this.addCollaboratorToDraft(res.collaborator, form.id_collaborator_role!);
-          this.fecharModalColab();
+          const finish = (col: CollaboratorItem) => {
+            this.colabSaving.set(false);
+            this.addCollaboratorToDraft(col, form.id_collaborator_role!);
+            this.fecharModalColab();
+          };
+          const file = this.pendingColabPicture;
+          if (!file) {
+            finish(res.collaborator);
+            return;
+          }
+          this.collaboratorService.uploadPicture(res.collaborator.id_collaborator, file).subscribe({
+            next: (up) => finish(up.collaborator || res.collaborator),
+            error: (err) => {
+              this.notification.notifyHttpError(err, 'Colaborador salvo, mas a foto não foi enviada.');
+              finish(res.collaborator);
+            },
+          });
         },
         error: (err) => {
           this.colabSaving.set(false);
@@ -2646,5 +2763,17 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
 
   onBulkCompleted() {
     this.carregar();
+  }
+
+  comercialLabel(): string {
+    const p = this.schedulePresets();
+    if (!p) return '08:00–18:00';
+    return `${formatTimeHm(p.comercial_start)}–${formatTimeHm(p.comercial_end)}`;
+  }
+
+  noturnoLabel(): string {
+    const p = this.schedulePresets();
+    if (!p) return '18:00–08:00 (+1)';
+    return `${formatTimeHm(p.noturno_start)}–${formatTimeHm(p.noturno_end)} (+1)`;
   }
 }

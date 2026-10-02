@@ -245,15 +245,6 @@ async function removeCompanyVehicle(req, idEvent, idCompany, idVehicle) {
     throw new AppError("Veículo não vinculado a esta empresa no evento.", 404);
   }
 
-  // Política semelhante a credenciais ativas: bloquear se já houver access_id gerado
-  const active = existing.some((r) => r.access_id);
-  if (active) {
-    throw new AppError(
-      "Não é possível remover veículo com acesso já liberado nas fases do evento.",
-      409,
-    );
-  }
-
   await db.execute(
     `DELETE FROM event_day_company_vehicle
       WHERE id_vehicle = ?
@@ -262,6 +253,28 @@ async function removeCompanyVehicle(req, idEvent, idCompany, idVehicle) {
   );
 
   return { removed: true, id_vehicle: vehicleId, count: existing.length };
+}
+
+async function removeCompanyVehicles(req, idEvent, idCompany) {
+  const links = await assertCanManageCompanyVehicles(req, idEvent, idCompany);
+  const linkIds = links.map((l) => Number(l.id_event_day_company));
+  if (!linkIds.length) return { removed: 0, skipped: 0 };
+
+  const [rows] = await db.execute(
+    `SELECT DISTINCT id_vehicle
+       FROM event_day_company_vehicle
+      WHERE id_event_day_company IN (${linkIds.map(() => "?").join(",")})`,
+    linkIds,
+  );
+  if (!rows.length) return { removed: 0, skipped: 0 };
+
+  await db.execute(
+    `DELETE FROM event_day_company_vehicle
+      WHERE id_event_day_company IN (${linkIds.map(() => "?").join(",")})`,
+    linkIds,
+  );
+
+  return { removed: rows.length, skipped: 0 };
 }
 
 async function linkVehicleToAllCompanyDays(conn, links, vehicleId, idAccessStatus) {
@@ -286,6 +299,7 @@ module.exports = {
   listEventVehicleCounts,
   addCompanyVehicle,
   removeCompanyVehicle,
+  removeCompanyVehicles,
   linkVehicleToAllCompanyDays,
   assertCanManageCompanyVehicles,
   filterLinksBySelectedIds,

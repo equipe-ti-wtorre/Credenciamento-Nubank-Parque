@@ -36,7 +36,9 @@ import {
 import { NotificationService } from '../../../core/services/notification.service';
 import { formatBlocklistNotice } from '../../../shared/blocklist-notice';
 import { AuthService } from '../../../core/services/auth.service';
+import { CollaboratorPhotoComponent } from '../../../shared/collaborator-photo/collaborator-photo.component';
 import { ModalComponent } from '../../../shared/modal/modal.component';
+import { ActionBtnComponent } from '../../../shared/actions';
 import {
   BulkImportApiAdapter,
   ServiceAccessBulkImportWizardComponent,
@@ -93,6 +95,8 @@ function maskDocument(document: string): string {
     FormsModule,
     RouterLink,
     ModalComponent,
+    CollaboratorPhotoComponent,
+    ActionBtnComponent,
     ServiceAccessBulkImportWizardComponent,
   ],
   styleUrl: './event-collaborators.component.scss',
@@ -398,6 +402,15 @@ function maskDocument(document: string): string {
                   Credenciais
                   <span class="count-pill">{{ companyCredentials().length }}</span>
                 </h2>
+                <button
+                  *ngIf="canManageCompany()"
+                  type="button"
+                  class="btn-action-secondary"
+                  [disabled]="companyCredentials().length === 0"
+                  (click)="removerTodasCredenciais()"
+                >
+                  Remover todos
+                </button>
               </div>
               <div class="tbl-scroll" *ngIf="companyCredentials().length > 0; else noCreds">
                 <table class="tbl">
@@ -408,6 +421,7 @@ function maskDocument(document: string): string {
                       <th>Dia / fase</th>
                       <th>Função</th>
                       <th>Status</th>
+                      <th *ngIf="canManageCompany()"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -426,6 +440,14 @@ function maskDocument(document: string): string {
                           {{ cred.access_status_description }}
                         </span>
                       </td>
+                      <td *ngIf="canManageCompany()" class="td-actions">
+                        <app-action-btn
+                          icon="delete"
+                          title="Remover"
+                          variant="danger"
+                          (action)="removerCredencial(cred)"
+                        />
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -441,6 +463,15 @@ function maskDocument(document: string): string {
                   Veículos vinculados
                   <span class="count-pill">{{ companyVehicles().length }}</span>
                 </h2>
+                <button
+                  *ngIf="canManageCompany()"
+                  type="button"
+                  class="btn-action-secondary"
+                  [disabled]="companyVehicles().length === 0"
+                  (click)="removerTodosVeiculos()"
+                >
+                  Remover todos
+                </button>
               </div>
               <div class="tbl-scroll" *ngIf="companyVehicles().length > 0; else noVeics">
                 <table class="tbl">
@@ -460,13 +491,12 @@ function maskDocument(document: string): string {
                       <td>{{ v.color || '—' }}</td>
                       <td>{{ v.access_status_description || '—' }}</td>
                       <td *ngIf="canManageCompany()" class="td-actions">
-                        <button
-                          type="button"
-                          class="btn btn--ghost btn--sm"
-                          (click)="removerVeiculoEvento(v)"
-                        >
-                          Remover
-                        </button>
+                        <app-action-btn
+                          icon="delete"
+                          title="Remover"
+                          variant="danger"
+                          (action)="removerVeiculoEvento(v)"
+                        />
                       </td>
                     </tr>
                   </tbody>
@@ -522,6 +552,15 @@ function maskDocument(document: string): string {
           <div class="field">
             <label class="label" for="nc-name">Nome completo</label>
             <input id="nc-name" class="input" [(ngModel)]="colabForm.name" name="ncName" />
+          </div>
+          <div class="field">
+            <label class="label">Foto (opcional)</label>
+            <app-collaborator-photo
+              size="md"
+              mode="deferred"
+              [name]="colabForm.name"
+              (fileReady)="pendingColabPicture = $event"
+            />
           </div>
           <div class="field">
             <label class="label" for="nc-role">Função</label>
@@ -646,6 +685,7 @@ export class EventCollaboratorsComponent implements OnInit {
     rg: '',
     phone: '',
   };
+  pendingColabPicture: File | null = null;
   veicForm = {
     plate: '',
     brand: '',
@@ -1201,9 +1241,16 @@ export class EventCollaboratorsComponent implements OnInit {
   }
 
   private finishIndividualSuccess() {
-    this.resetIndividualState();
-    this.wizardStep.set(1);
-    this.selectedLinkIds.set([]);
+    this.leaveWizardToEvent();
+  }
+
+  private leaveWizardToEvent() {
+    const eventId = this.event()?.id_event;
+    if (!eventId) {
+      void this.router.navigate(['/admin/eventos']);
+      return;
+    }
+    void this.router.navigate(['/admin/eventos', eventId]);
   }
 
   private vincularColaboradorEmFases(
@@ -1331,10 +1378,72 @@ export class EventCollaboratorsComponent implements OnInit {
     });
   }
 
+  removerCredencial(cred: CredentialItem) {
+    if (!this.canManageCompany()) return;
+    const name = cred.collaborator?.name || 'colaborador';
+    const day = this.credDayLabel(cred);
+    Swal.fire({
+      title: 'Remover colaborador?',
+      text: `Remover ${name} de ${day}?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Remover',
+      cancelButtonText: 'Cancelar',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.credentialService.delete(cred.id_event_day_company_collaborator).subscribe({
+        next: () => {
+          this.notification.success('Colaborador removido.');
+          const eventId = this.event()?.id_event;
+          if (eventId) this.carregarCredenciais(eventId);
+        },
+        error: (err) => this.notification.notifyHttpError(err, 'Falha ao remover colaborador.'),
+      });
+    });
+  }
+
+  removerTodasCredenciais() {
+    const ev = this.event();
+    const companyId = this.companyId();
+    const n = this.companyCredentials().length;
+    if (!ev || companyId == null || n === 0 || !this.canManageCompany()) return;
+    Swal.fire({
+      title: 'Remover todos?',
+      text: `Remover ${n} credencial${n > 1 ? 'is' : ''} desta empresa no evento?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Remover todos',
+      cancelButtonText: 'Cancelar',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.eventService.removeCompanyCredentials(ev.id_event, companyId).subscribe({
+        next: (res) => {
+          if (res.removed > 0 && res.skipped > 0) {
+            this.notification.success(
+              `${res.removed} removida${res.removed > 1 ? 's' : ''}. ${res.skipped} não puderam ser removidas (já no local).`,
+            );
+          } else if (res.removed > 0) {
+            this.notification.success(
+              res.removed === 1
+                ? 'Colaborador removido.'
+                : `${res.removed} colaboradores removidos.`,
+            );
+          } else if (res.skipped > 0) {
+            this.notification.error(
+              'Nenhum colaborador pôde ser removido: há pessoas no local.',
+            );
+          }
+          this.carregarCredenciais(ev.id_event);
+        },
+        error: (err) => this.notification.notifyHttpError(err, 'Falha ao remover colaboradores.'),
+      });
+    });
+  }
+
   removerVeiculoEvento(v: EventCompanyVehicleItem) {
     const ev = this.event();
     const companyId = this.companyId();
-    if (!ev || companyId == null) return;
+    if (!ev || companyId == null || !this.canManageCompany()) return;
     Swal.fire({
       title: 'Remover veículo?',
       text: `Remover ${v.plate} deste evento?`,
@@ -1351,6 +1460,37 @@ export class EventCollaboratorsComponent implements OnInit {
           this.refreshVehicleCounts(ev.id_event);
         },
         error: (err) => this.notification.notifyHttpError(err, 'Falha ao remover veículo.'),
+      });
+    });
+  }
+
+  removerTodosVeiculos() {
+    const ev = this.event();
+    const companyId = this.companyId();
+    const n = this.companyVehicles().length;
+    if (!ev || companyId == null || n === 0 || !this.canManageCompany()) return;
+    Swal.fire({
+      title: 'Remover todos?',
+      text: `Remover ${n} veículo${n > 1 ? 's' : ''} desta empresa no evento?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Remover todos',
+      cancelButtonText: 'Cancelar',
+    }).then((result) => {
+      if (!result.isConfirmed) return;
+      this.eventService.removeCompanyVehicles(ev.id_event, companyId).subscribe({
+        next: (res) => {
+          if (res.removed > 0) {
+            this.notification.success(
+              res.removed === 1
+                ? 'Veículo removido.'
+                : `${res.removed} veículos removidos.`,
+            );
+          }
+          this.carregarVeiculosEmpresa(companyId);
+          this.refreshVehicleCounts(ev.id_event);
+        },
+        error: (err) => this.notification.notifyHttpError(err, 'Falha ao remover veículos.'),
       });
     });
   }
@@ -1385,15 +1525,7 @@ export class EventCollaboratorsComponent implements OnInit {
   }
 
   onEventBulkCompleted() {
-    const ev = this.event();
-    const companyId = this.companyId();
-    if (!ev) return;
-    this.carregarCredenciais(ev.id_event);
-    if (companyId != null) this.carregarVeiculosEmpresa(companyId);
-    this.refreshVehicleCounts(ev.id_event);
-    this.wizardStep.set(1);
-    this.selectedLinkIds.set([]);
-    this.bulkWizard?.reset();
+    this.leaveWizardToEvent();
   }
 
   abrirModalNovoColab() {
@@ -1407,11 +1539,13 @@ export class EventCollaboratorsComponent implements OnInit {
       rg: '',
       phone: '',
     };
+    this.pendingColabPicture = null;
     this.showColabModal.set(true);
   }
 
   fecharModalNovoColab() {
     this.showColabModal.set(false);
+    this.pendingColabPicture = null;
   }
 
   salvarNovoColaborador() {
@@ -1442,12 +1576,26 @@ export class EventCollaboratorsComponent implements OnInit {
       })
       .subscribe({
         next: (res) => {
-          this.colabSaving.set(false);
-          this.fecharModalNovoColab();
-          this.selectedColab.set(res.collaborator);
-          this.selectedColabRoleId = form.id_collaborator_role;
-          this.notification.success('Colaborador cadastrado. Confirme no próximo passo.');
-          this.cdr.markForCheck();
+          const finish = (col: CollaboratorItem) => {
+            this.colabSaving.set(false);
+            this.fecharModalNovoColab();
+            this.selectedColab.set(col);
+            this.selectedColabRoleId = form.id_collaborator_role;
+            this.notification.success('Colaborador cadastrado. Confirme no próximo passo.');
+            this.cdr.markForCheck();
+          };
+          const file = this.pendingColabPicture;
+          if (!file) {
+            finish(res.collaborator);
+            return;
+          }
+          this.collaboratorService.uploadPicture(res.collaborator.id_collaborator, file).subscribe({
+            next: (up) => finish(up.collaborator || res.collaborator),
+            error: (err) => {
+              this.notification.notifyHttpError(err, 'Colaborador salvo, mas a foto não foi enviada.');
+              finish(res.collaborator);
+            },
+          });
         },
         error: (err) => {
           this.colabSaving.set(false);

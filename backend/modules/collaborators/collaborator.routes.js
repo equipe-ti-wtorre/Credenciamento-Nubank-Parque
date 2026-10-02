@@ -1,6 +1,5 @@
 const express = require("express");
 const collaboratorController = require("./collaborator.controller");
-const documentChangeController = require("./document-change.controller");
 const domainRoutes = require("./domain.routes");
 const { authMiddleware } = require("../../middleware/authMiddleware");
 const {
@@ -14,9 +13,14 @@ const auth = authMiddleware;
 const canView = [auth, authorizePermission("collaborators", "view")];
 const canCreate = [auth, authorizePermission("collaborators", "create")];
 const canEdit = [auth, authorizePermission("collaborators", "edit")];
+const canUploadPicture = [
+  auth,
+  authorizeAnyPermission([
+    { modulo: "collaborators", acao: "edit" },
+    { modulo: "collaborators", acao: "create" },
+  ]),
+];
 const canDelete = [auth, authorizePermission("collaborators", "delete")];
-const docApprovalsView = [auth, authorizePermission("document_approvals", "view")];
-const docApprovalsEdit = [auth, authorizePermission("document_approvals", "edit")];
 const canSearch = [
   auth,
   authorizeAnyPermission([
@@ -58,21 +62,6 @@ router.post(
   collaboratorController.bulkCreate,
 );
 router.get(
-  "/document-change/pending/count",
-  ...docApprovalsView,
-  documentChangeController.countPending,
-);
-router.get(
-  "/document-change/pending",
-  ...docApprovalsView,
-  documentChangeController.listPending,
-);
-router.patch(
-  "/document-change/:id/status",
-  ...docApprovalsEdit,
-  documentChangeController.patchStatus,
-);
-router.get(
   "/:id/access-details",
   ...canView,
   collaboratorController.getAccessDetails,
@@ -81,7 +70,7 @@ router.get("/:id", ...canView, collaboratorController.getById);
 router.post("/", ...canCreate, collaboratorController.create);
 router.post(
   "/:id/picture",
-  ...canEdit,
+  ...canUploadPicture,
   pictureUploadMiddleware,
   collaboratorController.uploadPicture,
 );
@@ -90,11 +79,6 @@ router.get("/:id/facial-status", ...canView, collaboratorController.getFacialSta
 router.post("/:id/facial-enroll", ...canEdit, collaboratorController.facialEnroll);
 router.post("/:id/facial-revoke", ...canEdit, collaboratorController.facialRevoke);
 router.post("/:id/facial-retry", ...canEdit, collaboratorController.facialRetry);
-router.post(
-  "/:id/document-change",
-  ...canCreate,
-  documentChangeController.create,
-);
 router.put("/:id", ...canEdit, collaboratorController.update);
 router.patch("/:id/status", ...canEdit, collaboratorController.patchStatus);
 router.delete("/:id", ...canDelete, collaboratorController.deleteCollaborator);

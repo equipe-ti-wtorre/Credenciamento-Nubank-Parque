@@ -59,13 +59,18 @@ function isWebhookRoute(req) {
   return /^\/api\/(?:v1\/)?webhooks(?:\/|$)/.test(requestPath(req));
 }
 
+function isClientErrorLogRoute(req) {
+  return /^\/api\/(?:v1\/)?error-logs\/client(?:\/|$)/.test(requestPath(req));
+}
+
 function skipGlobalLimit(req) {
   return (
     isAuthRoute(req) ||
     isHealthRoute(req) ||
     isStorageRoute(req) ||
     isFacialGatewayRoute(req) ||
-    isWebhookRoute(req)
+    isWebhookRoute(req) ||
+    isClientErrorLogRoute(req)
   );
 }
 
@@ -125,14 +130,27 @@ function buildMicrosoftAuthLimiter() {
   });
 }
 
+function buildClientErrorLimiter() {
+  if (env.rateLimitDisabled) return noopLimiter;
+
+  return rateLimit({
+    ...limiterOptions,
+    windowMs: env.rateLimitClientErrorWindowMs,
+    max: env.rateLimitClientErrorMax,
+    message: { message: "Muitas requisições." },
+  });
+}
+
 const globalLimiter = buildGlobalLimiter();
 const authLimiter = buildAuthLimiter();
 const microsoftAuthLimiter = buildMicrosoftAuthLimiter();
+const clientErrorLimiter = buildClientErrorLimiter();
 
 module.exports = {
   globalLimiter,
   authLimiter,
   microsoftAuthLimiter,
+  clientErrorLimiter,
   clientKey,
   globalKey,
   isAuthRoute,

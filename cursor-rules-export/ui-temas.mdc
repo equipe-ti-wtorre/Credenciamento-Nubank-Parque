@@ -1,0 +1,65 @@
+---
+description: Temas wtorre e nubank-parque — tokens semânticos, sem hex em tela
+globs: "**/*.{ts,html,scss}"
+alwaysApply: false
+---
+
+# Temas e tokens
+
+Fonte única: folha de tokens (`_tokens.scss`). A paleta ativa é `html[data-theme]`, escolhida em **Configurações → Aparência** (exatamente 2 cards). `ThemeService` aplica o atributo, grava cache e sincroniza com a API de aparência.
+
+## Paletas permitidas
+
+| `data-theme` | Paleta |
+|--------------|--------|
+| `wtorre` (padrão) | Azul institucional |
+| `nubank-parque` | Core Purple + verde de status |
+
+Proibido inventar tema extra (Oceano, Âmbar, Grafite, dark genérico).
+
+## Marca (usar estes, nunca hex)
+
+| Token | WTorre | Nubank | Uso |
+|-------|--------|--------|-----|
+| `--brand` / `--wtorre` | `#1d54e6` | `#8d0de3` | CTA, link, foco, dropzone |
+| `--brand-hover` / `--wtorre-hover` | `#1442ba` | `#7209bd` | Hover / pressed |
+| `--brand-tonal-bg` / `--wtorre-tonal-bg` | `#e8eefd` | `#ecdfff` | Fundo tonal |
+| `--brand-focus-ring` | mix 25% | mix 25% | Halo de foco |
+
+Perigo (igual nas duas): `--danger` `#e11d48`, `--danger-soft-bg` `#fff1f2`, `--danger-border` `#fecdd3`.
+
+## Superfície, tipo e forma
+
+- Fundo: `--app-bg` (WTorre `#f1f5f9`, Nubank `#f4f1f8`); borda `--app-border`; texto `--text-primary` / `--text-muted`
+- Display: `--font-display` (Sora). Corpo: `--font-body` (Plus Jakarta Sans)
+- Campo: `--form-field-height` ~42px, `--form-radius` 0.75rem
+
+## Nubank — só quando a tela exigir tinta
+
+Preferir `--brand*`. `--core-purple` / `--purple-*` / `--green-*` ficam para login ou tinta/premium.
+
+- `--purple-900` / `--brand-ink` `#420465` — títulos fortes
+- `--purple-1000` / `--premium` `#1e002f` — área premium. **Nunca no menu**
+- `--success*` e `--menu-status` — status. Não competem com o CTA
+- `--warning` `#b45309`, `--warning-soft-bg` `#fef3e2`
+
+## Logos
+
+| Paleta | Asset |
+|--------|-------|
+| WTorre | `assets/logo.svg` (mark: `assets/wt-mark.svg`) |
+| Nubank, fundo escuro | `assets/logo-nubank-parque-negativo.png` |
+| Nubank, wordmark roxo | `assets/logo-nubank-parque.png` |
+
+## Regras
+
+1. Componente novo usa `--brand` / `--wtorre*` / `--danger` / `--success*`.
+2. Não redefinir `--brand` em `:host`.
+3. Mudar paleta no arquivo de tokens ou em Aparência, nunca com CSS por página.
+
+```scss
+/* ruim */
+.btn { background: #8d0de3; }
+/* bom */
+.btn { background: var(--brand); }
+```

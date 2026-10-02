@@ -55,6 +55,27 @@ exports.create = async (req, res, next) => {
   }
 };
 
+exports.remove = async (req, res, next) => {
+  try {
+    const result = await credentialsService.deleteCredential(req, req.params.id);
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "credentials",
+      event: "credentials.delete",
+      resource: {
+        type: "credential",
+        id: result.id_event_day_company_collaborator,
+        id_collaborator: result.id_collaborator,
+      },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.patchStatus = async (req, res, next) => {
   try {
     const { error, value } = credentialStatusSchema.validate(req.body);

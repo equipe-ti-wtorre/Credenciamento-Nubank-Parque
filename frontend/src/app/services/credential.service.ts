@@ -105,6 +105,14 @@ export class CredentialService {
   ): Observable<{ credential: CredentialItem }> {
     return this.api.patch<{ credential: CredentialItem }>(`/credentials/${id}/status`, data);
   }
+
+  delete(id: number): Observable<{
+    removed: boolean;
+    id_event_day_company_collaborator: number;
+    id_collaborator: number;
+  }> {
+    return this.api.delete(`/credentials/${id}`);
+  }
 }
 
 export function statusBadgeClass(statusId: number): string {

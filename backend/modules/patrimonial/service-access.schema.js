@@ -1,5 +1,12 @@
 const Joi = require("joi");
 
+const scheduleType = Joi.string().valid("MANUAL", "COMERCIAL", "NOTURNO");
+const scheduleTime = Joi.string()
+  .trim()
+  .pattern(/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/)
+  .allow("", null)
+  .optional();
+
 const serviceAccessCreateSchema = Joi.object({
   id_company: Joi.number().integer().positive().optional(),
   id_setor: Joi.number().integer().positive().required(),
@@ -14,6 +21,9 @@ const serviceAccessCreateSchema = Joi.object({
     "string.empty": "Informe a descrição do serviço.",
     "any.required": "Informe a descrição do serviço.",
   }),
+  schedule_type: scheduleType.required(),
+  schedule_start: scheduleTime,
+  schedule_end: scheduleTime,
   notificar_entrada: Joi.boolean().optional(),
   notificar_entrada_colaborador: Joi.boolean().optional(),
   notificar_entrada_veiculo: Joi.boolean().optional(),
@@ -27,6 +37,9 @@ const serviceAccessUpdateSchema = Joi.object({
   requesting_department: Joi.string().trim().max(200).optional(),
   observacao: Joi.string().trim().max(500).allow("", null).optional(),
   id_setor: Joi.number().integer().positive().optional(),
+  schedule_type: scheduleType.optional(),
+  schedule_start: scheduleTime,
+  schedule_end: scheduleTime,
   notificar_entrada: Joi.boolean().optional(),
   notificar_entrada_colaborador: Joi.boolean().optional(),
   notificar_entrada_veiculo: Joi.boolean().optional(),

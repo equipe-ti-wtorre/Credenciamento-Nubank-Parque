@@ -1,13 +1,14 @@
 :host {
   display: block;
+  width: 100%;
 
   --mm-purple-900: var(--purple-900, var(--brand-ink, #420465));
   --mm-ink-soft: var(--text-muted, #6b5b83);
 }
 
 .wrap {
-  max-width: 1060px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
 }
 
 .page-head {

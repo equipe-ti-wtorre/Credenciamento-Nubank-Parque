@@ -1,5 +1,5 @@
 const AppError = require("../../utils/AppError");
-const { attachAudit } = require("../../utils/auditLogger");
+const { attachAudit, skipAudit } = require("../../utils/auditLogger");
 const materialsService = require("./materials.service");
 const invoiceOcrService = require("./materials-invoice-ocr.service");
 const {
@@ -10,6 +10,11 @@ const {
   movementPayloadSchema,
   historyQuerySchema,
   dashboardQuerySchema,
+  lookupPlateQuerySchema,
+  externalSuggestQuerySchema,
+  externalListQuerySchema,
+  externalPatchSchema,
+  externalMergeSchema,
 } = require("./materials.schema");
 
 function parseMovementPayload(req) {
@@ -161,15 +166,30 @@ function movementFiles(req) {
   return req.file ? [req.file] : [];
 }
 
+exports.lookupPlate = async (req, res, next) => {
+  try {
+    const { error, value } = lookupPlateQuerySchema.validate(req.query);
+    if (error) throw new AppError(error.details[0].message, 400);
+    res.json(await materialsService.lookupPlate(req, value.plate));
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.movementIn = async (req, res, next) => {
   try {
     const payload = parseMovementPayload(req);
-    const movement = await materialsService.createMovement(
+    const { movement, replayed } = await materialsService.createMovement(
       req,
       "ENTRADA",
       payload,
       movementFiles(req),
     );
+    if (replayed) {
+      skipAudit(req);
+      res.status(200).json({ movement });
+      return;
+    }
     attachAudit(req, {
       action: "CREATE",
       module: "materials",
@@ -185,12 +205,17 @@ exports.movementIn = async (req, res, next) => {
 exports.movementOut = async (req, res, next) => {
   try {
     const payload = parseMovementPayload(req);
-    const movement = await materialsService.createMovement(
+    const { movement, replayed } = await materialsService.createMovement(
       req,
       "SAIDA",
       payload,
       movementFiles(req),
     );
+    if (replayed) {
+      skipAudit(req);
+      res.status(200).json({ movement });
+      return;
+    }
     attachAudit(req, {
       action: "CREATE",
       module: "materials",
@@ -199,6 +224,14 @@ exports.movementOut = async (req, res, next) => {
     });
     res.status(201).json({ movement });
   } catch (err) {
+    if (err instanceof AppError && err.statusCode === 400 && /saldo insuficiente/i.test(err.message)) {
+      attachAudit(req, {
+        action: "CREATE",
+        module: "materials",
+        event: "material.movement.out.rejected",
+        metadata: { reason: err.message },
+      });
+    }
     next(err);
   }
 };
@@ -206,6 +239,14 @@ exports.movementOut = async (req, res, next) => {
 exports.getStock = async (req, res, next) => {
   try {
     res.json(await materialsService.getStock(req));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getStockReconcile = async (req, res, next) => {
+  try {
+    res.json(await materialsService.getStockReconcile(req));
   } catch (err) {
     next(err);
   }
@@ -226,6 +267,61 @@ exports.getDashboard = async (req, res, next) => {
     const { error, value } = dashboardQuerySchema.validate(req.query);
     if (error) throw new AppError(error.details[0].message, 400);
     res.json(await materialsService.getDashboard(req, value));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.suggestExternalCompanies = async (req, res, next) => {
+  try {
+    const { error, value } = externalSuggestQuerySchema.validate(req.query);
+    if (error) throw new AppError(error.details[0].message, 400);
+    res.json(await materialsService.suggestExternalCompanies(req, value.q));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.listExternalCompanies = async (req, res, next) => {
+  try {
+    const { error, value } = externalListQuerySchema.validate(req.query);
+    if (error) throw new AppError(error.details[0].message, 400);
+    res.json(await materialsService.listExternalCompanies(req, value));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.patchExternalCompany = async (req, res, next) => {
+  try {
+    const { error, value } = externalPatchSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const company = await materialsService.patchExternalCompany(req, req.params.id, value);
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "materials",
+      event: "materials.external_company.patch",
+      resource: { type: "external_company", id: company.id_external_company },
+    });
+    res.json({ company });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.mergeExternalCompanies = async (req, res, next) => {
+  try {
+    const { error, value } = externalMergeSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const company = await materialsService.mergeExternalCompanies(req, req.params.id, value.id_target);
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "materials",
+      event: "materials.external_company.merge",
+      resource: { type: "external_company", id: company.id_external_company },
+      metadata: { id_source: Number(req.params.id) },
+    });
+    res.json({ company });
   } catch (err) {
     next(err);
   }

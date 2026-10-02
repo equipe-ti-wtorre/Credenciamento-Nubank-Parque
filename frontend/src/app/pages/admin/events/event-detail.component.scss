@@ -23,11 +23,12 @@
   --err: #dc2626;
   --err-tint: #fef2f2;
   display: block;
+  width: 100%;
 }
 
 .ev-page {
-  max-width: 1120px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
   color: var(--ink);
 }
 
@@ -48,6 +49,115 @@
   border-radius: var(--radius-card);
   padding: 22px 24px 20px;
   margin-bottom: 22px;
+}
+
+.evhead__hero {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.evhead__cover {
+  position: relative;
+  min-height: 140px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #efe9f5;
+}
+
+.evhead__cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 38%;
+  display: block;
+}
+
+.evhead__cover-ph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.evhead__body {
+  min-width: 0;
+}
+
+
+.wcrt-cover {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wcrt-cover__preview {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f4f6fb;
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.wcrt-cover__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wcrt-cover__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wcrt-cover__pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wcrt-cover__pick input {
+  display: none;
+}
+
+.wcrt-cover__clear {
+  border: 0;
+  background: none;
+  color: var(--err);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+@media (max-width: 720px) {
+  .evhead__hero {
+    grid-template-columns: 1fr;
+  }
+  .evhead__cover {
+    min-height: 180px;
+  }
 }
 
 .evhead__top {
@@ -935,6 +1045,92 @@ select.select {
   }
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:host ::ng-deep app-modal .modal-panel--xl:has(.event-edit-form--step1) {
+  max-width: min(760px, calc(100vw - 32px));
+  width: 100%;
+}
+
+:host ::ng-deep app-modal .modal-header:has(.ev-edit-steps) {
+  padding-bottom: 0;
+}
+
+:host ::ng-deep app-modal .modal-panel:has(.event-edit-form--step1) .modal-body {
+  padding: 20px 24px 24px;
+}
+
+:host ::ng-deep app-modal .modal-panel:has(.event-edit-form--step1) .modal-header__subtitle {
+  max-width: 56ch;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4a4358;
+}
+
+:host ::ng-deep .ev-edit-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 18px 0 0;
+  padding: 0 0 18px;
+  border-bottom: 1px solid #e3e0e9;
+}
+
+.ev-edit-step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  color: #7b7489;
+}
+
+.ev-edit-step b {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  background: #faf9fc;
+  border: 1px solid #cfcad9;
+  color: #7b7489;
+}
+
+.ev-edit-step.on,
+.ev-edit-step.done {
+  color: #1e002f;
+  font-weight: 600;
+}
+
+.ev-edit-step.on b,
+.ev-edit-step.done b {
+  background: #8d0de3;
+  border-color: #8d0de3;
+  color: #fff;
+}
+
+.ev-edit-step-line {
+  flex: 1;
+  height: 1px;
+  background: #cfcad9;
+}
+
+.ev-edit-step-line.done {
+  background: #8d0de3;
+}
+
 .event-edit-form {
   display: flex;
   flex-direction: column;
@@ -943,7 +1139,214 @@ select.select {
 }
 
 .event-edit-form .field {
+  margin-bottom: 18px;
+}
+
+.event-edit-form .field:last-child {
   margin-bottom: 0;
+}
+
+.event-edit-form .label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #1e002f;
+}
+
+.event-edit-form .select {
+  height: 42px;
+  border: 1px solid #cfcad9;
+  border-radius: 8px;
+}
+
+.event-edit-form .select:hover {
+  border-color: #b4aec4;
+}
+
+.event-edit-form .select:focus {
+  outline: none;
+  border-color: var(--brand, #8d0de3);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand, #8d0de3) 16%, transparent);
+}
+
+.ev-edit-opt {
+  font-weight: 400;
+  color: #7b7489;
+}
+
+.ev-edit-hint {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #7b7489;
+}
+
+.ev-edit-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 316px;
+  gap: 24px;
+  align-items: start;
+}
+
+.ev-edit-body--solo {
+  grid-template-columns: 1fr;
+}
+
+.ev-edit-main,
+.ev-edit-cal {
+  min-width: 0;
+}
+
+.ev-edit-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: #f7f0fe;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+
+.ev-edit-note svg {
+  flex: 0 0 16px;
+  margin-top: 2px;
+  color: #8d0de3;
+}
+
+.ev-edit-note p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #420465;
+}
+
+.ev-photo {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.ev-photo__thumb {
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  border: 1px solid #e3e0e9;
+  background: #faf9fc;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: #7b7489;
+}
+
+.ev-photo__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ev-photo__meta {
+  min-width: 0;
+}
+
+.ev-photo__name {
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ev-photo__sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #7b7489;
+}
+
+.ev-photo__acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ev-photo__mini {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: #fff;
+  color: #1e002f;
+  border: 1px solid #cfcad9;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.ev-photo__mini:hover {
+  background: #faf9fc;
+}
+
+.ev-photo__mini--ghost {
+  border-color: transparent;
+  color: #7b7489;
+}
+
+.ev-photo__mini--ghost:hover {
+  color: #b3261e;
+  background: #fceceb;
+}
+
+:host ::ng-deep .ev-edit-foot {
+  justify-content: space-between;
+  background: #faf9fc;
+  padding: 16px 24px;
+}
+
+:host ::ng-deep .ev-edit-foot .btn-action-primary,
+:host ::ng-deep .ev-edit-foot .btn-action-secondary {
+  height: 44px;
+  min-width: 124px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font-size: 14.5px;
+}
+
+.ev-edit-foot__prog {
+  font-size: 13px;
+  color: #7b7489;
+}
+
+.ev-edit-foot__acts {
+  display: flex;
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .ev-edit-body {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  :host ::ng-deep .ev-edit-foot {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .ev-edit-foot__acts {
+    flex-direction: column-reverse;
+  }
+
+  .ev-edit-foot__prog {
+    text-align: center;
+  }
+
+  :host ::ng-deep .ev-edit-foot .btn-action-primary,
+  :host ::ng-deep .ev-edit-foot .btn-action-secondary {
+    width: 100%;
+  }
 }
 
 /* Passo 2: caber calendário + lista sem scroll horizontal no modal */
@@ -1078,49 +1481,3 @@ select.select {
   font-size: 0.875rem;
 }
 
-.event-edit-form ::ng-deep app-periodo-range-picker,
-.event-edit-form ::ng-deep .prp {
-  display: block;
-  width: 100%;
-}
-
-.event-edit-form ::ng-deep .prp-panel {
-  width: 100%;
-  padding: 10px 10px 8px;
-  border-radius: 12px;
-}
-
-.event-edit-form ::ng-deep .prp-nav {
-  margin-bottom: 8px;
-}
-
-.event-edit-form ::ng-deep .prp-nav__title {
-  font-size: 0.8125rem;
-}
-
-.event-edit-form ::ng-deep .prp-nav__btn {
-  width: 28px;
-  height: 28px;
-}
-
-.event-edit-form ::ng-deep .prp-weekdays span {
-  font-size: 0.6875rem;
-  padding: 2px 0;
-}
-
-.event-edit-form ::ng-deep .prp-day {
-  aspect-ratio: auto;
-  height: 34px;
-  font-size: 0.8125rem;
-  border-radius: 8px;
-}
-
-.event-edit-form ::ng-deep .prp-foot {
-  margin-top: 8px;
-  padding-top: 8px;
-}
-
-.event-edit-form ::ng-deep .prp-foot__label,
-.event-edit-form ::ng-deep .prp-clear {
-  font-size: 0.75rem;
-}

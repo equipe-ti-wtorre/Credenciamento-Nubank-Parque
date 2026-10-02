@@ -1,0 +1,94 @@
+---
+description: Arquitetura do back Node/Express 5 — módulos por domínio, camadas, erros, transação, migração
+globs: "backend/**/*.js"
+alwaysApply: false
+---
+
+# Back-end Node.js + Express 5
+
+CommonJS. Express 5: controller `async` sem `try/catch` nem `express-async-handler`; erro propaga para o middleware. MySQL via `mysql2/promise`. Validação Joi. Log Pino (nunca `console.log`). Helmet, CORS, rate limit, JWT. Prefixo `/api/v1`.
+
+## Pastas
+
+```
+backend/
+├── src/
+│   ├── app.js / server.js
+│   ├── config/env.js             # env validado com Joi na partida
+│   ├── db/pool.js, db/transaction.js
+│   ├── middlewares/              # authMiddleware, authorizePermission, validate, error-handler
+│   ├── shared/                   # errors.js, logger.js
+│   └── modules/<dominio>/
+│       ├── <dominio>.routes.js
+│       ├── <dominio>.controller.js
+│       ├── <dominio>.service.js
+│       ├── <dominio>.repository.js
+│       └── <dominio>.schema.js
+├── migrations/                   # Knex (SQL puro via knex.raw é ok)
+└── tests/
+```
+
+## Camadas
+
+| Arquivo | Faz | Nunca faz |
+|---------|-----|-----------|
+| routes | `authMiddleware` → `authorizePermission(modulo, acao)` → `validate(schema.x)` → controller | Lógica |
+| controller | Lê `req`, chama service, responde (201 criação, 204 sem corpo) | SQL, regra |
+| service | Regra de negócio, `withTransaction`, lança `AppError`, grava auditoria | Ver `req`/`res`, SQL |
+| repository | SQL parametrizado; todo método recebe `db = pool` | Regra |
+| schema | Joi por rota: `{ params, query, body }` | Banco |
+
+## Exemplo
+
+```js
+// routes
+router.use(authMiddleware);
+router.get('/:id', authorizePermission('colaboradores', 'view'), validate(schema.obter), ctrl.obter);
+router.post('/', authorizePermission('colaboradores', 'create'), validate(schema.criar), ctrl.criar);
+
+// controller
+criar: async (req, res) => res.status(201).json(await service.criar(req.body, req.user.id)),
+
+// service
+async function criar(dados, usuarioId) {
+  return withTransaction(async (conn) => {
+    if (await repo.buscarPorEmail(dados.email, conn)) throw new ConflictError('E-mail já cadastrado');
+    const id = await repo.inserir(dados, conn);
+    await auditoria.registrar({ acao: 'COLABORADOR_CRIADO', entidadeId: id, usuarioId }, conn);
+    return repo.buscarPorId(id, conn);
+  });
+}
+
+// repository
+async function buscarPorId(id, db = pool) {
+  const [rows] = await db.execute('SELECT * FROM colaboradores WHERE id = ?', [id]);
+  return rows[0] ? mapear(rows[0]) : null;
+}
+```
+
+A chave de `authorizePermission` é a mesma de `data.permission` no front e do item de menu (`ui-perfil`).
+
+## Erros
+
+- Lançar só classes de `shared/errors.js`: `AppError(message, status, code, details)`, `NotFoundError`, `ForbiddenError`, `ConflictError`. Criar derivadas quando preciso.
+- `error-handler.js` é o único que formata erro (contrato em `arquitetura-geral`). Desconhecido: log Pino com `err`, `path`, `user`; resposta 500 genérica.
+- `validate` responde 422 `VALIDATION` com `details` por campo e usa `stripUnknown`.
+
+## Banco
+
+- Sempre `?` parametrizado. Nunca concatenar valor em SQL, nem em `ORDER BY` (usar lista branca).
+- Tabela/coluna em `snake_case`; JS em `camelCase` — conversão no repository.
+- Escrita em mais de uma tabela (auditoria inclusa) usa `withTransaction`.
+- Mudança de schema = migração Knex com `up` e `down`. Nunca orientar alteração manual.
+
+## Configuração
+
+Variável nova entra em `config/env.js` e `.env.example`. `process.env` só é lido em `config/env.js`.
+
+## Anti-padrões
+
+- `try/catch` em controller só para devolver 500
+- `res.status(...).json({ message })` fora do error-handler
+- SQL no service ou no controller
+- Autorizar por `req.user.role`
+- `console.log`, segredo ou token em log

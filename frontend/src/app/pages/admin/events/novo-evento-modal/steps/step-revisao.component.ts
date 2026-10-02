@@ -14,7 +14,7 @@ interface ReviewDayCard {
   day: string;
   month: string;
   weekday: string;
-  tipoNome: string;
+  tipos: string[];
 }
 
 @Component({
@@ -29,8 +29,9 @@ export class NovoEventoStepRevisaoComponent {
   readonly empresaNome = input.required<string>();
   readonly dataInicio = input.required<string | null>();
   readonly dataFim = input.required<string | null>();
-  readonly dias = input.required<Map<string, number>>();
+  readonly dias = input.required<Map<string, number[]>>();
   readonly types = input.required<EventDayType[]>();
+  readonly coverPreview = input<string | null>(null);
 
   readonly periodoLabel = computed(() => {
     const s = this.dataInicio();
@@ -43,15 +44,19 @@ export class NovoEventoStepRevisaoComponent {
 
   readonly cards = computed((): ReviewDayCard[] => {
     const byId = new Map(this.types().map((t) => [t.id_event_day_type, t.description]));
+    const order = new Map(this.types().map((t, i) => [t.id_event_day_type, i]));
     return [...this.dias().entries()]
-      .map(([iso, id]) => {
+      .map(([iso, ids]) => {
         const d = parseIsoDate(iso)!;
+        const tipos = [...ids]
+          .sort((a, b) => (order.get(a) ?? a) - (order.get(b) ?? b))
+          .map((id) => byId.get(id) || '—');
         return {
           iso,
           day: pad2(d.getDate()),
           month: pad2(d.getMonth() + 1),
           weekday: DOW_LONG[d.getDay()],
-          tipoNome: byId.get(id) || '—',
+          tipos,
         };
       })
       .sort((a, b) => (a.iso < b.iso ? -1 : 1));
@@ -60,7 +65,9 @@ export class NovoEventoStepRevisaoComponent {
   readonly phaseCounts = computed(() => {
     const counts = new Map<string, number>();
     for (const c of this.cards()) {
-      counts.set(c.tipoNome, (counts.get(c.tipoNome) || 0) + 1);
+      for (const nome of c.tipos) {
+        counts.set(nome, (counts.get(nome) || 0) + 1);
+      }
     }
     return this.types()
       .map((t) => ({ nome: t.description, n: counts.get(t.description) || 0 }))

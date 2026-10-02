@@ -66,5 +66,27 @@
         </select>
       </div>
     </div>
+    <div class="field">
+      <span class="field__label">Foto do evento</span>
+      <p class="field__help">Identifica o evento na lista. JPEG, PNG ou WebP, até 2 MB.</p>
+      <div class="wcrt-cover">
+        <div class="wcrt-cover__preview" [class.empty]="!coverPreview()">
+          @if (coverPreview()) {
+            <img [src]="coverPreview()" alt="Prévia da capa" />
+          } @else {
+            <span>Sem foto</span>
+          }
+        </div>
+        <div class="wcrt-cover__actions">
+          <label class="wcrt-cover__pick">
+            <input type="file" accept="image/jpeg,image/png,image/webp" (change)="coverPick.emit($event)" />
+            {{ coverPreview() ? 'Trocar foto' : 'Escolher foto' }}
+          </label>
+          @if (coverPreview()) {
+            <button type="button" class="wcrt-cover__clear" (click)="coverClear.emit()">Remover</button>
+          }
+        </div>
+      </div>
+    </div>
   </div>
 </div>

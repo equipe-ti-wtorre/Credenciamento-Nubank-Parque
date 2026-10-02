@@ -4,13 +4,13 @@
 
 .two {
   display: grid;
-  grid-template-columns: minmax(300px, 336px) 1fr;
-  gap: 30px;
+  grid-template-columns: minmax(280px, 320px) 1fr;
+  gap: 24px;
   align-items: start;
 }
 
 .field {
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 
   &:last-child {
     margin-bottom: 0;
@@ -101,7 +101,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 .period__box {
@@ -146,4 +146,70 @@
   .fields-row {
     grid-template-columns: 1fr;
   }
+}
+
+.field__help {
+  margin: -2px 0 8px;
+  font-size: 12px;
+  color: var(--ink-3, #64748b);
+}
+
+.wcrt-cover {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wcrt-cover__preview {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f4f6fb;
+  border: 1px solid var(--line, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3, #64748b);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.wcrt-cover__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wcrt-cover__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wcrt-cover__pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong, #cbd5e1);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wcrt-cover__pick input {
+  display: none;
+}
+
+.wcrt-cover__clear {
+  border: 0;
+  background: none;
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
 }

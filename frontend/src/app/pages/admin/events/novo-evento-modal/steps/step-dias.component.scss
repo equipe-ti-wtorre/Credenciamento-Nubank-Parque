@@ -12,8 +12,8 @@
 
 .two {
   display: grid;
-  grid-template-columns: minmax(300px, 336px) 1fr;
-  gap: 30px;
+  grid-template-columns: minmax(280px, 320px) 1fr;
+  gap: 24px;
   align-items: start;
 }
 
@@ -143,6 +143,12 @@
   background: #fff;
 }
 
+.dayrow__bars {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
 .dayrow__bar {
   width: 4px;
   height: 26px;
@@ -178,36 +184,63 @@
   }
 }
 
-.dayrow__sel {
+.dayrow__chips {
   flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
 
-  .select {
-    width: 100%;
-    height: 34px;
-    font-size: 13px;
-    padding: 0 12px;
-    padding-right: 34px;
-    border: 1px solid var(--line, #e2e8f0);
-    border-radius: 10px;
-    appearance: none;
-    display: flex;
-    align-items: center;
-    line-height: 1.25;
-    background: #fff
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E")
-      no-repeat right 12px center;
-    font-family: var(--font-body);
-    cursor: pointer;
+.daychip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 3px 6px 3px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid;
+  line-height: 1.2;
 
-    @supports (appearance: base-select) {
-      appearance: base-select;
-      background-image: none;
+  &[data-tipo='Montagem'] {
+    background: var(--t-montagem-tint);
+    border-color: #fde9c8;
+    color: #b45309;
+  }
+  &[data-tipo='Show'] {
+    background: var(--t-show-tint);
+    border-color: var(--wtorre-tint-2, #dfe8ff);
+    color: var(--wtorre-600, #1846c9);
+  }
+  &[data-tipo='Desmontagem'] {
+    background: var(--t-desmontagem-tint);
+    border-color: #e2e8f0;
+    color: #475569;
+  }
+  &[data-tipo='Jogo'] {
+    background: var(--t-jogo-tint);
+    border-color: #99f6e4;
+    color: #0f766e;
+  }
+}
 
-      &::picker-icon {
-        align-self: center;
-        margin-block: auto;
-      }
-    }
+.daychip__rm {
+  border: none;
+  background: transparent;
+  color: inherit;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  opacity: 0.7;
+
+  &:hover {
+    opacity: 1;
+    background: rgb(15 23 42 / 8%);
   }
 }
 

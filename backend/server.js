@@ -5,9 +5,15 @@ const { startupLaunch, startupFail, startupCron } = require("./config/startupLog
 const initializeDatabase = require("./config/setupDatabase");
 const { startAdUsersSyncCron } = require("./jobs/adUsersSyncCron");
 const { startAuditLogsRetentionCron } = require("./jobs/auditLogsRetentionCron");
+const { startErrorLogsRetentionCron } = require("./jobs/errorLogsRetentionCron");
 const { startApprovalsExpirationCron } = require("./jobs/approvalsExpirationCron");
 const { startFacialJobsStaleCron } = require("./jobs/facialJobsStaleCron");
 const { startEventAccreditationInviteCron } = require("./jobs/eventAccreditationInviteCron");
+const { startExternalCompanyEnrichCron } = require("./jobs/externalCompanyEnrichCron");
+const { registerProcessErrorHandlers } = require("./modules/error-logs/error-logs.process");
+const { captureError } = require("./modules/error-logs/error-logs.helpers");
+
+registerProcessErrorHandlers({ processName: "api" });
 
 async function start() {
   try {
@@ -47,6 +53,10 @@ async function start() {
       startAuditLogsRetentionCron();
       startupCron(`Retenção de audit logs agendada (${env.auditRetentionCron}).`);
     }
+    if (env.errorRetentionEnabled) {
+      startErrorLogsRetentionCron();
+      startupCron(`Retenção de error logs agendada (${env.errorRetentionCron}).`);
+    }
     if (env.approvalsExpirationEnabled) {
       startApprovalsExpirationCron();
       startupCron(`Expiração de aprovações agendada (${env.approvalsExpirationCron}).`);
@@ -54,6 +64,11 @@ async function start() {
       const facialExpire = require("./modules/facial/facial.expire.service");
       facialExpire.revokeFacialForExpiredAccesses().catch((err) => {
         logger.error({ err }, "Falha ao revogar facial de acessos expirados no startup");
+        void captureError(err, {
+          module: "facial-expire",
+          origin: "job",
+          metadata: { triggeredBy: "startup" },
+        });
       });
     }
 
@@ -65,6 +80,11 @@ async function start() {
       startupCron(`Convites de credenciamento agendados (${env.eventAccreditationInviteCron}).`);
     }
 
+    startExternalCompanyEnrichCron();
+    if (env.externalCompanyEnrichEnabled) {
+      startupCron("Enriquecimento de empresas eventuais (BrasilAPI) agendado.");
+    }
+
     app.listen(env.port, env.host, () => {
       startupLaunch(`Servidor rodando em ${env.host}:${env.port}`);
       logger.info({ host: env.host, port: env.port, env: env.nodeEnv }, "API Credenciamento iniciada");
@@ -72,6 +92,11 @@ async function start() {
   } catch (err) {
     startupFail("Falha ao iniciar servidor — banco incompleto ou erro de inicialização.");
     logger.fatal({ err }, "Falha ao iniciar servidor");
+    await captureError(err, {
+      module: "api",
+      origin: "process",
+      metadata: { type: "startup" },
+    });
     process.exit(1);
   }
 }

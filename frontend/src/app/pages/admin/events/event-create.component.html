@@ -1,0 +1,124 @@
+<div class="wcrt-page">
+  <div class="wcrt-toolbar">
+    <button type="button" class="wcrt-back" (click)="onClose()">← Voltar para lista</button>
+    <p class="wcrt-toolbar__hint">{{ subtitle() }}</p>
+  </div>
+
+  <div class="wcrt-stepper" [attr.aria-label]="'Passo ' + step() + ' de 3: ' + stepLabel()">
+    <div class="wcrt-stepper__track">
+      @for (s of stepDefs; track s.key; let i = $index) {
+        @if (i > 0) {
+          <span class="wcrt-stepper__line" [class.is-done]="step() > s.key - 1"></span>
+        }
+        <div
+          class="wcrt-stepper__item"
+          [class.is-active]="step() === s.key"
+          [class.is-done]="step() > s.key"
+        >
+          <span class="wcrt-stepper__dot">
+            @if (step() > s.key) {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            } @else {
+              {{ s.key }}
+            }
+          </span>
+          <span class="wcrt-stepper__label">{{ s.label }}</span>
+        </div>
+      }
+    </div>
+    <p class="wcrt-stepper__current" aria-hidden="true">{{ step() }} · {{ stepLabel() }}</p>
+  </div>
+
+  <div class="wcrt">
+    @if (loadingMeta()) {
+      <p class="wcrt-loading">Carregando…</p>
+    } @else {
+      @switch (step()) {
+        @case (1) {
+          <div class="wcrt-card">
+            <app-novo-evento-step-dados
+              [(nome)]="nome"
+              [(idSetor)]="idSetor"
+              [(idEmpresa)]="idEmpresa"
+              [(dataInicio)]="dataInicio"
+              [(dataFim)]="dataFim"
+              [picking]="picking()"
+              [sectors]="sectors()"
+              [producers]="producers()"
+              [lockEmpresa]="lockEmpresa()"
+              [calViewKey]="calViewKey()"
+              [coverPreview]="coverPreview()"
+              (rangePick)="onRangePick($event)"
+              (coverPick)="onCoverPick($event)"
+              (coverClear)="clearCover()"
+            />
+          </div>
+        }
+        @case (2) {
+          <div class="wcrt-card">
+            <app-novo-evento-step-dias
+              [dataInicio]="dataInicio()"
+              [dataFim]="dataFim()"
+              [types]="types()"
+              [dias]="dias()"
+              [(brushTypeId)]="brushTypeId"
+              [calViewKey]="calViewKey()"
+              (tagDay)="onTagDay($event)"
+              (fillPeriod)="onFillPeriod()"
+              (removeType)="onRemoveDayType($event)"
+              (removeDay)="onRemoveDay($event)"
+            />
+          </div>
+        }
+        @case (3) {
+          <div class="wcrt-card">
+            <app-novo-evento-step-revisao
+              [nome]="nome()"
+              [setorNome]="setorNome()"
+              [empresaNome]="empresaNome()"
+              [dataInicio]="dataInicio()"
+              [dataFim]="dataFim()"
+              [dias]="dias()"
+              [types]="types()"
+              [coverPreview]="coverPreview()"
+            />
+          </div>
+        }
+      }
+    }
+  </div>
+
+  <div class="wcrt-foot">
+    <button
+      type="button"
+      class="btn-action-secondary"
+      [disabled]="saving()"
+      (click)="step() > 1 ? goBack() : onClose()"
+    >
+      {{ step() > 1 ? 'Voltar' : 'Cancelar' }}
+    </button>
+    <div class="wcrt-foot__right">
+      @if (step() < 3) {
+        <button
+          type="button"
+          class="btn-action-primary"
+          [disabled]="saving() || loadingMeta() || (step() === 1 && !canContinueStep1())"
+          (click)="goNext()"
+        >
+          Continuar
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="btn-action-primary"
+          [disabled]="saving() || loadingMeta()"
+          (click)="salvar()"
+        >
+          {{ saving() ? 'Salvando…' : 'Salvar evento' }}
+        </button>
+      }
+    </div>
+  </div>
+</div>

@@ -1,5 +1,6 @@
 :host {
   display: block;
+  width: 100%;
 }
 
 .setor-page {
@@ -36,8 +37,8 @@
 }
 
 .page-head__inner {
-  max-width: 1120px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
   padding: 16px 0;
 }
 
@@ -106,8 +107,8 @@
   grid-template-columns: minmax(0, 1fr) 340px;
   align-items: start;
   gap: 20px;
-  max-width: 1120px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
   padding: 24px 0 48px;
 }
 

@@ -19,7 +19,8 @@
     }
     @for (cell of cells(); track cell.iso) {
       @let disabled = isDisabled(cell.iso);
-      @let tag = tagClass(cell.iso);
+      @let tags = tagNames(cell.iso);
+      @let sole = soleTag(cell.iso);
       <button
         type="button"
         class="cal-day"
@@ -30,16 +31,24 @@
         [class.range-end]="mode() === 'range' && isRangeEnd(cell.iso)"
         [class.out]="mode() === 'tag' && disabled"
         [class.selectable]="mode() === 'tag' && !disabled"
-        [class.t-Montagem]="tag === 't-Montagem'"
-        [class.t-Show]="tag === 't-Show'"
-        [class.t-Desmontagem]="tag === 't-Desmontagem'"
-        [class.t-Jogo]="tag === 't-Jogo'"
+        [class.has-multi]="tags.length > 1"
+        [class.t-Montagem]="sole === 'Montagem'"
+        [class.t-Show]="sole === 'Show'"
+        [class.t-Desmontagem]="sole === 'Desmontagem'"
+        [class.t-Jogo]="sole === 'Jogo'"
         [disabled]="disabled"
         [attr.aria-label]="ariaLabel(cell.iso)"
         [attr.title]="ariaLabel(cell.iso)"
         (click)="onDayClick(cell.iso, disabled)"
       >
         {{ cell.day }}
+        @if (tags.length > 1) {
+          <span class="cal-day__dots" aria-hidden="true">
+            @for (nome of tags; track nome) {
+              <span class="cal-day__dot" [attr.data-tipo]="nome"></span>
+            }
+          </span>
+        }
       </button>
     }
   </div>

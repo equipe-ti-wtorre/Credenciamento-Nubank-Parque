@@ -25,11 +25,11 @@ const productsEdit = [auth, authorizePermission("merchandise_products", "edit")]
 const locationsView = [auth, authorizePermission("merchandise_locations", "view")];
 const locationsCreate = [auth, authorizePermission("merchandise_locations", "create")];
 const locationsEdit = [auth, authorizePermission("merchandise_locations", "edit")];
-const entryView = [auth, authorizePermission("merchandise_entry", "view")];
 const entryCreate = [auth, authorizePermission("merchandise_entry", "create")];
-const exitView = [auth, authorizePermission("merchandise_exit", "view")];
 const exitCreate = [auth, authorizePermission("merchandise_exit", "create")];
 const reportsView = [auth, authorizePermission("merchandise_reports", "view")];
+const extCompaniesView = [auth, authorizePermission("merchandise_external_companies", "view")];
+const extCompaniesEdit = [auth, authorizePermission("merchandise_external_companies", "edit")];
 const movementCatalogView = [
   auth,
   authorizeAnyPermission([
@@ -60,6 +60,11 @@ router.get("/products", ...productsView, materialsController.listProducts);
 router.post("/products", ...productsCreate, materialsController.createProduct);
 router.put("/products/:id", ...productsEdit, materialsController.updateProduct);
 
+router.get(
+  "/movements/lookup-plate",
+  ...movementCatalogView,
+  materialsController.lookupPlate,
+);
 router.post(
   "/movements/parse-invoice",
   ...parseInvoiceAccess,
@@ -79,7 +84,25 @@ router.post(
   materialsController.movementOut,
 );
 
+router.get(
+  "/external-companies/suggest",
+  ...movementCatalogView,
+  materialsController.suggestExternalCompanies,
+);
+router.get("/external-companies", ...extCompaniesView, materialsController.listExternalCompanies);
+router.patch(
+  "/external-companies/:id",
+  ...extCompaniesEdit,
+  materialsController.patchExternalCompany,
+);
+router.post(
+  "/external-companies/:id/merge",
+  ...extCompaniesEdit,
+  materialsController.mergeExternalCompanies,
+);
+
 router.get("/stock", ...reportsView, materialsController.getStock);
+router.get("/stock/reconcile", ...reportsView, materialsController.getStockReconcile);
 router.get("/history", ...reportsView, materialsController.getHistory);
 router.get("/dashboard", ...reportsView, materialsController.getDashboard);
 

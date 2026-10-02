@@ -14,6 +14,7 @@ const canEdit = [auth, authorizePermission("companies", "edit")];
 router.use(typesRoutes);
 
 router.get("/", auth, companyController.list);
+router.post("/invite-self-register", ...canCreate, companyController.inviteSelfRegister);
 router.get("/:id", auth, companyController.getById);
 router.post("/", ...canCreate, companyController.create);
 router.put("/:id", ...canEdit, companyController.update);

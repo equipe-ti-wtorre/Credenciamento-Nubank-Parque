@@ -4,5 +4,5 @@
     <p class="sub">{{ pageSubtitle }}</p>
   </div>
 
-  <app-gate-merchandise-form [movementType]="movementType" />
+  <app-gate-merchandise-form [movementType]="movementType" (natureChange)="nature.set($event)" />
 </div>

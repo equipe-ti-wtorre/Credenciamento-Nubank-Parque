@@ -902,6 +902,79 @@
   background: #e0e7ff;
 }
 
+.btn-act-icon.authorizers {
+  background: var(--wtorre-tonal-bg);
+  color: var(--wtorre);
+  border-color: color-mix(in srgb, var(--wtorre) 28%, white);
+}
+
+.btn-act-icon.authorizers:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--wtorre) 16%, white);
+}
+
+.authz-status {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.authz-status--error {
+  color: var(--danger);
+}
+
+.authz-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.authz-card {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--color-bg-surface-alt, #f8fafc);
+}
+
+.authz-card__name {
+  font-weight: 650;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.authz-card__meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 10px 0 0;
+}
+
+.authz-card__meta dt {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.authz-card__meta dd {
+  margin: 2px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.authz-card__email {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .btn-act.saida {
   background: #fff;
   color: var(--ok);

@@ -144,6 +144,15 @@ exports.listTodayServices = async (req, res, next) => {
   }
 };
 
+exports.getServiceAuthorizers = async (req, res, next) => {
+  try {
+    const result = await gateService.getServiceAuthorizers(req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.listCalendar = async (req, res, next) => {
   try {
     const { error, value } = calendarQuerySchema.validate(req.query, { abortEarly: true });
@@ -165,6 +174,7 @@ exports.getCalendarDetail = async (req, res, next) => {
       value.kind,
       value.source_id,
       value.date,
+      value.id_event_day,
     );
     res.json(detail);
   } catch (err) {

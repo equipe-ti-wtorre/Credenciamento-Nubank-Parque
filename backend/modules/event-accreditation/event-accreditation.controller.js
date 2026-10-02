@@ -347,10 +347,7 @@ exports.notifyCompanies = async (req, res, next) => {
 exports.exportXlsx = async (req, res, next) => {
   try {
     const { buffer, filename } = await service.exportXlsx(req, req.params.id);
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    );
+    res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(buffer);
   } catch (err) {

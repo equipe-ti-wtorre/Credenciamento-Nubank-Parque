@@ -6,7 +6,10 @@ const {
   authorizePermission,
   authorizeAnyPermission,
 } = require("../../middleware/permissionMiddleware");
-const { bulkUploadMiddleware } = require("../../middleware/upload.middleware");
+const {
+  bulkUploadMiddleware,
+  coverUploadMiddleware,
+} = require("../../middleware/upload.middleware");
 
 const router = express.Router();
 const auth = authMiddleware;
@@ -41,6 +44,7 @@ router.get("/producers", ...canCreate, eventController.listProducers);
 router.get("/", ...canViewOrApprove, eventController.list);
 router.post("/", ...canCreate, eventController.create);
 router.get("/:id/linkable-companies", ...canEdit, eventController.listLinkableCompanies);
+router.post("/:id/cover", ...canToggleActive, coverUploadMiddleware, eventController.uploadCover);
 router.patch("/:id/period", ...canEdit, eventController.updatePeriod);
 router.patch("/:id/responsavel", ...canEdit, eventController.updateResponsavel);
 router.patch("/:id/status", ...canToggleActive, eventController.patchStatus);
@@ -101,6 +105,16 @@ router.delete(
   "/:id/companies/:idCompany/vehicles/:idVehicle",
   ...canEdit,
   eventController.removeCompanyVehicle,
+);
+router.delete(
+  "/:id/companies/:idCompany/vehicles",
+  ...canEdit,
+  eventController.removeCompanyVehicles,
+);
+router.delete(
+  "/:id/companies/:idCompany/credentials",
+  ...canEdit,
+  eventController.removeCompanyCredentials,
 );
 router.get(
   "/:id/companies/:idCompany/bulk-import/template",

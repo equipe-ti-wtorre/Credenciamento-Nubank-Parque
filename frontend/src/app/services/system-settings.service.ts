@@ -31,6 +31,17 @@ export interface EventAccreditationNotifySettings {
   atualizado_em?: string;
 }
 
+export interface AccessScheduleSettings {
+  id?: number;
+  comercial_start: string;
+  comercial_end: string;
+  noturno_start: string;
+  noturno_end: string;
+  comercial_crosses_midnight?: boolean;
+  noturno_crosses_midnight?: boolean;
+  atualizado_em?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SystemSettingsService {
   constructor(private api: ApiService) {}
@@ -80,6 +91,22 @@ export class SystemSettingsService {
     return this.api.get<{ users: EventAccreditationNotifyUser[] }>(
       '/system-settings/event-accreditation-notify/users',
       params,
+    );
+  }
+
+  getAccessScheduleSettings(): Observable<{ settings: AccessScheduleSettings }> {
+    return this.api.get<{ settings: AccessScheduleSettings }>('/system-settings/access-schedule');
+  }
+
+  updateAccessScheduleSettings(
+    payload: Pick<
+      AccessScheduleSettings,
+      'comercial_start' | 'comercial_end' | 'noturno_start' | 'noturno_end'
+    >,
+  ): Observable<{ settings: AccessScheduleSettings }> {
+    return this.api.put<{ settings: AccessScheduleSettings }>(
+      '/system-settings/access-schedule',
+      payload,
     );
   }
 }

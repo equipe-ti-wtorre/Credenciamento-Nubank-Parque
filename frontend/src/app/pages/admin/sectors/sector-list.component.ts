@@ -30,8 +30,8 @@ import {
     <div class="w-full">
       <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5">
         <div>
-          <h2 class="page-section-title">Setores</h2>
-          <p class="page-section-subtitle">Gerencie setores, membros e fluxos de aprovação.</p>
+          <h2 class="page-section-title">Times</h2>
+          <p class="page-section-subtitle">Gerencie times, membros e fluxos de aprovação.</p>
         </div>
         <div class="flex gap-2">
           <button type="button" class="btn-action-secondary" (click)="carregar()" [disabled]="loading()">Atualizar</button>

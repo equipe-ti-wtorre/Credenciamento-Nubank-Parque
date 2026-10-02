@@ -7,6 +7,7 @@ const collaboratorService = require("../collaborators/collaborator.service");
 const { activeBlockJoinSql } = require("../collaborator-blocklist/blocklist.policy");
 const vehicleService = require("../patrimonial/vehicle.service");
 const approvalsService = require("../approvals/approvals.service");
+const sectorsService = require("../sectors/sectors.service");
 const {
   STATUS_APROVADO,
   STATUS_AGUARDANDO_APROVACAO,
@@ -27,6 +28,11 @@ const {
   isServicePeriodEnded,
   isCheckoutListAction,
 } = require("./gate.collaborator-target");
+const {
+  isCheckInAllowed,
+  outsideScheduleReason,
+  sqlServiceVisibleToday,
+} = require("../../utils/accessSchedule");
 
 const logger = child({ module: "gate" });
 
@@ -499,6 +505,10 @@ const SERVICE_VEHICLE_SELECT = `
          sa.status AS service_enabled,
          sa.start_date,
          sa.end_date,
+         sa.schedule_type,
+         sa.schedule_start,
+         sa.schedule_end,
+         sa.schedule_crosses_midnight,
          COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          ast.description AS access_status_description,
          v.plate AS vehicle_plate,
@@ -527,6 +537,10 @@ const SERVICE_COLLABORATOR_SELECT = `
          sa.status AS service_enabled,
          sa.start_date,
          sa.end_date,
+         sa.schedule_type,
+         sa.schedule_start,
+         sa.schedule_end,
+         sa.schedule_crosses_midnight,
          COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          ast.description AS access_status_description,
          c.name AS collaborator_name,
@@ -565,6 +579,7 @@ const SERVICE_DENIAL_MESSAGES = {
   SERVICE_NOT_APPROVED: "Solicitação de serviço não aprovada.",
   SERVICE_DISABLED: "Acesso de serviço desabilitado.",
   INVALID_SERVICE_DATE: "Data não autorizada para este serviço.",
+  OUTSIDE_SERVICE_SCHEDULE: "Fora do horário do acesso.",
   SERVICE_ACCESS_COMPLETED: "Entrada e saída já registradas.",
   ACCESS_ACTION_MISMATCH: "A direção do acesso não corresponde ao estado da portaria.",
   OPEN_STAY_PENDING:
@@ -587,6 +602,15 @@ function buildServiceDenial(errorCode, statusCode = 403) {
   };
 }
 
+function buildOutsideScheduleDenial(row) {
+  return {
+    allowed: false,
+    statusCode: 403,
+    error_code: "OUTSIDE_SERVICE_SCHEDULE",
+    reason: outsideScheduleReason(row),
+  };
+}
+
 async function findServiceVehicleByAccessId(accessId) {
   const [rows] = await db.execute(SERVICE_VEHICLE_SELECT, [accessId]);
   return rows[0] || null;
@@ -605,6 +629,10 @@ const SERVICE_COLLABORATOR_BY_PERSON_SELECT = `
          sa.status AS service_enabled,
          sa.start_date,
          sa.end_date,
+         sa.schedule_type,
+         sa.schedule_start,
+         sa.schedule_end,
+         sa.schedule_crosses_midnight,
          COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          ast.description AS access_status_description,
          c.name AS collaborator_name,
@@ -639,7 +667,7 @@ const SERVICE_COLLABORATOR_BY_PERSON_SELECT = `
     AND sa.id_access_status = ?
     AND sac.access_id IS NOT NULL
     AND (
-      CURDATE() BETWEEN sa.start_date AND sa.end_date
+      ${sqlServiceVisibleToday("sa")}
       OR (sac.access_check_in IS NOT NULL AND sac.access_check_out IS NULL)
     )
   ORDER BY
@@ -785,11 +813,22 @@ async function isServiceDateAllowed(serviceRow) {
     `SELECT 1 FROM service_access
      WHERE id_service_access = ?
        AND status = 1
-       AND CURDATE() BETWEEN start_date AND end_date
+       AND ${sqlServiceVisibleToday("service_access")}
      LIMIT 1`,
     [serviceRow.id_service_access],
   );
   return rows.length > 0;
+}
+
+async function getMysqlNow() {
+  const [rows] = await db.execute(`SELECT DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s') AS ts`);
+  return rows[0]?.ts || null;
+}
+
+function denyCheckInOutsideSchedule(action, row, now) {
+  if (action !== "CHECK_IN") return null;
+  if (isCheckInAllowed(now, row)) return null;
+  return buildOutsideScheduleDenial(row);
 }
 
 /** Calendar day key (YYYY-MM-DD). With mysql2 dateStrings, DATETIME arrives as string. */
@@ -1205,6 +1244,10 @@ function mapTodayServiceVehicleRow(row, todayKey, ctx) {
     setor_nome: pending
       ? ctx.pendingApprovals.get(Number(row.id_service_access))?.setor_nome || null
       : null,
+    schedule_type: row.schedule_type || "MANUAL",
+    schedule_start: row.schedule_start || null,
+    schedule_end: row.schedule_end || null,
+    schedule_crosses_midnight: !!Number(row.schedule_crosses_midnight),
   };
 }
 
@@ -1281,6 +1324,10 @@ function mapTodayServiceCollaboratorRow(row, todayKey, ctx) {
     id_aprovacao: pending ? pendingInfo?.id_aprovacao || null : null,
     id_setor: pending ? pendingInfo?.id_setor || null : null,
     setor_nome: pending ? pendingInfo?.setor_nome || null : null,
+    schedule_type: row.schedule_type || "MANUAL",
+    schedule_start: row.schedule_start || null,
+    schedule_end: row.schedule_end || null,
+    schedule_crosses_midnight: !!Number(row.schedule_crosses_midnight),
   };
 }
 
@@ -1294,6 +1341,10 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
          sa.id_access_status,
          sa.start_date,
          sa.end_date,
+         sa.schedule_type,
+         sa.schedule_start,
+         sa.schedule_end,
+         sa.schedule_crosses_midnight,
          COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          v.plate AS vehicle_plate,
          v.description AS vehicle_description,
@@ -1313,7 +1364,7 @@ const GATE_TODAY_SERVICE_VEHICLES_SELECT = `
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND (
-      CURDATE() BETWEEN sa.start_date AND sa.end_date
+      ${sqlServiceVisibleToday("sa")}
       OR (sav.check_in IS NOT NULL AND sav.check_out IS NULL)
     )
     AND (
@@ -1352,6 +1403,10 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
          sa.id_access_status,
          sa.start_date,
          sa.end_date,
+         sa.schedule_type,
+         sa.schedule_start,
+         sa.schedule_end,
+         sa.schedule_crosses_midnight,
          COALESCE(sa.finalidade, sa.service_type) AS finalidade,
          c.name AS collaborator_name,
          c.document AS collaborator_document,
@@ -1384,7 +1439,7 @@ const GATE_TODAY_SERVICE_COLLABORATORS_SELECT = `
   WHERE sa.id_access_status IN (?, ?, ?)
     AND sa.status = 1
     AND (
-      CURDATE() BETWEEN sa.start_date AND sa.end_date
+      ${sqlServiceVisibleToday("sa")}
       OR (sac.access_check_in IS NOT NULL AND sac.access_check_out IS NULL)
     )
     AND (
@@ -1629,8 +1684,9 @@ async function listTodayExpectedServices() {
   const collaborators = collaboratorRows.map((row) =>
     mapTodayServiceCollaboratorRow(row, todayKey, ctx),
   );
+  const now = await getMysqlNow();
   return sortTodayServicesByAccessPriority(
-    applyOpenStayEntryBlocks([...vehicles, ...collaborators]),
+    applyOpenStayEntryBlocks(applyOutsideScheduleBlocks([...vehicles, ...collaborators], now)),
   );
 }
 
@@ -1667,11 +1723,22 @@ function applyOpenStayEntryBlocks(list) {
   return list;
 }
 
+function applyOutsideScheduleBlocks(list, now) {
+  for (const row of list) {
+    if (row.next_action !== "CHECK_IN") continue;
+    if (isCheckInAllowed(now, row)) continue;
+    row.next_action = "OUTSIDE_SCHEDULE";
+    row.block_reason = outsideScheduleReason(row);
+  }
+  return list;
+}
+
 /** Aguardando entrada → liberação pendente → dentro → concluídos → bloqueados → reprovado; data mais nova acima. */
 function sortTodayServicesByAccessPriority(list) {
   const rank = {
     CHECK_IN: 0,
     BLOCKED_OPEN_STAY: 0,
+    OUTSIDE_SCHEDULE: 0,
     PENDING_APPROVAL: 1,
     PERIOD_EXPIRED: 2,
     CHECK_OUT: 3,
@@ -1768,6 +1835,8 @@ async function validateServiceVehicleAccess(accessId) {
   if (action === "CHECK_IN" && !(await isServiceDateAllowed(row))) {
     return buildServiceDenial("INVALID_SERVICE_DATE");
   }
+  const outsideHours = denyCheckInOutsideSchedule(action, row, await getMysqlNow());
+  if (outsideHours) return outsideHours;
 
   const blocklisted = row.id_substitute_vehicle
     ? row.sub_blocklisted_id != null
@@ -1841,6 +1910,8 @@ async function validateServiceCollaboratorAccess(accessId, options = {}) {
   ) {
     return buildServiceDenial("INVALID_SERVICE_DATE");
   }
+  const outsideHours = denyCheckInOutsideSchedule(action, row, await getMysqlNow());
+  if (outsideHours) return outsideHours;
 
   if (action === "RELEASE_ACCESS") {
     await db.execute(
@@ -2278,6 +2349,50 @@ async function createManualRelease(req, data) {
   }
 }
 
+async function getServiceAuthorizers(idServiceAccess) {
+  const id = Number(idServiceAccess);
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new AppError("Acesso de serviço inválido.", 400);
+  }
+
+  const [accessRows] = await db.execute(
+    `SELECT sa.id_service_access FROM service_access sa WHERE sa.id_service_access = ? LIMIT 1`,
+    [id],
+  );
+  if (!accessRows.length) {
+    throw new AppError("Acesso de serviço não encontrado.", 404);
+  }
+
+  const [approvalRows] = await db.execute(
+    `SELECT a.id_setor, s.nome AS setor_nome
+       FROM aprovacoes a
+       INNER JOIN setores s ON s.id = a.id_setor
+      WHERE a.tipo_entidade = 'ACESSO_SERVICO'
+        AND a.id_entidade = ?
+      ORDER BY a.id DESC
+      LIMIT 1`,
+    [id],
+  );
+  if (!approvalRows.length || !approvalRows[0].id_setor) {
+    throw new AppError("Este acesso não possui setor aprovador vinculado.", 422);
+  }
+
+  const idSetor = Number(approvalRows[0].id_setor);
+  const contacts = await sectorsService.listContacts(idSetor);
+
+  return {
+    id_setor: idSetor,
+    setor_nome: approvalRows[0].setor_nome,
+    contacts: contacts.map((c) => ({
+      id: c.id,
+      nome: c.nome,
+      telefone: c.telefone,
+      ramal: c.ramal,
+      email: c.email,
+    })),
+  };
+}
+
 async function notifyPendingServiceApproval(req, idServiceAccess) {
   const id = Number(idServiceAccess);
   if (!Number.isFinite(id) || id <= 0) {
@@ -2485,7 +2600,7 @@ async function listCalendarItems(from, to) {
        LEFT JOIN access_status ast ON ast.id_access_status = e.id_access_status
       WHERE ed.date BETWEEN ? AND ?
         AND e.id_access_status IN (?, ?)
-      ORDER BY ed.date ASC, e.name ASC`,
+      ORDER BY ed.date ASC, e.name ASC, edt.description ASC`,
     [from, to, ...statusFilter],
   );
 
@@ -2520,10 +2635,12 @@ async function listCalendarItems(from, to) {
     const date = toDateKey(row.day_date);
     if (!date) continue;
     const typeLabel = row.type_label || "Show";
+    const idEventDay = Number(row.id_event_day);
     items.push({
-      key: `event:${row.id_event}:${date}`,
+      key: `event:${row.id_event}:${date}:${idEventDay}`,
       kind: "event",
       source_id: Number(row.id_event),
+      id_event_day: idEventDay,
       date,
       name: row.name,
       start_date: toDateKey(row.start_date),
@@ -2571,7 +2688,9 @@ async function listCalendarItems(from, to) {
 
   items.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-    return String(a.name).localeCompare(String(b.name), "pt-BR");
+    const byName = String(a.name).localeCompare(String(b.name), "pt-BR");
+    if (byName !== 0) return byName;
+    return String(a.type_label || "").localeCompare(String(b.type_label || ""), "pt-BR");
   });
 
   return items;
@@ -2588,8 +2707,14 @@ function mapCalendarCollaborator(row) {
   };
 }
 
-async function getCalendarEventDetail(sourceId, date) {
+async function getCalendarEventDetail(sourceId, date, requestedDayId) {
   const statusFilter = [STATUS_AGUARDANDO_APROVACAO, STATUS_APROVADO];
+  const params = [sourceId, date, ...statusFilter];
+  let dayFilter = "";
+  if (requestedDayId) {
+    dayFilter = " AND ed.id_event_day = ?";
+    params.push(requestedDayId);
+  }
   const [eventRows] = await db.execute(
     `SELECT e.id_event,
             e.name,
@@ -2606,9 +2731,10 @@ async function getCalendarEventDetail(sourceId, date) {
        LEFT JOIN access_status ast ON ast.id_access_status = e.id_access_status
       WHERE e.id_event = ?
         AND ed.date = ?
-        AND e.id_access_status IN (?, ?)
+        AND e.id_access_status IN (?, ?)${dayFilter}
+      ORDER BY edt.description ASC
       LIMIT 1`,
-    [sourceId, date, ...statusFilter],
+    params,
   );
   const row = eventRows[0];
   if (!row) throw new AppError("Evento não encontrado para esta data.", 404);
@@ -2646,9 +2772,10 @@ async function getCalendarEventDetail(sourceId, date) {
 
   return {
     item: {
-      key: `event:${row.id_event}:${date}`,
+      key: `event:${row.id_event}:${date}:${idEventDay}`,
       kind: "event",
       source_id: Number(row.id_event),
+      id_event_day: Number(idEventDay),
       date: toDateKey(row.day_date),
       name: row.name,
       start_date: toDateKey(row.start_date),
@@ -2763,8 +2890,8 @@ async function getCalendarServiceDetail(sourceId, date) {
   };
 }
 
-async function getCalendarItemDetail(kind, sourceId, date) {
-  if (kind === "event") return getCalendarEventDetail(sourceId, date);
+async function getCalendarItemDetail(kind, sourceId, date, idEventDay) {
+  if (kind === "event") return getCalendarEventDetail(sourceId, date, idEventDay);
   return getCalendarServiceDetail(sourceId, date);
 }
 
@@ -2781,6 +2908,7 @@ module.exports = {
   searchManualReleaseCollaborator,
   searchManualReleaseCollaborators,
   createManualRelease,
+  getServiceAuthorizers,
   notifyPendingServiceApproval,
   cancelPendingServiceApproval,
   resendEventFacialEnroll,

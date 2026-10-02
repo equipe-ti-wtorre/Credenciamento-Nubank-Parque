@@ -34,11 +34,9 @@ import {
   BraceletChipComponent,
   BraceletSelectComponent,
 } from '../../shared/bracelet-chip';
-import { DocumentApprovalsComponent } from '../admin/document-approvals/document-approvals.component';
 import { AuthService, hasPermission } from '../../core/services/auth.service';
-import { DocumentChangeService } from '../../services/document-change.service';
 
-type InboxTab = 'pending' | 'mine' | 'team' | 'documentos';
+type InboxTab = 'pending' | 'mine' | 'team';
 
 @Component({
   selector: 'app-approvals-inbox',
@@ -50,7 +48,6 @@ type InboxTab = 'pending' | 'mine' | 'team' | 'documentos';
     ModalComponent,
     BraceletChipComponent,
     BraceletSelectComponent,
-    DocumentApprovalsComponent,
   ],
   template: `
     <div class="w-full">
@@ -230,30 +227,11 @@ type InboxTab = 'pending' | 'mine' | 'team' | 'documentos';
             {{ summaryTeamCount() }}
           </span>
         </button>
-        <button
-          *ngIf="canViewDocuments()"
-          type="button"
-          class="px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors inline-flex items-center gap-2 whitespace-nowrap"
-          [class.border-[var(--color-primary)]]="tab() === 'documentos'"
-          [class.text-[var(--color-primary-dark)]]="tab() === 'documentos'"
-          [class.border-transparent]="tab() !== 'documentos'"
-          [class.text-slate-500]="tab() !== 'documentos'"
-          (click)="setTab('documentos')"
-        >
-          Documentos
-          <span
-            class="inline-flex min-w-[1.25rem] h-5 px-1.5 items-center justify-center rounded-full text-[11px] font-bold bg-slate-100 text-slate-700"
-          >
-            {{ pendingDocuments() }}
-          </span>
-        </button>
       </div>
 
-      <p *ngIf="loading() && tab() !== 'documentos'" class="text-center text-slate-500 py-8">Carregando...</p>
+      <p *ngIf="loading()" class="text-center text-slate-500 py-8">Carregando...</p>
 
-      <app-document-approvals *ngIf="tab() === 'documentos'" [embedded]="true" />
-
-      <div *ngIf="!loading() && tab() !== 'documentos'" class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+      <div *ngIf="!loading()" class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
         <section class="min-w-0">
           <div class="flex items-center gap-2 mb-3">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-100 text-sky-800">
@@ -1463,12 +1441,9 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly collaboratorService = inject(CollaboratorService);
   private readonly authService = inject(AuthService);
-  private readonly documentChangeService = inject(DocumentChangeService);
 
   tab = signal<InboxTab>('pending');
   canViewApprovals = signal(false);
-  canViewDocuments = signal(false);
-  pendingDocuments = signal(0);
   items = signal<ApprovalItem[]>([]);
   pendingSummary = signal<ApprovalItem[]>([]);
   teamSummary = signal<ApprovalItem[]>([]);
@@ -1511,23 +1486,6 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   async ngOnInit() {
     const user = await this.authService.getCurrentUser();
     this.canViewApprovals.set(hasPermission(user, 'approvals', 'view'));
-    this.canViewDocuments.set(hasPermission(user, 'document_approvals', 'view'));
-
-    const tabParam = this.route.snapshot.queryParamMap.get('tab');
-    if (tabParam === 'documentos' && this.canViewDocuments()) {
-      this.tab.set('documentos');
-    } else if (!this.canViewApprovals() && this.canViewDocuments()) {
-      this.tab.set('documentos');
-    }
-
-    if (this.canViewDocuments()) {
-      this.loadDocumentCount();
-    }
-    if (this.tab() === 'documentos') {
-      if (this.canViewApprovals()) this.refreshSummaries();
-      this.cdr.markForCheck();
-      return;
-    }
     this.carregar();
   }
 
@@ -1903,26 +1861,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
-    if (t === 'documentos') {
-      this.loading.set(false);
-      this.loadDocumentCount();
-      this.cdr.markForCheck();
-      return;
-    }
     this.carregar();
-  }
-
-  private loadDocumentCount(): void {
-    this.documentChangeService.countPending().subscribe({
-      next: (res) => {
-        this.pendingDocuments.set(res.total ?? 0);
-        this.cdr.markForCheck();
-      },
-      error: () => {
-        this.pendingDocuments.set(0);
-        this.cdr.markForCheck();
-      },
-    });
   }
 
   abrirAcao(item: ApprovalItem, mode: 'approve' | 'reject') {

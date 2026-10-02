@@ -1,6 +1,6 @@
 const AppError = require("../utils/AppError");
 const { logger } = require("../config/logger");
-const { logAppError } = require("../utils/appErrorLogger");
+const { logAppError } = require("../modules/error-logs/error-logs.service");
 const { logAudit } = require("../utils/auditLogger");
 const env = require("../config/env");
 const {
@@ -38,10 +38,20 @@ async function maybeAuditLoginFailure(err, req, statusCode) {
   });
 }
 
+function moduleFromRequest(req) {
+  const raw = String(req.originalUrl || req.url || "").split("?")[0];
+  const parts = raw.split("/").filter(Boolean);
+  let idx = 0;
+  if (parts[0] === "api") idx += 1;
+  if (parts[idx] === "v1") idx += 1;
+  const name = parts[idx];
+  return name ? String(name).slice(0, 50) : "api";
+}
+
 function observabilityErrorHandler(err, req, res, _next) {
   const statusCode = err.statusCode || 500;
   const requestId = req.requestId;
-  const moduleName = req.route?.path?.includes("auth") ? "auth" : "api";
+  const moduleName = moduleFromRequest(req);
 
   if (!(err instanceof AppError) || statusCode >= 500) {
     logger.error({
@@ -63,6 +73,7 @@ function observabilityErrorHandler(err, req, res, _next) {
   void logAppError({
     req,
     module: moduleName,
+    origin: "http",
     message: err.message || "Erro interno",
     statusCode,
     level: statusCode >= 500 ? "error" : "warn",

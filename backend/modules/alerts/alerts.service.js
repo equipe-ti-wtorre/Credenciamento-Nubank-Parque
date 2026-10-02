@@ -140,49 +140,8 @@ async function syncPendingApprovalsForUser(user) {
   }
 }
 
-/**
- * Materializa solicitações de documento pendentes para aprovadores.
- */
-async function syncPendingDocumentChangesForUser(user) {
-  if (!user?.id) return { created: 0 };
-  try {
-    const { hasPermission, isSuperAdmin } = require("../../utils/permissions");
-    if (!isSuperAdmin(user) && !hasPermission(user, "document_approvals", "edit")) {
-      return { created: 0 };
-    }
-
-    const documentChangeService = require("../collaborators/document-change.service");
-    const requests = await documentChangeService.listPendingDocumentChanges();
-    let created = 0;
-    for (const request of requests || []) {
-      if (await alertExistsForRef(user.id, "document_change_request", request.id)) continue;
-      if (request.id_usuario_requester && Number(request.id_usuario_requester) === Number(user.id)) {
-        continue;
-      }
-
-      const nome = request.collaborator_name || "colaborador";
-      await createAlert({
-        idUsuario: user.id,
-        tipo: "document_change.requested",
-        titulo: "Alteração de documento pendente",
-        mensagem: `Solicitação de alteração de documento para ${nome} aguardando análise.`,
-        link: "/admin/aprovacoes-documento",
-        tipoReferencia: "document_change_request",
-        idReferencia: request.id,
-      });
-      created += 1;
-    }
-    return { created };
-  } catch (err) {
-    log.warn({ err, userId: user.id }, "Falha ao sincronizar documentos pendentes em alertas");
-    return { created: 0 };
-  }
-}
-
 async function syncInboxAlertsForUser(user) {
-  const a = await syncPendingApprovalsForUser(user);
-  const d = await syncPendingDocumentChangesForUser(user);
-  return { created: (a.created || 0) + (d.created || 0) };
+  return syncPendingApprovalsForUser(user);
 }
 
 async function listAlerts(userId, { page = 1, pageSize = 20, unreadOnly = false } = {}) {

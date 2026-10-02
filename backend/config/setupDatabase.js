@@ -774,37 +774,6 @@ async function migratePhase2(connection) {
     `);
     logger.info("Migration: collaborator.picture adicionada");
   }
-
-  const [dcrTables] = await connection.query(
-    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'document_change_request' LIMIT 1`,
-    [env.db.name],
-  );
-  if (dcrTables.length === 0) {
-    await connection.query(`
-      CREATE TABLE document_change_request (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        id_collaborator INT NOT NULL,
-        id_collaborator_document_type INT NOT NULL,
-        old_document VARCHAR(50) NOT NULL,
-        new_document VARCHAR(50) NOT NULL,
-        status ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
-        reason VARCHAR(500) NOT NULL,
-        admin_reason VARCHAR(500) NULL,
-        id_usuario_requester INT NULL,
-        id_usuario_reviewer INT NULL,
-        criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_dcr_collaborator (id_collaborator),
-        INDEX idx_dcr_status (status),
-        FOREIGN KEY (id_collaborator) REFERENCES collaborator(id_collaborator) ON DELETE RESTRICT,
-        FOREIGN KEY (id_collaborator_document_type) REFERENCES collaborator_document_type(id_collaborator_document_type) ON DELETE RESTRICT,
-        FOREIGN KEY (id_usuario_requester) REFERENCES usuarios(id) ON DELETE SET NULL,
-        FOREIGN KEY (id_usuario_reviewer) REFERENCES usuarios(id) ON DELETE SET NULL
-      )
-    `);
-    logger.info("Migration: tabela document_change_request criada");
-  }
 }
 
 async function migrateServiceAccessEvolution(connection) {
@@ -846,6 +815,31 @@ async function migrateServiceAccessEvolution(connection) {
       `ALTER TABLE service_access ADD COLUMN status TINYINT(1) NOT NULL DEFAULT 1 AFTER observacao`,
     );
     logger.info("Migration: service_access.status adicionada");
+  }
+
+  if (!(await columnExists(connection, "service_access", "schedule_type"))) {
+    await connection.query(
+      `ALTER TABLE service_access ADD COLUMN schedule_type ENUM('MANUAL','COMERCIAL','NOTURNO') NOT NULL DEFAULT 'MANUAL' AFTER end_date`,
+    );
+    logger.info("Migration: service_access.schedule_type adicionada");
+  }
+  if (!(await columnExists(connection, "service_access", "schedule_start"))) {
+    await connection.query(
+      `ALTER TABLE service_access ADD COLUMN schedule_start TIME NULL AFTER schedule_type`,
+    );
+    logger.info("Migration: service_access.schedule_start adicionada");
+  }
+  if (!(await columnExists(connection, "service_access", "schedule_end"))) {
+    await connection.query(
+      `ALTER TABLE service_access ADD COLUMN schedule_end TIME NULL AFTER schedule_start`,
+    );
+    logger.info("Migration: service_access.schedule_end adicionada");
+  }
+  if (!(await columnExists(connection, "service_access", "schedule_crosses_midnight"))) {
+    await connection.query(
+      `ALTER TABLE service_access ADD COLUMN schedule_crosses_midnight TINYINT(1) NOT NULL DEFAULT 0 AFTER schedule_end`,
+    );
+    logger.info("Migration: service_access.schedule_crosses_midnight adicionada");
   }
 
   await connection.query(`
@@ -1330,6 +1324,18 @@ async function migratePerfisPermissoes(connection) {
       AND pp.acao = 'create'
   `);
 
+  await connection.query(`
+    DELETE pp FROM perfil_permissoes pp
+    INNER JOIN perfis p ON p.id = pp.id_perfil
+    WHERE p.requires_company = 1
+      AND pp.modulo = 'events'
+      AND pp.acao = 'create'
+  `);
+
+  await connection.query(
+    "DELETE FROM perfil_permissoes WHERE modulo = 'document_approvals'",
+  );
+
   const hasPerfilColumn = await columnExists(connection, "usuarios", "perfil");
   if (hasPerfilColumn) {
     await connection.query(`
@@ -1643,6 +1649,19 @@ async function initializeDatabase() {
         AFTER color_palette
       `);
       logger.info("Migration: system_settings.ea_internal_notify_all adicionada");
+    }
+
+    const scheduleSettingCols = [
+      { name: "comercial_start", ddl: "comercial_start TIME NOT NULL DEFAULT '08:00:00'" },
+      { name: "comercial_end", ddl: "comercial_end TIME NOT NULL DEFAULT '18:00:00'" },
+      { name: "noturno_start", ddl: "noturno_start TIME NOT NULL DEFAULT '18:00:00'" },
+      { name: "noturno_end", ddl: "noturno_end TIME NOT NULL DEFAULT '08:00:00'" },
+    ];
+    for (const col of scheduleSettingCols) {
+      if (!(await columnExists(connection, "system_settings", col.name))) {
+        await connection.query(`ALTER TABLE system_settings ADD COLUMN ${col.ddl}`);
+        logger.info(`Migration: system_settings.${col.name} adicionada`);
+      }
     }
 
     const [systemSettingsRows] = await connection.query(

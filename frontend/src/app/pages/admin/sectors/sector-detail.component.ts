@@ -35,7 +35,7 @@ const FLOW_META: Record<(typeof ENTITY_TYPES)[number], { title: string; desc: st
       <header class="page-head">
         <div class="page-head__inner">
           <nav class="crumbs" aria-label="Você está em">
-            <a routerLink="/admin/setores">Setores</a>
+            <a routerLink="/admin/setores">Times</a>
             <span aria-hidden="true">/</span>
             <span class="crumbs__current">{{ sectorNome() || 'Setor' }}</span>
           </nav>

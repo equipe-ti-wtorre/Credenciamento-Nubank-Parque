@@ -5,6 +5,7 @@ const {
   sessionSettingsSchema,
   appearanceSettingsSchema,
   eventAccreditationNotifySchema,
+  accessScheduleSettingsSchema,
 } = require("./system-settings.schema");
 
 exports.getSessionSettings = async (req, res, next) => {
@@ -107,6 +108,41 @@ exports.listAdInternalUsers = async (req, res, next) => {
       search: req.query.search,
     });
     res.json({ users });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAccessScheduleSettings = async (req, res, next) => {
+  try {
+    const settings = await systemSettingsService.getAccessScheduleSettings();
+    res.json({ settings });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateAccessScheduleSettings = async (req, res, next) => {
+  try {
+    const { error, value } = accessScheduleSettingsSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const settings = await systemSettingsService.updateAccessScheduleSettings(value);
+
+    await logAudit({
+      userId: req.user?.id,
+      action: "UPDATE",
+      module: "system_settings",
+      req,
+      metadata: {
+        comercial_start: settings.comercial_start,
+        comercial_end: settings.comercial_end,
+        noturno_start: settings.noturno_start,
+        noturno_end: settings.noturno_end,
+      },
+    });
+
+    res.json({ settings });
   } catch (err) {
     next(err);
   }

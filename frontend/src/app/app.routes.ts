@@ -1,5 +1,4 @@
-import { inject } from '@angular/core';
-import { Router, Routes } from '@angular/router';
+import { Routes } from '@angular/router';
 import { AuthLayoutComponent } from './layouts/auth-layout.component';
 import { MainLayoutComponent } from './layouts/main-layout.component';
 import { SettingsLayoutComponent } from './layouts/settings-layout.component';
@@ -14,6 +13,7 @@ import { AppearanceSettingsComponent } from './pages/admin/appearance/appearance
 import { TeamsIntegrationComponent } from './pages/admin/teams/teams-integration.component';
 import { AboutComponent } from './pages/admin/about/about.component';
 import { EventAccreditationNotifySettingsComponent } from './pages/admin/event-accreditation-notify/event-accreditation-notify-settings.component';
+import { AccessScheduleSettingsComponent } from './pages/admin/access-schedule/access-schedule-settings.component';
 import { SystemReportsComponent } from './pages/admin/system-reports/system-reports.component';
 import { ProfileListComponent } from './pages/admin/profiles/profile-list.component';
 import { UserListComponent } from './pages/admin/users/user-list.component';
@@ -22,6 +22,7 @@ import { CompanyListComponent } from './pages/admin/companies/company-list.compo
 import { CollaboratorListComponent } from './pages/admin/collaborators/collaborator-list.component';
 import { BlocklistListComponent } from './pages/admin/blocklist/blocklist-list.component';
 import { EventListComponent } from './pages/admin/events/event-list.component';
+import { EventCreateComponent } from './pages/admin/events/event-create.component';
 import { EventDetailComponent } from './pages/admin/events/event-detail.component';
 import { EventCollaboratorsComponent } from './pages/admin/events/event-collaborators.component';
 import { EventAccreditationListComponent } from './pages/event-accreditation/event-accreditation-list.component';
@@ -32,13 +33,14 @@ import { VehicleListComponent } from './pages/patrimonial/vehicle-list.component
 import { ServiceRequestListComponent } from './pages/patrimonial/service-request-list.component';
 import { ServiceAccessCreateWizardComponent } from './pages/patrimonial/service-access-create-wizard.component';
 import { ServiceAccessDetailComponent } from './pages/patrimonial/service-access-detail.component';
-import { DocumentApprovalsComponent } from './pages/admin/document-approvals/document-approvals.component';
 import { ProductListComponent } from './pages/admin/merchandise/product-list.component';
 import { StorageLocationListComponent } from './pages/admin/merchandise/storage-location-list.component';
 import { MerchandiseReportsComponent } from './pages/admin/merchandise/merchandise-reports.component';
 import { MerchandiseMovementPageComponent } from './pages/merchandise/merchandise-movement-page.component';
+import { ExternalCompanyListComponent } from './pages/admin/merchandise/external-company-list.component';
 import { CredentialDenialsReportComponent } from './pages/operations/credential-denials-report.component';
 import { AccessReportComponent } from './pages/operations/access-report.component';
+import { AuditListComponent } from './pages/operations/audit-list.component';
 import { SectorListComponent } from './pages/admin/sectors/sector-list.component';
 import { SectorDetailComponent } from './pages/admin/sectors/sector-detail.component';
 import { ApprovalsInboxComponent } from './pages/approvals/approvals-inbox.component';
@@ -75,6 +77,14 @@ export const routes: Routes = [
         data: { title: 'Cadastro de acesso' },
       },
     ],
+  },
+  {
+    path: 'cadastro-empresa',
+    loadComponent: () =>
+      import('./pages/auth/company-self-register.component').then(
+        (m) => m.CompanySelfRegisterComponent,
+      ),
+    data: { title: 'Cadastro da empresa' },
   },
   // Página focada (Teams / deep link) — SSO automático no Teams, sem tela de login
   {
@@ -127,13 +137,7 @@ export const routes: Routes = [
         path: 'aprovacoes',
         component: ApprovalsInboxComponent,
         canActivate: [PermissionGuard],
-        data: {
-          permissionAny: [
-            { module: 'approvals', action: 'view' },
-            { module: 'document_approvals', action: 'view' },
-          ],
-          title: 'Aprovações',
-        },
+        data: { permission: { module: 'approvals', action: 'view' }, title: 'Aprovações' },
       },
       {
         path: 'portaria',
@@ -168,7 +172,7 @@ export const routes: Routes = [
         path: 'operacao/negacoes-credenciamento',
         component: CredentialDenialsReportComponent,
         canActivate: [PermissionGuard],
-        data: { permission: { module: 'credential_denials', action: 'view' }, title: 'Negações' },
+        data: { permission: { module: 'credential_denials', action: 'view' }, title: 'Recusas de acessos' },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -176,6 +180,13 @@ export const routes: Routes = [
         component: AccessReportComponent,
         canActivate: [PermissionGuard],
         data: { permission: { module: 'access_reports', action: 'view' }, title: 'Relatório de acessos' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'operacao/auditoria',
+        component: AuditListComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'audit', action: 'view' }, title: 'Auditoria' },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -222,13 +233,6 @@ export const routes: Routes = [
           title: 'Gestão de bloqueio',
         },
         runGuardsAndResolvers: 'always',
-      },
-      {
-        path: 'admin/aprovacoes-documento',
-        canActivate: [
-          () => inject(Router).createUrlTree(['/aprovacoes'], { queryParams: { tab: 'documentos' } }),
-        ],
-        component: DocumentApprovalsComponent,
       },
       {
         path: 'admin/frota',
@@ -316,6 +320,16 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
+        path: 'admin/eventos/novo',
+        component: EventCreateComponent,
+        canActivate: [PermissionGuard],
+        data: {
+          permission: { module: 'events', action: 'create' },
+          title: 'Novo evento',
+        },
+        runGuardsAndResolvers: 'always',
+      },
+      {
         path: 'admin/eventos/:id',
         component: EventDetailComponent,
         canActivate: [PermissionGuard],
@@ -363,10 +377,17 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
+        path: 'admin/mercadorias-eventuais',
+        component: ExternalCompanyListComponent,
+        canActivate: [PermissionGuard],
+        data: { permission: { module: 'merchandise_external_companies', action: 'view' }, title: 'Empresas eventuais' },
+        runGuardsAndResolvers: 'always',
+      },
+      {
         path: 'admin/setores',
         component: SectorListComponent,
         canActivate: [PermissionGuard, SectorGestorGuard],
-        data: { permission: { module: 'sectors', action: 'view' }, title: 'Setores' },
+        data: { permission: { module: 'sectors', action: 'view' }, title: 'Times' },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -463,6 +484,16 @@ export const routes: Routes = [
             data: {
               permission: { module: 'settings_event_accreditation', action: 'view' },
               title: 'Notificações de credenciamento',
+            },
+          },
+          {
+            path: 'horarios-acesso',
+            component: AccessScheduleSettingsComponent,
+            canActivate: [PermissionGuard],
+            runGuardsAndResolvers: 'always',
+            data: {
+              permission: { module: 'settings_access_schedule', action: 'view' },
+              title: 'Horários de acesso',
             },
           },
         ],

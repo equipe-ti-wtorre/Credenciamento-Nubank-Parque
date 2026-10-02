@@ -108,6 +108,7 @@ export interface AccreditationCompany {
   can_complete: boolean;
   can_notify_sector?: boolean;
   can_notify_owner?: boolean;
+  missing_photo_count?: number;
   can_decide?: boolean;
   can_remove?: boolean;
   collaborators: AccreditationCollaborator[];
@@ -170,6 +171,7 @@ export interface EventAccreditationItem {
   company_responsavel?: AccreditationCompanyBrief | null;
   ativo: boolean;
   internal_enabled?: boolean;
+  photo_required?: boolean;
   cover?: string | null;
   cover_url?: string | null;
   cover_thumb?: string | null;
@@ -238,6 +240,7 @@ export interface EventAccreditationCreatePayload {
   companies?: number[];
   bracelet_types: number[];
   internal_enabled?: boolean;
+  photo_required?: boolean;
   internal_bracelet_types?: number[];
 }
 

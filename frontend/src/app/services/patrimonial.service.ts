@@ -46,6 +46,8 @@ export interface ServiceAccessHistoryItem {
   subject_detail: string | null;
 }
 
+export type AccessScheduleType = 'MANUAL' | 'COMERCIAL' | 'NOTURNO';
+
 export interface ServiceAccessItem {
   id_service_access: number;
   id_company: number;
@@ -54,6 +56,10 @@ export interface ServiceAccessItem {
   status: boolean;
   start_date: string;
   end_date: string;
+  schedule_type?: AccessScheduleType;
+  schedule_start?: string | null;
+  schedule_end?: string | null;
+  schedule_crosses_midnight?: boolean;
   finalidade: string;
   requesting_department: string;
   observacao: string | null;
@@ -71,6 +77,31 @@ export interface ServiceAccessItem {
   access_history?: ServiceAccessHistoryItem[];
   criado_em?: string;
   atualizado_em?: string;
+}
+
+export function formatTimeHm(value?: string | null): string {
+  if (!value) return '';
+  return String(value).slice(0, 5);
+}
+
+export function formatAccessScheduleLabel(item: {
+  schedule_type?: AccessScheduleType | string | null;
+  schedule_start?: string | null;
+  schedule_end?: string | null;
+  schedule_crosses_midnight?: boolean;
+}): string {
+  const type = String(item.schedule_type || 'MANUAL').toUpperCase();
+  const names: Record<string, string> = {
+    MANUAL: 'Manual',
+    COMERCIAL: 'Comercial',
+    NOTURNO: 'Noturno',
+  };
+  const start = formatTimeHm(item.schedule_start);
+  const end = formatTimeHm(item.schedule_end);
+  if (!start || !end) return names[type] || 'Manual';
+  const overnight = !!item.schedule_crosses_midnight || start > end;
+  const range = overnight ? `${start}–${end} (+1)` : `${start}–${end}`;
+  return `${names[type] || type} ${range}`;
 }
 
 export interface ServiceAccessBulkResult {
@@ -112,6 +143,9 @@ export class PatrimonialService {
     observacao?: string | null;
     id_company?: number;
     id_setor: number;
+    schedule_type: AccessScheduleType;
+    schedule_start?: string | null;
+    schedule_end?: string | null;
     notificar_entrada?: boolean;
     notificar_entrada_colaborador?: boolean;
     notificar_entrada_veiculo?: boolean;
@@ -147,6 +181,9 @@ export class PatrimonialService {
       requesting_department: string;
       observacao: string | null;
       id_setor: number;
+      schedule_type: AccessScheduleType;
+      schedule_start: string | null;
+      schedule_end: string | null;
       notificar_entrada: boolean;
       notificar_entrada_colaborador: boolean;
       notificar_entrada_veiculo: boolean;

@@ -41,6 +41,8 @@ export class AuthInterceptor implements HttpInterceptor {
       req.url.includes('/auth/login') ||
       req.url.includes('/auth/refresh') ||
       req.url.includes('/auth/invite') ||
+      req.url.includes('/auth/company-register') ||
+      req.url.includes('/error-logs/client') ||
       (req.method === 'GET' && req.url.includes('/system-settings/appearance'));
 
     if (isPublic) {

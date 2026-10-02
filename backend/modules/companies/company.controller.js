@@ -6,7 +6,9 @@ const {
   companyUpdateSchema,
   companyStatusSchema,
   companyInviteAccessSchema,
+  companyInviteSelfRegisterSchema,
 } = require("./company.schema");
+const selfRegisterService = require("./company-self-register.service");
 
 exports.listTypes = async (req, res, next) => {
   try {
@@ -123,6 +125,38 @@ exports.patchStatus = async (req, res, next) => {
     });
 
     res.json({ company });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.inviteSelfRegister = async (req, res, next) => {
+  try {
+    const { error, value } = companyInviteSelfRegisterSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await selfRegisterService.inviteSelfRegister({
+      ...value,
+      usuarioId: req.user?.id,
+      requestId: req.requestId,
+    });
+
+    attachAudit(req, {
+      action: "CREATE",
+      module: "companies",
+      event: "companies.invite_self_register",
+      resource: {
+        type: "company_self_register",
+        email: result.email,
+      },
+      changes: {
+        email: result.email,
+        name: result.name,
+        id_company_type: result.id_company_type,
+      },
+    });
+
+    res.status(201).json({ invite: result });
   } catch (err) {
     next(err);
   }

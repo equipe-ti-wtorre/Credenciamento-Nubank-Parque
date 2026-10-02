@@ -127,6 +127,9 @@ const env = {
   rateLimitAuthWindowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS) || 15 * 60 * 1000,
   rateLimitAuthMax: Number(process.env.RATE_LIMIT_AUTH_MAX) || 30,
   rateLimitMicrosoftAuthMax: Number(process.env.RATE_LIMIT_MICROSOFT_AUTH_MAX) || 40,
+  /** POST /error-logs/client — por IP, janela curta para evitar flood. */
+  rateLimitClientErrorWindowMs: Number(process.env.RATE_LIMIT_CLIENT_ERROR_WINDOW_MS) || 60 * 1000,
+  rateLimitClientErrorMax: Number(process.env.RATE_LIMIT_CLIENT_ERROR_MAX) || 20,
   /** Cron: sincronizar usuários do Azure AD (true/false). */
   adUsersSyncEnabled: String(process.env.AD_USERS_SYNC_ENABLED || "true").toLowerCase() === "true",
   /** Expressão cron (padrão: a cada hora, no minuto 0). */
@@ -149,6 +152,21 @@ const env = {
   auditArchiveMaxBatches: Math.max(1, Number(process.env.AUDIT_ARCHIVE_MAX_BATCHES) || 50),
   auditArchiveDryRun:
     String(process.env.AUDIT_ARCHIVE_DRY_RUN || "false").toLowerCase() === "true",
+  /** Cron: arquivar app_error_logs antigos (true/false). */
+  errorRetentionEnabled:
+    String(process.env.ERROR_RETENTION_ENABLED || "true").toLowerCase() === "true",
+  /** Expressão cron (padrão: 03:15, após audit_logs). */
+  errorRetentionCron: process.env.ERROR_RETENTION_CRON || "15 3 * * *",
+  errorRetentionTimezone: process.env.ERROR_RETENTION_TIMEZONE || "America/Sao_Paulo",
+  /** Dias em hot storage para warn/4xx (alto volume). */
+  errorRetentionWarnDays: Math.max(1, Number(process.env.ERROR_RETENTION_WARN_DAYS) || 90),
+  /** Dias em hot storage para error/5xx. */
+  errorRetentionDefaultDays: Math.max(1, Number(process.env.ERROR_RETENTION_DEFAULT_DAYS) || 365),
+  errorArchiveDir: process.env.ERROR_ARCHIVE_DIR || "./storage/error-archive",
+  errorArchiveBatchSize: Math.max(100, Number(process.env.ERROR_ARCHIVE_BATCH_SIZE) || 2000),
+  errorArchiveMaxBatches: Math.max(1, Number(process.env.ERROR_ARCHIVE_MAX_BATCHES) || 50),
+  errorArchiveDryRun:
+    String(process.env.ERROR_ARCHIVE_DRY_RUN || "false").toLowerCase() === "true",
   /** Cron: finalizar aprovações pendentes com período já encerrado. */
   approvalsExpirationEnabled:
     String(process.env.APPROVALS_EXPIRATION_ENABLED || "true").toLowerCase() === "true",
@@ -164,6 +182,16 @@ const env = {
     process.env.EVENT_ACCREDITATION_INVITE_TIMEZONE || "America/Sao_Paulo",
   /** Tolerância em horas para acesso fora da meia-noite (montagem/desmontagem). */
   gateAccessToleranceHours: Math.max(0, Number(process.env.GATE_ACCESS_TOLERANCE_HOURS) || 6),
+  /** CNPJs próprios (destinatário do DANFE), sem máscara, separados por vírgula. */
+  ownCnpjs: new Set(
+    String(process.env.OWN_CNPJS || "")
+      .split(",")
+      .map((s) => s.replace(/\D/g, ""))
+      .filter(Boolean),
+  ),
+  /** Job BrasilAPI para external_company. Default false — não chama HTTP no request. */
+  externalCompanyEnrichEnabled:
+    String(process.env.EXTERNAL_COMPANY_ENRICH || "false").toLowerCase() === "true",
 
   /**
    * Validador facial (Control iD + Dahua) — limiares a calibrar com fotos reais do balcão.

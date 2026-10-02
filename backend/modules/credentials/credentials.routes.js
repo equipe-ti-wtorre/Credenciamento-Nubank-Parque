@@ -8,6 +8,7 @@ const authenticated = [authMiddleware];
 router.get("/", ...authenticated, credentialsController.list);
 router.get("/:id", ...authenticated, credentialsController.getById);
 router.post("/", ...authenticated, credentialsController.create);
+router.delete("/:id", ...authenticated, credentialsController.remove);
 router.patch("/:id/status", ...authenticated, credentialsController.patchStatus);
 
 module.exports = router;

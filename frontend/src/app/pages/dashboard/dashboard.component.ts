@@ -410,7 +410,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
       activeVehicles: 0,
       blocklistedCollaborators: 0,
       blocklistedVehicles: 0,
-      pendingDocumentChanges: 0,
       companiesByType: [],
     };
     return [
@@ -418,7 +417,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
       { label: 'Veículos ativos', value: masters.activeVehicles, color: 'var(--db-core)' },
       { label: 'Blocklist PF', value: masters.blocklistedCollaborators, color: 'var(--db-rose)' },
       { label: 'Blocklist veículos', value: masters.blocklistedVehicles, color: 'var(--db-rose)' },
-      { label: 'Docs pendentes', value: masters.pendingDocumentChanges, color: 'var(--db-amber)' },
       { label: 'Eventos ativos', value: m.kpis.activeEvents || 0, color: 'var(--db-green)' },
     ];
   }

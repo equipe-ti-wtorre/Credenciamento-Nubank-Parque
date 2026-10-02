@@ -818,3 +818,31 @@ select.field:disabled {
     transition: none !important;
   }
 }
+
+.nature-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.nature-card {
+  text-align: left;
+  border: 1px solid var(--gm-line-strong);
+  background: var(--gm-surface-2);
+  border-radius: var(--gm-radius-md);
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nature-card strong { font-size: 14px; color: var(--gm-ink); }
+.nature-card span { font-size: 12px; color: var(--gm-ink-soft); line-height: 1.35; }
+.nature-card.is-on {
+  border-color: var(--gm-core);
+  background: var(--gm-lavanda-bg);
+  box-shadow: 0 0 0 1px var(--gm-core);
+}
+@media (max-width: 720px) {
+  .nature-cards { grid-template-columns: 1fr; }
+}

@@ -5,6 +5,13 @@ const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
 const smtpService = require("../smtp/smtp.service");
 const emailTemplatesService = require("../email-templates/email-templates.service");
+const { escapeHtml } = require("../email-templates/email-template.renderer");
+const {
+  FOOTER_INVITE,
+  emphasis,
+  buildLinkNote,
+  buildBrandedEmail,
+} = require("../email-templates/email-template.layout");
 const profilesService = require("../profiles/profiles.service");
 const { createTokenPair } = require("./token.service");
 
@@ -130,15 +137,26 @@ async function sendInviteEmail({
       "",
       "Se você não esperava este e-mail, ignore esta mensagem.",
     ].join("\n");
+  const safeNome = escapeHtml(nome || "");
+  const safeCompany = escapeHtml(companyName || org);
+  const safeUrl = escapeHtml(inviteUrl);
   const html =
     rendered?.html ||
-    [
-      `<h2>Cadastro de acesso</h2>`,
-      `<p>Olá${nome ? ` <strong>${nome}</strong>` : ""},</p>`,
-      `<p>Você foi convidado(a) para acessar o sistema <strong>${org}</strong> como <strong>${perfilLabel || "usuário da empresa"}</strong>${companyName ? ` da empresa <strong>${companyName}</strong>` : ""}.</p>`,
-      `<p><a href="${inviteUrl}" style="display:inline-block;padding:10px 16px;background:#0f766e;color:#fff;text-decoration:none;border-radius:8px;">Definir senha e acessar</a></p>`,
-      `<p style="font-size:12px;color:#64748b;">Link válido por ${INVITE_TTL_HOURS} horas.<br/>Se o botão não funcionar, copie e cole: ${inviteUrl}</p>`,
-    ].join("");
+    buildBrandedEmail({
+      preheader: `Você foi convidado(a) para acessar o sistema Credenciamento do Nubank Parque. Link válido por ${INVITE_TTL_HOURS} horas.`,
+      title: "Cadastro de acesso",
+      kicker: "Convite ao sistema Credenciamento",
+      paragraphs: [
+        `Olá${safeNome ? ` ${emphasis(safeNome)}` : ""},`,
+        `Você foi convidado(a) para acessar o sistema ${emphasis("Credenciamento")} da empresa ${emphasis(safeCompany)}.`,
+      ],
+      cta: { href: safeUrl, label: "Definir senha e acessar" },
+      noteHtml: buildLinkNote({
+        validFor: `${INVITE_TTL_HOURS} horas`,
+        url: safeUrl,
+      }),
+      footerDisclaimer: FOOTER_INVITE,
+    });
 
   await smtpService.sendMail({
     to,

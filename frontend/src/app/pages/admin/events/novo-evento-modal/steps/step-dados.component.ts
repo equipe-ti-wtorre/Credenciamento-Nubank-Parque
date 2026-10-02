@@ -26,6 +26,9 @@ export class NovoEventoStepDadosComponent {
   readonly calViewKey = input(0);
 
   readonly rangePick = output<string>();
+  readonly coverPreview = input<string | null>(null);
+  readonly coverPick = output<Event>();
+  readonly coverClear = output<void>();
 
   readonly formatBr = formatDateBrIso;
   readonly startLabel = computed(() => formatDateBrIso(this.dataInicio()));

@@ -245,8 +245,6 @@ async function batchCollaboratorUsageIds(ids) {
      WHERE id_collaborator IN (${placeholders})`,
     `SELECT DISTINCT id_collaborator AS id FROM material_movement_collaborator
      WHERE id_collaborator IN (${placeholders})`,
-    `SELECT DISTINCT id_collaborator AS id FROM document_change_request
-     WHERE id_collaborator IN (${placeholders})`,
   ];
 
   for (const sql of queries) {
@@ -1174,16 +1172,10 @@ async function countCollaboratorUsage(id) {
      ) mm_usage`,
     [id, id],
   );
-  const [documentChangeRows] = await db.execute(
-    "SELECT COUNT(*) AS total FROM document_change_request WHERE id_collaborator = ?",
-    [id],
-  );
-
   return (
     Number(credentialRows[0]?.total || 0) +
     Number(serviceAccessRows[0]?.total || 0) +
-    Number(movementRows[0]?.total || 0) +
-    Number(documentChangeRows[0]?.total || 0)
+    Number(movementRows[0]?.total || 0)
   );
 }
 
@@ -1203,7 +1195,7 @@ async function deleteCollaborator(req, id) {
   const usageCount = await countCollaboratorUsage(id);
   if (usageCount > 0) {
     throw new AppError(
-      "Não é possível excluir: o colaborador está vinculado a credenciais, acessos de serviço, movimentações ou solicitações de documento.",
+      "Não é possível excluir: o colaborador está vinculado a credenciais, acessos de serviço ou movimentações.",
       409,
     );
   }

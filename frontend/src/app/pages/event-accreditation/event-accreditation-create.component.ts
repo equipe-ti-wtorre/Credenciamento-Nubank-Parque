@@ -460,6 +460,18 @@ const STEP_LABELS: Record<WizardStep, string> = {
                   Usuários internos AD poderão se inscrever neste evento.
                 </span>
               </label>
+              <label class="wcrt-switch">
+                <input
+                  type="checkbox"
+                  [checked]="photoRequired()"
+                  (change)="photoRequired.set(($any($event.target).checked))"
+                />
+                <span class="wcrt-switch__ui" aria-hidden="true"></span>
+                <span class="wcrt-switch__txt">
+                  <b>Foto do colaborador obrigatória</b>
+                  O setor só avisa o responsável depois que todos os indicados tiverem foto. A importação não exige foto.
+                </span>
+              </label>
               <div class="wcrt-kind-filter" role="status">
                 <span>Filtro pelo tipo do evento</span>
                 <app-event-kind-badge [kind]="dadosForm.controls.event_kind.value" [compact]="true" />
@@ -723,6 +735,8 @@ const STEP_LABELS: Record<WizardStep, string> = {
                   @if (internalEnabled()) {
                     · {{ selectedInternalBracelets().size }} pulseira{{ selectedInternalBracelets().size === 1 ? '' : 's' }} para AD
                   }
+                  · Foto obrigatória:
+                  <b>{{ photoRequired() ? 'sim' : 'não' }}</b>
                 </p>
                 <p class="wcrt-col__sub">
                   Depois de criar, cada setor participante indica as empresas e envia o convite automaticamente.
@@ -1041,10 +1055,11 @@ const STEP_LABELS: Record<WizardStep, string> = {
         --form-field-height: 2.5rem;
         font-family: var(--font-body);
         display: block;
+        width: 100%;
       }
       .wcrt-page {
-        max-width: 1200px;
-        margin: 0 auto;
+        width: 100%;
+        max-width: none;
         color: var(--ink);
         padding-bottom: 40px;
       }
@@ -2391,6 +2406,7 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   readonly catalogBracelets = signal<BraceletType[]>([]);
   readonly selectedBracelets = signal<Set<number>>(new Set());
   readonly internalEnabled = signal(false);
+  readonly photoRequired = signal(false);
   readonly selectedInternalBracelets = signal<Set<number>>(new Set());
   readonly showBraceletModal = signal(false);
   readonly savingBracelet = signal(false);
@@ -3250,6 +3266,7 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
         setores,
         bracelet_types: [...this.selectedBracelets()],
         internal_enabled: this.internalEnabled(),
+        photo_required: this.photoRequired(),
         internal_bracelet_types: this.internalEnabled() ? [...this.selectedInternalBracelets()] : [],
       })
       .subscribe({

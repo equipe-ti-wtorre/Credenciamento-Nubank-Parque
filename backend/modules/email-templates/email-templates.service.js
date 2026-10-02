@@ -27,11 +27,22 @@ async function ensureSeeds() {
     seedPromise = (async () => {
       for (const seed of EMAIL_TEMPLATE_SEEDS) {
         await db.execute(
-          `INSERT IGNORE INTO email_templates
+          `INSERT INTO email_templates
              (codigo, nome, descricao, assunto, corpo_html, corpo_texto, ativo)
-           VALUES (?, ?, ?, ?, ?, ?, 1)`,
+           VALUES (?, ?, ?, ?, ?, ?, 1)
+           ON DUPLICATE KEY UPDATE
+             nome = IF(updated_by IS NULL, ?, nome),
+             descricao = IF(updated_by IS NULL, ?, descricao),
+             assunto = IF(updated_by IS NULL, ?, assunto),
+             corpo_html = IF(updated_by IS NULL, ?, corpo_html),
+             corpo_texto = IF(updated_by IS NULL, ?, corpo_texto)`,
           [
             seed.codigo,
+            seed.nome,
+            seed.descricao,
+            seed.assunto,
+            seed.corpo_html,
+            seed.corpo_texto,
             seed.nome,
             seed.descricao,
             seed.assunto,

@@ -321,20 +321,12 @@ async function getDashboardMetrics(req) {
             AND a.tipo_entidade = 'EVENTO'
             AND ad.decidido_em >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
             ${wfScope.sql})
-         +
-         (SELECT COUNT(*)
-          FROM document_change_request dcr
-          INNER JOIN collaborator c ON c.id_collaborator = dcr.id_collaborator
-          WHERE dcr.status = 'REJECTED'
-            AND dcr.atualizado_em >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-            ${colabScope.sql})
        ) AS total`,
       [
         ...credScope.params,
         STATUS_NEGADO,
         ...svcScope.params,
         ...wfScope.params,
-        ...colabScope.params,
       ],
     ),
     db.execute(
@@ -370,16 +362,12 @@ async function getDashboardMetrics(req) {
           WHERE ${activeBlockJoinSql("bl")} ${colabScope.sql}) AS blocklisted_collaborators,
          (SELECT COUNT(*) FROM vehicle_block_list vbl
           INNER JOIN vehicle v ON v.id_vehicle = vbl.id_vehicle
-          WHERE 1=1 ${vehScope.sql}) AS blocklisted_vehicles,
-         (SELECT COUNT(*) FROM document_change_request dcr
-          INNER JOIN collaborator c ON c.id_collaborator = dcr.id_collaborator
-          WHERE dcr.status = 'PENDING' ${colabScope.sql}) AS pending_document_changes`,
+          WHERE 1=1 ${vehScope.sql}) AS blocklisted_vehicles`,
       [
         ...colabScope.params,
         ...vehScope.params,
         ...colabScope.params,
         ...vehScope.params,
-        ...colabScope.params,
       ],
     ),
     db.execute(
@@ -495,13 +483,12 @@ async function getDashboardMetrics(req) {
       activeVehicles: Number(mastersRow?.active_vehicles || 0),
       blocklistedCollaborators: Number(mastersRow?.blocklisted_collaborators || 0),
       blocklistedVehicles: Number(mastersRow?.blocklisted_vehicles || 0),
-      pendingDocumentChanges: Number(mastersRow?.pending_document_changes || 0),
       companiesByType,
     },
   };
 }
 
-const DENIAL_MODULE_KEYS = new Set(["credential", "service_access", "event", "document"]);
+const DENIAL_MODULE_KEYS = new Set(["credential", "service_access", "event"]);
 
 function parseDateOnly(value) {
   if (!value || typeof value !== "string") return null;
@@ -654,27 +641,6 @@ async function getDenials(filters = {}) {
      FROM aprovacao_decisoes ad
      INNER JOIN aprovacoes a ON a.id = ad.id_aprovacao
      INNER JOIN event e ON e.id_event = a.id_entidade
-     WHERE 1=1${whereExtra}`);
-  }
-
-  if (shouldIncludeDenialModule("document", moduleFilter, hasEventFilter)) {
-    const conditions = [`dcr.status = 'REJECTED'`];
-    appendDateRange(conditions, params, "dcr.atualizado_em", dateFrom, dateTo);
-    const whereExtra = ` AND ${conditions.join(" AND ")}`;
-
-    arms.push(`SELECT
-       ${denialText("'document'")} AS module_key,
-       ${denialText("'Documento'")} AS module_label,
-       dcr.id AS id_denial,
-       dcr.atualizado_em AS denied_at,
-       ${denialText("c.name")} AS collaborator_name,
-       ${denialText("c.document")} AS collaborator_document,
-       ${denialText("'Alteração de documento'")} AS context_name,
-       ${denialText("'—'")} AS company_fancy_name,
-       ${denialText("'Rejeitado'")} AS status_at_denial,
-       ${denialText("COALESCE(NULLIF(TRIM(dcr.admin_reason), ''), NULLIF(TRIM(dcr.reason), ''), '—')")} AS reason
-     FROM document_change_request dcr
-     INNER JOIN collaborator c ON c.id_collaborator = dcr.id_collaborator
      WHERE 1=1${whereExtra}`);
   }
 

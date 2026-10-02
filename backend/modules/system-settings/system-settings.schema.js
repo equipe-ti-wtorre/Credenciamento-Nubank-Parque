@@ -13,8 +13,23 @@ const eventAccreditationNotifySchema = Joi.object({
   user_ids: Joi.array().items(Joi.number().integer().positive()).default([]),
 });
 
+const timeHm = Joi.string()
+  .pattern(/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/)
+  .required()
+  .messages({
+    "string.pattern.base": "Informe o horário no formato HH:mm.",
+  });
+
+const accessScheduleSettingsSchema = Joi.object({
+  comercial_start: timeHm,
+  comercial_end: timeHm,
+  noturno_start: timeHm,
+  noturno_end: timeHm,
+});
+
 module.exports = {
   sessionSettingsSchema,
   appearanceSettingsSchema,
   eventAccreditationNotifySchema,
+  accessScheduleSettingsSchema,
 };

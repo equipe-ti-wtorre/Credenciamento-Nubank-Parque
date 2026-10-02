@@ -46,7 +46,8 @@ export type GateNextAction =
   | 'PENDING_APPROVAL'
   | 'REJECTED'
   | 'BLOCKED_OPEN_STAY'
-  | 'BLOCKED_BLOCKLIST';
+  | 'BLOCKED_BLOCKLIST'
+  | 'OUTSIDE_SCHEDULE';
 
 export interface GateAccessCycle {
   check_in: string | null;
@@ -122,11 +123,15 @@ export class GateService {
     kind: 'event' | 'service',
     sourceId: number,
     date: string,
+    idEventDay?: number,
   ): Observable<GateCalendarDetailResponse> {
-    const params = new HttpParams()
+    let params = new HttpParams()
       .set('kind', kind)
       .set('source_id', String(sourceId))
       .set('date', date);
+    if (idEventDay) {
+      params = params.set('id_event_day', String(idEventDay));
+    }
     return this.api.get<GateCalendarDetailResponse>('/gate/calendar/detail', params);
   }
 
@@ -196,6 +201,24 @@ export class GateService {
     return this.api.post(`/gate/services/${idServiceAccess}/notify-approval`, {});
   }
 
+  getServiceAuthorizers(idServiceAccess: number): Observable<GateServiceAuthorizers> {
+    return this.api.get<GateServiceAuthorizers>(`/gate/services/${idServiceAccess}/authorizers`);
+  }
+
+}
+
+export interface GateAuthorizerContact {
+  id: number;
+  nome: string;
+  telefone: string | null;
+  ramal: string | null;
+  email: string | null;
+}
+
+export interface GateServiceAuthorizers {
+  id_setor: number;
+  setor_nome: string;
+  contacts: GateAuthorizerContact[];
 }
 
 export interface GateManualReleaseSector {
@@ -335,6 +358,7 @@ export interface GateCalendarItem {
   key: string;
   kind: 'event' | 'service';
   source_id: number;
+  id_event_day?: number;
   date: string;
   name: string;
   start_date: string;

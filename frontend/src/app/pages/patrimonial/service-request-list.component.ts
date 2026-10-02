@@ -1,7 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { PatrimonialService, ServiceAccessItem } from '../../services/patrimonial.service';
+import { PatrimonialService, ServiceAccessItem, formatAccessScheduleLabel } from '../../services/patrimonial.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService, hasPermission } from '../../core/services/auth.service';
 import {
@@ -86,7 +86,8 @@ function formatPeriodBr(
                   <p class="text-xs text-slate-500">{{ s.company_fancy_name }}</p>
                 </td>
                 <td class="px-4 py-3 text-slate-600 whitespace-nowrap">
-                  {{ formatPeriodBr(s.start_date, s.end_date) }}
+                  <p>{{ formatPeriodBr(s.start_date, s.end_date) }}</p>
+                  <p class="text-xs text-slate-500">{{ formatAccessScheduleLabel(s) }}</p>
                 </td>
                 <td class="px-4 py-3 text-slate-600 hidden lg:table-cell">
                   {{ s.setor_nome || s.requesting_department }}
@@ -151,6 +152,7 @@ function formatPeriodBr(
           </div>
           <p class="sa-card__period">
             {{ formatPeriodBr(s.start_date, s.end_date) }}
+            <span class="block text-slate-500">{{ formatAccessScheduleLabel(s) }}</span>
           </p>
           <div class="sa-card__meta">
             <span
@@ -297,6 +299,7 @@ export class ServiceRequestListComponent implements OnInit {
   isAdmin = false;
   canCreate = false;
   formatPeriodBr = formatPeriodBr;
+  formatAccessScheduleLabel = formatAccessScheduleLabel;
   readonly statusBadgeClass = statusBadgeClass;
 
   constructor(

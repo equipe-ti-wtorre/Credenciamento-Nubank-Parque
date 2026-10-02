@@ -52,6 +52,9 @@ interface CompanyFormState {
           <button type="button" (click)="carregar()" [disabled]="loading()" class="btn-secondary disabled:opacity-50">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
+          <button type="button" (click)="abrirConviteCadastro()" class="btn-action-secondary">
+            Enviar link de cadastro
+          </button>
           <button type="button" (click)="novaEmpresa()" class="btn-primary">+ Nova empresa</button>
         </div>
       </div>
@@ -397,6 +400,68 @@ interface CompanyFormState {
         </button>
       </div>
     </app-modal>
+
+    <app-modal
+      [open]="showInviteModal()"
+      title="Enviar link de cadastro"
+      subtitle="A empresa preenche os dados pelo e-mail e conclui o cadastro."
+      size="md"
+      (close)="fecharConviteCadastro()"
+    >
+      <form id="self-register-invite-form" class="space-y-4" (ngSubmit)="enviarLinkCadastro()">
+        <div>
+          <label class="form-label" for="invite-name">Nome do responsável</label>
+          <input
+            id="invite-name"
+            class="form-field"
+            type="text"
+            name="inviteName"
+            required
+            maxlength="200"
+            [(ngModel)]="inviteForm.name"
+            [disabled]="invitingLink()"
+          />
+        </div>
+        <div>
+          <label class="form-label" for="invite-email">E-mail</label>
+          <input
+            id="invite-email"
+            class="form-field"
+            type="email"
+            name="inviteEmail"
+            required
+            maxlength="200"
+            [(ngModel)]="inviteForm.email"
+            [disabled]="invitingLink()"
+          />
+        </div>
+        <div>
+          <label class="form-label" for="invite-type">Tipo de empresa</label>
+          <select
+            id="invite-type"
+            class="form-select"
+            name="inviteType"
+            required
+            [(ngModel)]="inviteForm.id_company_type"
+            [disabled]="invitingLink()"
+          >
+            <option [ngValue]="null">Selecione</option>
+            <option *ngFor="let t of types()" [ngValue]="t.id_company_type">{{ t.description }}</option>
+          </select>
+        </div>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" class="btn-action-secondary" (click)="fecharConviteCadastro()">Cancelar</button>
+        <button
+          type="submit"
+          form="self-register-invite-form"
+          class="btn-action-primary"
+          [disabled]="invitingLink() || !inviteFormValido()"
+        >
+          {{ invitingLink() ? 'Enviando...' : 'Enviar e-mail' }}
+        </button>
+      </div>
+    </app-modal>
   `,
 })
 export class CompanyListComponent implements OnInit, OnDestroy {
@@ -410,7 +475,9 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   loading = signal(false);
   saving = signal(false);
   inviting = signal(false);
+  invitingLink = signal(false);
   showModal = signal(false);
+  showInviteModal = signal(false);
   editingId = signal<number | null>(null);
   logoPreviewUrl = signal<string | null>(null);
   pendingLogoFile = signal<File | null>(null);
@@ -441,6 +508,7 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   private readonly logoMaxBytes = 2 * 1024 * 1024;
 
   form: CompanyFormState = this.emptyForm();
+  inviteForm = this.emptyInviteForm();
 
   stats = computed(() => {
     const list = this.companies();
@@ -817,6 +885,57 @@ export class CompanyListComponent implements OnInit, OnDestroy {
 
   private revokeThumbnails() {
     this.thumbnailUrls.set({});
+  }
+
+  private emptyInviteForm() {
+    return {
+      name: '',
+      email: '',
+      id_company_type: null as number | null,
+    };
+  }
+
+  inviteFormValido(): boolean {
+    return (
+      !!this.inviteForm.name.trim() &&
+      !!this.inviteForm.email.trim() &&
+      this.inviteForm.id_company_type != null &&
+      this.inviteForm.id_company_type > 0
+    );
+  }
+
+  abrirConviteCadastro() {
+    this.inviteForm = this.emptyInviteForm();
+    if (this.types().length === 1) {
+      this.inviteForm.id_company_type = this.types()[0].id_company_type;
+    }
+    this.showInviteModal.set(true);
+  }
+
+  fecharConviteCadastro() {
+    if (this.invitingLink()) return;
+    this.showInviteModal.set(false);
+  }
+
+  enviarLinkCadastro() {
+    if (!this.inviteFormValido() || this.invitingLink()) return;
+    const payload = {
+      name: this.inviteForm.name.trim(),
+      email: this.inviteForm.email.trim(),
+      id_company_type: this.inviteForm.id_company_type as number,
+    };
+    this.invitingLink.set(true);
+    this.companyService.inviteSelfRegister(payload).subscribe({
+      next: (res) => {
+        this.invitingLink.set(false);
+        this.showInviteModal.set(false);
+        this.notification.success(`Link de cadastro enviado para ${res.invite.email}.`);
+      },
+      error: (err) => {
+        this.invitingLink.set(false);
+        this.notification.error(this.extractError(err) || 'Falha ao enviar o link de cadastro.');
+      },
+    });
   }
 
   enviarAcesso() {

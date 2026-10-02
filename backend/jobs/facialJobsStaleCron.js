@@ -2,6 +2,7 @@
 
 const cron = require("node-cron");
 const { child } = require("../config/logger");
+const { captureError } = require("../modules/error-logs/error-logs.helpers");
 
 const logger = child({ module: "facial-jobs-stale-cron" });
 
@@ -22,6 +23,11 @@ async function runFacialJobsStaleRequeue({ triggeredBy = "manual" } = {}) {
     return { alreadyRunning: false, ok: true, requeued };
   } catch (err) {
     logger.error({ err, triggeredBy }, "Erro ao reprocessar jobs facial stale");
+    await captureError(err, {
+      module: "facial-jobs-stale-cron",
+      origin: "job",
+      metadata: { triggeredBy },
+    });
     return { alreadyRunning: false, ok: false, requeued: 0, error: err.message };
   } finally {
     running = false;
@@ -35,6 +41,11 @@ function startFacialJobsStaleCron() {
 
   runFacialJobsStaleRequeue({ triggeredBy: "startup" }).catch((err) => {
     logger.error({ err }, "Falha no requeue de jobs facial no startup");
+    void captureError(err, {
+      module: "facial-jobs-stale-cron",
+      origin: "job",
+      metadata: { triggeredBy: "startup" },
+    });
   });
 
   scheduledTask = cron.schedule("*/5 * * * *", async () => {

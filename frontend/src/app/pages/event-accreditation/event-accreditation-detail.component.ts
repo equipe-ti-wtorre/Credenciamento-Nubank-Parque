@@ -40,6 +40,7 @@ import {
   ActionDropdownItemDirective,
 } from '../../shared/actions';
 import { BraceletChipComponent, BraceletSelectComponent, normalizeBraceletColor } from '../../shared/bracelet-chip';
+import { CollaboratorPhotoComponent } from '../../shared/collaborator-photo/collaborator-photo.component';
 import { ModalComponent } from '../../shared/modal/modal.component';
 import {
   BulkImportApiAdapter,
@@ -97,6 +98,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
     BraceletChipComponent,
     BraceletSelectComponent,
     ModalComponent,
+    CollaboratorPhotoComponent,
     ServiceAccessBulkImportWizardComponent,
   ],
   template: `
@@ -151,7 +153,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       <path d="M7 10l5 5 5-5" />
                       <path d="M12 15V3" />
                     </svg>
-                    {{ exporting() ? 'Exportando...' : 'Exportar lista' }}
+                    {{ exporting() ? 'Exportando...' : 'Exportar lista e fotos' }}
                   </button>
                   @if (ev.can_notify) {
                     <button
@@ -383,7 +385,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
               <p class="ead-edit__alert">{{ bad }}</p>
             }
 
-            <section class="mt-5">
+            <section class="mt-5 ead-edit__switches">
               <label class="ead-switch">
                 <input
                   type="checkbox"
@@ -395,6 +397,18 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 <span class="ead-switch__ui" aria-hidden="true"></span>
                 <span class="ead-switch__txt">Credenciamento interno</span>
               </label>
+              <label class="ead-switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  [checked]="editPhotoRequired()"
+                  [attr.aria-checked]="editPhotoRequired()"
+                  (change)="editPhotoRequired.set(($any($event.target).checked))"
+                />
+                <span class="ead-switch__ui" aria-hidden="true"></span>
+                <span class="ead-switch__txt">Foto do colaborador obrigatória</span>
+              </label>
+              <p class="ead-edit__sub">O setor só avisa o responsável depois que todos os indicados tiverem foto. A importação não exige foto.</p>
             </section>
 
             <section class="mt-5">
@@ -810,6 +824,9 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                     <span class="ead-count ead-count--apr"><b>{{ countApproved(company) }}</b> aprovados</span>
                     <span class="ead-count ead-count--pen"><b>{{ countPending(company) }}</b> {{ countPending(company) === 1 ? 'pendente' : 'pendentes' }}</span>
                     <span class="ead-count ead-count--blo"><b>{{ countBlocked(company) }}</b> {{ countBlocked(company) === 1 ? 'bloqueado' : 'bloqueados' }}</span>
+                    @if (ev.photo_required) {
+                      <span class="ead-count ead-count--foto"><b>{{ countMissingPhotos(company) }}</b> sem foto</span>
+                    }
                   </div>
                 </div>
                 <span class="ead-chip" [ngClass]="'ead-chip--' + companyPillClass(company)" [class.ead-chip--plain]="companyPillClass(company) === 'idle'">
@@ -823,17 +840,35 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                   </button>
                 }
                 @if (company.can_complete) {
-                  <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="concluir(company)">
+                  <button
+                    type="button"
+                    class="ead-btn ead-btn--sm"
+                    [disabled]="acting() || photoBlocksSectorNotify(ev, company)"
+                    [title]="notifySectorTitle(ev, company)"
+                    (click)="concluir(company)"
+                  >
                     Concluir indicação
                   </button>
                 }
                 @if (company.can_notify_sector) {
-                  <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="reenviarAvisoSetor(company)">
+                  <button
+                    type="button"
+                    class="ead-btn ead-btn--sm"
+                    [disabled]="acting() || photoBlocksSectorNotify(ev, company)"
+                    [title]="notifySectorTitle(ev, company)"
+                    (click)="reenviarAvisoSetor(company)"
+                  >
                     Reenviar aviso ao setor
                   </button>
                 }
-                @if (company.can_notify_owner) {
-                  <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="reenviarAvisoResponsavel(company)">
+                @if (canShowNotifyOwner(company)) {
+                  <button
+                    type="button"
+                    class="ead-btn ead-btn--sm"
+                    [disabled]="acting() || hasMissingPhotos(company)"
+                    [title]="notifyOwnerTitle(company)"
+                    (click)="reenviarAvisoResponsavel(company)"
+                  >
                     Reenviar aviso ao responsável
                   </button>
                 }
@@ -1050,7 +1085,15 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       }
                       <td>
                         <div class="ead-pessoa">
-                          <div class="ead-avatar" aria-hidden="true">{{ personInitials(c.collaborator_name) }}</div>
+                          <app-collaborator-photo
+                            size="sm"
+                            mode="immediate"
+                            [name]="c.collaborator_name"
+                            [picture]="c.collaborator_picture"
+                            [collaboratorId]="c.id_collaborator"
+                            [editable]="canAddCollaborators(ev, company) || !!company.can_decide"
+                            (pictureChange)="onCollaboratorPhotoChanged(company, c, $event)"
+                          />
                           <span>{{ c.collaborator_name }}</span>
                         </div>
                       </td>
@@ -1074,15 +1117,20 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                         }
                       </td>
                       <td>
-                        <span class="ead-chip" [ngClass]="'ead-chip--' + collabPillClass(c)">{{ collabPillLabel(c) }}</span>
-                        @if (c.decided_by_name && (isApproved(c) || isBlocked(c))) {
-                          <span class="ead-audit">
-                            por {{ c.decided_by_name }} · {{ formatAuditAt(c.decided_at) }}
-                            @if (c.decision_reason) {
-                              · <span class="why">{{ c.decision_reason }}</span>
-                            }
-                          </span>
-                        }
+                        <div class="ead-sit">
+                          <span class="ead-chip" [ngClass]="'ead-chip--' + collabPillClass(c)">{{ collabPillLabel(c) }}</span>
+                          @if (showsMissingPhoto(ev, c)) {
+                            <span class="ead-chip ead-chip--wait">Sem foto</span>
+                          }
+                          @if (c.decided_by_name && (isApproved(c) || isBlocked(c))) {
+                            <span class="ead-audit">
+                              por {{ c.decided_by_name }} · {{ formatAuditAt(c.decided_at) }}
+                              @if (c.decision_reason) {
+                                · <span class="why">{{ c.decision_reason }}</span>
+                              }
+                            </span>
+                          }
+                        </div>
                       </td>
                       <td class="ead-acoes">
                         @if (company.can_decide && isPending(c)) {
@@ -1898,6 +1946,9 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
       .ead-count--blo::before {
         background: #d45b5b;
       }
+      .ead-count--foto::before {
+        background: #e9a23b;
+      }
       .ead-empresa__actions {
         display: flex;
         gap: 8px;
@@ -1982,6 +2033,12 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         padding: 13px 20px;
         border-bottom: 1px solid var(--ead-line-soft);
         vertical-align: middle;
+      }
+      .ead-sit {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
       }
       .ead-tabela tbody tr:last-child td {
         border-bottom: 0;
@@ -2358,6 +2415,12 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         font-size: 0.8rem;
         font-weight: 600;
       }
+      .ead-edit__switches {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
       .ead-switch {
         position: relative;
         display: inline-flex;
@@ -2662,6 +2725,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   readonly addSelectedCompanyIds = signal<Set<number>>(new Set());
   readonly editCompanySearch = signal('');
   readonly editInternalEnabled = signal(false);
+  readonly editPhotoRequired = signal(false);
   readonly editName = signal('');
   readonly formatCnpj = formatCnpj;
   readonly insStart = signal<string | null>(null);
@@ -3118,6 +3182,81 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   countBlocked(company: AccreditationCompany): number {
     return (company.collaborators || []).filter((c) => isCollaboratorBlocked(c.id_access_status)).length;
+  }
+
+  hasCollaboratorPicture(c: AccreditationCollaborator): boolean {
+    return !!(c.collaborator_picture && String(c.collaborator_picture).trim());
+  }
+
+  isPhotoGateCollaborator(c: AccreditationCollaborator): boolean {
+    return isCollaboratorPending(c.id_access_status) || isCollaboratorApproved(c.id_access_status);
+  }
+
+  countMissingPhotos(company: AccreditationCompany): number {
+    if (company.missing_photo_count != null) return Number(company.missing_photo_count);
+    return (company.collaborators || []).filter(
+      (c) => this.isPhotoGateCollaborator(c) && !this.hasCollaboratorPicture(c),
+    ).length;
+  }
+
+  hasMissingPhotos(company: AccreditationCompany): boolean {
+    return this.countMissingPhotos(company) > 0;
+  }
+
+  showsMissingPhoto(ev: EventAccreditationItem, c: AccreditationCollaborator): boolean {
+    return !!ev.photo_required && this.isPhotoGateCollaborator(c) && !this.hasCollaboratorPicture(c);
+  }
+
+  canShowNotifyOwner(company: AccreditationCompany): boolean {
+    return (
+      !!company.can_decide &&
+      (company.indication_status === 'APROVADO' || company.indication_status === 'NEGADO')
+    );
+  }
+
+  notifyOwnerTitle(company: AccreditationCompany): string {
+    const n = this.countMissingPhotos(company);
+    if (!n) return '';
+    return n === 1
+      ? '1 colaborador sem foto. O responsável só pode ser avisado quando todos tiverem foto.'
+      : `${n} colaboradores sem foto. O responsável só pode ser avisado quando todos tiverem foto.`;
+  }
+
+  photoBlocksSectorNotify(ev: EventAccreditationItem, company: AccreditationCompany): boolean {
+    return !!ev.photo_required && this.hasMissingPhotos(company);
+  }
+
+  onCollaboratorPhotoChanged(
+    company: AccreditationCompany,
+    target: AccreditationCollaborator,
+    filename: string,
+  ): void {
+    const ev = this.item();
+    if (!ev) return;
+    const companies = (ev.companies || []).map((co) => {
+      if (co.id_event_accreditation_company !== company.id_event_accreditation_company) return co;
+      const collaborators = (co.collaborators || []).map((col) =>
+        col.id_collaborator === target.id_collaborator
+          ? { ...col, collaborator_picture: filename }
+          : col,
+      );
+      return {
+        ...co,
+        collaborators,
+        missing_photo_count: collaborators.filter(
+          (col) => this.isPhotoGateCollaborator(col) && !this.hasCollaboratorPicture(col),
+        ).length,
+      };
+    });
+    this.applyItem({ ...ev, companies });
+  }
+
+  notifySectorTitle(ev: EventAccreditationItem, company: AccreditationCompany): string {
+    if (!this.photoBlocksSectorNotify(ev, company)) return '';
+    const n = this.countMissingPhotos(company);
+    return n === 1
+      ? '1 colaborador sem foto. O setor só pode ser avisado quando todos tiverem foto.'
+      : `${n} colaboradores sem foto. O setor só pode ser avisado quando todos tiverem foto.`;
   }
 
   companyPillClass(company: AccreditationCompany): string {
@@ -3643,6 +3782,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     this.eventDays.set(new Set(normalizeEventDates(ev.event_dates, ev.start, ev.end)));
     this.selectedBracelets.set(new Set((ev.bracelet_types || []).map((b) => b.id_bracelet_type)));
     this.editInternalEnabled.set(!!ev.internal_enabled);
+    this.editPhotoRequired.set(!!ev.photo_required);
     this.selectedInternalBracelets.set(
       new Set((ev.internal_bracelet_types || []).map((b) => b.id_bracelet_type)),
     );
@@ -3925,6 +4065,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
         bracelet_types: [...this.selectedBracelets()],
         setores: [...this.selectedSectorIds()],
         internal_enabled: this.editInternalEnabled(),
+        photo_required: this.editPhotoRequired(),
         internal_bracelet_types: this.editInternalEnabled()
           ? [...this.selectedInternalBracelets()]
           : [],
@@ -4129,6 +4270,10 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   concluir(company: AccreditationCompany): void {
     const ev = this.item();
     if (!ev) return;
+    if (this.photoBlocksSectorNotify(ev, company)) {
+      this.notification.error(this.notifySectorTitle(ev, company));
+      return;
+    }
     this.acting.set(true);
     this.service.completeCompany(ev.id_event_accreditation, company.id_company).subscribe({
       next: (res) => {
@@ -4223,6 +4368,10 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   reenviarAvisoSetor(company: AccreditationCompany): void {
     const ev = this.item();
     if (!ev) return;
+    if (this.photoBlocksSectorNotify(ev, company)) {
+      this.notification.error(this.notifySectorTitle(ev, company));
+      return;
+    }
     this.acting.set(true);
     this.service.notifySectorIndication(ev.id_event_accreditation, company.id_company).subscribe({
       next: (res) => {
@@ -4240,6 +4389,10 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   reenviarAvisoResponsavel(company: AccreditationCompany): void {
     const ev = this.item();
     if (!ev) return;
+    if (ev.photo_required && this.hasMissingPhotos(company)) {
+      this.notification.error(this.notifyOwnerTitle(company));
+      return;
+    }
     this.acting.set(true);
     this.service.notifyOwnerValidated(ev.id_event_accreditation, company.id_company).subscribe({
       next: (res) => {
@@ -4264,7 +4417,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `credenciamento-eventos-${ev.id_event_accreditation}.xlsx`;
+        a.download = `credenciamento-eventos-${ev.id_event_accreditation}.zip`;
         a.click();
         URL.revokeObjectURL(url);
       },

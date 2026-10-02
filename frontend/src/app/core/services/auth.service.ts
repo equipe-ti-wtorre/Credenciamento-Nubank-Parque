@@ -49,6 +49,7 @@ export interface AuthUser {
   permissions?: string[];
   id_company?: number | null;
   requires_company?: boolean;
+  is_super_admin?: boolean;
   is_ad_user: boolean;
   foto_url?: string;
   session_idle_minutes?: number | null;
@@ -66,8 +67,54 @@ export function hasPermission(
 ): boolean {
   if (!user) return false;
   if (isSuperAdmin(user)) return true;
+  return hasExplicitPermission(user, module, action);
+}
+
+/** Checa a lista de permissões sem atalho de super admin. */
+export function hasExplicitPermission(
+  user: AuthUser | null | undefined,
+  module: string,
+  action: PermissionAction = 'view',
+): boolean {
+  if (!user) return false;
   const key = permissionKey(module, action);
-  return !!user.permissions?.includes(key);
+  const perms = user.permissions;
+  if (!Array.isArray(perms)) return false;
+  return perms.some((item) => {
+    if (typeof item === 'string') return item === key;
+    if (item && typeof item === 'object') {
+      const row = item as { modulo?: string; acao?: string; module?: string; action?: string };
+      const modulo = row.modulo || row.module;
+      const acao = row.acao || row.action;
+      return !!modulo && !!acao && permissionKey(modulo, acao as PermissionAction) === key;
+    }
+    return false;
+  });
+}
+
+function isTruthyFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
+const COMPANY_PROFILE_CODES = new Set([
+  'PRODUTORA',
+  'PADRAO',
+  'EMPRESA_GESTOR',
+  'EMPRESA_SOLICITANTE',
+]);
+
+export function isCompanyScopedAuthUser(user: AuthUser | null | undefined): boolean {
+  if (!user) return false;
+  if (isTruthyFlag(user.requires_company) || isTruthyFlag(user.profile?.requires_company)) {
+    return true;
+  }
+  const role = String(user.role || user.perfil || user.profile?.codigo || '').toUpperCase();
+  return COMPANY_PROFILE_CODES.has(role);
+}
+
+export function canCreateEvents(user: AuthUser | null | undefined): boolean {
+  if (!user || isCompanyScopedAuthUser(user)) return false;
+  return hasExplicitPermission(user, 'events', 'create');
 }
 
 export function isSectorGestor(user: AuthUser | null | undefined): boolean {
@@ -568,10 +615,11 @@ export class AuthService {
   }
 
   /** Atualiza o usuário em cache a partir da API (permissões novas sem precisar de F5). */
-  async refreshCurrentUser(): Promise<AuthUser | null> {
+  async refreshCurrentUser(options?: { fallbackToCache?: boolean }): Promise<AuthUser | null> {
+    const fallback = options?.fallbackToCache !== false;
     try {
       await this.ensureTokensLoaded();
-      if (!this.accessTokenCache) return this.getCurrentUser();
+      if (!this.accessTokenCache) return fallback ? this.getCurrentUser() : null;
       const res = await firstValueFrom(this.api.get<{ user: AuthUser }>('/auth/me'));
       if (res?.user) {
         await this.storage.set('currentUser', JSON.stringify(res.user));
@@ -580,7 +628,7 @@ export class AuthService {
     } catch {
       /* mantém o cache local se /me falhar */
     }
-    return this.getCurrentUser();
+    return fallback ? this.getCurrentUser() : null;
   }
 
   /** Foto do perfil Microsoft (API ou Graph). */

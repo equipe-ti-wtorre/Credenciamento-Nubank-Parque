@@ -8,6 +8,21 @@ const CREDENTIALS_API = /^\/api\/(?:v1\/)?credentials(?:\/|$)/;
 const GATE_API = /^\/api\/(?:v1\/)?gate(?:\/|$)/;
 const APPROVALS_API = /^\/api\/(?:v1\/)?approvals(?:\/|$)/;
 const SECTORS_API = /^\/api\/(?:v1\/)?sectors(?:\/|$)/;
+const EVENT_ACCREDITATION_API = /^\/api\/(?:v1\/)?event-accreditations(?:\/|$)/;
+const COMPANY_USERS_API = /^\/api\/(?:v1\/)?company-users(?:\/|$)/;
+const PROFILES_API = /^\/api\/(?:v1\/)?profiles(?:\/|$)/;
+const MATERIALS_API = /^\/api\/(?:v1\/)?materials(?:\/|$)/;
+const VEHICLES_API = /^\/api\/(?:v1\/)?vehicles(?:\/|$)/;
+const SERVICE_ACCESS_API = /^\/api\/(?:v1\/)?patrimonial\/services(?:\/|$)/;
+const BLOCKLIST_API = /^\/api\/(?:v1\/)?blocklist(?:\/|$)/;
+const ALERTS_API = /^\/api\/(?:v1\/)?alerts(?:\/|$)/;
+const REPORTS_API = /^\/api\/(?:v1\/)?reports(?:\/|$)/;
+const FACIAL_API = /^\/api\/(?:v1\/)?facial(?:\/|$)/;
+const EMAIL_TEMPLATES_API = /^\/api\/(?:v1\/)?email-templates(?:\/|$)/;
+const SYSTEM_SETTINGS_API = /^\/api\/(?:v1\/)?system-settings(?:\/|$)/;
+const TENANTS_API = /^\/api\/(?:v1\/)?tenants(?:\/|$)/;
+const SMTP_API = /^\/api\/(?:v1\/)?smtp(?:\/|$)/;
+const TEAMS_API = /^\/api\/(?:v1\/)?teams(?:\/|$)/;
 
 function cleanPath(originalUrl) {
   return (originalUrl || "").split("?")[0];
@@ -214,37 +229,6 @@ function resolveCollaboratorsPolicy(method, path) {
       action: AUDIT_ACTIONS.CREATE,
       event: "collaborators.create",
       resourceType: "collaborator",
-    };
-  }
-
-  if (method === "GET" && /\/collaborators\/document-change\/pending\/?$/.test(path)) {
-    return {
-      module: AUDIT_MODULES.COLLABORATORS,
-      action: AUDIT_ACTIONS.LIST,
-      event: "collaborators.document_change.pending",
-      resourceType: "document_change_request",
-    };
-  }
-
-  const docChangeStatusMatch = path.match(/\/collaborators\/document-change\/(\d+)\/status\/?$/);
-  if (method === "PATCH" && docChangeStatusMatch) {
-    return {
-      module: AUDIT_MODULES.COLLABORATORS,
-      action: AUDIT_ACTIONS.UPDATE,
-      event: "collaborators.document_change.status",
-      resourceId: Number(docChangeStatusMatch[1]),
-      resourceType: "document_change_request",
-    };
-  }
-
-  const docChangeCreateMatch = path.match(/\/collaborators\/(\d+)\/document-change\/?$/);
-  if (method === "POST" && docChangeCreateMatch) {
-    return {
-      module: AUDIT_MODULES.COLLABORATORS,
-      action: AUDIT_ACTIONS.CREATE,
-      event: "collaborators.document_change.request",
-      resourceId: Number(docChangeCreateMatch[1]),
-      resourceType: "document_change_request",
     };
   }
 
@@ -582,6 +566,215 @@ function resolveSectorsPolicy(method, path) {
   return null;
 }
 
+function firstNumericId(path, prefix) {
+  const m = path.match(new RegExp(`/${prefix}/(\\d+)`));
+  return m ? Number(m[1]) : null;
+}
+
+function inferRestKind(method, path) {
+  if (method === "GET") {
+    if (/\/export(?:\/|$)/.test(path)) return "export";
+    const last = path.split("/").filter(Boolean).pop() || "";
+    return /^\d+$/.test(last) ? "read" : "list";
+  }
+  if (method === "POST") return "create";
+  if (method === "PUT" || method === "PATCH") return "update";
+  if (method === "DELETE") return "remove";
+  return null;
+}
+
+function inferRestAction(kind) {
+  if (kind === "export") return AUDIT_ACTIONS.EXPORT;
+  if (kind === "read") return AUDIT_ACTIONS.READ;
+  if (kind === "list") return AUDIT_ACTIONS.LIST;
+  if (kind === "create") return AUDIT_ACTIONS.CREATE;
+  if (kind === "update") return AUDIT_ACTIONS.UPDATE;
+  if (kind === "remove") return AUDIT_ACTIONS.DEACTIVATE;
+  return null;
+}
+
+function resolvePrefixPolicy(apiRe, module, resourceType, prefix, method, path) {
+  if (!apiRe.test(path)) return null;
+  const kind = inferRestKind(method, path);
+  const action = inferRestAction(kind);
+  if (!action) return null;
+  const resourceId = firstNumericId(path, prefix);
+  return {
+    module,
+    action,
+    event: `${module}.${kind}`,
+    resourceType,
+    ...(resourceId != null ? { resourceId } : {}),
+  };
+}
+
+function resolveEventAccreditationPolicy(method, path) {
+  return resolvePrefixPolicy(
+    EVENT_ACCREDITATION_API,
+    AUDIT_MODULES.EVENT_ACCREDITATION,
+    "event_accreditation",
+    "event-accreditations",
+    method,
+    path,
+  );
+}
+
+function resolveCompanyUsersPolicy(method, path) {
+  return resolvePrefixPolicy(
+    COMPANY_USERS_API,
+    AUDIT_MODULES.COMPANY_USERS,
+    "company_user",
+    "company-users",
+    method,
+    path,
+  );
+}
+
+function resolveProfilesPolicy(method, path) {
+  return resolvePrefixPolicy(
+    PROFILES_API,
+    AUDIT_MODULES.PROFILES,
+    "profile",
+    "profiles",
+    method,
+    path,
+  );
+}
+
+function resolveMaterialsPolicy(method, path) {
+  return resolvePrefixPolicy(
+    MATERIALS_API,
+    AUDIT_MODULES.MATERIALS,
+    "material",
+    "materials",
+    method,
+    path,
+  );
+}
+
+function resolveVehiclesPolicy(method, path) {
+  return resolvePrefixPolicy(
+    VEHICLES_API,
+    AUDIT_MODULES.PATRIMONIAL,
+    "vehicle",
+    "vehicles",
+    method,
+    path,
+  );
+}
+
+function resolveServiceAccessPolicy(method, path) {
+  return resolvePrefixPolicy(
+    SERVICE_ACCESS_API,
+    AUDIT_MODULES.PATRIMONIAL,
+    "service_access",
+    "services",
+    method,
+    path,
+  );
+}
+
+function resolveBlocklistPolicy(method, path) {
+  return resolvePrefixPolicy(
+    BLOCKLIST_API,
+    AUDIT_MODULES.BLOCKLIST,
+    "blocklist",
+    "blocklist",
+    method,
+    path,
+  );
+}
+
+function resolveAlertsPolicy(method, path) {
+  return resolvePrefixPolicy(
+    ALERTS_API,
+    AUDIT_MODULES.ALERTS,
+    "alert",
+    "alerts",
+    method,
+    path,
+  );
+}
+
+function resolveReportsPolicy(method, path) {
+  return resolvePrefixPolicy(
+    REPORTS_API,
+    AUDIT_MODULES.REPORTS,
+    "report",
+    "reports",
+    method,
+    path,
+  );
+}
+
+function resolveFacialPolicy(method, path) {
+  return resolvePrefixPolicy(
+    FACIAL_API,
+    AUDIT_MODULES.FACIAL_SETTINGS,
+    "facial",
+    "facial",
+    method,
+    path,
+  );
+}
+
+function resolveEmailTemplatesPolicy(method, path) {
+  return resolvePrefixPolicy(
+    EMAIL_TEMPLATES_API,
+    AUDIT_MODULES.EMAIL_TEMPLATES,
+    "email_template",
+    "email-templates",
+    method,
+    path,
+  );
+}
+
+function resolveSystemSettingsPolicy(method, path) {
+  return resolvePrefixPolicy(
+    SYSTEM_SETTINGS_API,
+    AUDIT_MODULES.SYSTEM_SETTINGS,
+    "system_setting",
+    "system-settings",
+    method,
+    path,
+  );
+}
+
+function resolveTenantsPolicy(method, path) {
+  return resolvePrefixPolicy(
+    TENANTS_API,
+    AUDIT_MODULES.TENANTS,
+    "tenant",
+    "tenants",
+    method,
+    path,
+  );
+}
+
+function resolveSmtpPolicy(method, path) {
+  return resolvePrefixPolicy(
+    SMTP_API,
+    AUDIT_MODULES.SMTP,
+    "smtp",
+    "smtp",
+    method,
+    path,
+  );
+}
+
+function resolveTeamsPolicy(method, path) {
+  if (!TEAMS_API.test(path)) return null;
+  if (/\/teams\/bot(?:\/|$)/.test(path)) return null;
+  return resolvePrefixPolicy(
+    TEAMS_API,
+    AUDIT_MODULES.TEAMS,
+    "teams",
+    "teams",
+    method,
+    path,
+  );
+}
+
 function resolveAuditPolicy(req) {
   const path = cleanPath(req.originalUrl);
   const method = req.method;
@@ -593,7 +786,22 @@ function resolveAuditPolicy(req) {
     resolveCredentialsPolicy(method, path) ||
     resolveGatePolicy(method, path) ||
     resolveApprovalsPolicy(method, path) ||
-    resolveSectorsPolicy(method, path)
+    resolveSectorsPolicy(method, path) ||
+    resolveEventAccreditationPolicy(method, path) ||
+    resolveCompanyUsersPolicy(method, path) ||
+    resolveProfilesPolicy(method, path) ||
+    resolveMaterialsPolicy(method, path) ||
+    resolveVehiclesPolicy(method, path) ||
+    resolveServiceAccessPolicy(method, path) ||
+    resolveBlocklistPolicy(method, path) ||
+    resolveAlertsPolicy(method, path) ||
+    resolveReportsPolicy(method, path) ||
+    resolveFacialPolicy(method, path) ||
+    resolveEmailTemplatesPolicy(method, path) ||
+    resolveSystemSettingsPolicy(method, path) ||
+    resolveTenantsPolicy(method, path) ||
+    resolveSmtpPolicy(method, path) ||
+    resolveTeamsPolicy(method, path)
   );
 }
 

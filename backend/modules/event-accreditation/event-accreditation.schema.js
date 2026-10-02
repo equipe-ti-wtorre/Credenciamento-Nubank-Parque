@@ -75,6 +75,7 @@ const createSchema = Joi.object({
       "any.required": "Selecione ao menos um tipo de pulseira.",
     }),
   internal_enabled: Joi.boolean().optional(),
+  photo_required: Joi.boolean().optional(),
   internal_bracelet_types: Joi.array()
     .items(Joi.number().integer().positive())
     .optional(),
@@ -144,6 +145,7 @@ const updateSchema = Joi.object({
       "array.min": "Selecione ao menos um tipo de pulseira.",
     }),
   internal_enabled: Joi.boolean().optional(),
+  photo_required: Joi.boolean().optional(),
   internal_bracelet_types: Joi.array()
     .items(Joi.number().integer().positive())
     .optional(),

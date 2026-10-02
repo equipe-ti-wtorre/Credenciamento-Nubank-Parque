@@ -1,6 +1,8 @@
 const db = require("../../config/db");
 const { SQL_HAS_DEPARTMENT } = require("../../utils/userDepartment");
 
+const { toSqlTime, formatHm, crossesMidnight } = require("../../utils/accessSchedule");
+
 const DEFAULT_IDLE_MINUTES = 30;
 const MIN_IDLE_MINUTES = 5;
 const MAX_IDLE_MINUTES = 480;
@@ -171,6 +173,51 @@ async function listAdInternalUsers({ search = "" } = {}) {
   }));
 }
 
+const DEFAULT_ACCESS_SCHEDULE = {
+  comercial_start: "08:00",
+  comercial_end: "18:00",
+  noturno_start: "18:00",
+  noturno_end: "08:00",
+};
+
+function mapAccessScheduleRow(row) {
+  return {
+    id: row.id,
+    comercial_start: formatHm(row.comercial_start) || DEFAULT_ACCESS_SCHEDULE.comercial_start,
+    comercial_end: formatHm(row.comercial_end) || DEFAULT_ACCESS_SCHEDULE.comercial_end,
+    noturno_start: formatHm(row.noturno_start) || DEFAULT_ACCESS_SCHEDULE.noturno_start,
+    noturno_end: formatHm(row.noturno_end) || DEFAULT_ACCESS_SCHEDULE.noturno_end,
+    comercial_crosses_midnight: crossesMidnight(row.comercial_start, row.comercial_end),
+    noturno_crosses_midnight: crossesMidnight(row.noturno_start, row.noturno_end),
+    atualizado_em: row.atualizado_em,
+  };
+}
+
+async function getAccessScheduleSettings() {
+  await ensureRow();
+  const [rows] = await db.execute(
+    `SELECT id, comercial_start, comercial_end, noturno_start, noturno_end, atualizado_em
+       FROM system_settings ORDER BY id ASC LIMIT 1`,
+  );
+  return mapAccessScheduleRow(rows[0]);
+}
+
+async function updateAccessScheduleSettings(data) {
+  await ensureRow();
+  const comercialStart = toSqlTime(data.comercial_start);
+  const comercialEnd = toSqlTime(data.comercial_end);
+  const noturnoStart = toSqlTime(data.noturno_start);
+  const noturnoEnd = toSqlTime(data.noturno_end);
+  const [existing] = await db.execute("SELECT id FROM system_settings ORDER BY id ASC LIMIT 1");
+  await db.execute(
+    `UPDATE system_settings
+        SET comercial_start = ?, comercial_end = ?, noturno_start = ?, noturno_end = ?
+      WHERE id = ?`,
+    [comercialStart, comercialEnd, noturnoStart, noturnoEnd, existing[0].id],
+  );
+  return getAccessScheduleSettings();
+}
+
 module.exports = {
   getSessionSettings,
   updateSessionSettings,
@@ -179,6 +226,8 @@ module.exports = {
   getEventAccreditationNotifySettings,
   updateEventAccreditationNotifySettings,
   listAdInternalUsers,
+  getAccessScheduleSettings,
+  updateAccessScheduleSettings,
   DEFAULT_IDLE_MINUTES,
   MIN_IDLE_MINUTES,
   MAX_IDLE_MINUTES,

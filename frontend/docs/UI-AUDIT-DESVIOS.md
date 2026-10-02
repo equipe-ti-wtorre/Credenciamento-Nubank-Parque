@@ -38,7 +38,6 @@ Gerado na Fase 2 do plano de padronização. Referência: [`.cursor/rules/ui-pad
 | `sector-list` | 2× btn-secondary | → action-menu + kebab |
 | `service-request-list` | 2× btn-secondary | → kebab |
 | `event-list` | 1× "Configurar" | Manter botão único tonal |
-| `document-approvals` | Verde + índigo | Primária + secundária neutra |
 | `event-detail` | Links emerald/rose | action-btn / btn-action |
 | `service-access-detail` | Link rose | Manter em modal (exceção) |
 | `gate-control` | Cores semânticas | Manter (operacional) |
@@ -46,13 +45,13 @@ Gerado na Fase 2 do plano de padronização. Referência: [`.cursor/rules/ui-pad
 ## Botões fora da hierarquia
 
 - `styles.scss` — aliases legacy redirecionados para `btn-action-*`
-- `approvals-inbox`, `document-approvals` — pares coloridos
+- `approvals-inbox` — pares coloridos
 - `collaborator-list`, `vehicle-list` — `btn-primary-blue` → `btn-action-primary`
 - ~18 páginas com `btn-primary`/`btn-secondary` — migrar rótulos e classes
 
 ## Decisões aplicadas na migração
 
 1. **gate-control:** manter cores semânticas operacionais
-2. **document-approvals / approvals-inbox:** aprovar = primária; rejeitar = secundária neutra
+2. **approvals-inbox:** aprovar = primária; rejeitar = secundária neutra
 3. **event-list:** botão único `btn-action-tonal` "Configurar"
 4. **SweetAlert2:** manter estilo padrão Swal

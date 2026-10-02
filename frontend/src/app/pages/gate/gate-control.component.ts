@@ -27,6 +27,7 @@ import {
   GateValidateResponse,
   GateValidateSuccess,
   GateManualReleaseResult,
+  GateAuthorizerContact,
   GateCalendarItem,
   GateCalendarTypeKey,
   GateCalendarDetailResponse,
@@ -291,7 +292,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const out: GateCalendarItem[] = [];
     for (const item of this.calendarItems()) {
       if (item.date < today) continue;
-      const uniq = `${item.kind}:${item.source_id}:${item.date}`;
+      const uniq = `${item.kind}:${item.source_id}:${item.date}:${item.id_event_day ?? item.type_key}`;
       if (seen.has(uniq)) continue;
       seen.add(uniq);
       out.push(item);
@@ -316,7 +317,8 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
             r.next_action === 'RELEASE_ACCESS' ||
             r.next_action === 'CHECK_IN' ||
             r.next_action === 'PENDING_APPROVAL' ||
-            r.next_action === 'BLOCKED_OPEN_STAY',
+            r.next_action === 'BLOCKED_OPEN_STAY' ||
+            r.next_action === 'OUTSIDE_SCHEDULE',
         ).length,
         in: list.filter((r) => this.isInsideAction(r.next_action)).length,
         done: list.filter((r) => r.next_action === 'COMPLETED').length,
@@ -399,6 +401,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       RELEASE_ACCESS: 0,
       CHECK_IN: 0,
       BLOCKED_OPEN_STAY: 0,
+      OUTSIDE_SCHEDULE: 0,
       PENDING_APPROVAL: 1,
       PERIOD_EXPIRED: 2,
       CHECK_OUT: 3,
@@ -425,7 +428,8 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
           row.next_action !== 'RELEASE_ACCESS' &&
           row.next_action !== 'CHECK_IN' &&
           row.next_action !== 'PENDING_APPROVAL' &&
-          row.next_action !== 'BLOCKED_OPEN_STAY'
+          row.next_action !== 'BLOCKED_OPEN_STAY' &&
+          row.next_action !== 'OUTSIDE_SCHEDULE'
         ) {
           return false;
         }
@@ -473,6 +477,12 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   operatorName = signal('');
 
   showManualReleaseModal = signal(false);
+
+  showAuthorizersModal = signal(false);
+  authorizersLoading = signal(false);
+  authorizersSetorNome = signal('');
+  authorizersContacts = signal<GateAuthorizerContact[]>([]);
+  authorizersError = signal('');
 
   showSubstituteModal = signal(false);
   substituteTarget = signal<GateSubstituteTarget | null>(null);
@@ -534,10 +544,21 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
-    if (this.showSubstituteModal() || this.showReleaseModal() || this.showManualReleaseModal()) return;
+    if (
+      this.showSubstituteModal() ||
+      this.showReleaseModal() ||
+      this.showManualReleaseModal() ||
+      this.showAuthorizersModal()
+    ) {
+      return;
+    }
     const target = event.target as HTMLElement | null;
     if (!target) return;
-    if (target.closest('[data-gate-manual]') || target.closest('[data-gate-substitute-modal]')) {
+    if (
+      target.closest('[data-gate-manual]') ||
+      target.closest('[data-gate-substitute-modal]') ||
+      target.closest('[data-gate-authorizers-modal]')
+    ) {
       return;
     }
     this.focusScanInput();
@@ -820,7 +841,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     this.calendarDetailVehicles.set([]);
     this.calendarDetailOpen.set(true);
     this.calendarDetailLoading.set(true);
-    this.gateService.getCalendarDetail(item.kind, item.source_id, item.date).subscribe({
+    this.gateService.getCalendarDetail(item.kind, item.source_id, item.date, item.id_event_day).subscribe({
       next: (res: GateCalendarDetailResponse) => {
         this.calendarDetailItem.set(res.item);
         this.calendarDetailCollaborators.set(res.collaborators || []);
@@ -1091,7 +1112,8 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
       row.next_action === 'COMPLETED' ||
       row.next_action === 'PENDING_APPROVAL' ||
       row.next_action === 'BLOCKED_OPEN_STAY' ||
-      row.next_action === 'BLOCKED_BLOCKLIST'
+      row.next_action === 'BLOCKED_BLOCKLIST' ||
+      row.next_action === 'OUTSIDE_SCHEDULE'
     ) {
       if (row.next_action === 'BLOCKED_OPEN_STAY') {
         this.notify.warning(
@@ -1103,6 +1125,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
         this.notify.warning(
           row.block_reason || 'Consta na lista de bloqueio.',
         );
+      }
+      if (row.next_action === 'OUTSIDE_SCHEDULE') {
+        this.notify.warning(row.block_reason || 'Fora do horário do acesso.');
       }
       return;
     }
@@ -1270,6 +1295,41 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   isNotifying(row: GateTodayService): boolean {
     const id = row.id_service_access;
     return id != null && !!this.notifyingIds()[id];
+  }
+
+  openAuthorizers(row: GateTodayService): void {
+    const id = row.id_service_access;
+    if (!id) {
+      this.notify.error('Este acesso não possui setor vinculado.');
+      return;
+    }
+    this.showAuthorizersModal.set(true);
+    this.authorizersLoading.set(true);
+    this.authorizersSetorNome.set(row.setor_nome || '');
+    this.authorizersContacts.set([]);
+    this.authorizersError.set('');
+    this.gateService.getServiceAuthorizers(id).subscribe({
+      next: (res) => {
+        this.authorizersSetorNome.set(res.setor_nome || '');
+        this.authorizersContacts.set(res.contacts || []);
+        this.authorizersLoading.set(false);
+        this.cdr.markForCheck();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.authorizersLoading.set(false);
+        this.authorizersError.set(
+          err.error?.message || 'Não foi possível carregar os autorizantes.',
+        );
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  closeAuthorizers(): void {
+    this.showAuthorizersModal.set(false);
+    this.authorizersContacts.set([]);
+    this.authorizersError.set('');
+    this.authorizersSetorNome.set('');
   }
 
   onNotifySector(row: GateTodayService): void {

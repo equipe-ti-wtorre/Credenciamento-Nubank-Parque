@@ -24,6 +24,7 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
 import { ModalComponent } from '../../../shared/modal/modal.component';
 import { FaceCropModalComponent } from '../../../shared/face-crop/face-crop-modal.component';
 import { WebcamCaptureModalComponent } from '../../../shared/webcam-capture/webcam-capture-modal.component';
+import { CollaboratorPhotoComponent } from '../../../shared/collaborator-photo/collaborator-photo.component';
 import {
   BulkImportApiAdapter,
   ServiceAccessBulkImportWizardComponent,
@@ -53,6 +54,7 @@ interface CollaboratorFormState {
     ModalComponent,
     FaceCropModalComponent,
     WebcamCaptureModalComponent,
+    CollaboratorPhotoComponent,
     ServiceAccessBulkImportWizardComponent,
   ],
   styleUrl: './collaborator-list.component.scss',
@@ -702,15 +704,14 @@ interface CollaboratorFormState {
           <div class="collab-field collab-field--full">
             <label class="form-label">Foto</label>
             <div class="collab-photo">
-              <div class="collab-photo__preview" aria-hidden="true">
-                <img *ngIf="picturePreviewUrl()" [src]="picturePreviewUrl()" alt="" />
-                <ng-container *ngIf="!picturePreviewUrl()">{{ initials(form.name) }}</ng-container>
-                <span *ngIf="photoFaceOk()" class="collab-photo__badge" title="Rosto validado">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                </span>
-              </div>
+              <app-collaborator-photo
+                size="lg"
+                mode="deferred"
+                [name]="form.name"
+                [previewUrl]="picturePreviewUrl()"
+                (fileReady)="onDeferredPhotoReady($event)"
+                (validatingChange)="pictureValidating.set($event)"
+              />
               <div class="collab-photo__main">
                 <input
                   #pictureInput
@@ -1758,6 +1759,13 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
   onWebcamCaptured(file: File) {
     this.showWebcamModal.set(false);
     this.applyPictureFile(file);
+  }
+
+  onDeferredPhotoReady(file: File): void {
+    this.revokePicturePreview();
+    this.pendingPictureFile.set(file);
+    this.pictureValidationOk.set(true);
+    this.picturePreviewUrl.set(URL.createObjectURL(file));
   }
 
   private applyPictureFile(file: File | undefined | null) {

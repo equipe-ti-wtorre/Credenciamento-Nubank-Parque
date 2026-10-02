@@ -24,6 +24,45 @@ function matchesAllowed(file, extensions, mimetypes) {
   return false;
 }
 
+function hasJpegMagic(buf) {
+  return buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+}
+
+function hasPngMagic(buf) {
+  return (
+    buf.length >= 8 &&
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47 &&
+    buf[4] === 0x0d &&
+    buf[5] === 0x0a &&
+    buf[6] === 0x1a &&
+    buf[7] === 0x0a
+  );
+}
+
+function hasWebpMagic(buf) {
+  return (
+    buf.length >= 12 &&
+    buf[0] === 0x52 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x46 &&
+    buf[8] === 0x57 &&
+    buf[9] === 0x45 &&
+    buf[10] === 0x42 &&
+    buf[11] === 0x50
+  );
+}
+
+function assertImageMagicBytes(file) {
+  const buf = file?.buffer;
+  if (!buf || !buf.length) return;
+  if (hasJpegMagic(buf) || hasPngMagic(buf) || hasWebpMagic(buf)) return;
+  throw new AppError("Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).", 400);
+}
+
 function createUploadMiddleware({ fieldName, extensions, mimetypes, maxSize, invalidMessage }) {
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -77,6 +116,14 @@ const logoUploadMiddleware = createUploadMiddleware({
   invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
 });
 
+const optionalLogoUploadMiddleware = createOptionalUploadMiddleware({
+  fieldName: "logo",
+  extensions: IMAGE_EXTENSIONS,
+  mimetypes: IMAGE_MIMETYPES,
+  maxSize: 2 * 1024 * 1024,
+  invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
+});
+
 function createOptionalUploadMiddleware({ fieldName, extensions, mimetypes, maxSize, invalidMessage }) {
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -105,13 +152,25 @@ function createOptionalUploadMiddleware({ fieldName, extensions, mimetypes, maxS
   };
 }
 
-const merchandisePhotoMiddleware = createOptionalUploadMiddleware({
+const merchandisePhotoInner = createOptionalUploadMiddleware({
   fieldName: "photo",
   extensions: IMAGE_EXTENSIONS,
   mimetypes: IMAGE_MIMETYPES,
   maxSize: 2 * 1024 * 1024,
   invalidMessage: "Imagem inválida. Use JPEG, PNG ou WebP (máx. 2MB).",
 });
+
+function merchandisePhotoMiddleware(req, res, next) {
+  merchandisePhotoInner(req, res, (err) => {
+    if (err) return next(err);
+    try {
+      if (req.file) assertImageMagicBytes(req.file);
+    } catch (magicErr) {
+      return next(magicErr);
+    }
+    next();
+  });
+}
 
 /** Aceita `photo` (1) e/ou `photos` (até 10) para movimentações com várias NFs. */
 function merchandisePhotosMiddleware(req, res, next) {
@@ -145,6 +204,12 @@ function merchandisePhotosMiddleware(req, res, next) {
     const list = [];
     if (Array.isArray(bag.photo)) list.push(...bag.photo);
     if (Array.isArray(bag.photos)) list.push(...bag.photos);
+    try {
+      for (const file of list) assertImageMagicBytes(file);
+    } catch (magicErr) {
+      return next(magicErr);
+    }
+
     req.merchandisePhotos = list;
     req.file = list[0] || undefined;
     next();
@@ -200,6 +265,7 @@ module.exports = {
   bulkUploadMiddleware,
   pictureUploadMiddleware,
   logoUploadMiddleware,
+  optionalLogoUploadMiddleware,
   coverUploadMiddleware,
   inviteFileUploadMiddleware,
   merchandisePhotoMiddleware,

@@ -10,6 +10,7 @@ const canEditSession = [auth, authorizePermission("settings_session", "edit")];
 const canEditAppearance = [auth, authorizePermission("settings_appearance", "edit")];
 const canViewEaNotify = [auth, authorizePermission("settings_event_accreditation", "view")];
 const canEditEaNotify = [auth, authorizePermission("settings_event_accreditation", "edit")];
+const canEditAccessSchedule = [auth, authorizePermission("settings_access_schedule", "edit")];
 
 router.get("/session", ...canViewSession, systemSettingsController.getSessionSettings);
 router.put("/session", ...canEditSession, systemSettingsController.updateSessionSettings);
@@ -36,6 +37,13 @@ router.get(
   "/event-accreditation-notify/users",
   ...canViewEaNotify,
   systemSettingsController.listAdInternalUsers,
+);
+
+router.get("/access-schedule", auth, systemSettingsController.getAccessScheduleSettings);
+router.put(
+  "/access-schedule",
+  ...canEditAccessSchedule,
+  systemSettingsController.updateAccessScheduleSettings,
 );
 
 module.exports = router;

@@ -23,6 +23,9 @@ export interface EventItem {
   can_delete?: boolean;
   can_toggle_active?: boolean;
   has_registered_data?: boolean;
+  cover?: string | null;
+  cover_url?: string | null;
+  cover_thumb?: string | null;
 }
 
 export interface EventDayCompanyBrief {
@@ -161,6 +164,18 @@ export class EventService {
 
   create(data: EventCreatePayload): Observable<{ event: EventDetail }> {
     return this.api.post<{ event: EventDetail }>('/events', data);
+  }
+
+  uploadCover(id: number, file: File): Observable<{ event: EventDetail; cover: string }> {
+    const form = new FormData();
+    form.append('cover', file, file.name);
+    return this.api.postFormData<{ event: EventDetail; cover: string }>(`/events/${id}/cover`, form);
+  }
+
+  getCoverBlob(filename: string): Observable<string> {
+    const name = String(filename || '').split(/[/\\]/).pop() || '';
+    const params = new HttpParams().set('filename', name);
+    return this.api.getImageDataUrl('/storage/event-covers', params);
   }
 
   updatePeriod(
@@ -311,6 +326,20 @@ export class EventService {
     idVehicle: number,
   ): Observable<{ removed: boolean; id_vehicle: number; count: number }> {
     return this.api.delete(`/events/${idEvent}/companies/${idCompany}/vehicles/${idVehicle}`);
+  }
+
+  removeCompanyVehicles(
+    idEvent: number,
+    idCompany: number,
+  ): Observable<{ removed: number; skipped: number }> {
+    return this.api.delete(`/events/${idEvent}/companies/${idCompany}/vehicles`);
+  }
+
+  removeCompanyCredentials(
+    idEvent: number,
+    idCompany: number,
+  ): Observable<{ removed: number; skipped: number }> {
+    return this.api.delete(`/events/${idEvent}/companies/${idCompany}/credentials`);
   }
 
   downloadCompanyBulkTemplate(idEvent: number, idCompany: number): Observable<Blob> {

@@ -5,7 +5,7 @@ import { ApiService } from '../core/services/api.service';
 
 export type CredentialStatusKey = 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'DENIED' | 'UNKNOWN' | string;
 
-export type DenialModuleKey = 'credential' | 'service_access' | 'event' | 'document';
+export type DenialModuleKey = 'credential' | 'service_access' | 'event';
 
 export type AccessSourceKey = 'event' | 'service_collaborator' | 'service_vehicle';
 
@@ -54,7 +54,6 @@ export interface DashboardMetrics {
     activeVehicles: number;
     blocklistedCollaborators: number;
     blocklistedVehicles: number;
-    pendingDocumentChanges: number;
     companiesByType: { label: string; total: number }[];
   };
 }

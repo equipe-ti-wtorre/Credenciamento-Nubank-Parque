@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const env = require("../config/env");
 const { child } = require("../config/logger");
+const { captureError } = require("../modules/error-logs/error-logs.helpers");
 
 const logger = child({ module: "event-accreditation-invite-cron" });
 
@@ -23,6 +24,11 @@ async function runEventAccreditationInvites({ triggeredBy = "manual" } = {}) {
     return { alreadyRunning: false, ...result };
   } catch (err) {
     logger.error({ err, triggeredBy }, "Erro ao disparar convites de credenciamento");
+    await captureError(err, {
+      module: "event-accreditation-invite-cron",
+      origin: "job",
+      metadata: { triggeredBy },
+    });
     return { alreadyRunning: false, ok: false, sent: 0, error: err.message };
   } finally {
     running = false;
@@ -42,6 +48,11 @@ function startEventAccreditationInviteCron() {
       { cron: env.eventAccreditationInviteCron },
       "Expressão cron inválida para EVENT_ACCREDITATION_INVITE_CRON",
     );
+    void captureError(new Error("Expressão cron inválida para EVENT_ACCREDITATION_INVITE_CRON"), {
+      module: "event-accreditation-invite-cron",
+      origin: "job",
+      metadata: { cron: env.eventAccreditationInviteCron },
+    });
     return null;
   }
 
@@ -51,6 +62,11 @@ function startEventAccreditationInviteCron() {
 
   runEventAccreditationInvites({ triggeredBy: "startup" }).catch((err) => {
     logger.error({ err }, "Falha no disparo de convites de credenciamento no startup");
+    void captureError(err, {
+      module: "event-accreditation-invite-cron",
+      origin: "job",
+      metadata: { triggeredBy: "startup" },
+    });
   });
 
   scheduledTask = cron.schedule(
@@ -64,6 +80,11 @@ function startEventAccreditationInviteCron() {
         }
       } catch (err) {
         logger.error({ err }, "Erro no disparo de convites de credenciamento agendado");
+        void captureError(err, {
+          module: "event-accreditation-invite-cron",
+          origin: "job",
+          metadata: { triggeredBy: "cron" },
+        });
       }
     },
     { timezone: env.eventAccreditationInviteTimezone },

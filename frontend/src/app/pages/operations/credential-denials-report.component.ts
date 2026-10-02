@@ -25,7 +25,6 @@ export class CredentialDenialsReportComponent implements OnInit {
     { key: 'service_access', label: 'Acesso de serviço' },
     { key: 'event', label: 'Credenciamento de evento' },
     { key: 'credential', label: 'Credencial' },
-    { key: 'document', label: 'Documento' },
   ];
 
   loading = signal(false);

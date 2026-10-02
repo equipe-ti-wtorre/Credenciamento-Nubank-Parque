@@ -102,9 +102,9 @@ Fonte: `SIDEBAR_NAV_GROUPS` em `src/app/config/sidebar-nav.config.ts`. `buildNav
 | `Geral` | Início, Aprovações (badge somado) |
 | `Acessos` | Portaria, Acessos de Serviço, Eventos, Credenciamento, Relatório de acessos, Negações |
 | `Mercadorias` | Entrada, Saída, Produtos, Locais, Relatório de mercadorias |
-| `Cadastros` | Empresas, Colaboradores, Frota, Setores |
+| `Cadastros` | Empresas, Colaboradores, Frota, Times |
 | `Sistema` | Perfis, Usuários internos, Usuários de empresas, Configurações |
-| `Gestão` | Fallback: só Setores, se gestor de setor sem outros cadastros |
+| `Gestão` | Fallback: só Times, se gestor de setor sem outros cadastros |
 
 Cada item declara `module` ou `permissionAny` (+ `allowAdInternal` quando couber).
 
@@ -150,9 +150,7 @@ Novos SVGs: registrar path em `rawIcons` no `MainLayoutComponent` e referenciar 
 
 | Item | `badgeSource` | Serviço |
 |------|---------------|---------|
-| Aprovações | `combined` | `ApprovalService.countPending()` + `DocumentChangeService.countPending()` (só o que o usuário pode ver) |
-
-A página `/aprovacoes` unifica o fluxo de aprovação e a aba **Documentos**. A rota antiga `/admin/aprovacoes-documento` redireciona para `/aprovacoes?tab=documentos`.
+| Aprovações | `approvals` | `ApprovalService.countPending()` (só o que o usuário pode ver) |
 
 ---
 

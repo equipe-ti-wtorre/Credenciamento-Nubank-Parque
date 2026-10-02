@@ -1,16 +1,15 @@
-import { ChangeDetectorRef, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import Swal from 'sweetalert2';
 import {
-  EventDetail,
   EventItem,
   EventService,
   formatDateBr,
 } from '../../../services/event.service';
 import { NotificationService } from '../../../core/services/notification.service';
-import { AuthService } from '../../../core/services/auth.service';
+import { AuthService, AuthUser, canCreateEvents } from '../../../core/services/auth.service';
 import {
   STATUS_AGUARDANDO_APROVACAO,
   STATUS_AGUARDANDO_PRODUTORA,
@@ -19,7 +18,6 @@ import {
   STATUS_EXPIRADO,
   statusBadgeClass,
 } from '../../../services/credential.service';
-import { NovoEventoModalComponent } from './novo-evento-modal/novo-evento-modal.component';
 import { ActionBtnComponent } from '../../../shared/actions/action-btn.component';
 import { ActionMenuComponent } from '../../../shared/actions/action-menu.component';
 import { ActionDropdownComponent } from '../../../shared/actions/action-dropdown.component';
@@ -31,7 +29,6 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
   imports: [
     CommonModule,
     FormsModule,
-    NovoEventoModalComponent,
     ActionBtnComponent,
     ActionMenuComponent,
     ActionDropdownComponent,
@@ -50,7 +47,14 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
           <button type="button" (click)="carregar()" [disabled]="loading()" class="btn-action-secondary disabled:opacity-50">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
-          <button type="button" (click)="novoEvento()" class="btn-action-primary">+ Novo evento</button>
+          <button
+            *ngIf="canCreate()"
+            type="button"
+            (click)="novoEvento()"
+            class="btn-action-primary"
+          >
+            + Novo evento
+          </button>
         </div>
       </div>
 
@@ -97,7 +101,16 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
             } @else {
               @for (e of events(); track e.id_event) {
                 <tr class="border-t border-slate-100 hover:bg-slate-50">
-                  <td class="px-4 py-3 font-medium text-slate-800">{{ e.name }}</td>
+                  <td class="px-4 py-3 font-medium text-slate-800">
+                    <div class="el-evento">
+                      @if (coverSrc(e); as src) {
+                        <div class="el-thumb"><img [src]="src" alt=""></div>
+                      } @else {
+                        <div class="el-thumb el-thumb--none" aria-hidden="true">sem arte</div>
+                      }
+                      <span>{{ e.name }}</span>
+                    </div>
+                  </td>
                   <td class="px-4 py-3 text-slate-600">{{ formatDateBr(e.start) }}</td>
                   <td class="px-4 py-3 text-slate-600">{{ formatDateBr(e.end) }}</td>
                   <td class="px-4 py-3">
@@ -211,15 +224,19 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
         </div>
       </div>
     </div>
-
-    <app-novo-evento-modal
-      [open]="showModal()"
-      [lockEmpresa]="lockResponsavel"
-      [defaultEmpresaId]="userCompanyId"
-      (closed)="fecharModal()"
-      (saved)="onEventoSalvo($event)"
-    />
   `,
+  styles: [`
+    .el-evento { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .el-thumb {
+      width: 72px; height: 54px; border-radius: 10px; overflow: hidden;
+      background: #efe9f5; flex: 0 0 72px;
+    }
+    .el-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .el-thumb--none {
+      display: grid; place-items: center; color: #94a3b8;
+      font-size: 11px; font-weight: 600;
+    }
+  `],
 })
 export class EventListComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
@@ -232,12 +249,11 @@ export class EventListComponent implements OnInit {
   readonly STATUS_AGUARDANDO_APROVACAO = STATUS_AGUARDANDO_APROVACAO;
   readonly STATUS_AGUARDANDO_PRODUTORA = STATUS_AGUARDANDO_PRODUTORA;
 
-  lockResponsavel = false;
-  userCompanyId: number | null = null;
-
   events = signal<EventItem[]>([]);
+  coverThumbs = signal<Record<number, string>>({});
   loading = signal(false);
-  showModal = signal(false);
+  private readonly currentUser = signal<AuthUser | null>(null);
+  readonly canCreate = computed(() => canCreateEvents(this.currentUser()));
 
   pagination = signal({
     page: 1,
@@ -258,12 +274,24 @@ export class EventListComponent implements OnInit {
   ) {}
 
   async ngOnInit() {
-    const user = await this.authService.getCurrentUser();
-    const role = String(user?.role || user?.perfil || '').toUpperCase();
-    this.userCompanyId = user?.id_company != null ? Number(user.id_company) : null;
-    this.lockResponsavel = role === 'PRODUTORA' && this.userCompanyId != null;
+    const user = await this.authService.refreshCurrentUser({ fallbackToCache: false });
+    this.currentUser.set(user);
     this.cdr.markForCheck();
     this.carregar();
+  }
+
+  coverSrc(e: EventItem): string | null {
+    return e.cover_thumb || this.coverThumbs()[e.id_event] || null;
+  }
+
+  private loadMissingCovers(items: EventItem[]): void {
+    for (const e of items) {
+      if (!e.cover || e.cover_thumb || this.coverThumbs()[e.id_event]) continue;
+      this.eventService.getCoverBlob(e.cover).subscribe({
+        next: (url) => this.coverThumbs.update((map) => ({ ...map, [e.id_event]: url })),
+        error: () => {},
+      });
+    }
   }
 
   carregar(page = this.pagination().page) {
@@ -277,6 +305,7 @@ export class EventListComponent implements OnInit {
           this.events.set(res.events);
           this.pagination.set(res.pagination);
           this.loading.set(false);
+          this.loadMissingCovers(res.events);
           this.cdr.markForCheck();
         },
         error: (err) => {
@@ -313,16 +342,8 @@ export class EventListComponent implements OnInit {
   }
 
   novoEvento() {
-    this.showModal.set(true);
-  }
-
-  fecharModal() {
-    this.showModal.set(false);
-  }
-
-  onEventoSalvo(event: EventDetail) {
-    this.showModal.set(false);
-    void this.router.navigate(['/admin/eventos', event.id_event]);
+    if (!this.canCreate()) return;
+    void this.router.navigate(['/admin/eventos/novo']);
   }
 
   configurar(e: EventItem) {

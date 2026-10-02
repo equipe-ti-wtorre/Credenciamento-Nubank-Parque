@@ -17,7 +17,7 @@ import { NotificationService } from '../../../core/services/notification.service
   standalone: true,
   imports: [CommonModule, FormsModule, BaseChartDirective],
   template: `
-    <div class="w-full max-w-6xl mx-auto">
+    <div class="w-full">
       <div class="mb-5">
         <h2 class="page-section-title">Relatório de mercadorias</h2>
         <p class="page-section-subtitle">Estoque atual, fluxo de entradas/saídas e histórico de movimentações.</p>
@@ -127,7 +127,18 @@ import { NotificationService } from '../../../core/services/notification.service
                   </span>
                 </td>
                 <td class="px-4 py-3 font-mono text-xs">{{ m.invoice_number }}</td>
-                <td class="px-4 py-3">{{ m.company_fancy_name }}</td>
+                <td class="px-4 py-3">
+                  <div>{{ m.origem_nome || m.company_fancy_name || '—' }}</div>
+                  <span
+                    class="inline-block mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                    [class.bg-slate-100]="(m.origin_type || 'CREDENCIADA') === 'CREDENCIADA'"
+                    [class.text-slate-700]="(m.origin_type || 'CREDENCIADA') === 'CREDENCIADA'"
+                    [class.bg-amber-100]="m.origin_type === 'EVENTUAL'"
+                    [class.text-amber-800]="m.origin_type === 'EVENTUAL'"
+                  >
+                    {{ m.origin_type === 'EVENTUAL' ? 'Eventual' : 'Credenciada' }}
+                  </span>
+                </td>
                 <td class="px-4 py-3">{{ m.collaborator_name }}</td>
                 <td class="px-4 py-3 font-mono">{{ m.vehicle_plate }}</td>
                 <td class="px-4 py-3 text-xs">

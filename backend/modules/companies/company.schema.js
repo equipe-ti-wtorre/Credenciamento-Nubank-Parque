@@ -48,10 +48,17 @@ const companyInviteAccessSchema = Joi.object({
   name: Joi.string().max(200).allow("", null).optional(),
 }).or("id_company_contact", "email");
 
+const companyInviteSelfRegisterSchema = Joi.object({
+  email: Joi.string().email().max(200).required(),
+  name: Joi.string().max(200).required(),
+  id_company_type: Joi.number().integer().positive().required(),
+});
+
 module.exports = {
   companyCreateSchema,
   companyUpdateSchema,
   companyStatusSchema,
   companyInviteAccessSchema,
+  companyInviteSelfRegisterSchema,
   contactSchema,
 };

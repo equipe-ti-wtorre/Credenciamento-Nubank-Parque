@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const env = require("../config/env");
 const { child } = require("../config/logger");
+const { captureError } = require("../modules/error-logs/error-logs.helpers");
 
 const logger = child({ module: "approvals-expiration-cron" });
 
@@ -23,12 +24,22 @@ async function runApprovalsExpiration({ triggeredBy = "manual" } = {}) {
       facialRevoke = await facialExpire.revokeFacialForExpiredAccesses();
     } catch (err) {
       logger.error({ err, triggeredBy }, "Falha ao revogar facial de acessos expirados");
+      await captureError(err, {
+        module: "approvals-expiration-cron",
+        origin: "job",
+        metadata: { triggeredBy, step: "facial-revoke" },
+      });
       facialRevoke = { ok: false, candidateCount: 0, error: err.message };
     }
     logger.info({ triggeredBy, ...result, facialRevoke }, "Expiração de aprovações concluída");
     return { alreadyRunning: false, ...result, facialRevoke };
   } catch (err) {
     logger.error({ err, triggeredBy }, "Erro ao expirar aprovações vencidas");
+    await captureError(err, {
+      module: "approvals-expiration-cron",
+      origin: "job",
+      metadata: { triggeredBy },
+    });
     return { alreadyRunning: false, ok: false, expiredCount: 0, error: err.message };
   } finally {
     running = false;
@@ -48,6 +59,11 @@ function startApprovalsExpirationCron() {
       { cron: env.approvalsExpirationCron },
       "Expressão cron inválida para APPROVALS_EXPIRATION_CRON",
     );
+    void captureError(new Error("Expressão cron inválida para APPROVALS_EXPIRATION_CRON"), {
+      module: "approvals-expiration-cron",
+      origin: "job",
+      metadata: { cron: env.approvalsExpirationCron },
+    });
     return null;
   }
 
@@ -58,6 +74,11 @@ function startApprovalsExpirationCron() {
   // Cobrir janela em que o processo esteve parado.
   runApprovalsExpiration({ triggeredBy: "startup" }).catch((err) => {
     logger.error({ err }, "Falha na expiração de aprovações no startup");
+    void captureError(err, {
+      module: "approvals-expiration-cron",
+      origin: "job",
+      metadata: { triggeredBy: "startup" },
+    });
   });
 
   scheduledTask = cron.schedule(
@@ -75,6 +96,11 @@ function startApprovalsExpirationCron() {
         }
       } catch (err) {
         logger.error({ err }, "Erro na expiração de aprovações agendada");
+        void captureError(err, {
+          module: "approvals-expiration-cron",
+          origin: "job",
+          metadata: { triggeredBy: "cron" },
+        });
       }
     },
     { timezone: env.approvalsExpirationTimezone },

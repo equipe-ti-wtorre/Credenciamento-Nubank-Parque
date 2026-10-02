@@ -1,0 +1,105 @@
+---
+description: Arquitetura do front Angular 21 — features, store com signals, Reactive Forms, HTTP
+globs: "frontend/**/*.{ts,html,scss}"
+alwaysApply: false
+---
+
+# Front-end Angular 21
+
+Standalone (sem NgModule), zoneless, estado com signals, `inject()` no lugar de construtor, controle de fluxo nativo (`@if`, `@for` com `track`). Não quebrar MSAL, Teams nem o build Capacitor.
+
+## Pastas por feature
+
+```
+src/app/
+├── core/          # auth (MSAL, guards de permissão), interceptors, ThemeService, NotificationService, config
+├── shared/ui/     # app-modal, app-action-menu/btn/dropdown, form-field, upload-dropzone
+├── layout/        # .wt-layout, sidebar, config do menu
+└── features/<feature>/
+    ├── pages/             # *.page.ts roteáveis
+    ├── components/        # peças internas
+    ├── data-access/       # <feature>.api.ts (HTTP) + <feature>.store.ts (estado)
+    ├── models/            # tipos e DTOs
+    └── <feature>.routes.ts   # lazy em app.routes.ts, com guard e data.permission
+```
+
+Peça usada por duas features ou mais sobe para `shared/`. `shared/` não conhece regra de negócio.
+
+## Camadas
+
+| Arquivo | Faz | Nunca faz |
+|---------|-----|-----------|
+| `*.page.ts` / componente | Lê store, dispara ação, controla form | Chamar `HttpClient` |
+| `*.store.ts` | Estado em signals, ações async, chama api, usa `NotificationService` | Manipular DOM |
+| `*.api.ts` | `HttpClient` tipado contra `/api/v1` | Guardar estado, exibir toast |
+
+## Store
+
+```ts
+@Injectable({ providedIn: 'root' })
+export class ColaboradoresStore {
+  private api = inject(ColaboradoresApi);
+  private notify = inject(NotificationService);
+
+  private _itens = signal<Colaborador[]>([]);
+  private _carregando = signal(false);
+  private _filtro = signal('');
+
+  readonly carregando = this._carregando.asReadonly();
+  readonly itens = computed(() => {
+    const f = this._filtro().toLowerCase();
+    return this._itens().filter(c => c.nome.toLowerCase().includes(f));
+  });
+
+  setFiltro(v: string) { this._filtro.set(v); }
+
+  async carregar() {
+    this._carregando.set(true);
+    try {
+      this._itens.set(await firstValueFrom(this.api.listar()));
+    } catch (err) {
+      this.notify.notifyHttpError(err, 'Não foi possível carregar os colaboradores.');
+    } finally {
+      this._carregando.set(false);
+    }
+  }
+}
+```
+
+Signals privados com `_`, expostos por `asReadonly()` ou `computed()`. Toast de sucesso/erro sai do store, conforme `ui-alertas`.
+
+## Formulários
+
+Reactive Forms tipados com `NonNullableFormBuilder`. `FormsModule` / `ngModel` só em código legado.
+
+```ts
+form = inject(NonNullableFormBuilder).group({
+  nome: ['', [Validators.required, Validators.maxLength(120)]],
+  email: ['', [Validators.required, Validators.email]],
+});
+
+salvar() {
+  if (this.form.invalid) { this.form.markAllAsTouched(); return; }
+  this.store.salvar(this.form.getRawValue());
+}
+```
+
+Marcação dos campos segue `ui-design` (`form-label`, `form-field`, `form-select`). Filtro de texto com debounce de 500ms (`ui-design`): campo `FormControl` + `valueChanges.pipe(debounceTime(500))` ligado a `store.setFiltro`, ou `toSignal`.
+
+## HTTP e erros
+
+- Interceptor injeta token e trata 401 (sem toast) e 429 (um aviso a cada 20s), como em `ui-alertas`.
+- Tela só trata erro específico; o resto vai para `notifyHttpError(err, fallback)`.
+- Tipos de API vêm de `core/api/schema.d.ts` (gerado do OpenAPI) quando existir.
+
+## Rota nova
+
+Seguir `ui-perfil`: rota filha do layout autenticado, guard, `data.permission` (ou `permissionAny`) e `data.title`, item no grupo certo do menu com `iconKey`.
+
+## Anti-padrões
+
+- `HttpClient` em componente
+- `ngModel` em formulário novo
+- `BehaviorSubject` para estado de tela (usar signal)
+- NgModule, `constructor(private x: X)` em código novo
+- Feature importando arquivo interno de outra feature

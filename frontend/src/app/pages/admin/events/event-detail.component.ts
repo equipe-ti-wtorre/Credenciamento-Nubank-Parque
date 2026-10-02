@@ -27,6 +27,12 @@ import {
 } from '../../../shared/periodo-range-picker';
 import { NovoEventoStepDiasComponent } from './novo-evento-modal/steps/step-dias.component';
 import { eachIsoInRange } from './novo-evento-modal/ui/calendar.util';
+import {
+  addDayTypeToRange,
+  flattenDiasToPayload,
+  removeDayType,
+  toggleDayType,
+} from './novo-evento-modal/models/evento.model';
 
 type CollaboratorsSeg = 'lote' | 'ind';
 type ViewerProfile = 'solicitante' | 'responsavel' | 'parceira';
@@ -71,6 +77,12 @@ interface AggregatedCompany {
 
       <ng-container *ngIf="!loading() && event(); else loadingState">
         <header class="evhead">
+          <div class="evhead__hero">
+            <div class="evhead__cover">
+              <img *ngIf="coverSrc()" [src]="coverSrc()" [alt]="'Arte do evento ' + event()!.name" />
+              <span *ngIf="!coverSrc()" class="evhead__cover-ph">sem arte</span>
+            </div>
+            <div class="evhead__body">
           <div class="evhead__top">
             <h1 class="evhead__name">{{ event()!.name }}</h1>
             <div class="evhead__actions">
@@ -268,6 +280,8 @@ interface AggregatedCompany {
                   <span class="evstat__sub">de <b>{{ headerStats().partnersTotal }}</b> com cadastro concluído</span>
                 </div>
               </div>
+            </div>
+          </div>
             </div>
           </div>
         </header>
@@ -532,53 +546,111 @@ interface AggregatedCompany {
         [open]="showEditModal()"
         title="Editar evento"
         [subtitle]="editModalSubtitle()"
-        [size]="editStep() === 2 ? '2xl' : 'sm'"
+        [size]="editStep() === 2 ? '2xl' : 'xl'"
         (close)="fecharModalEditar()"
       >
+        <div
+          *ngIf="canAdjustPeriod()"
+          modal-header-extra
+          class="ev-edit-steps"
+          aria-label="Etapas"
+        >
+          <span class="ev-edit-step" [class.on]="editStep() === 1" [class.done]="editStep() > 1">
+            <b>1</b> Período
+          </span>
+          <span class="ev-edit-step-line" [class.done]="editStep() > 1"></span>
+          <span class="ev-edit-step" [class.on]="editStep() === 2">
+            <b>2</b> Dias / fases
+          </span>
+        </div>
         <form
           id="event-edit-form"
           class="event-edit-form"
           [class.event-edit-form--dias]="editStep() === 2"
+          [class.event-edit-form--step1]="editStep() === 1"
           (ngSubmit)="onEditFormSubmit()"
         >
-          <div *ngIf="canAdjustPeriod()" class="edit-stepper" aria-label="Progresso da edição">
-            <div class="edit-stitem" [class.is-active]="editStep() === 1" [class.is-done]="editStep() > 1">
-              <span class="edit-sdot">1</span>
-              <span class="edit-slabel">Período</span>
-            </div>
-            <span class="edit-sline" [class.is-done]="editStep() > 1"></span>
-            <div class="edit-stitem" [class.is-active]="editStep() === 2">
-              <span class="edit-sdot">2</span>
-              <span class="edit-slabel">Dias / fases</span>
-            </div>
-          </div>
-
           <ng-container *ngIf="editStep() === 1">
-            <div class="field" *ngIf="canChangeResponsavel()">
-              <label class="label" for="event-responsavel">Empresa responsável</label>
-              <select
-                id="event-responsavel"
-                class="select"
-                [(ngModel)]="responsavelFormId"
-                name="eventResponsavel"
-                required
-              >
-                <option [ngValue]="null">Selecione</option>
-                <option *ngFor="let p of producers()" [ngValue]="p.id_company">
-                  {{ p.company_name }}
-                </option>
-              </select>
+            <div class="ev-edit-body" [class.ev-edit-body--solo]="!canAdjustPeriod()">
+              <section class="ev-edit-main">
+                <div *ngIf="canAdjustPeriod()" class="ev-edit-note" role="status">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 8h.01M11 12h1v5h1" />
+                  </svg>
+                  <p>Se você alterar o período, os dias e fases já configurados na etapa 2 serão redefinidos.</p>
+                </div>
+
+                <div class="field" *ngIf="canChangeResponsavel()">
+                  <label class="label" for="event-responsavel">Empresa responsável</label>
+                  <select
+                    id="event-responsavel"
+                    class="select"
+                    [(ngModel)]="responsavelFormId"
+                    name="eventResponsavel"
+                    required
+                  >
+                    <option [ngValue]="null">Selecione</option>
+                    <option *ngFor="let p of producers()" [ngValue]="p.id_company">
+                      {{ p.company_name }}
+                    </option>
+                  </select>
+                  <p class="ev-edit-hint">Responde pelos colaboradores credenciados neste evento.</p>
+                </div>
+
+                <div class="field ev-cover-edit">
+                  <span class="label">Foto do evento <span class="ev-edit-opt">· opcional</span></span>
+                  <div class="ev-photo">
+                    <div class="ev-photo__thumb" [class.empty]="!editCoverPreview()">
+                      <img *ngIf="editCoverPreview()" [src]="editCoverPreview()" alt="Foto atual do evento" />
+                      <svg *ngIf="!editCoverPreview()" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                        <rect x="3" y="5" width="18" height="14" rx="2" />
+                        <circle cx="8.5" cy="10" r="1.5" />
+                        <path d="M21 16l-5-5-6 6" />
+                      </svg>
+                    </div>
+                    <div class="ev-photo__meta">
+                      <div class="ev-photo__name">{{ editCoverName() }}</div>
+                      <div class="ev-photo__sub">{{ editCoverMeta() }}</div>
+                      <div class="ev-photo__acts">
+                        <button type="button" class="ev-photo__mini" (click)="editCoverInput.click()">
+                          {{ editCoverPreview() ? 'Trocar' : 'Escolher' }}
+                        </button>
+                        <button
+                          *ngIf="editCoverPreview()"
+                          type="button"
+                          class="ev-photo__mini ev-photo__mini--ghost"
+                          (click)="clearEditCover()"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="ev-edit-hint">JPEG, PNG ou WebP · até 2 MB · recomendado 1200 × 675 px.</p>
+                  <input
+                    #editCoverInput
+                    class="sr-only"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    (change)="onEditCoverPick($event)"
+                  />
+                </div>
+              </section>
+
+              <section *ngIf="canAdjustPeriod()" class="ev-edit-cal" aria-label="Período do evento">
+                <app-periodo-range-picker
+                  [(ngModel)]="editPeriodRange"
+                  name="editPeriodRange"
+                  label="Período do evento"
+                  inputId="event-edit-range"
+                  [inline]="true"
+                  [embed]="true"
+                  [controlInvalid]="editPeriodTouched() && !editPeriodRange?.inicio"
+                  [controlTouched]="editPeriodTouched()"
+                />
+              </section>
             </div>
-            <app-periodo-range-picker
-              *ngIf="canAdjustPeriod()"
-              [(ngModel)]="editPeriodRange"
-              name="editPeriodRange"
-              label="Período do evento"
-              inputId="event-edit-range"
-              [inline]="true"
-              [controlInvalid]="editPeriodTouched() && !editPeriodRange?.inicio"
-              [controlTouched]="editPeriodTouched()"
-            />
           </ng-container>
 
           <ng-container *ngIf="editStep() === 2">
@@ -602,28 +674,33 @@ interface AggregatedCompany {
               [calViewKey]="editCalViewKey()"
               (tagDay)="onEditTagDay($event)"
               (fillPeriod)="onEditFillPeriod()"
-              (changeType)="onEditChangeDayType($event)"
+              (removeType)="onEditRemoveDayType($event)"
               (removeDay)="onEditRemoveDay($event)"
             />
           </ng-container>
         </form>
-        <div modal-footer class="modal-footer">
-          <button
-            type="button"
-            class="btn-action-secondary"
-            (click)="editStep() === 2 ? voltarEditStep() : fecharModalEditar()"
-            [disabled]="editSaving()"
-          >
-            {{ editStep() === 2 ? 'Voltar' : 'Cancelar' }}
-          </button>
-          <button
-            type="submit"
-            form="event-edit-form"
-            class="btn-action-primary"
-            [disabled]="editSaving() || editDaysLoading()"
-          >
-            {{ editPrimaryButtonLabel() }}
-          </button>
+        <div modal-footer class="modal-footer ev-edit-foot">
+          <span class="ev-edit-foot__prog">
+            Etapa {{ editStep() }} de {{ canAdjustPeriod() ? 2 : 1 }}
+          </span>
+          <div class="ev-edit-foot__acts">
+            <button
+              type="button"
+              class="btn-action-secondary"
+              (click)="editStep() === 2 ? voltarEditStep() : fecharModalEditar()"
+              [disabled]="editSaving()"
+            >
+              {{ editStep() === 2 ? 'Voltar' : 'Cancelar' }}
+            </button>
+            <button
+              type="button"
+              class="btn-action-primary"
+              [disabled]="editSaving() || editDaysLoading()"
+              (click)="onEditFormSubmit()"
+            >
+              {{ editPrimaryButtonLabel() }}
+            </button>
+          </div>
         </div>
       </app-modal>
     </div>
@@ -635,6 +712,9 @@ export class EventDetailComponent implements OnInit {
   readonly formatDateBr = formatDateBr;
 
   event = signal<EventDetail | null>(null);
+  coverSrc = signal<string | null>(null);
+  editCoverPreview = signal<string | null>(null);
+  editCoverFile: File | null = null;
   companies = signal<CompanyItem[]>([]);
   producers = signal<EventDayCompanyBrief[]>([]);
   credentials = signal<CredentialItem[]>([]);
@@ -652,7 +732,7 @@ export class EventDetailComponent implements OnInit {
   editPeriodTouched = signal(false);
   editPeriodRange: PeriodoRangeValue | null = null;
   editStep = signal<1 | 2>(1);
-  editDias = signal(new Map<string, number>());
+  editDias = signal(new Map<string, number[]>());
   editDayTypes = signal<EventDayType[]>([]);
   editBrushTypeId = signal(0);
   editCalViewKey = signal(0);
@@ -1156,10 +1236,24 @@ export class EventDetailComponent implements OnInit {
     if (this.editStep() === 2) {
       return 'Marque os dias e fases que farão parte do novo período.';
     }
-    if (this.canAdjustPeriod()) {
-      return 'Ajuste o período. Se ele mudar, você poderá redefinir os dias/fases.';
+    return 'Ajuste a empresa responsável, o período e a foto do evento.';
+  }
+
+  editCoverName(): string {
+    if (this.editCoverFile) return this.editCoverFile.name;
+    if (this.editCoverPreview()) return 'Foto atual';
+    return 'Nenhuma foto';
+  }
+
+  editCoverMeta(): string {
+    const file = this.editCoverFile;
+    if (file) {
+      const kind = (file.type.split('/')[1] || 'img').toUpperCase();
+      const label = kind === 'JPG' ? 'JPEG' : kind;
+      return `${label} · ${Math.max(1, Math.round(file.size / 1024))} KB`;
     }
-    return 'Atualize a empresa responsável do evento.';
+    if (this.editCoverPreview()) return 'JPEG, PNG ou WebP';
+    return 'O evento usará a imagem padrão';
   }
 
   editOrphanDaysLabel(): string {
@@ -1198,6 +1292,8 @@ export class EventDetailComponent implements OnInit {
     this.editDias.set(new Map());
     this.editOrphanDays.set([]);
     this.editDaysLoading.set(false);
+    this.editCoverFile = null;
+    this.editCoverPreview.set(this.coverSrc());
     this.showEditModal.set(true);
     if (this.canChangeResponsavel() && this.producers().length === 0) {
       this.carregarProdutoras();
@@ -1210,6 +1306,68 @@ export class EventDetailComponent implements OnInit {
     this.editStep.set(1);
     this.editDias.set(new Map());
     this.editOrphanDays.set([]);
+    this.editCoverFile = null;
+    this.editCoverPreview.set(null);
+  }
+
+  onEditCoverPick(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      this.notification.error('A foto deve ter no máximo 2 MB.');
+      return;
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      this.notification.error('Use JPEG, PNG ou WebP.');
+      return;
+    }
+    this.editCoverFile = file;
+    this.editCoverPreview.set(URL.createObjectURL(file));
+    this.cdr.markForCheck();
+    this.persistCoverNow(file);
+  }
+
+  private persistCoverNow(file: File): void {
+    const ev = this.event();
+    if (!ev) return;
+    this.editSaving.set(true);
+    this.eventService.uploadCover(ev.id_event, file).subscribe({
+      next: (res) => {
+        this.event.set(res.event);
+        this.editCoverFile = null;
+        this.applyEventCover(res.event);
+        this.editSaving.set(false);
+        this.notification.success('Foto do evento atualizada.');
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        this.editSaving.set(false);
+        this.notification.notifyHttpError(err, 'Falha ao enviar a foto.');
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  clearEditCover(): void {
+    this.editCoverFile = null;
+    this.editCoverPreview.set(null);
+  }
+
+  private applyEventCover(ev: EventDetail | null): void {
+    if (!ev?.cover) {
+      this.coverSrc.set(null);
+      return;
+    }
+    this.eventService.getCoverBlob(ev.cover).subscribe({
+      next: (url) => {
+        this.coverSrc.set(url);
+        if (this.showEditModal()) this.editCoverPreview.set(url);
+        this.cdr.markForCheck();
+      },
+      error: () => this.coverSrc.set(null),
+    });
   }
 
   voltarEditStep() {
@@ -1262,16 +1420,18 @@ export class EventDetailComponent implements OnInit {
     if (!ev || !start || !end) return;
 
     const orphans: string[] = [];
-    const next = new Map<string, number>();
+    const next = new Map<string, number[]>();
     for (const day of ev.days || []) {
       const iso = String(day.date || '').slice(0, 10);
       const typeId = Number(day.type?.id_event_day_type || 0);
       if (!iso || !typeId) continue;
       if (iso < start || iso > end) {
-        orphans.push(iso);
+        if (!orphans.includes(iso)) orphans.push(iso);
         continue;
       }
-      next.set(iso, typeId);
+      const list = next.get(iso) || [];
+      if (!list.includes(typeId)) list.push(typeId);
+      next.set(iso, list);
     }
     orphans.sort();
     this.editOrphanDays.set(orphans);
@@ -1295,7 +1455,8 @@ export class EventDetailComponent implements OnInit {
 
     const savePeriod = this.canAdjustPeriod();
     const saveResponsavel = this.canChangeResponsavel();
-    if (!savePeriod && !saveResponsavel) return;
+    const coverChanged = !!this.editCoverFile;
+    if (!savePeriod && !saveResponsavel && !coverChanged) return;
 
     const periodStart = this.editPeriodRange?.inicio || '';
     const periodEnd = this.editPeriodRange?.fim || '';
@@ -1321,6 +1482,10 @@ export class EventDetailComponent implements OnInit {
       saveResponsavel && this.responsavelFormId !== (ev.id_company_responsavel ?? null);
 
     if (!periodChanged && !responsavelChanged) {
+      if (coverChanged) {
+        this.salvarEdicao();
+        return;
+      }
       this.fecharModalEditar();
       return;
     }
@@ -1336,10 +1501,7 @@ export class EventDetailComponent implements OnInit {
   onEditTagDay(iso: string) {
     const brush = this.editBrushTypeId();
     if (!brush) return;
-    const next = new Map(this.editDias());
-    if (next.get(iso) === brush) next.delete(iso);
-    else next.set(iso, brush);
-    this.editDias.set(next);
+    this.editDias.set(toggleDayType(this.editDias(), iso, brush));
   }
 
   onEditFillPeriod() {
@@ -1347,17 +1509,11 @@ export class EventDetailComponent implements OnInit {
     const end = this.editPeriodRange?.fim || '';
     const brush = this.editBrushTypeId();
     if (!start || !end || !brush) return;
-    const next = new Map(this.editDias());
-    for (const iso of eachIsoInRange(start, end)) {
-      if (!next.has(iso)) next.set(iso, brush);
-    }
-    this.editDias.set(next);
+    this.editDias.set(addDayTypeToRange(this.editDias(), eachIsoInRange(start, end), brush));
   }
 
-  onEditChangeDayType(ev: { iso: string; id_type: number }) {
-    const next = new Map(this.editDias());
-    next.set(ev.iso, ev.id_type);
-    this.editDias.set(next);
+  onEditRemoveDayType(ev: { iso: string; id_type: number }) {
+    this.editDias.set(removeDayType(this.editDias(), ev.iso, ev.id_type));
   }
 
   onEditRemoveDay(iso: string) {
@@ -1372,7 +1528,8 @@ export class EventDetailComponent implements OnInit {
 
     const savePeriod = this.canAdjustPeriod();
     const saveResponsavel = this.canChangeResponsavel();
-    if (!savePeriod && !saveResponsavel) return;
+    const coverChanged = !!this.editCoverFile;
+    if (!savePeriod && !saveResponsavel && !coverChanged) return;
 
     const periodStart = this.editPeriodRange?.inicio || '';
     const periodEnd = this.editPeriodRange?.fim || '';
@@ -1401,7 +1558,7 @@ export class EventDetailComponent implements OnInit {
       saveResponsavel && this.responsavelFormId !== (ev.id_company_responsavel ?? null);
     const syncingDays = periodChanged && this.editStep() === 2;
 
-    if (!periodChanged && !responsavelChanged) {
+    if (!periodChanged && !responsavelChanged && !coverChanged) {
       this.fecharModalEditar();
       return;
     }
@@ -1414,7 +1571,7 @@ export class EventDetailComponent implements OnInit {
     this.editSaving.set(true);
     let approvalReopened = false;
 
-    const finishOk = (message: string, reloadLinks: boolean) => {
+    const afterCover = (message: string, reloadLinks: boolean) => {
       this.editSaving.set(false);
       this.fecharModalEditar();
       this.notification.success(message);
@@ -1429,6 +1586,40 @@ export class EventDetailComponent implements OnInit {
       }
       this.cdr.markForCheck();
     };
+
+    const finishOk = (message: string, reloadLinks: boolean) => {
+      const file = this.editCoverFile;
+      if (!file) {
+        afterCover(message, reloadLinks);
+        return;
+      }
+      this.eventService.uploadCover(ev.id_event, file).subscribe({
+        next: (res) => {
+          this.event.set(res.event);
+          this.applyEventCover(res.event);
+          afterCover(
+            periodChanged || responsavelChanged ? message : 'Foto do evento atualizada.',
+            reloadLinks,
+          );
+        },
+        error: (err) => {
+          this.editSaving.set(false);
+          this.notification.notifyHttpError(
+            err,
+            periodChanged || responsavelChanged
+              ? 'Alterações salvas, mas a foto não foi enviada.'
+              : 'Falha ao enviar a foto.',
+          );
+          if (periodChanged || responsavelChanged) afterCover(message, reloadLinks);
+          else this.cdr.markForCheck();
+        },
+      });
+    };
+
+    if (!periodChanged && !responsavelChanged && coverChanged) {
+      finishOk('Foto do evento atualizada.', false);
+      return;
+    }
 
     const fail = (err: unknown, fallback: string) => {
       this.editSaving.set(false);
@@ -1456,9 +1647,7 @@ export class EventDetailComponent implements OnInit {
     };
 
     if (periodChanged) {
-      const days = [...this.editDias().entries()]
-        .map(([date, id_type]) => ({ date, id_type }))
-        .sort((a, b) => (a.date < b.date ? -1 : 1));
+      const days = flattenDiasToPayload(this.editDias());
 
       this.eventService
         .updatePeriod(ev.id_event, {
@@ -1524,6 +1713,7 @@ export class EventDetailComponent implements OnInit {
     this.eventService.get(eventId).subscribe({
       next: (res) => {
         this.event.set(res.event);
+        this.applyEventCover(res.event);
         this.loading.set(false);
         if (res.event.can_manage_companies || this.isAdmin) {
           this.carregarEmpresas(eventId);

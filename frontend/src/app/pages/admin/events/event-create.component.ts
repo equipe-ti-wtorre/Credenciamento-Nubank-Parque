@@ -1,32 +1,24 @@
-import {
-  Component,
-  ElementRef,
-  HostListener,
-  computed,
-  effect,
-  inject,
-  input,
-  output,
-  signal,
-  untracked,
-  viewChild,
-} from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import Swal from 'sweetalert2';
 import {
   EventDayCompanyBrief,
   EventDayType,
-  EventDetail,
   EventService,
-} from '../../../../services/event.service';
-import { ApprovalService, EligibleSector } from '../../../../services/approval.service';
-import { NotificationService } from '../../../../core/services/notification.service';
-import { NovoEventoStepDadosComponent } from './steps/step-dados.component';
-import { NovoEventoStepDiasComponent } from './steps/step-dias.component';
-import { NovoEventoStepRevisaoComponent } from './steps/step-revisao.component';
+} from '../../../services/event.service';
+import { ApprovalService, EligibleSector } from '../../../services/approval.service';
+import { NotificationService } from '../../../core/services/notification.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { NovoEventoStepDadosComponent } from './novo-evento-modal/steps/step-dados.component';
+import { NovoEventoStepDiasComponent } from './novo-evento-modal/steps/step-dias.component';
+import { NovoEventoStepRevisaoComponent } from './novo-evento-modal/steps/step-revisao.component';
+import { compareIso, eachIsoInRange } from './novo-evento-modal/ui/calendar.util';
 import {
-  compareIso,
-  eachIsoInRange,
-} from './ui/calendar.util';
+  addDayTypeToRange,
+  flattenDiasToPayload,
+  removeDayType,
+  toggleDayType,
+} from './novo-evento-modal/models/evento.model';
 
 const SUBS: Record<number, string> = {
   1: 'Preencha os dados básicos e selecione o período no calendário.',
@@ -34,32 +26,31 @@ const SUBS: Record<number, string> = {
   3: 'O setor só será notificado depois, quando a produtora responsável clicar em Notificar.',
 };
 
+const STEP_DEFS = [
+  { key: 1, label: 'Dados do evento' },
+  { key: 2, label: 'Dias do evento' },
+  { key: 3, label: 'Revisão' },
+] as const;
+
 @Component({
-  selector: 'app-novo-evento-modal',
+  selector: 'app-event-create',
   standalone: true,
   imports: [
     NovoEventoStepDadosComponent,
     NovoEventoStepDiasComponent,
     NovoEventoStepRevisaoComponent,
   ],
-  templateUrl: './novo-evento-modal.component.html',
-  styleUrl: './novo-evento-modal.component.scss',
+  templateUrl: './event-create.component.html',
+  styleUrl: './event-create.component.scss',
 })
-export class NovoEventoModalComponent {
+export class EventCreateComponent implements OnInit, OnDestroy {
   private readonly eventService = inject(EventService);
   private readonly approvalService = inject(ApprovalService);
   private readonly notification = inject(NotificationService);
+  private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
-  readonly open = input(false);
-  readonly lockEmpresa = input(false);
-  readonly defaultEmpresaId = input<number | null>(null);
-
-  readonly closed = output<void>();
-  readonly saved = output<EventDetail>();
-
-  private readonly bodyRef = viewChild<ElementRef<HTMLElement>>('modalBody');
-  private prevOpen = false;
-
+  readonly stepDefs = STEP_DEFS;
   readonly step = signal(1);
   readonly nome = signal('');
   readonly idSetor = signal<number | null>(null);
@@ -67,17 +58,26 @@ export class NovoEventoModalComponent {
   readonly dataInicio = signal<string | null>(null);
   readonly dataFim = signal<string | null>(null);
   readonly picking = signal<'start' | 'end'>('start');
-  readonly dias = signal(new Map<string, number>());
+  readonly dias = signal(new Map<string, number[]>());
   readonly brushTypeId = signal(0);
   readonly saving = signal(false);
   readonly loadingMeta = signal(false);
+  readonly lockEmpresa = signal(false);
 
   readonly sectors = signal<EligibleSector[]>([]);
   readonly producers = signal<EventDayCompanyBrief[]>([]);
   readonly types = signal<EventDayType[]>([]);
   readonly calViewKey = signal(0);
+  readonly coverPreview = signal<string | null>(null);
+  private coverFile: File | null = null;
+
+
+  private defaultEmpresaId: number | null = null;
 
   readonly subtitle = computed(() => SUBS[this.step()] || '');
+  readonly stepLabel = computed(
+    () => this.stepDefs.find((s) => s.key === this.step())?.label || '',
+  );
   readonly canContinueStep1 = computed(
     () =>
       !!this.nome().trim() &&
@@ -97,29 +97,50 @@ export class NovoEventoModalComponent {
     return this.producers().find((p) => p.id_company === id)?.company_name || '—';
   });
 
-  constructor() {
-    effect(() => {
-      const isOpen = this.open();
-      if (isOpen && !this.prevOpen) {
-        untracked(() => void this.onOpen());
-      }
-      this.prevOpen = isOpen;
-    });
-  }
-  @HostListener('document:keydown', ['$event'])
-  onDocKey(ev: KeyboardEvent): void {
-    if (!this.open() || ev.key !== 'Escape') return;
-    ev.preventDefault();
-    void this.requestClose();
+  ngOnDestroy(): void {
+    this.revokeCoverPreview();
   }
 
-  async onOpen(): Promise<void> {
-    this.reset();
+  onCoverPick(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      this.notification.error('A foto deve ter no máximo 2 MB.');
+      return;
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      this.notification.error('Use JPEG, PNG ou WebP.');
+      return;
+    }
+    this.coverFile = file;
+    this.revokeCoverPreview();
+    this.coverPreview.set(URL.createObjectURL(file));
+  }
+
+  clearCover(): void {
+    this.coverFile = null;
+    this.revokeCoverPreview();
+  }
+
+  private revokeCoverPreview(): void {
+    const url = this.coverPreview();
+    if (url) URL.revokeObjectURL(url);
+    this.coverPreview.set(null);
+  }
+
+  async ngOnInit(): Promise<void> {
+    const user = await this.authService.refreshCurrentUser({ fallbackToCache: true });
+    this.defaultEmpresaId = user?.id_company != null ? Number(user.id_company) : null;
+    const role = String(user?.role || user?.perfil || user?.profile?.codigo || '').toUpperCase();
+    this.lockEmpresa.set(role === 'PRODUTORA' && this.defaultEmpresaId != null);
+
     this.loadingMeta.set(true);
     try {
       await Promise.all([this.loadSectors(), this.loadProducers(), this.loadTypes()]);
-      if (this.lockEmpresa() && this.defaultEmpresaId() != null) {
-        this.idEmpresa.set(this.defaultEmpresaId());
+      if (this.lockEmpresa() && this.defaultEmpresaId != null) {
+        this.idEmpresa.set(this.defaultEmpresaId);
       }
     } finally {
       this.loadingMeta.set(false);
@@ -175,35 +196,23 @@ export class NovoEventoModalComponent {
     });
   }
 
-  reset(): void {
-    this.step.set(1);
-    this.nome.set('');
-    this.idSetor.set(null);
-    this.idEmpresa.set(this.lockEmpresa() ? this.defaultEmpresaId() : null);
-    this.dataInicio.set(null);
-    this.dataFim.set(null);
-    this.picking.set('start');
-    this.dias.set(new Map());
-    this.saving.set(false);
-    this.calViewKey.update((n) => n + 1);
-  }
-
   private hasDirtyData(): boolean {
     return (
       !!this.nome().trim() ||
       this.idSetor() != null ||
       (!this.lockEmpresa() && this.idEmpresa() != null) ||
       !!this.dataInicio() ||
-      this.dias().size > 0
+      this.dias().size > 0 ||
+      !!this.coverFile
     );
   }
 
-  async requestClose(): Promise<void> {
+  async onClose(): Promise<void> {
     if (this.saving()) return;
     if (this.hasDirtyData()) {
       const result = await Swal.fire({
         title: 'Descartar rascunho?',
-        text: 'Há dados preenchidos. Fechar agora descarta o que foi informado.',
+        text: 'Há dados preenchidos. Sair agora descarta o que foi informado.',
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'Descartar',
@@ -212,7 +221,7 @@ export class NovoEventoModalComponent {
       });
       if (!result.isConfirmed) return;
     }
-    this.closed.emit();
+    void this.router.navigate(['/admin/eventos']);
   }
 
   async onRangePick(iso: string): Promise<void> {
@@ -267,10 +276,7 @@ export class NovoEventoModalComponent {
   onTagDay(iso: string): void {
     const brush = this.brushTypeId();
     if (!brush) return;
-    const next = new Map(this.dias());
-    if (next.get(iso) === brush) next.delete(iso);
-    else next.set(iso, brush);
-    this.dias.set(next);
+    this.dias.set(toggleDayType(this.dias(), iso, brush));
   }
 
   onFillPeriod(): void {
@@ -278,17 +284,11 @@ export class NovoEventoModalComponent {
     const end = this.dataFim();
     const brush = this.brushTypeId();
     if (!start || !end || !brush) return;
-    const next = new Map(this.dias());
-    for (const iso of eachIsoInRange(start, end)) {
-      if (!next.has(iso)) next.set(iso, brush);
-    }
-    this.dias.set(next);
+    this.dias.set(addDayTypeToRange(this.dias(), eachIsoInRange(start, end), brush));
   }
 
-  onChangeDayType(ev: { iso: string; id_type: number }): void {
-    const next = new Map(this.dias());
-    next.set(ev.iso, ev.id_type);
-    this.dias.set(next);
+  onRemoveDayType(ev: { iso: string; id_type: number }): void {
+    this.dias.set(removeDayType(this.dias(), ev.iso, ev.id_type));
   }
 
   onRemoveDay(iso: string): void {
@@ -302,17 +302,16 @@ export class NovoEventoModalComponent {
     const next = Math.min(3, this.step() + 1);
     this.step.set(next);
     if (next === 2) this.calViewKey.update((n) => n + 1);
-    this.scrollBodyTop();
+    this.scrollTop();
   }
 
   goBack(): void {
     this.step.set(Math.max(1, this.step() - 1));
-    this.scrollBodyTop();
+    this.scrollTop();
   }
 
-  private scrollBodyTop(): void {
-    const el = this.bodyRef()?.nativeElement;
-    if (el) el.scrollTop = 0;
+  private scrollTop(): void {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   salvar(): void {
@@ -327,9 +326,7 @@ export class NovoEventoModalComponent {
       return;
     }
 
-    const days = [...this.dias().entries()]
-      .map(([date, id_type]) => ({ date, id_type }))
-      .sort((a, b) => (a.date < b.date ? -1 : 1));
+    const days = flattenDiasToPayload(this.dias());
 
     this.saving.set(true);
     this.eventService
@@ -343,11 +340,7 @@ export class NovoEventoModalComponent {
       })
       .subscribe({
         next: (res) => {
-          this.saving.set(false);
-          this.notification.success(
-            'Evento criado. A empresa responsável será notificada por e-mail.',
-          );
-          this.saved.emit(res.event);
+          this.afterCreate(res.event.id_event);
         },
         error: (err) => {
           this.saving.set(false);
@@ -358,5 +351,27 @@ export class NovoEventoModalComponent {
           this.notification.error(msg);
         },
       });
+  }
+
+  private afterCreate(id: number): void {
+    const go = () => {
+      this.saving.set(false);
+      this.notification.success(
+        'Evento criado. A empresa responsável será notificada por e-mail.',
+      );
+      void this.router.navigate(['/admin/eventos', id]);
+    };
+    const file = this.coverFile;
+    if (!file) {
+      go();
+      return;
+    }
+    this.eventService.uploadCover(id, file).subscribe({
+      next: () => go(),
+      error: (err) => {
+        this.notification.notifyHttpError(err, 'Evento criado, mas a foto não foi enviada.');
+        go();
+      },
+    });
   }
 }

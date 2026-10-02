@@ -29,6 +29,8 @@ const {
 } = require("../collaborators/collaborator.schema");
 const { savePreviewSession, getPreviewSession, deletePreviewSession } = require("../bulk/previewSession");
 const { buildFieldDiffs, pickUpdatePatch, summarizePreviewRows } = require("../bulk/diff");
+const systemSettingsService = require("../system-settings/system-settings.service");
+const { toSqlTime, formatHm, crossesMidnight } = require("../../utils/accessSchedule");
 
 const SERVICE_COLLAB_UPDATE_FIELDS = ["name", "id_collaborator_role", "rg", "phone"];
 const SERVICE_VEHICLE_UPDATE_FIELDS = ["brand", "model", "color", "type", "description"];
@@ -121,6 +123,58 @@ function resolveNotifyEntradaFlags(data, existing = null) {
     notificar_entrada_veiculo: veic,
     notificar_entrada: colab || veic ? 1 : 0,
   };
+}
+
+async function resolveScheduleSnapshot(data, existing = null) {
+  const typeRaw = data.schedule_type ?? existing?.schedule_type ?? "MANUAL";
+  const type = String(typeRaw || "MANUAL").toUpperCase();
+  if (!["MANUAL", "COMERCIAL", "NOTURNO"].includes(type)) {
+    throw new AppError("Tipo de horário inválido.", 400);
+  }
+
+  if (type === "COMERCIAL" || type === "NOTURNO") {
+    const settings = await systemSettingsService.getAccessScheduleSettings();
+    const start = type === "COMERCIAL" ? settings.comercial_start : settings.noturno_start;
+    const end = type === "COMERCIAL" ? settings.comercial_end : settings.noturno_end;
+    const sqlStart = toSqlTime(start);
+    const sqlEnd = toSqlTime(end);
+    if (!sqlStart || !sqlEnd || sqlStart === sqlEnd) {
+      throw new AppError("Horários Comercial/Noturno inválidos nas configurações.", 400);
+    }
+    return {
+      schedule_type: type,
+      schedule_start: sqlStart,
+      schedule_end: sqlEnd,
+      schedule_crosses_midnight: crossesMidnight(sqlStart, sqlEnd) ? 1 : 0,
+    };
+  }
+
+  const startSource =
+    data.schedule_start !== undefined ? data.schedule_start : existing?.schedule_start;
+  const endSource = data.schedule_end !== undefined ? data.schedule_end : existing?.schedule_end;
+  const sqlStart = toSqlTime(startSource);
+  const sqlEnd = toSqlTime(endSource);
+  if (!sqlStart || !sqlEnd) {
+    throw new AppError("Informe o horário de início e fim.", 400);
+  }
+  if (sqlStart === sqlEnd) {
+    throw new AppError("Horário de início e fim devem ser diferentes.", 400);
+  }
+  return {
+    schedule_type: "MANUAL",
+    schedule_start: sqlStart,
+    schedule_end: sqlEnd,
+    schedule_crosses_midnight: crossesMidnight(sqlStart, sqlEnd) ? 1 : 0,
+  };
+}
+
+function scheduleEquals(a, b) {
+  return (
+    String(a?.schedule_type || "") === String(b?.schedule_type || "") &&
+    String(a?.schedule_start || "") === String(b?.schedule_start || "") &&
+    String(a?.schedule_end || "") === String(b?.schedule_end || "") &&
+    Number(a?.schedule_crosses_midnight || 0) === Number(b?.schedule_crosses_midnight || 0)
+  );
 }
 
 function resolveCompanyIdForCreate(req, bodyCompanyId) {
@@ -284,6 +338,10 @@ function mapServiceRow(
     status: !!row.status,
     start_date: formatDateField(row.start_date),
     end_date: formatDateField(row.end_date),
+    schedule_type: row.schedule_type || "MANUAL",
+    schedule_start: formatHm(row.schedule_start),
+    schedule_end: formatHm(row.schedule_end),
+    schedule_crosses_midnight: !!Number(row.schedule_crosses_midnight),
     finalidade: row.finalidade || row.service_type,
     requesting_department: row.requesting_department,
     observacao: row.observacao ?? row.description,
@@ -474,6 +532,7 @@ async function createServiceAccess(req, data) {
   const finalidade = data.finalidade.trim();
   const observacao = data.observacao?.trim() || null;
   const notifyFlags = resolveNotifyEntradaFlags(data);
+  const schedule = await resolveScheduleSnapshot(data);
   const idSetor = Number(data.id_setor);
   const asDraft = data.notify_approvers === false;
   const initialStatus = asDraft ? STATUS_AGUARDANDO_PRODUTORA : STATUS_AGUARDANDO_APROVACAO;
@@ -495,9 +554,10 @@ async function createServiceAccess(req, data) {
     const [saResult] = await conn.execute(
       `INSERT INTO service_access (
          id_company, id_access_status, service_type, description,
-         id_usuario, start_date, end_date, finalidade, requesting_department, observacao,
+         id_usuario, start_date, end_date, schedule_type, schedule_start, schedule_end,
+         schedule_crosses_midnight, finalidade, requesting_department, observacao,
          notificar_entrada, notificar_entrada_colaborador, notificar_entrada_veiculo, status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         idCompany,
         initialStatus,
@@ -506,6 +566,10 @@ async function createServiceAccess(req, data) {
         userId,
         startDate,
         endDate,
+        schedule.schedule_type,
+        schedule.schedule_start,
+        schedule.schedule_end,
+        schedule.schedule_crosses_midnight,
         finalidade,
         department,
         observacao,
@@ -637,6 +701,23 @@ async function updateServiceAccess(req, id, data) {
   const datesChanged =
     !datesEqual(startDate, existing.start_date) || !datesEqual(endDate, existing.end_date);
 
+  const scheduleTouched =
+    data.schedule_type != null || data.schedule_start !== undefined || data.schedule_end !== undefined;
+  const schedule = scheduleTouched
+    ? await resolveScheduleSnapshot(data, existing)
+    : {
+        schedule_type: existing.schedule_type || "MANUAL",
+        schedule_start: toSqlTime(existing.schedule_start),
+        schedule_end: toSqlTime(existing.schedule_end),
+        schedule_crosses_midnight: existing.schedule_crosses_midnight ? 1 : 0,
+      };
+  const scheduleChanged = !scheduleEquals(schedule, {
+    schedule_type: existing.schedule_type,
+    schedule_start: toSqlTime(existing.schedule_start),
+    schedule_end: toSqlTime(existing.schedule_end),
+    schedule_crosses_midnight: existing.schedule_crosses_midnight ? 1 : 0,
+  });
+
   const otherChanged =
     (data.finalidade != null && finalidade !== (existing.finalidade || "")) ||
     (data.observacao !== undefined &&
@@ -645,7 +726,7 @@ async function updateServiceAccess(req, id, data) {
     (data.requesting_department != null &&
       requestingDepartment !== (existing.requesting_department || ""));
 
-  const contentChanged = datesChanged || otherChanged;
+  const contentChanged = datesChanged || otherChanged || scheduleChanged;
 
   if (datesChanged) {
     await assertCollaboratorsNoDateOverlap(id, startDate, endDate);
@@ -680,13 +761,15 @@ async function updateServiceAccess(req, id, data) {
   }
 
   if (contentChanged || flagChanged) {
-    await db.execute(
-      `UPDATE service_access
-       SET start_date = ?, end_date = ?, finalidade = ?, service_type = ?,
+      await db.execute(
+        `UPDATE service_access
+         SET start_date = ?, end_date = ?, finalidade = ?, service_type = ?,
            requesting_department = ?, observacao = ?, description = ?,
+           schedule_type = ?, schedule_start = ?, schedule_end = ?,
+           schedule_crosses_midnight = ?,
            notificar_entrada = ?, notificar_entrada_colaborador = ?,
            notificar_entrada_veiculo = ?
-       WHERE id_service_access = ?`,
+         WHERE id_service_access = ?`,
       [
         startDate,
         endDate,
@@ -695,6 +778,10 @@ async function updateServiceAccess(req, id, data) {
         requestingDepartment,
         observacao,
         observacao,
+        schedule.schedule_type,
+        schedule.schedule_start,
+        schedule.schedule_end,
+        schedule.schedule_crosses_midnight,
         notifyFlags.notificar_entrada,
         notifyFlags.notificar_entrada_colaborador,
         notifyFlags.notificar_entrada_veiculo,

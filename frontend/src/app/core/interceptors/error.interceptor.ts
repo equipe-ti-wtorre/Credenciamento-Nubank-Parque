@@ -17,11 +17,22 @@ export class ErrorInterceptor implements HttpInterceptor {
   intercept(req: HttpRequest<unknown>, next: HttpHandler): Observable<HttpEvent<unknown>> {
     return next.handle(req).pipe(
       catchError((error: HttpErrorResponse) => {
-        if (error.status >= 500) {
+        if (req.url.includes('/error-logs/client')) {
+          return throwError(() => error);
+        }
+
+        if (error.status === 0) {
+          this.logger.error('Falha de rede ao chamar a API', {
+            path: req.url,
+            stack: error.message,
+            source: 'network',
+          });
+        } else if (error.status >= 500) {
           this.logger.error('Erro no servidor', {
             url: req.url,
             status: error.status,
             requestId: error.error?.requestId,
+            report: false,
           });
         }
         return throwError(() => error);

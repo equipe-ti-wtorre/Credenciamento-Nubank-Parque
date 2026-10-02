@@ -15,6 +15,7 @@ router.post("/events/substitute", ...canEdit, gateController.substituteEvent);
 router.get("/calendar", ...canView, gateController.listCalendar);
 router.get("/calendar/detail", ...canView, gateController.getCalendarDetail);
 router.get("/services/today", ...canView, gateController.listTodayServices);
+router.get("/services/:id/authorizers", ...canView, gateController.getServiceAuthorizers);
 router.post("/services/validate", ...canCreate, gateController.validateService);
 router.post("/services/facial-enroll", ...canCreate, gateController.resendServiceFacial);
 router.post("/services/substitute", ...canEdit, gateController.substituteService);

@@ -9,6 +9,11 @@ const companyService = require("../companies/company.service");
 const teamsService = require("../teams/teams.service");
 const smtpService = require("../smtp/smtp.service");
 const emailTemplatesService = require("../email-templates/email-templates.service");
+const { escapeHtml } = require("../email-templates/email-template.renderer");
+const {
+  buildDetailNote,
+  buildBrandedEmail,
+} = require("../email-templates/email-template.layout");
 const alertsService = require("../alerts/alerts.service");
 const { parseBulkFile } = require("../collaborators/collaborator.bulk");
 const {
@@ -453,6 +458,88 @@ async function getCredentialById(req, id) {
   return mapCredentialRow(row);
 }
 
+function isCredentialInside(row) {
+  return Boolean(row.access_check_in) && !row.access_check_out;
+}
+
+async function revokeFacialIfApproved(row) {
+  if (Number(row.id_access_status) !== STATUS_APROVADO) return;
+  const facialCommand = require("../facial/facial.command.service");
+  await facialCommand.revokeUnlessReleasedToday(row.id_collaborator, "credential_removed");
+}
+
+async function deleteCredential(req, id) {
+  assertCanCreate(req);
+  const row = await findCredentialById(id);
+  if (!row) throw new AppError("Credencial não encontrada.", 404);
+  const link = await findEventDayCompanyById(row.id_event_day_company);
+  if (!link) throw new AppError("Vínculo dia-empresa não encontrado.", 404);
+  assertLinkedEventActive(link);
+  await assertCanOperateOnLink(req, link);
+  if (isCredentialInside(row)) {
+    throw new AppError(
+      "Não é possível remover o colaborador enquanto ele estiver no local.",
+      409,
+    );
+  }
+  await revokeFacialIfApproved(row);
+  await db.execute(
+    `DELETE FROM event_day_company_collaborator WHERE id_event_day_company_collaborator = ?`,
+    [id],
+  );
+  return {
+    removed: true,
+    id_event_day_company_collaborator: Number(row.id_event_day_company_collaborator),
+    id_collaborator: Number(row.id_collaborator),
+  };
+}
+
+async function deleteCompanyEventCredentials(req, idEvent, idCompany) {
+  const links = await assertCanBulkCredentialsForCompany(req, idEvent, idCompany);
+  const linkIds = links.map((l) => Number(l.id_event_day_company));
+  const [rows] = await db.execute(
+    `SELECT id_event_day_company_collaborator, id_collaborator, id_access_status,
+            access_check_in, access_check_out
+       FROM event_day_company_collaborator
+      WHERE id_event_day_company IN (${linkIds.map(() => "?").join(",")})`,
+    linkIds,
+  );
+
+  const toDelete = [];
+  let skipped = 0;
+  for (const row of rows) {
+    if (isCredentialInside(row)) {
+      skipped += 1;
+      continue;
+    }
+    toDelete.push(row);
+  }
+
+  const facialIds = [
+    ...new Set(
+      toDelete
+        .filter((r) => Number(r.id_access_status) === STATUS_APROVADO)
+        .map((r) => Number(r.id_collaborator))
+        .filter(Boolean),
+    ),
+  ];
+  if (facialIds.length) {
+    const facialCommand = require("../facial/facial.command.service");
+    facialCommand.scheduleRevokeUnlessReleasedToday(facialIds, "credential_removed");
+  }
+
+  if (toDelete.length) {
+    const ids = toDelete.map((r) => Number(r.id_event_day_company_collaborator));
+    await db.execute(
+      `DELETE FROM event_day_company_collaborator
+        WHERE id_event_day_company_collaborator IN (${ids.map(() => "?").join(",")})`,
+      ids,
+    );
+  }
+
+  return { removed: toDelete.length, skipped };
+}
+
 async function listCredentials(req, { page, limit, filters }) {
   const scope = await buildCredentialScope(req);
   const { conditions, params } = applyScopeToWhere(scope);
@@ -718,13 +805,18 @@ function scheduleApprovalEmail(credential, { usuarioId, requestId }) {
       );
       const html =
         rendered?.html ||
-        [
-          "<h2>Credencial aprovada</h2>",
-          `<p>Evento: <strong>${credential.event.name}</strong></p>`,
-          `<p>Dia: ${credential.event_day.date}</p>`,
-          `<p>Colaborador: ${credential.collaborator.name}</p>`,
-          `<p>Código de acesso (QR): <strong>${credential.access_id}</strong></p>`,
-        ].join("");
+        buildBrandedEmail({
+          preheader: `Credencial aprovada para ${escapeHtml(credential.collaborator.name)} no evento ${escapeHtml(credential.event.name)}.`,
+          title: "Credencial aprovada",
+          kicker: "Credenciamento",
+          paragraphs: ["A credencial abaixo foi aprovada."],
+          noteHtml: buildDetailNote([
+            { label: "Evento", value: escapeHtml(credential.event.name) },
+            { label: "Dia", value: escapeHtml(credential.event_day.date) },
+            { label: "Colaborador", value: escapeHtml(credential.collaborator.name) },
+            { label: "Código de acesso (QR)", value: escapeHtml(credential.access_id) },
+          ]),
+        });
 
       await smtpService.sendMail({
         to,
@@ -1103,6 +1195,8 @@ module.exports = {
   listCredentials,
   getCredentialById,
   createCredential,
+  deleteCredential,
+  deleteCompanyEventCredentials,
   updateCredentialStatus,
   previewEventCompanyCredentialsBulk,
   commitEventCompanyCredentialsBulk,

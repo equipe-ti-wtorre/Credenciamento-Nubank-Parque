@@ -14,10 +14,17 @@ import { NotificationService } from '../../core/services/notification.service';
 import { formatBlocklistNotice } from '../../shared/blocklist-notice';
 import { AuthService } from '../../core/services/auth.service';
 import {
+  AccessScheduleType,
   PatrimonialService,
   ServiceAccessCollaborator,
   ServiceAccessVehicle,
+  formatAccessScheduleLabel,
+  formatTimeHm,
 } from '../../services/patrimonial.service';
+import {
+  AccessScheduleSettings,
+  SystemSettingsService,
+} from '../../services/system-settings.service';
 import { CompanyItem, CompanyService } from '../../services/company.service';
 import { ApprovalService, EligibleSector } from '../../services/approval.service';
 import {
@@ -30,6 +37,15 @@ import { VehicleItem, VehicleService } from '../../services/vehicle.service';
 import { ServiceAccessBulkImportWizardComponent } from './service-access-bulk-import-wizard.component';
 import { UnifiedCollaboratorRow, UnifiedVehicleRow } from './service-access-bulk-import.types';
 import { PeriodoRangePickerComponent, PeriodoRangeValue } from '../../shared/periodo-range-picker';
+import { CollaboratorPhotoComponent } from '../../shared/collaborator-photo/collaborator-photo.component';
+import { ModalComponent } from '../../shared/modal/modal.component';
+import { SuggestInputComponent } from '../../shared/suggest-input/suggest-input.component';
+import {
+  modelsForBrand,
+  VEHICLE_SUGGESTED_BRANDS,
+  VEHICLE_SUGGESTED_COLORS,
+  VEHICLE_SUGGESTED_TYPES,
+} from '../../shared/vehicle-catalog';
 
 type WizardStep = 'dados' | 'pessoas' | 'revisar';
 
@@ -103,6 +119,9 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
     RouterLink,
     ServiceAccessBulkImportWizardComponent,
     PeriodoRangePickerComponent,
+    ModalComponent,
+    CollaboratorPhotoComponent,
+    SuggestInputComponent,
   ],
   template: `
     <div class="wcrt-page">
@@ -172,6 +191,45 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                   [controlInvalid]="!!dadosForm.get('periodo')?.invalid"
                   [controlTouched]="!!dadosForm.get('periodo')?.touched || dadosFormSubmitted"
                 />
+                <div>
+                  <label class="form-label" for="wcrt-horario">Horário do acesso</label>
+                  <select id="wcrt-horario" formControlName="schedule_type" class="form-select">
+                    <option value="MANUAL">Manual</option>
+                    <option value="COMERCIAL">Comercial {{ comercialLabel() }}</option>
+                    <option value="NOTURNO">Noturno {{ noturnoLabel() }}</option>
+                  </select>
+                  @if (scheduleType === 'MANUAL') {
+                    <div class="wcrt-dados__row mt-2">
+                      <div>
+                        <label class="form-label" for="wcrt-hora-inicio">Início</label>
+                        <input
+                          id="wcrt-hora-inicio"
+                          type="time"
+                          formControlName="schedule_start"
+                          class="form-field"
+                          [class.is-invalid]="scheduleTimesInvalid()"
+                        />
+                      </div>
+                      <div>
+                        <label class="form-label" for="wcrt-hora-fim">Fim</label>
+                        <input
+                          id="wcrt-hora-fim"
+                          type="time"
+                          formControlName="schedule_end"
+                          class="form-field"
+                          [class.is-invalid]="scheduleTimesInvalid()"
+                        />
+                      </div>
+                    </div>
+                    @if (scheduleTimesInvalid()) {
+                      <p class="wcrt-field-error" aria-live="polite">
+                        Informe início e fim diferentes. Se o fim for menor, a janela vai até o dia seguinte.
+                      </p>
+                    }
+                  } @else {
+                    <p class="text-xs text-slate-500 mt-1">{{ schedulePresetHint() }}</p>
+                  }
+                </div>
               </div>
               <div class="wcrt-dados__right">
                 <div class="wcrt-dados__row" [class.wcrt-dados__row--single]="!isAdmin">
@@ -346,52 +404,70 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                   Colaboradores
                   <span class="wcrt-block__count">{{ draftCollaborators().length }} no total</span>
                 </h3>
-                <div class="wcrt-search wcrt-search--pill">
-                  <div class="relative flex-1 min-w-[12rem]">
-                    <svg class="wcrt-search__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                    <input
-                      type="search"
-                      [(ngModel)]="colabQuery"
-                      (ngModelChange)="onColabSearchAndFilter($event)"
-                      name="colabQuery"
-                      placeholder="Nome ou documento..."
-                      class="form-field wcrt-search__input"
-                      autocomplete="off"
-                    />
-                    @if (colabSearching()) {
-                      <div class="wcrt-dropdown">Buscando...</div>
-                    }
-                    @if (!colabSearching() && colabResults().length > 0) {
-                      <ul class="wcrt-dropdown wcrt-dropdown--list">
-                        @for (c of colabResults(); track c.id_collaborator) {
-                          <li>
-                            <button
-                              type="button"
-                              class="wcrt-dropdown__btn"
-                              [disabled]="c.is_blocklisted"
-                              [class.is-disabled]="c.is_blocklisted"
-                              (click)="addCollaborator(c)"
-                            >
-                              <span class="wcrt-dropdown__name">{{ c.name }}</span>
-                              <span class="wcrt-dropdown__meta">
-                                {{ c.document }}
-                                @if (c.is_blocklisted) {
-                                  <span class="text-rose-600"> · blocklist</span>
-                                }
-                              </span>
-                            </button>
-                          </li>
-                        }
-                      </ul>
-                    }
-                    @if (
-                      colabQuery.trim().length >= 2 &&
-                      !colabSearching() &&
-                      colabResults().length === 0
-                    ) {
-                      <div class="wcrt-dropdown">Nenhum colaborador encontrado no cadastro.</div>
-                    }
+                <div class="wcrt-block__tools">
+                  <div class="wcrt-search wcrt-search--pill">
+                    <div class="relative flex-1 min-w-[12rem]">
+                      <svg class="wcrt-search__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                      <input
+                        type="search"
+                        [(ngModel)]="colabQuery"
+                        (ngModelChange)="onColabSearchAndFilter($event)"
+                        name="colabQuery"
+                        placeholder="Nome ou documento..."
+                        class="form-field wcrt-search__input"
+                        autocomplete="off"
+                      />
+                      @if (colabSearching()) {
+                        <div class="wcrt-dropdown">Buscando...</div>
+                      }
+                      @if (!colabSearching() && colabResults().length > 0) {
+                        <ul class="wcrt-dropdown wcrt-dropdown--list">
+                          @for (c of colabResults(); track c.id_collaborator) {
+                            <li>
+                              <button
+                                type="button"
+                                class="wcrt-dropdown__btn"
+                                [disabled]="c.is_blocklisted"
+                                [class.is-disabled]="c.is_blocklisted"
+                                (click)="addCollaborator(c)"
+                              >
+                                <span class="wcrt-dropdown__name">{{ c.name }}</span>
+                                <span class="wcrt-dropdown__meta">
+                                  {{ c.document }}
+                                  @if (c.is_blocklisted) {
+                                    <span class="text-rose-600"> · blocklist</span>
+                                  }
+                                </span>
+                              </button>
+                            </li>
+                          }
+                        </ul>
+                      }
+                      @if (
+                        colabQuery.trim().length >= 2 &&
+                        !colabSearching() &&
+                        colabResults().length === 0
+                      ) {
+                        <div class="wcrt-dropdown wcrt-dropdown--empty">
+                          <p>Nenhum colaborador encontrado no cadastro.</p>
+                          <button
+                            type="button"
+                            class="wcrt-dropdown__cta"
+                            (click)="abrirModalColabCreate(colabQuery)"
+                          >
+                            Cadastrar novo
+                          </button>
+                        </div>
+                      }
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    class="btn-action-tonal wcrt-cadastrar-btn"
+                    (click)="abrirModalColabCreate()"
+                  >
+                    Cadastrar
+                  </button>
                 </div>
               </div>
 
@@ -475,43 +551,61 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                   Veículos
                   <span class="wcrt-block__count">{{ draftVehicles().length }} no total</span>
                 </h3>
-                <div class="wcrt-search wcrt-search--pill">
-                  <div class="relative flex-1 min-w-[12rem]">
-                    <svg class="wcrt-search__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                    <input
-                      type="search"
-                      [(ngModel)]="veicQuery"
-                      (ngModelChange)="onVeicSearch($event)"
-                      name="veicQuery"
-                      placeholder="Placa, marca ou modelo..."
-                      class="form-field wcrt-search__input"
-                      autocomplete="off"
-                    />
-                    @if (veicSearching()) {
-                      <div class="wcrt-dropdown">Buscando...</div>
-                    }
-                    @if (!veicSearching() && veicResults().length > 0) {
-                      <ul class="wcrt-dropdown wcrt-dropdown--list">
-                        @for (v of veicResults(); track v.id_vehicle) {
-                          <li>
-                            <button type="button" class="wcrt-dropdown__btn" (click)="addVehicle(v)">
-                              <span class="wcrt-dropdown__name font-mono">{{ v.plate }}</span>
-                              <span class="wcrt-dropdown__meta">
-                                {{ v.brand || '—' }} {{ v.model || '' }}
-                              </span>
-                            </button>
-                          </li>
-                        }
-                      </ul>
-                    }
-                    @if (
-                      veicQuery.trim().length >= 2 &&
-                      !veicSearching() &&
-                      veicResults().length === 0
-                    ) {
-                      <div class="wcrt-dropdown">Nenhum veículo encontrado.</div>
-                    }
+                <div class="wcrt-block__tools">
+                  <div class="wcrt-search wcrt-search--pill">
+                    <div class="relative flex-1 min-w-[12rem]">
+                      <svg class="wcrt-search__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                      <input
+                        type="search"
+                        [(ngModel)]="veicQuery"
+                        (ngModelChange)="onVeicSearch($event)"
+                        name="veicQuery"
+                        placeholder="Placa, marca ou modelo..."
+                        class="form-field wcrt-search__input"
+                        autocomplete="off"
+                      />
+                      @if (veicSearching()) {
+                        <div class="wcrt-dropdown">Buscando...</div>
+                      }
+                      @if (!veicSearching() && veicResults().length > 0) {
+                        <ul class="wcrt-dropdown wcrt-dropdown--list">
+                          @for (v of veicResults(); track v.id_vehicle) {
+                            <li>
+                              <button type="button" class="wcrt-dropdown__btn" (click)="addVehicle(v)">
+                                <span class="wcrt-dropdown__name font-mono">{{ v.plate }}</span>
+                                <span class="wcrt-dropdown__meta">
+                                  {{ v.brand || '—' }} {{ v.model || '' }}
+                                </span>
+                              </button>
+                            </li>
+                          }
+                        </ul>
+                      }
+                      @if (
+                        veicQuery.trim().length >= 2 &&
+                        !veicSearching() &&
+                        veicResults().length === 0
+                      ) {
+                        <div class="wcrt-dropdown wcrt-dropdown--empty">
+                          <p>Nenhum veículo encontrado.</p>
+                          <button
+                            type="button"
+                            class="wcrt-dropdown__cta"
+                            (click)="abrirModalVeicCreate(veicQuery)"
+                          >
+                            Cadastrar novo
+                          </button>
+                        </div>
+                      }
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    class="btn-action-tonal wcrt-cadastrar-btn"
+                    (click)="abrirModalVeicCreate()"
+                  >
+                    Cadastrar
+                  </button>
                 </div>
               </div>
               <div class="wcrt-table-scroll wcrt-table-scroll--sm">
@@ -585,6 +679,10 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                     {{ formatDateBr(startDate) }} — {{ formatDateBr(endDate) }}
                     <span class="wcrt-dl__days">· {{ periodDays() }} {{ periodDays() === 1 ? 'dia' : 'dias' }}</span>
                   </dd>
+                </div>
+                <div>
+                  <dt>Horário</dt>
+                  <dd>{{ scheduleReviewLabel() }}</dd>
                 </div>
                 <div>
                   <dt>Setor</dt>
@@ -712,6 +810,200 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         </div>
       </div>
     </div>
+
+    <app-modal
+      [open]="showColabCreateModal()"
+      title="Cadastrar colaborador"
+      subtitle="Preencha os dados para incluir o colaborador neste acesso."
+      size="lg"
+      (close)="fecharModalColabCreate()"
+    >
+      <form id="wizard-colab-create-form" (ngSubmit)="salvarColaboradorNovo()">
+        <div class="space-y-3">
+          <div>
+            <label class="form-label" for="wizard-colab-doc-type">Tipo de documento</label>
+            <select
+              id="wizard-colab-doc-type"
+              [(ngModel)]="colabForm.id_collaborator_document_type"
+              name="wizardColabFormDocType"
+              class="form-select"
+              required
+            >
+              @for (t of documentTypes(); track t.id_collaborator_document_type) {
+                <option [ngValue]="t.id_collaborator_document_type">{{ t.description }}</option>
+              }
+            </select>
+          </div>
+          <div>
+            <label class="form-label" for="wizard-colab-document">Documento</label>
+            <input
+              id="wizard-colab-document"
+              [(ngModel)]="colabForm.document"
+              name="wizardColabFormDocument"
+              class="form-field font-mono"
+              required
+            />
+          </div>
+          <div>
+            <label class="form-label" for="wizard-colab-name">Nome completo</label>
+            <input
+              id="wizard-colab-name"
+              [(ngModel)]="colabForm.name"
+              name="wizardColabFormName"
+              class="form-field"
+              required
+            />
+          </div>
+          <div>
+            <label class="form-label">
+              Foto <span class="form-label__optional">(opcional)</span>
+            </label>
+            <app-collaborator-photo
+              size="md"
+              mode="deferred"
+              [name]="colabForm.name"
+              (fileReady)="pendingColabPicture = $event"
+            />
+          </div>
+          <div>
+            <label class="form-label" for="wizard-colab-role">Função</label>
+            <select
+              id="wizard-colab-role"
+              [(ngModel)]="colabForm.id_collaborator_role"
+              name="wizardColabFormRole"
+              class="form-select"
+              required
+            >
+              <option [ngValue]="null">Selecione...</option>
+              @for (r of roles(); track r.id_collaborator_role) {
+                <option [ngValue]="r.id_collaborator_role">{{ r.description }}</option>
+              }
+            </select>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="form-label" for="wizard-colab-rg">
+                RG <span class="form-label__optional">(opcional)</span>
+              </label>
+              <input id="wizard-colab-rg" [(ngModel)]="colabForm.rg" name="wizardColabFormRg" class="form-field" />
+            </div>
+            <div>
+              <label class="form-label" for="wizard-colab-phone">
+                Telefone <span class="form-label__optional">(opcional)</span>
+              </label>
+              <input
+                id="wizard-colab-phone"
+                [(ngModel)]="colabForm.phone"
+                name="wizardColabFormPhone"
+                class="form-field"
+              />
+            </div>
+          </div>
+        </div>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" class="btn-action-secondary" (click)="fecharModalColabCreate()">Cancelar</button>
+        <button type="submit" form="wizard-colab-create-form" class="btn-action-primary" [disabled]="colabSaving()">
+          {{ colabSaving() ? 'Salvando...' : 'Salvar colaborador' }}
+        </button>
+      </div>
+    </app-modal>
+
+    <app-modal
+      [open]="showVeicCreateModal()"
+      title="Cadastrar veículo"
+      subtitle="Preencha os dados para incluir o veículo neste acesso."
+      size="lg"
+      (close)="fecharModalVeicCreate()"
+    >
+      <form id="wizard-veic-create-form" (ngSubmit)="salvarVeiculoNovo()">
+        <div class="space-y-3">
+          @if (companyName()) {
+            <p class="text-sm text-slate-600">
+              Empresa: <span class="font-medium text-slate-800">{{ companyName() }}</span>
+            </p>
+          }
+          <div>
+            <label class="form-label" for="wizard-veic-plate">Placa</label>
+            <input
+              id="wizard-veic-plate"
+              [(ngModel)]="veicForm.plate"
+              name="wizardVeicFormPlate"
+              class="form-field font-mono uppercase"
+              placeholder="ABC1D23"
+              required
+            />
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="form-label" for="wizard-veic-brand">Marca</label>
+              <app-suggest-input
+                inputId="wizard-veic-brand"
+                [(ngModel)]="veicForm.brand"
+                name="wizardVeicFormBrand"
+                [options]="brandOptions"
+                inputClass="form-field"
+                placeholder="Ex.: Toyota"
+                [required]="true"
+              />
+            </div>
+            <div>
+              <label class="form-label" for="wizard-veic-model">Modelo</label>
+              <app-suggest-input
+                inputId="wizard-veic-model"
+                [(ngModel)]="veicForm.model"
+                name="wizardVeicFormModel"
+                [options]="modelsForCurrentBrand()"
+                inputClass="form-field"
+                placeholder="Ex.: Corolla"
+                [required]="true"
+              />
+            </div>
+            <div>
+              <label class="form-label" for="wizard-veic-color">Cor</label>
+              <app-suggest-input
+                inputId="wizard-veic-color"
+                [(ngModel)]="veicForm.color"
+                name="wizardVeicFormColor"
+                [options]="colorOptions"
+                inputClass="form-field"
+                placeholder="Ex.: Prata"
+                [required]="true"
+              />
+            </div>
+            <div>
+              <label class="form-label" for="wizard-veic-type">Tipo</label>
+              <app-suggest-input
+                inputId="wizard-veic-type"
+                [(ngModel)]="veicForm.type"
+                name="wizardVeicFormType"
+                [options]="typeOptions"
+                inputClass="form-field"
+                placeholder="Ex.: Sedan"
+                [required]="true"
+              />
+            </div>
+          </div>
+          <div>
+            <label class="form-label" for="wizard-veic-description">
+              Descrição <span class="form-label__optional">(opcional)</span>
+            </label>
+            <input
+              id="wizard-veic-description"
+              [(ngModel)]="veicForm.description"
+              name="wizardVeicFormDescription"
+              class="form-field"
+            />
+          </div>
+        </div>
+      </form>
+      <div modal-footer class="modal-footer">
+        <button type="button" class="btn-action-secondary" (click)="fecharModalVeicCreate()">Cancelar</button>
+        <button type="submit" form="wizard-veic-create-form" class="btn-action-primary" [disabled]="veicSaving()">
+          {{ veicSaving() ? 'Salvando...' : 'Salvar veículo' }}
+        </button>
+      </div>
+    </app-modal>
   `,
   styles: [
     `
@@ -727,10 +1019,11 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         --form-field-height: 2.5rem;
         font-family: var(--font-body, 'Plus Jakarta Sans', system-ui, sans-serif);
         display: block;
+        width: 100%;
       }
       .wcrt-page {
-        max-width: 1200px;
-        margin: 0 auto;
+        width: 100%;
+        max-width: none;
         color: var(--ink);
         padding-bottom: 40px;
       }
@@ -1110,12 +1403,25 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         font-weight: 600;
         color: var(--ink-3);
       }
+      .wcrt-block__tools {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-left: auto;
+        min-width: 0;
+        flex: 1;
+        justify-content: flex-end;
+      }
+      .wcrt-cadastrar-btn {
+        flex: none;
+        height: 2.375rem;
+        white-space: nowrap;
+      }
       .wcrt-search {
         display: flex;
         flex: 1;
         min-width: 0;
         max-width: 18rem;
-        margin-left: auto;
         position: relative;
       }
       .wcrt-search--pill .wcrt-search__input {
@@ -1224,6 +1530,28 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         font-size: 0.75rem;
         color: var(--ink-2);
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .wcrt-dropdown--empty {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .wcrt-dropdown--empty p {
+        margin: 0;
+      }
+      .wcrt-dropdown__cta {
+        border: 0;
+        background: none;
+        padding: 0;
+        font: inherit;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--wtorre, var(--brand));
+        cursor: pointer;
+      }
+      .wcrt-dropdown__cta:hover {
+        text-decoration: underline;
       }
       .wcrt-banner {
         padding: 10px 14px;
@@ -1599,6 +1927,10 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
           flex-direction: column;
           align-items: stretch;
         }
+        .wcrt-block__tools {
+          margin-left: 0;
+          width: 100%;
+        }
         .wcrt-search {
           max-width: none;
           width: 100%;
@@ -1651,6 +1983,10 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         .wcrt-dl--grid {
           grid-template-columns: 1fr;
         }
+        .wcrt-block__tools {
+          margin-left: 0;
+          width: 100%;
+        }
         .wcrt-search {
           max-width: none;
           width: 100%;
@@ -1698,6 +2034,12 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   dadosForm = new FormGroup({
     periodo: new FormControl<PeriodoRangeValue | null>(null, { validators: [Validators.required] }),
+    schedule_type: new FormControl<AccessScheduleType>('COMERCIAL', {
+      nonNullable: true,
+      validators: [Validators.required],
+    }),
+    schedule_start: new FormControl('', { nonNullable: true }),
+    schedule_end: new FormControl('', { nonNullable: true }),
     finalidade: new FormControl('', {
       nonNullable: true,
       validators: [Validators.required, Validators.maxLength(500)],
@@ -1712,12 +2054,24 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     notificar_entrada_veiculo: new FormControl(true, { nonNullable: true }),
   });
 
+  schedulePresets = signal<AccessScheduleSettings | null>(null);
+
   colabQuery = '';
   veicQuery = '';
   colabSearching = signal(false);
   veicSearching = signal(false);
   colabResults = signal<CollaboratorItem[]>([]);
   veicResults = signal<VehicleItem[]>([]);
+  showColabCreateModal = signal(false);
+  showVeicCreateModal = signal(false);
+  colabSaving = signal(false);
+  veicSaving = signal(false);
+  colabForm = this.emptyColabForm();
+  pendingColabPicture: File | null = null;
+  veicForm = this.emptyVeicForm();
+  readonly brandOptions = VEHICLE_SUGGESTED_BRANDS;
+  readonly colorOptions = VEHICLE_SUGGESTED_COLORS;
+  readonly typeOptions = VEHICLE_SUGGESTED_TYPES;
 
   private colabTimer: ReturnType<typeof setTimeout> | null = null;
   private veicTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1773,6 +2127,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     private notification: NotificationService,
     private authService: AuthService,
     private companyService: CompanyService,
+    private systemSettings: SystemSettingsService,
     private router: Router,
   ) {}
 
@@ -1783,6 +2138,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     this.loadSectors();
     this.loadRoles();
     this.loadDocumentTypes();
+    this.loadSchedulePresets();
     if (this.isAdmin) {
       this.loadCompanies();
     }
@@ -1796,7 +2152,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   get modalSubtitle(): string {
     if (this.step() === 'dados') {
-      return 'Informe período, nome do evento, descrição do serviço e setor aprovador.';
+      return 'Informe período, horário, nome do evento, descrição do serviço e setor aprovador.';
     }
     if (this.step() === 'pessoas') {
       return 'Inclua manualmente ou importe por planilha XLSX. Corrija as pendências direto na tabela.';
@@ -1842,6 +2198,55 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   get endDate(): string {
     return this.periodo?.fim || '';
+  }
+
+  get scheduleType(): AccessScheduleType {
+    return this.dadosForm.getRawValue().schedule_type;
+  }
+
+  get scheduleStart(): string {
+    return formatTimeHm(this.dadosForm.getRawValue().schedule_start);
+  }
+
+  get scheduleEnd(): string {
+    return formatTimeHm(this.dadosForm.getRawValue().schedule_end);
+  }
+
+  comercialLabel(): string {
+    const p = this.schedulePresets();
+    if (!p) return '08:00–18:00';
+    return `${formatTimeHm(p.comercial_start)}–${formatTimeHm(p.comercial_end)}`;
+  }
+
+  noturnoLabel(): string {
+    const p = this.schedulePresets();
+    if (!p) return '18:00–08:00 (+1)';
+    return `${formatTimeHm(p.noturno_start)}–${formatTimeHm(p.noturno_end)} (+1)`;
+  }
+
+  schedulePresetHint(): string {
+    if (this.scheduleType === 'NOTURNO') {
+      return `Entrada permitida das ${this.noturnoLabel().replace(' (+1)', '')} do dia seguinte.`;
+    }
+    return `Entrada permitida das ${this.comercialLabel()}.`;
+  }
+
+  scheduleReviewLabel(): string {
+    if (this.scheduleType === 'MANUAL') {
+      return formatAccessScheduleLabel({
+        schedule_type: 'MANUAL',
+        schedule_start: this.scheduleStart,
+        schedule_end: this.scheduleEnd,
+      });
+    }
+    if (this.scheduleType === 'NOTURNO') return `Noturno ${this.noturnoLabel()}`;
+    return `Comercial ${this.comercialLabel()}`;
+  }
+
+  scheduleTimesInvalid(): boolean {
+    if (this.scheduleType !== 'MANUAL') return false;
+    if (!this.dadosFormSubmitted && !this.dadosForm.get('schedule_start')?.touched) return false;
+    return !this.scheduleStart || !this.scheduleEnd || this.scheduleStart === this.scheduleEnd;
   }
 
   get notificarEntradaColaborador(): boolean {
@@ -1926,8 +2331,8 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   /** Cria/atualiza rascunho sob demanda (upload/modelo) — sem aprovação/notificação. */
   prepararImportacao() {
     this.dadosForm.markAllAsTouched();
-    if (this.dadosForm.invalid) {
-      this.notification.error('Preencha os dados do acesso (período, nome e setor) antes de importar.');
+    if (this.dadosForm.invalid || this.scheduleTimesInvalid()) {
+      this.notification.error('Preencha os dados do acesso (período, horário, nome e setor) antes de importar.');
       return;
     }
     // Sempre sincroniza datas/dados: ao voltar no wizard o período pode ter mudado.
@@ -1940,8 +2345,10 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   runCreate() {
     this.dadosFormSubmitted = true;
     this.dadosForm.markAllAsTouched();
-    if (this.dadosForm.invalid) {
-      if (!this.finalidade.trim()) {
+    if (this.dadosForm.invalid || this.scheduleTimesInvalid()) {
+      if (this.scheduleTimesInvalid()) {
+        this.notification.error('Informe o horário de início e fim para o acesso manual.');
+      } else if (!this.finalidade.trim()) {
         this.finalidadeInput?.nativeElement.focus();
       } else if (!this.observacao.trim()) {
         this.observacaoInput?.nativeElement.focus();
@@ -2269,6 +2676,9 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
       requesting_department: setorNome,
       observacao: this.observacao.trim(),
       id_setor: this.idSetor!,
+      schedule_type: this.scheduleType,
+      schedule_start: this.scheduleType === 'MANUAL' ? this.scheduleStart : undefined,
+      schedule_end: this.scheduleType === 'MANUAL' ? this.scheduleEnd : undefined,
       notificar_entrada_colaborador: this.notificarEntradaColaborador,
       notificar_entrada_veiculo: this.notificarEntradaVeiculo,
     };
@@ -2378,7 +2788,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     this.veicTimer = setTimeout(() => this.buscarVeiculos(q), 300);
   }
 
-  addCollaborator(item: CollaboratorItem) {
+  addCollaborator(item: CollaboratorItem, preferredRoleId?: number | null) {
     if (item.is_blocklisted) {
       this.notification.error(formatBlocklistNotice(item));
       return;
@@ -2387,7 +2797,8 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
       this.notification.error('Colaborador já está na lista.');
       return;
     }
-    const roleId = item.id_collaborator_role || this.roles()[0]?.id_collaborator_role || null;
+    const roleId =
+      preferredRoleId || item.id_collaborator_role || this.roles()[0]?.id_collaborator_role || null;
     if (!roleId) {
       this.notification.error('Nenhuma função cadastrada para vincular.');
       return;
@@ -2931,6 +3342,161 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     this.draftVehicles.update((list) => list.filter((v) => v.clientKey !== clientKey));
   }
 
+  private emptyColabForm() {
+    return {
+      id_collaborator_document_type: null as number | null,
+      id_collaborator_role: null as number | null,
+      document: '',
+      name: '',
+      rg: '',
+      phone: '',
+    };
+  }
+
+  private emptyVeicForm() {
+    return {
+      plate: '',
+      brand: '',
+      model: '',
+      color: '',
+      type: '',
+      description: '',
+    };
+  }
+
+  modelsForCurrentBrand(): string[] {
+    return modelsForBrand(this.veicForm.brand);
+  }
+
+  abrirModalColabCreate(prefill = '') {
+    this.colabForm = this.emptyColabForm();
+    const types = this.documentTypes();
+    if (types[0]) this.colabForm.id_collaborator_document_type = types[0].id_collaborator_document_type;
+    this.colabForm.id_collaborator_role = this.roles()[0]?.id_collaborator_role ?? null;
+    const q = String(prefill || '').trim();
+    if (q) {
+      const digits = q.replace(/\D/g, '');
+      if (digits.length >= 5) this.colabForm.document = q;
+      else this.colabForm.name = q;
+    }
+    this.colabResults.set([]);
+    this.pendingColabPicture = null;
+    this.showColabCreateModal.set(true);
+  }
+
+  fecharModalColabCreate() {
+    this.showColabCreateModal.set(false);
+    this.pendingColabPicture = null;
+  }
+
+  salvarColaboradorNovo() {
+    const form = this.colabForm;
+    if (
+      !form.id_collaborator_document_type ||
+      !form.id_collaborator_role ||
+      !form.document.trim() ||
+      !form.name.trim()
+    ) {
+      this.notification.error('Preencha tipo de documento, documento, nome e função.');
+      return;
+    }
+    this.colabSaving.set(true);
+    this.collaboratorService
+      .create({
+        id_collaborator_document_type: form.id_collaborator_document_type,
+        id_collaborator_role: form.id_collaborator_role,
+        document: form.document.trim(),
+        name: form.name.trim(),
+        rg: form.rg.trim() || null,
+        phone: form.phone.trim() || null,
+        status: true,
+      })
+      .subscribe({
+        next: (res) => {
+          const finish = (col: CollaboratorItem) => {
+            this.colabSaving.set(false);
+            this.addCollaborator(col, form.id_collaborator_role);
+            this.fecharModalColabCreate();
+            this.notification.success(
+              res.linked
+                ? 'Colaborador vinculado e incluído na lista.'
+                : 'Colaborador cadastrado e incluído na lista.',
+            );
+          };
+          const file = this.pendingColabPicture;
+          if (!file) {
+            finish(res.collaborator);
+            return;
+          }
+          this.collaboratorService.uploadPicture(res.collaborator.id_collaborator, file).subscribe({
+            next: (up) => finish(up.collaborator || res.collaborator),
+            error: (err) => {
+              this.notification.notifyHttpError(err, 'Colaborador salvo, mas a foto não foi enviada.');
+              finish(res.collaborator);
+            },
+          });
+        },
+        error: (err) => {
+          this.colabSaving.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao cadastrar colaborador.');
+        },
+      });
+  }
+
+  abrirModalVeicCreate(prefill = '') {
+    this.veicForm = this.emptyVeicForm();
+    const q = String(prefill || '').trim();
+    if (q) this.veicForm.plate = q.toUpperCase();
+    this.veicResults.set([]);
+    this.showVeicCreateModal.set(true);
+  }
+
+  fecharModalVeicCreate() {
+    this.showVeicCreateModal.set(false);
+  }
+
+  salvarVeiculoNovo() {
+    const form = this.veicForm;
+    if (this.isAdmin && !this.idCompany) {
+      this.notification.error('Selecione a empresa do acesso no passo anterior.');
+      return;
+    }
+    if (
+      !form.plate.trim() ||
+      !form.brand.trim() ||
+      !form.model.trim() ||
+      !form.color.trim() ||
+      !form.type.trim()
+    ) {
+      this.notification.error('Preencha placa, marca, modelo, cor e tipo.');
+      return;
+    }
+    this.veicSaving.set(true);
+    this.vehicleService
+      .create({
+        ...(this.isAdmin && this.idCompany ? { id_company: this.idCompany } : {}),
+        plate: form.plate.trim().toUpperCase(),
+        brand: form.brand.trim(),
+        model: form.model.trim(),
+        color: form.color.trim(),
+        type: form.type.trim(),
+        description: form.description.trim() || null,
+        status: true,
+      })
+      .subscribe({
+        next: (res) => {
+          this.veicSaving.set(false);
+          this.addVehicle(res.vehicle);
+          this.fecharModalVeicCreate();
+          this.notification.success('Veículo cadastrado e incluído na lista.');
+        },
+        error: (err) => {
+          this.veicSaving.set(false);
+          this.notification.notifyHttpError(err, 'Falha ao cadastrar veículo.');
+        },
+      });
+  }
+
   private mapErrosToCellErrors(erros: string[] | undefined): CellError[] {
     return (erros || []).map((message) => {
       let field: CellErrorField = 'general';
@@ -3102,6 +3668,13 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     });
   }
 
+  private loadSchedulePresets() {
+    this.systemSettings.getAccessScheduleSettings().subscribe({
+      next: (res) => this.schedulePresets.set(res.settings),
+      error: () => this.schedulePresets.set(null),
+    });
+  }
+
   private loadRoles() {
     this.collaboratorService.listRoles().subscribe({
       next: (res) => {
@@ -3208,6 +3781,9 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     this.companyLabel = '';
     this.dadosForm.reset({
       periodo: null,
+      schedule_type: 'COMERCIAL',
+      schedule_start: '',
+      schedule_end: '',
       finalidade: '',
       observacao: '',
       id_setor: null,
@@ -3228,6 +3804,12 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     this.veicResults.set([]);
     this.colabSearching.set(false);
     this.veicSearching.set(false);
+    this.showColabCreateModal.set(false);
+    this.showVeicCreateModal.set(false);
+    this.colabSaving.set(false);
+    this.veicSaving.set(false);
+    this.colabForm = this.emptyColabForm();
+    this.veicForm = this.emptyVeicForm();
     if (this.colabTimer) clearTimeout(this.colabTimer);
     if (this.veicTimer) clearTimeout(this.veicTimer);
   }

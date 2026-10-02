@@ -65,6 +65,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
 }
 
 const WEEKDAYS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+const WEEKDAYS_LONG = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 const MONTHS = [
   'Janeiro',
   'Fevereiro',
@@ -97,9 +98,20 @@ const MONTHS = [
     },
   ],
   template: `
-    <div class="prp" [class.is-invalid]="showError()" [class.is-inline]="inline" [class.is-open]="panelOpen()">
-      <label class="prp-label" [attr.for]="inputId">{{ label }}</label>
+    <div
+      class="prp"
+      [class.is-invalid]="showError()"
+      [class.is-inline]="inline"
+      [class.is-embed]="embed"
+      [class.is-open]="panelOpen()"
+    >
+      @if (embed) {
+        <span class="prp-label">{{ label }}</span>
+      } @else {
+        <label class="prp-label" [attr.for]="inputId">{{ label }}</label>
+      }
 
+      @if (!embed) {
       <button
         [id]="inputId"
         type="button"
@@ -126,7 +138,9 @@ const MONTHS = [
           <span class="prp-trigger__days">{{ daysCount() }} {{ daysCount() === 1 ? 'dia' : 'dias' }}</span>
         }
       </button>
+      }
 
+      @if (!embed) {
       <div class="prp-error-slot" aria-live="polite">
         @if (showError()) {
           <p class="prp-error">
@@ -134,6 +148,7 @@ const MONTHS = [
           </p>
         }
       </div>
+      }
 
       @if (panelOpen()) {
         <div
@@ -153,7 +168,7 @@ const MONTHS = [
           </div>
 
           <div class="prp-weekdays">
-            @for (w of weekdays; track $index) {
+            @for (w of weekdayLabels(); track $index) {
               <span>{{ w }}</span>
             }
           </div>
@@ -178,8 +193,15 @@ const MONTHS = [
           </div>
 
           <div class="prp-foot">
-            <span class="prp-foot__label">Período selecionado</span>
-            <button type="button" class="prp-clear" [disabled]="disabled" (click)="clear($event)">Limpar</button>
+            @if (embed) {
+              <div class="prp-foot__range">
+                <div class="prp-foot__val">{{ rangeValueLabel() }}</div>
+                <div class="prp-foot__sub">{{ rangeSubLabel() }}</div>
+              </div>
+            } @else {
+              <span class="prp-foot__label">Período selecionado</span>
+            }
+            <button type="button" class="prp-clear" [disabled]="disabled || !draftStart()" (click)="clear($event)">Limpar</button>
           </div>
         </div>
       }
@@ -468,12 +490,144 @@ const MONTHS = [
         opacity: 0.5;
         cursor: not-allowed;
       }
+      .prp.is-embed .prp-label {
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink, #1e002f);
+        margin-bottom: 10px;
+      }
+      .prp.is-embed .prp-panel,
+      .prp.is-embed .prp-panel--inline {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        box-shadow: none;
+        max-width: none;
+        width: 100%;
+      }
+      .prp.is-embed .prp-nav {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-bottom: 10px;
+      }
+      .prp.is-embed .prp-nav__title {
+        order: -1;
+        margin-right: auto;
+        font-size: 14.5px;
+        font-weight: 600;
+        text-transform: capitalize;
+      }
+      .prp.is-embed .prp-nav__btn {
+        width: 30px;
+        height: 30px;
+        border: 1px solid #cfcad9;
+        border-radius: 8px;
+        background: #fff;
+        color: #4a4358;
+      }
+      .prp.is-embed .prp-nav__btn:hover:not(:disabled) {
+        background: #faf9fc;
+        border-color: #b4aec4;
+        color: #1e002f;
+      }
+      .prp.is-embed .prp-weekdays {
+        gap: 2px;
+        margin-bottom: 0;
+      }
+      .prp.is-embed .prp-weekdays span {
+        font-size: 11px;
+        text-transform: lowercase;
+        padding: 6px 0;
+        color: #7b7489;
+      }
+      .prp.is-embed .prp-grid {
+        gap: 2px;
+      }
+      .prp.is-embed .prp-day,
+      .prp.is-embed .prp-panel--inline .prp-day {
+        aspect-ratio: auto;
+        height: 38px;
+        font-size: 13.5px;
+        font-weight: 500;
+        border-radius: 8px;
+        color: #1e002f;
+      }
+      .prp.is-embed .prp-day:hover:not(:disabled):not(.is-start):not(.is-end) {
+        background: #faf9fc;
+        color: #1e002f;
+      }
+      .prp.is-embed .prp-day.is-out {
+        color: #bdb8c7;
+      }
+      .prp.is-embed .prp-day.is-today:not(.is-start):not(.is-end) {
+        font-weight: 700;
+        box-shadow: inset 0 0 0 1px #cfcad9;
+      }
+      .prp.is-embed .prp-day.is-start,
+      .prp.is-embed .prp-day.is-end,
+      .prp.is-embed .prp-panel--inline .prp-day.is-start,
+      .prp.is-embed .prp-panel--inline .prp-day.is-end {
+        background: var(--brand, #8d0de3);
+        color: #fff;
+        font-weight: 600;
+        border-radius: 8px;
+      }
+      .prp.is-embed .prp-day.is-start.is-range,
+      .prp.is-embed .prp-panel--inline .prp-day.is-start.is-range {
+        border-radius: 8px 0 0 8px;
+      }
+      .prp.is-embed .prp-day.is-end.is-range,
+      .prp.is-embed .prp-panel--inline .prp-day.is-end.is-range {
+        border-radius: 0 8px 8px 0;
+      }
+      .prp.is-embed .prp-day.is-start.is-end,
+      .prp.is-embed .prp-panel--inline .prp-day.is-start.is-end {
+        border-radius: 8px;
+      }
+      .prp.is-embed .prp-day.is-range {
+        background: #f7f0fe;
+        color: #420465;
+        border-radius: 0;
+      }
+      .prp.is-embed .prp-foot,
+      .prp.is-embed .prp-panel--inline .prp-foot {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #e3e0e9;
+      }
+      .prp-foot__range { min-width: 0; }
+      .prp-foot__val { font-size: 13.5px; font-weight: 600; color: #1e002f; }
+      .prp-foot__sub { margin-top: 2px; font-size: 12px; color: #7b7489; }
+      .prp.is-embed .prp-clear,
+      .prp.is-embed .prp-panel--inline .prp-clear {
+        background: none;
+        color: var(--brand, #8d0de3);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        font-weight: 600;
+        font-size: 13px;
+        padding: 0;
+      }
+      .prp.is-embed .prp-clear:hover:not(:disabled) {
+        background: none;
+        color: var(--brand-hover, #7a0bc6);
+      }
+      .prp.is-embed .prp-clear:disabled {
+        color: #7b7489;
+        text-decoration: none;
+        opacity: 1;
+      }
     `,
   ],
 })
 export class PeriodoRangePickerComponent implements ControlValueAccessor, Validator {
   /** Quando true, o calendário fica sempre visível. */
   @Input() inline = false;
+  /** Calendário embutido, sem campo-gatilho (modal de editar evento). */
+  @Input() embed = false;
   @Input() label = 'Período do acesso';
   @Input() placeholder = 'Selecione o intervalo';
   @Input() inputId = 'periodo-range';
@@ -493,7 +647,7 @@ export class PeriodoRangePickerComponent implements ControlValueAccessor, Valida
 
   value = this.valueSig.asReadonly();
 
-  panelOpen = computed(() => this.inline || this.open());
+  panelOpen = computed(() => this.inline || this.embed || this.open());
 
   /** Intervalo completo para o campo (valor confirmado ou rascunho completo). */
   displayRange = computed((): PeriodoRangeValue | null => {
@@ -510,6 +664,27 @@ export class PeriodoRangePickerComponent implements ControlValueAccessor, Valida
     if (!r) return 0;
     return daysBetweenInclusive(r.inicio, r.fim);
   });
+
+  weekdayLabels(): string[] {
+    return this.embed ? WEEKDAYS_LONG : WEEKDAYS;
+  }
+
+  rangeValueLabel(): string {
+    const start = this.draftStart();
+    const end = this.draftEnd();
+    if (!start) return 'Nenhuma data selecionada';
+    if (!end || end === start) return formatBr(start);
+    return `${formatBr(start)} — ${formatBr(end)}`;
+  }
+
+  rangeSubLabel(): string {
+    const start = this.draftStart();
+    const end = this.draftEnd();
+    if (!start) return 'Clique em uma data para iniciar o período';
+    if (!end) return 'Clique na data final';
+    const n = daysBetweenInclusive(start, end);
+    return n === 1 ? '1 dia selecionado' : `${n} dias selecionados`;
+  }
 
   monthTitle = computed(() => {
     const d = this.viewMonth();

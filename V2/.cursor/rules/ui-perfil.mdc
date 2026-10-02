@@ -1,0 +1,54 @@
+---
+description: Perfil e permissão — menu e rota pelo módulo, role só no rótulo
+globs: "frontend/**/*.{ts,html,scss}"
+alwaysApply: false
+---
+
+# Perfil e permissão
+
+A visibilidade vem da lista `permissions` do usuário (`modulo` + `acao`), não do nome do cargo.
+
+## Checagem
+
+```ts
+hasPermission(user, module, action) // action padrão: 'view'
+isSuperAdmin(user)                   // profile.is_super_admin
+```
+
+- Sem usuário: nega.
+- Super admin: vê e acessa tudo.
+- Demais: só a chave explícita `modulo.acao` (ou equivalente na lista).
+- `permissionAny`: basta `view` em um dos módulos.
+- `allowAdInternal`: usuário interno de diretório pode ver o item mesmo sem o módulo.
+
+Papéis legados (`ADMIN`, `CONTROLADOR` e similares) alimentam **somente** o texto `.role` do bloco de perfil. Não filtram menu, botão nem rota.
+
+## Menu
+
+Cada item declara `module` ou `permissionAny`. `canSeeItem` usa `hasPermission(..., 'view')`. Grupo vazio some.
+
+Ao incluir um item:
+
+1. Rota filha do layout autenticado, com guard de permissão e `data.permission` ou `data.permissionAny` (e `data.title`).
+2. Módulo registrado na config de módulos (front e back), se for novo.
+3. Entrada no grupo certo da config do sidebar.
+4. Ícone por `iconKey` (ver regra de ícones).
+
+A rota espelha o menu. Item sem guard alinhado é proibido.
+
+## Tela de perfis
+
+- Permissão é matriz módulo × ação (`view`, `create`, `edit`, `delete`), chave estável `permissionKey(modulo, acao)`.
+- Perfil novo pode começar com o mínimo (`dashboard.view`).
+- Super admin não se simula desmarcando caixa: o atalho é flag do perfil.
+- Usuário de empresa (`requires_company` ou código de perfil de empresa) não herda ações internas só por estar logado.
+
+## Bloco no sidebar
+
+`.profile`: avatar (foto ou iniciais), `.name`, `.role` com o nome do perfil. Recolhido: tooltip com o nome. Logout fica no botão `.logout` da base, separado do perfil.
+
+## Anti-padrões
+
+- Esconder item por `user.role === 'ADMIN'`
+- Rota protegida sem o mesmo critério do menu
+- Tratar role legado como autorização

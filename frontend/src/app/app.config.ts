@@ -1,4 +1,4 @@
-import { ApplicationConfig, APP_INITIALIZER, importProvidersFrom, provideZonelessChangeDetection } from '@angular/core';
+import { ApplicationConfig, APP_INITIALIZER, ErrorHandler, importProvidersFrom, provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import {
   provideHttpClient,
@@ -21,6 +21,7 @@ import { routes } from './app.routes';
 import { AuthInterceptor } from './core/interceptors/auth.interceptor';
 import { RequestIdInterceptor } from './core/interceptors/request-id.interceptor';
 import { ErrorInterceptor } from './core/interceptors/error.interceptor';
+import { AppErrorHandler } from './core/app-error.handler';
 import { MsalConfigService } from './services/msal-config.service';
 import { PlatformService } from './core/services/platform.service';
 import { AuthService } from './core/services/auth.service';
@@ -74,6 +75,7 @@ export const appConfig: ApplicationConfig = {
     { provide: HTTP_INTERCEPTORS, useClass: RequestIdInterceptor, multi: true },
     { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
     { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
+    { provide: ErrorHandler, useClass: AppErrorHandler },
     importProvidersFrom(BrowserModule, MsalModule),
     provideAnimations(),
     provideCharts(withDefaultRegisterables()),

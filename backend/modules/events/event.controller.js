@@ -91,6 +91,26 @@ exports.patchStatus = async (req, res, next) => {
   }
 };
 
+exports.uploadCover = async (req, res, next) => {
+  try {
+    const event = await eventService.uploadCover(req, req.params.id);
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "events",
+      event: "events.cover",
+      resource: {
+        type: "event",
+        id: event.id_event,
+        name: event.name,
+      },
+      changes: { cover: event.cover },
+    });
+    res.json({ event, cover: event.cover });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.create = async (req, res, next) => {
   try {
     const { error, value } = eventCreateSchema.validate(req.body);
@@ -145,7 +165,7 @@ exports.create = async (req, res, next) => {
 
 exports.listProducers = async (req, res, next) => {
   try {
-    const producers = await eventService.listProducerCompanies();
+    const producers = await eventService.listProducerCompanies(req);
     res.json({ producers });
   } catch (err) {
     next(err);
@@ -617,6 +637,66 @@ exports.removeCompanyVehicle = async (req, res, next) => {
       metadata: {
         id_event: Number(req.params.id),
         id_company: Number(req.params.idCompany),
+      },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.removeCompanyVehicles = async (req, res, next) => {
+  try {
+    const result = await eventService.removeCompanyVehicles(
+      req,
+      req.params.id,
+      req.params.idCompany,
+    );
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "events",
+      event: "events.company_vehicles_remove",
+      resource: {
+        type: "event_company_vehicles",
+        id: Number(req.params.idCompany),
+      },
+      metadata: {
+        id_event: Number(req.params.id),
+        id_company: Number(req.params.idCompany),
+        removed: result.removed,
+        skipped: result.skipped,
+      },
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.removeCompanyCredentials = async (req, res, next) => {
+  try {
+    const result = await eventService.removeCompanyCredentials(
+      req,
+      req.params.id,
+      req.params.idCompany,
+    );
+
+    attachAudit(req, {
+      action: "DELETE",
+      module: "events",
+      event: "events.company_credentials_remove",
+      resource: {
+        type: "event_company_credentials",
+        id: Number(req.params.idCompany),
+      },
+      metadata: {
+        id_event: Number(req.params.id),
+        id_company: Number(req.params.idCompany),
+        removed: result.removed,
+        skipped: result.skipped,
       },
     });
 

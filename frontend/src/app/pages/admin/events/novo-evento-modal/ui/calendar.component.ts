@@ -31,7 +31,7 @@ export class EventoCalendarComponent {
   readonly picking = input<'start' | 'end'>('start');
   readonly minDate = input<string | null>(null);
   readonly maxDate = input<string | null>(null);
-  readonly tagged = input<ReadonlyMap<string, string>>(new Map());
+  readonly tagged = input<ReadonlyMap<string, readonly string[]>>(new Map());
   readonly initialMonth = input<string | null>(null);
   /** bump to force re-anchor month view */
   readonly viewKey = input(0);
@@ -93,14 +93,17 @@ export class EventoCalendarComponent {
     return !!this.rangeEnd() && this.rangeEnd() === iso;
   }
 
-  tagClass(iso: string): string | null {
-    const nome = this.tagged().get(iso);
-    if (!nome) return null;
-    return `t-${nome}`;
+  tagNames(iso: string): string[] {
+    return [...(this.tagged().get(iso) || [])];
+  }
+
+  soleTag(iso: string): string | null {
+    const tags = this.tagNames(iso);
+    return tags.length === 1 ? tags[0] : null;
   }
 
   ariaLabel(iso: string): string {
-    const tag = this.tagged().get(iso);
-    return tag ? `${iso} — ${tag}` : iso;
+    const tags = this.tagNames(iso);
+    return tags.length ? `${iso} — ${tags.join(', ')}` : iso;
   }
 }

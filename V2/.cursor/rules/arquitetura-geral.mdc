@@ -1,0 +1,68 @@
+---
+description: Padrão geral — stack, idioma, forma de entrega, contrato de API e revisão
+alwaysApply: true
+---
+
+# Padrão geral do projeto
+
+Angular 21 (front) + Node.js/Express 5 (back) + MySQL. Responder em português do Brasil.
+
+Se um pedido conflitar com as rules, avisar antes e propor a alternativa alinhada. Em código legado, aplicar o padrão só no que for tocado e listar o que falta migrar.
+
+## Mapa das rules
+
+| Rule | Cobre |
+|------|-------|
+| `arquitetura-frontend` | Pastas, store com signals, formulários, HTTP |
+| `arquitetura-backend` | Camadas, erros, transações, migrações, env |
+| `ui-temas` | Paletas e tokens |
+| `ui-design` | Botões, modal, campos, filtros, upload |
+| `ui-alertas` | Toast e confirmação (`NotificationService`) |
+| `ui-icones` | Ícones de menu e ações de tabela |
+| `ui-menu` | Sidebar `.wt-layout` |
+| `ui-perfil` | Permissão `modulo.acao`, menu e guard |
+| `ui-login` | Cartão de login e logos |
+
+## Permissão ponta a ponta
+
+A mesma chave `modulo.acao` (`view`, `create`, `edit`, `delete`) protege item de menu, rota do front e rota da API. Módulo novo é registrado na config de módulos do front **e** do back. Nunca autorizar por role legado.
+
+## Contrato de resposta da API
+
+```json
+// recurso único: o próprio objeto
+// lista paginada
+{ "data": [], "meta": { "page": 1, "pageSize": 20, "total": 0 } }
+// erro
+{ "error": { "code": "VALIDATION", "message": "Dados inválidos", "details": [{ "campo": "nome", "mensagem": "..." }] } }
+```
+
+| Código | Status |
+|--------|--------|
+| `VALIDATION` | 422 |
+| `UNAUTHORIZED` | 401 |
+| `FORBIDDEN` | 403 |
+| `NOT_FOUND` | 404 |
+| `CONFLICT` | 409 |
+| `RATE_LIMIT` | 429 |
+| `INTERNAL` | 500 (mensagem genérica, sem stack) |
+
+`error.message` é o texto que o front exibe via `notifyHttpError` — escrever para o usuário final.
+
+## Entrega
+
+1. Caminho completo de cada arquivo criado ou alterado; arquivo inteiro ou bloco completo.
+2. Feature nova sai completa: back (routes, controller, service, repository, schema, migração) e front (api, store, models, pages, routes, item de menu).
+3. Informar permissão nova, módulo novo e variável de ambiente nova.
+4. Comandos (instalação, migração) em bloco pronto para copiar.
+5. Listar no fim qualquer desvio do padrão e o motivo.
+
+## Revisão — ordem de gravidade
+
+1. Segurança: SQL sem parâmetro, rota sem auth/permissão, dado sensível em log ou resposta.
+2. Permissão desalinhada entre menu, guard e API.
+3. Violação de camada (SQL no service, regra no controller, HttpClient no componente).
+4. Escrita múltipla sem transação.
+5. Desvio de UI (ver rules `ui-*`), `ngModel` em form novo, `console.log`, hex em tela.
+
+Para cada ponto, mostrar o trecho corrigido.

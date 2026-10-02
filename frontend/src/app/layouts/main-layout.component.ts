@@ -33,7 +33,6 @@ import { SessionIdleService } from '../core/services/session-idle.service';
 import { ThemeService } from '../core/services/theme.service';
 import { StorageService } from '../core/services/storage.service';
 import { ApprovalService } from '../services/approval.service';
-import { DocumentChangeService } from '../services/document-change.service';
 import { MenuIconLibrary } from '../config/admin-menu.config';
 import {
   SETORES_NAV_ITEM,
@@ -56,10 +55,10 @@ interface NavItem {
   iconName?: string;
   iconSrc?: string;
   exact?: boolean;
-  /** Mostra o badge de pendencias (aprovacoes de evento/acesso ou documentos). */
+  /** Mostra o badge de pendencias de aprovacao. */
   showBadge?: boolean;
   /** Fonte do contador do badge; default = approvals. */
-  badgeSource?: 'combined' | 'approvals' | 'document';
+  badgeSource?: 'approvals';
 }
 interface NavGroup {
   id?: string;
@@ -89,7 +88,6 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   pageTitle = signal(DEFAULT_TITLE);
   isGatePage = signal(false);
   pendingApprovals = signal(0);
-  pendingDocumentApprovals = signal(0);
   navCanScrollUp = signal(false);
   navCanScrollDown = signal(false);
 
@@ -151,7 +149,6 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     private sessionIdle: SessionIdleService,
     private storage: StorageService,
     private approvalService: ApprovalService,
-    private documentChangeService: DocumentChangeService,
     private router: Router,
     private activatedRoute: ActivatedRoute,
     private sanitizer: DomSanitizer,
@@ -419,17 +416,12 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     this.userRoleLabel.set(user?.profile?.nome || this.roleLabel(String(user?.role || user?.perfil || '')));
   }
 
-  badgeCountFor(item: NavItem): number {
-    if (item.badgeSource === 'document') return this.pendingDocumentApprovals();
-    if (item.badgeSource === 'combined') {
-      return this.pendingApprovals() + this.pendingDocumentApprovals();
-    }
+  badgeCountFor(_item: NavItem): number {
     return this.pendingApprovals();
   }
 
   private loadPendingBadges(): void {
     this.loadPendingApprovals();
-    this.loadPendingDocumentApprovals();
   }
 
   private loadPendingApprovals(): void {
@@ -440,17 +432,6 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
     this.approvalService.countPending().subscribe({
       next: (res) => this.pendingApprovals.set(res.total ?? 0),
       error: () => this.pendingApprovals.set(0),
-    });
-  }
-
-  private loadPendingDocumentApprovals(): void {
-    if (!hasPermission(this.currentUser, 'document_approvals', 'view')) {
-      this.pendingDocumentApprovals.set(0);
-      return;
-    }
-    this.documentChangeService.countPending().subscribe({
-      next: (res) => this.pendingDocumentApprovals.set(res.total ?? 0),
-      error: () => this.pendingDocumentApprovals.set(0),
     });
   }
 

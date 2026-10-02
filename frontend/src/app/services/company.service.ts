@@ -97,6 +97,22 @@ export class CompanyService {
     return this.api.post(`/companies/${id}/invite-access`, data);
   }
 
+  inviteSelfRegister(data: {
+    email: string;
+    name: string;
+    id_company_type: number;
+  }): Observable<{
+    invite: {
+      email: string;
+      name: string;
+      id_company_type: number;
+      company_type_label: string;
+      expires_in_hours: number;
+    };
+  }> {
+    return this.api.post('/companies/invite-self-register', data);
+  }
+
   uploadLogo(id: number, file: File): Observable<{ company: CompanyItem; logo: string }> {
     const form = new FormData();
     form.append('logo', file, file.name);

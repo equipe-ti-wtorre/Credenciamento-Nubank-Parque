@@ -31,6 +31,8 @@ async function mapUserResponse(user) {
         }
       : null,
     permissions: ctx?.permissions || [],
+    requires_company: !!ctx?.requires_company,
+    is_super_admin: !!ctx?.is_super_admin,
     id_company: user.id_company != null ? user.id_company : null,
     is_ad_user: !!user.is_ad_user,
     session_idle_minutes:

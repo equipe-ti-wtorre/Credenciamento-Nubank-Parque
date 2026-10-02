@@ -2,6 +2,7 @@ const cron = require("node-cron");
 const env = require("../config/env");
 const { child } = require("../config/logger");
 const { runAuditLogsRetention } = require("../observability/audit.retention");
+const { captureError } = require("../modules/error-logs/error-logs.helpers");
 
 const logger = child({ module: "audit-retention-cron" });
 
@@ -18,6 +19,11 @@ function startAuditLogsRetentionCron() {
       { cron: env.auditRetentionCron },
       "Expressão cron inválida para AUDIT_RETENTION_CRON",
     );
+    void captureError(new Error("Expressão cron inválida para AUDIT_RETENTION_CRON"), {
+      module: "audit-retention-cron",
+      origin: "job",
+      metadata: { cron: env.auditRetentionCron },
+    });
     return null;
   }
 
@@ -37,6 +43,11 @@ function startAuditLogsRetentionCron() {
         }
       } catch (err) {
         logger.error({ err }, "Erro no arquivamento audit_logs agendado");
+        void captureError(err, {
+          module: "audit-retention-cron",
+          origin: "job",
+          metadata: { triggeredBy: "cron" },
+        });
       }
     },
     { timezone: env.auditRetentionTimezone },

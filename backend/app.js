@@ -17,6 +17,7 @@ const sendgridEmailWebhookRoutes = require("./modules/smtp/sendgrid-email-webhoo
 const systemSettingsRoutes = require("./modules/system-settings/system-settings.routes");
 const teamsRoutes = require("./modules/teams/teams.routes");
 const systemReportsRoutes = require("./modules/system-reports/system-reports.routes");
+const auditRoutes = require("./modules/audit/audit.routes");
 const usersRoutes = require("./modules/users/users.routes");
 const companyUsersRoutes = require("./modules/company-users/company-users.routes");
 const companyRoutes = require("./modules/companies/company.routes");
@@ -36,6 +37,7 @@ const approvalsRoutes = require("./modules/approvals/approvals.routes");
 const profilesRoutes = require("./modules/profiles/profiles.routes");
 const sectorsRoutes = require("./modules/sectors/sectors.routes");
 const alertsRoutes = require("./modules/alerts/alerts.routes");
+const errorLogsRoutes = require("./modules/error-logs/error-logs.routes");
 
 const app = express();
 
@@ -80,6 +82,7 @@ v1Router.use("/system-settings", systemSettingsRoutes);
 v1Router.use("/teams/bot", require("./modules/teams/bot/bot.routes"));
 v1Router.use("/teams", teamsRoutes);
 v1Router.use("/system-reports", systemReportsRoutes);
+v1Router.use("/audit", auditRoutes);
 v1Router.use("/users", usersRoutes);
 v1Router.use("/company-users", companyUsersRoutes);
 v1Router.use("/companies", companyRoutes);
@@ -99,6 +102,7 @@ v1Router.use("/approvals", approvalsRoutes);
 v1Router.use("/profiles", profilesRoutes);
 v1Router.use("/sectors", sectorsRoutes);
 v1Router.use("/alerts", alertsRoutes);
+v1Router.use("/error-logs", errorLogsRoutes);
 v1Router.use("/faces", require("./modules/faces/faces.routes"));
 v1Router.use("/facial", require("./modules/facial/facial-settings.routes"));
 

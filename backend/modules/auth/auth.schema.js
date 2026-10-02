@@ -20,4 +20,41 @@ const inviteCompleteSchema = Joi.object({
   }),
 });
 
-module.exports = { loginSchema, refreshSchema, logoutSchema, inviteCompleteSchema };
+const companyRegisterCompleteSchema = Joi.object({
+  name: Joi.string().max(200).allow("", null).optional(),
+  department: Joi.string().max(100).allow("", null).optional(),
+  cnpj: Joi.string().required(),
+  company_name: Joi.string().max(200).required(),
+  fancy_name: Joi.string().trim().max(200).required().messages({
+    "string.empty": "Nome fantasia é obrigatório.",
+    "any.required": "Nome fantasia é obrigatório.",
+  }),
+  phone: Joi.string().trim().max(30).required().messages({
+    "string.empty": "Telefone é obrigatório.",
+    "any.required": "Telefone é obrigatório.",
+  }),
+  password: Joi.string()
+    .min(8)
+    .max(128)
+    .pattern(/[a-z]/)
+    .pattern(/[A-Z]/)
+    .pattern(/\d/)
+    .pattern(/[^A-Za-z0-9]/)
+    .required()
+    .messages({
+      "string.min": "A senha deve ter no mínimo 8 caracteres.",
+      "string.pattern.base":
+        "A senha deve ter maiúscula, minúscula, número e símbolo.",
+    }),
+  password_confirm: Joi.string().valid(Joi.ref("password")).required().messages({
+    "any.only": "A confirmação de senha não confere.",
+  }),
+});
+
+module.exports = {
+  loginSchema,
+  refreshSchema,
+  logoutSchema,
+  inviteCompleteSchema,
+  companyRegisterCompleteSchema,
+};

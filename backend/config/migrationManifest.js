@@ -102,7 +102,6 @@ const migrations = [
         "service_access",
         "service_access_date",
         "service_access_vehicle",
-        "document_change_request",
       ]),
   },
   {
@@ -572,6 +571,105 @@ const migrations = [
     validate: (conn) =>
       tableExists(conn, "setor_contatos") &&
       allColumnsExist(conn, "setor_contatos", ["nome", "telefone", "ramal", "email"]),
+  },
+  {
+    filename: "074_service_access_schedule.sql",
+    validate: async (conn) =>
+      (await allColumnsExist(conn, "system_settings", [
+        "comercial_start",
+        "comercial_end",
+        "noturno_start",
+        "noturno_end",
+      ])) &&
+      (await allColumnsExist(conn, "service_access", [
+        "schedule_type",
+        "schedule_start",
+        "schedule_end",
+        "schedule_crosses_midnight",
+      ])),
+  },
+  {
+    filename: "075_event_day_multi_type.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'event_day'
+            AND INDEX_NAME = 'uk_event_day_event_date_type'
+          LIMIT 1`,
+      );
+      return rows.length > 0;
+    },
+  },
+  {
+    filename: "076_company_self_register.sql",
+    validate: (conn) =>
+      tableExists(conn, "company_self_register_tokens") &&
+      allColumnsExist(conn, "company_self_register_tokens", [
+        "token_hash",
+        "email",
+        "name",
+        "id_company_type",
+        "expires_at",
+        "used_at",
+        "id_company",
+      ]),
+  },
+  {
+    filename: "077_event_cover.sql",
+    validate: (conn) => columnExists(conn, "event", "cover"),
+  },
+  {
+    filename: "078_audit_module_permissions.sql",
+    validate: async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT 1 FROM perfil_permissoes
+          WHERE modulo = 'audit' AND acao = 'view'
+          LIMIT 1`,
+      );
+      return rows.length > 0;
+    },
+  },
+  {
+    filename: "079_drop_document_change.sql",
+    validate: async (conn) => {
+      if (await tableExists(conn, "document_change_request")) return false;
+      const [permRows] = await conn.query(
+        `SELECT 1 FROM perfil_permissoes
+          WHERE modulo = 'document_approvals'
+          LIMIT 1`,
+      );
+      return permRows.length === 0;
+    },
+  },
+  {
+    filename: "080_material_stock_balance.sql",
+    validate: (conn) => tableExists(conn, "material_stock_balance"),
+  },
+  {
+    filename: "081_material_movement_request_id.sql",
+    validate: (conn) => columnExists(conn, "material_movement", "request_id"),
+  },
+  {
+    filename: "082_material_movement_eventual.sql",
+    validate: (conn) =>
+      allColumnsExist(conn, "material_movement", [
+        "movement_nature",
+        "origin_type",
+        "no_invoice_reason",
+        "sender_name",
+        "vehicle_plate",
+      ]),
+  },
+  {
+    filename: "083_external_company.sql",
+    validate: (conn) =>
+      tableExists(conn, "external_company") &&
+      columnExists(conn, "material_movement", "id_external_company"),
+  },
+  {
+    filename: "084_event_accreditation_photo_required.sql",
+    validate: (conn) => columnExists(conn, "event_accreditation", "photo_required"),
   },
 ];
 
