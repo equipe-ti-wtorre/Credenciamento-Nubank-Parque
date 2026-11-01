@@ -4,25 +4,8 @@
     <meta charset="utf-8" />
     <title>Credenciamento</title>
     <base href="/" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta name="cred-ui" content="bracelet-band-20260902" />
-    <!-- Popup Teams: se Azure devolver no origin, manda para /auth/teams.html antes do Angular. -->
-    <script>
-      (function () {
-        try {
-          var flag =
-            sessionStorage.getItem('teams.auth.popup') === '1' ||
-            localStorage.getItem('teams.auth.popup') === '1' ||
-            /(?:^|;\s*)teams_auth_popup=1(?:;|$)/.test(document.cookie || '');
-          if (!flag) return;
-          var q = location.search || '';
-          var h = location.hash || '';
-          if (!/(?:^|[?#&])(code|id_token|error)=/i.test(q + h)) return;
-          if (location.pathname.indexOf('/auth/teams') === 0) return;
-          location.replace('/auth/teams.html' + q + h);
-        } catch (e) {}
-      })();
-    </script>
+    <script src="teams-auth-popup.js"></script>
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

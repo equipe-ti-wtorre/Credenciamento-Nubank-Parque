@@ -3,8 +3,9 @@
   "version": "0.0.0",
   "scripts": {
     "start": "bash scripts/start-dev.sh",
-    "build": "PATH=/www/server/nodejs/v26.5.1/bin:$PATH ng build --configuration development",
-    "build:prod": "PATH=/www/server/nodejs/v26.5.1/bin:$PATH ng build --configuration production",
+    "build": "ng build",
+    "build:dev": "ng build --configuration development",
+    "build:prod": "ng build --configuration production",
     "build:mobile": "ng build --configuration mobile && npx cap sync",
     "cap:sync": "npx cap sync",
     "cap:android": "npx cap open android",

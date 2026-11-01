@@ -33,18 +33,18 @@ O último commit é de 02/10/2026 e há **187 arquivos alterados sem commit** (+
 Hoje o nginx manda `/` para `127.0.0.1:4207`, que é o `ng serve` (a página pública carrega `/@vite/client`). Quando esse processo cai, o site dá 502 (visto em 28/10).
 
 ### Front (`frontend/`)
-- [ ] Em `package.json`, separar os scripts:
+- [x] Em `package.json`, separar os scripts:
   - `"build": "ng build"` (configuração `production`);
   - `"build:dev": "ng build --configuration development"`.
   - Tirar o `PATH=/www/server/nodejs/...` fixo do script; isso fica no script de deploy.
-- [ ] Em `angular.json`, revisar a configuração `production`: `optimization: true`, `outputHashing: "all"`, `sourceMap: false`, budgets.
-- [ ] Conferir `src/environments/environment.prod.ts` (ou o equivalente) com `apiUrl: '/api/v1'` relativo, sem host fixo.
-- [ ] Revisar o script do `index.html` que lê `localStorage`/`sessionStorage` para o popup do Teams: vai sair na Fase 2.
-- [ ] Remover a meta `Cache-Control: no-cache` do `index.html`. O cache passa a ser controlado no nginx.
+- [x] Em `angular.json`, revisar a configuração `production`: `optimization: true`, `outputHashing: "all"`, `sourceMap: false`, budgets.
+- [x] Conferir `src/environments/environment.prod.ts` (ou o equivalente) com `apiUrl: '/api/v1'` relativo, sem host fixo.
+- [x] Revisar o script do `index.html` que lê `localStorage`/`sessionStorage` para o popup do Teams: vai sair na Fase 2.
+- [x] Remover a meta `Cache-Control: no-cache` do `index.html`. O cache passa a ser controlado no nginx.
 
 ### Deploy (`deploy/`)
-- [ ] Criar `deploy/build-front.sh`: `npm ci` + `npm run build`, e copiar `dist/<projeto>/browser` para `frontend/dist-prod/` de forma atômica (gerar em pasta temporária e depois `mv`).
-- [ ] Criar `deploy/nginx/cred.nbpdev.com.br.conf` como **modelo** (quem aplica no aaPanel é a TI) com:
+- [x] Criar `deploy/build-front.sh`: `npm ci` + `npm run build`, e copiar `dist/<projeto>/browser` para `frontend/dist-prod/` de forma atômica (gerar em pasta temporária e depois `mv`).
+- [x] Criar `deploy/nginx/cred.nbpdev.com.br.conf` como **modelo** (quem aplica no aaPanel é a TI) com:
   ```nginx
   root /www/wwwroot/Credenciamento/frontend/dist-prod;
 
@@ -68,7 +68,10 @@ Hoje o nginx manda `/` para `127.0.0.1:4207`, que é o `ng serve` (a página pú
   ssl_protocols TLSv1.2 TLSv1.3;
   # remover TLSv1.1 e as cifras 3DES/RSA+3DES
   ```
-- [ ] Documentar em `deploy/README.md` como parar o processo do `ng serve` da porta 4207 depois da virada.
+- [x] Documentar em `deploy/README.md` como parar o processo do `ng serve` da porta 4207 depois da virada.
+
+**Código pronto (01/11/2026):** `frontend/dist-prod` gerado neste servidor; `index.html` sem `@vite`.  
+**Ainda aberto (TI):** aplicar o modelo no aaPanel e só então parar a 4207. Até lá o site público continua no `ng serve`.
 
 **Pronto quando:** `curl -s https://cred.nbpdev.com.br/ | grep @vite` não retorna nada, rotas profundas (ex.: `/eventos/123`) abrem com F5 e a porta 4207 não existe mais.
 
@@ -212,4 +215,5 @@ Hoje o nginx manda `/` para `127.0.0.1:4207`, que é o `ng serve` (a página pú
 
 | Item | Motivo | Decidido por / data |
 |---|---|---|
-| | | |
+| CSP `connect-src` inclui `https://login.microsoftonline.com` | MSAL ainda no front; sem isso o login quebra. Sai na Fase 2. | Fase 1 / 01/11/2026 |
+| `npm ci --legacy-peer-deps` | Peer do `ng2-charts` conflita com Angular 21. | Fase 1 / 01/11/2026 |
