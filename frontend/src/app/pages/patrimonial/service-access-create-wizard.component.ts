@@ -5,18 +5,21 @@ import {
   OnInit,
   ViewChild,
   computed,
+  inject,
   signal,
 } from '@angular/core';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
 import { CommonModule } from '@angular/common';
 import { FormControl, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { NotificationService } from '../../core/services/notification.service';
 import { formatBlocklistNotice } from '../../shared/blocklist-notice';
-import { AuthService } from '../../core/services/auth.service';
+import { AuthService, hasPermission, isCompanyScopedAuthUser } from '../../core/services/auth.service';
 import {
   AccessScheduleType,
   PatrimonialService,
   ServiceAccessCollaborator,
+  ServiceAccessCompanyOption,
   ServiceAccessVehicle,
   formatAccessScheduleLabel,
   formatTimeHm,
@@ -25,7 +28,6 @@ import {
   AccessScheduleSettings,
   SystemSettingsService,
 } from '../../services/system-settings.service';
-import { CompanyItem, CompanyService } from '../../services/company.service';
 import { ApprovalService, EligibleSector } from '../../services/approval.service';
 import {
   CollaboratorDocumentType,
@@ -40,6 +42,7 @@ import { PeriodoRangePickerComponent, PeriodoRangeValue } from '../../shared/per
 import { CollaboratorPhotoComponent } from '../../shared/collaborator-photo/collaborator-photo.component';
 import { ModalComponent } from '../../shared/modal/modal.component';
 import { SuggestInputComponent } from '../../shared/suggest-input/suggest-input.component';
+import { entityId, sameEntityId } from '../../core/public-id.adapter';
 import {
   modelsForBrand,
   VEHICLE_SUGGESTED_BRANDS,
@@ -58,21 +61,21 @@ interface CellError {
 
 interface DraftCollaborator {
   clientKey: string;
-  id_collaborator: number | null;
+  id_collaborator: number | string | null;
   collaborator_name: string;
   collaborator_document: string;
   id_collaborator_document_type?: number | null;
   document_type_description?: string | null;
-  id_collaborator_role: number | null;
+  id_collaborator_role: number | string | null;
   role_description: string;
   /** Função atual no cadastro (para confirmar alteração). */
-  cadastro_role_id?: number | null;
+  cadastro_role_id?: number | string | null;
   cadastro_role_description?: string | null;
   /** Confirmação inline: cadastro → nova função. */
   roleChange?: {
-    fromId: number | null;
+    fromId: number | string | null;
     fromDesc: string;
-    toId: number;
+    toId: number | string;
     toDesc: string;
   } | null;
   source?: 'manual' | 'planilha';
@@ -232,8 +235,8 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                 </div>
               </div>
               <div class="wcrt-dados__right">
-                <div class="wcrt-dados__row" [class.wcrt-dados__row--single]="!isAdmin">
-                  @if (isAdmin) {
+                <div class="wcrt-dados__row" [class.wcrt-dados__row--single]="!canPickCompany">
+                  @if (canPickCompany) {
                     <div>
                       <label class="form-label" for="wcrt-company">Empresa</label>
                       <select
@@ -249,23 +252,25 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                           </option>
                         }
                       </select>
-                      <p class="text-xs text-slate-500 mt-1">
-                        Não encontrou a empresa?
-                        <a routerLink="/admin/empresas" class="text-[var(--color-primary-dark)] font-medium hover:underline">
-                          Cadastrar empresa
-                        </a>
-                      </p>
+                      @if (canCreateCompany) {
+                        <p class="text-xs text-slate-500 mt-1">
+                          Não encontrou a empresa?
+                          <a routerLink="/admin/empresas" class="text-[var(--color-primary-dark)] font-medium hover:underline">
+                            Cadastrar empresa
+                          </a>
+                        </p>
+                      }
                     </div>
                   }
                   <div>
-                    <label class="form-label" for="wcrt-setor">Setor aprovador</label>
+                    <label class="form-label" for="wcrt-setor">Time aprovador</label>
                     <select
                       id="wcrt-setor"
                       formControlName="id_setor"
                       class="form-select"
                       [class.is-invalid]="setorInvalid()"
                     >
-                      <option [ngValue]="null" disabled>Selecione o setor</option>
+                      <option [ngValue]="null" disabled>Selecione o time</option>
                       @for (s of sectors(); track s.id) {
                         <option [ngValue]="s.id">{{ s.nome }}</option>
                       }
@@ -434,6 +439,9 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                                 <span class="wcrt-dropdown__name">{{ c.name }}</span>
                                 <span class="wcrt-dropdown__meta">
                                   {{ c.document }}
+                                  @if (c.role?.description; as funcao) {
+                                    <span> · {{ funcao }}</span>
+                                  }
                                   @if (c.is_blocklisted) {
                                     <span class="text-rose-600"> · blocklist</span>
                                   }
@@ -685,7 +693,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                   <dd>{{ scheduleReviewLabel() }}</dd>
                 </div>
                 <div>
-                  <dt>Setor</dt>
+                  <dt>Time aprovador</dt>
                   <dd>{{ setorNome() }}</dd>
                 </div>
               </dl>
@@ -757,7 +765,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
             </div>
 
             <p class="wcrt-banner wcrt-banner--info">
-              Ao enviar, o setor {{ setorNome() }} será notificado.
+              Ao enviar, o time {{ setorNome() }} será notificado.
             </p>
           </div>
         }
@@ -2003,8 +2011,10 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
   ],
 })
 export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
-  isAdmin = false;
-  companies: CompanyItem[] = [];
+  private readonly nav = inject(NavigationStateService);
+  canPickCompany = false;
+  canCreateCompany = false;
+  companies: ServiceAccessCompanyOption[] = [];
 
   @ViewChild('finalidadeInput') finalidadeInput?: ElementRef<HTMLInputElement>;
   @ViewChild('observacaoInput') observacaoInput?: ElementRef<HTMLTextAreaElement>;
@@ -2104,11 +2114,9 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   /** Pendências causadas apenas por falta de função (para a mensagem do alerta). */
   pendingMissingRoleCount = computed(
     () =>
-      this.draftCollaborators().filter((c) => {
-        if (!this.isPending(c)) return false;
-        const roleId = Number(c.id_collaborator_role);
-        return !(Number.isFinite(roleId) && roleId > 0);
-      }).length,
+      this.draftCollaborators().filter(
+        (c) => this.isPending(c) && entityId(c.id_collaborator_role) == null,
+      ).length,
   );
 
   pendingRoleDecisionCount = computed(
@@ -2126,20 +2134,20 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     private vehicleService: VehicleService,
     private notification: NotificationService,
     private authService: AuthService,
-    private companyService: CompanyService,
     private systemSettings: SystemSettingsService,
     private router: Router,
   ) {}
 
   async ngOnInit() {
     const user = await this.authService.getCurrentUser();
-    this.isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
+    this.canPickCompany = !isCompanyScopedAuthUser(user);
+    this.canCreateCompany = hasPermission(user, 'companies', 'create');
     this.reset();
     this.loadSectors();
     this.loadRoles();
     this.loadDocumentTypes();
     this.loadSchedulePresets();
-    if (this.isAdmin) {
+    if (this.canPickCompany) {
       this.loadCompanies();
     }
   }
@@ -2152,7 +2160,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   get modalSubtitle(): string {
     if (this.step() === 'dados') {
-      return 'Informe período, horário, nome do evento, descrição do serviço e setor aprovador.';
+      return 'Informe período, horário, nome do evento, descrição do serviço e time aprovador.';
     }
     if (this.step() === 'pessoas') {
       return 'Inclua manualmente ou importe por planilha XLSX. Corrija as pendências direto na tabela.';
@@ -2297,8 +2305,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   }
 
   hasRoleError(c: DraftCollaborator): boolean {
-    const roleId = Number(c.id_collaborator_role);
-    if (Number.isFinite(roleId) && roleId > 0) return false;
+    if (entityId(c.id_collaborator_role) != null) return false;
     return c.cellErrors.some((e) => this.isRoleCellError(e));
   }
 
@@ -2321,9 +2328,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   }
 
   private isPending(c: DraftCollaborator): boolean {
-    const roleId = Number(c.id_collaborator_role);
-    const hasRole = Number.isFinite(roleId) && roleId > 0;
-    if (!hasRole) return true;
+    if (entityId(c.id_collaborator_role) == null) return true;
     // Com função válida, erros só de cargo não mantêm a linha pendente
     return c.cellErrors.some((e) => !this.isRoleCellError(e));
   }
@@ -2332,7 +2337,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   prepararImportacao() {
     this.dadosForm.markAllAsTouched();
     if (this.dadosForm.invalid || this.scheduleTimesInvalid()) {
-      this.notification.error('Preencha os dados do acesso (período, horário, nome e setor) antes de importar.');
+      this.notification.error('Preencha os dados do acesso (período, horário, nome e time aprovador) antes de importar.');
       return;
     }
     // Sempre sincroniza datas/dados: ao voltar no wizard o período pode ter mudado.
@@ -2357,7 +2362,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     }
     const setorNome = this.sectors().find((s) => s.id === this.idSetor)?.nome?.trim();
     if (!setorNome) {
-      this.notification.error('Setor aprovador inválido.');
+      this.notification.error('Time aprovador inválido.');
       return;
     }
 
@@ -2378,11 +2383,11 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   onImportCompleted(event?: {
     roleProposals?: {
       documento: string;
-      id_collaborator: number | null;
+      id_collaborator: number | string | null;
       from: string;
-      fromRoleId: number | null;
+      fromRoleId: number | string | null;
       to: string;
-      toRoleId: number | null;
+      toRoleId: number | string | null;
     }[];
   }) {
     if (event?.roleProposals != null) {
@@ -2562,7 +2567,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
               this.busy.set(false);
               this.submitted = true;
               this.notification.success('Acesso enviado para aprovação.');
-              void this.router.navigate(['/admin/acessos-servico', res.service.id_service_access]);
+              void this.nav.navegar('/admin/acessos-servico/detalhe', { public_id: String(res.service.public_id || res.service.id_service_access) });
             },
             error: (err) => {
               this.busy.set(false);
@@ -2714,7 +2719,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
       .create({
         ...payload,
         notify_approvers: false,
-        ...(this.isAdmin && this.idCompany ? { id_company: this.idCompany } : {}),
+        ...(this.canPickCompany && this.idCompany ? { id_company: this.idCompany } : {}),
       })
       .subscribe({
         next: (res) => {
@@ -2753,9 +2758,9 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   }
 
   private loadCompanies() {
-    this.companyService.list(1, 500, {}).subscribe({
+    this.patrimonialService.listCompanyOptions().subscribe({
       next: (res) => {
-        this.companies = res.companies.filter((c) => c.status);
+        this.companies = res.companies || [];
       },
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar empresas.'),
     });
@@ -2798,13 +2803,14 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
       return;
     }
     const roleId =
-      preferredRoleId || item.id_collaborator_role || this.roles()[0]?.id_collaborator_role || null;
+      this.roleRef(preferredRoleId || item.id_collaborator_role, item.role?.description) ||
+      this.roleRef(this.roles()[0]?.id_collaborator_role, this.roles()[0]?.description);
     if (!roleId) {
       this.notification.error('Nenhuma função cadastrada para vincular.');
       return;
     }
     const role =
-      this.roles().find((r) => r.id_collaborator_role === roleId)?.description ||
+      this.roles().find((r) => sameEntityId(r.id_collaborator_role, roleId))?.description ||
       item.role?.description ||
       '—';
     this.draftCollaborators.update((list) => [
@@ -2828,23 +2834,23 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   }
 
   setCollaboratorRole(clientKey: string, roleId: number | string | null) {
-    const idRole = Number(roleId);
-    if (!Number.isFinite(idRole) || idRole <= 0) return;
+    const idRole = entityId(roleId);
+    if (idRole == null) return;
     const desc =
-      this.roles().find((r) => r.id_collaborator_role === idRole)?.description || '—';
+      this.roles().find((r) => sameEntityId(r.id_collaborator_role, idRole))?.description || '—';
 
     const current = this.draftCollaborators().find((c) => c.clientKey === clientKey);
     if (!current) return;
 
-    const fromId = current.cadastro_role_id ?? current.id_collaborator_role;
+    const fromId = entityId(current.cadastro_role_id ?? current.id_collaborator_role);
     const fromDesc =
       current.cadastro_role_description ||
       current.role_description ||
-      this.roles().find((r) => r.id_collaborator_role === fromId)?.description ||
+      this.roles().find((r) => sameEntityId(r.id_collaborator_role, fromId))?.description ||
       '—';
 
     // Troca em relação ao cadastro → confirmação inline (sem alert)
-    if (fromId != null && Number(fromId) > 0 && Number(fromId) !== idRole) {
+    if (fromId != null && !sameEntityId(fromId, idRole)) {
       this.draftCollaborators.update((list) =>
         list.map((c) =>
           c.clientKey === clientKey
@@ -2885,7 +2891,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     }
   }
 
-  private applyCollaboratorRole(clientKey: string, idRole: number, desc: string) {
+  private applyCollaboratorRole(clientKey: string, idRole: number | string, desc: string) {
     this.draftCollaborators.update((list) =>
       list.map((c) => {
         if (c.clientKey !== clientKey) return c;
@@ -2922,11 +2928,11 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   onRoleProposals(
     proposals: {
       documento: string;
-      id_collaborator: number | null;
+      id_collaborator: number | string | null;
       from: string;
-      fromRoleId: number | null;
+      fromRoleId: number | string | null;
       to: string;
-      toRoleId: number | null;
+      toRoleId: number | string | null;
     }[],
   ) {
     this.pendingRoleProposals = proposals || [];
@@ -2937,11 +2943,11 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   private pendingRoleProposals: {
     documento: string;
-    id_collaborator: number | null;
+    id_collaborator: number | string | null;
     from: string;
-    fromRoleId: number | null;
+    fromRoleId: number | string | null;
     to: string;
-    toRoleId: number | null;
+    toRoleId: number | string | null;
   }[] = [];
 
   private resolveRoleIdByDescription(label: string | null | undefined): number | null {
@@ -2962,9 +2968,23 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     return hit?.id_collaborator_role ?? null;
   }
 
-  private asRoleId(v: unknown): number | null {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : null;
+  /** Aceita o id numérico legado e o UUID público que a API devolve hoje. */
+  private asRoleId(v: unknown): number | string | null {
+    return entityId(v);
+  }
+
+  /**
+   * Função comparável com a lista do select.
+   * Id numérico que não está na lista (a API já trocou por UUID) cai na descrição.
+   */
+  private roleRef(value: unknown, label?: unknown): number | string | null {
+    const id = entityId(value);
+    if (id != null && this.roles().some((r) => sameEntityId(r.id_collaborator_role, id))) {
+      return id;
+    }
+    const byLabel = this.resolveRoleIdByDescription(label == null ? '' : String(label));
+    if (byLabel != null) return byLabel;
+    return typeof id === 'string' ? id : null;
   }
 
   private applyPendingRoleProposals() {
@@ -2988,14 +3008,12 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
         if (!hit) return c;
 
         const fromRoleId =
-          this.asRoleId(hit.fromRoleId) ??
-          this.resolveRoleIdByDescription(hit.from) ??
-          this.asRoleId(c.cadastro_role_id) ??
-          this.asRoleId(c.id_collaborator_role);
-        const toRoleId =
-          this.asRoleId(hit.toRoleId) ?? this.resolveRoleIdByDescription(hit.to);
+          this.roleRef(hit.fromRoleId, hit.from) ??
+          this.roleRef(c.cadastro_role_id, c.cadastro_role_description) ??
+          this.roleRef(c.id_collaborator_role, c.role_description);
+        const toRoleId = this.roleRef(hit.toRoleId, hit.to);
         if (fromRoleId == null || toRoleId == null) return c;
-        if (fromRoleId === toRoleId) return c;
+        if (sameEntityId(fromRoleId, toRoleId)) return c;
         if (c.roleChange?.toId === toRoleId && c.roleChange?.fromId === fromRoleId) return c;
 
         const fromDesc =
@@ -3031,7 +3049,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   /** Remove linhas duplicadas do mesmo cadastro (planilha + reload do servidor). */
   private dedupeCollaboratorsById() {
     this.draftCollaborators.update((list) => {
-      const seen = new Set<number>();
+      const seen = new Set<number | string>();
       const ranked = [...list].sort((a, b) => {
         const score = (c: DraftCollaborator) =>
           (c.id_collaborator != null ? 4 : 0) +
@@ -3069,29 +3087,35 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     };
 
     const bindFound = (row: DraftCollaborator, found: CollaboratorItem) => {
+      const masterRoleId = this.roleRef(found.id_collaborator_role, found.role?.description);
+      const masterDesc =
+        found.role?.description ||
+        this.roles().find((r) => sameEntityId(r.id_collaborator_role, masterRoleId))?.description ||
+        null;
       this.draftCollaborators.update((list) =>
-        list.map((c) =>
-          c.clientKey === row.clientKey && c.id_collaborator == null
-            ? {
-                ...c,
-                id_collaborator: found.id_collaborator,
-                collaborator_name: c.collaborator_name || found.name,
-                collaborator_document: found.document || c.collaborator_document,
-                id_collaborator_document_type:
-                  c.id_collaborator_document_type ?? found.id_collaborator_document_type,
-                cadastro_role_id: c.cadastro_role_id ?? found.id_collaborator_role ?? null,
-                cadastro_role_description:
-                  c.cadastro_role_description ||
-                  found.role?.description ||
-                  this.roles().find((r) => r.id_collaborator_role === found.id_collaborator_role)
-                    ?.description ||
-                  null,
-                cellErrors: c.cellErrors.filter(
-                  (e) => e.field !== 'document' && e.field !== 'name' && !this.isRoleCellError(e),
-                ),
-              }
-            : c,
-        ),
+        list.map((c) => {
+          if (c.clientKey !== row.clientKey || c.id_collaborator != null) return c;
+          const currentRole = this.roleRef(c.id_collaborator_role, c.role_description);
+          const filledRole = currentRole ?? masterRoleId ?? c.id_collaborator_role;
+          return {
+            ...c,
+            id_collaborator: found.id_collaborator,
+            collaborator_name: c.collaborator_name || found.name,
+            collaborator_document: found.document || c.collaborator_document,
+            id_collaborator_document_type:
+              c.id_collaborator_document_type ?? found.id_collaborator_document_type,
+            id_collaborator_role: filledRole,
+            role_description: currentRole ? c.role_description : masterDesc || c.role_description,
+            cadastro_role_id: c.cadastro_role_id ?? masterRoleId ?? null,
+            cadastro_role_description: c.cadastro_role_description || masterDesc,
+            cellErrors: c.cellErrors.filter(
+              (e) =>
+                e.field !== 'document' &&
+                e.field !== 'name' &&
+                (filledRole == null || !this.isRoleCellError(e)),
+            ),
+          };
+        }),
       );
     };
 
@@ -3123,7 +3147,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
           this.collaboratorService
             .create({
               id_collaborator_document_type: docTypeId,
-              id_collaborator_role: roleId,
+              id_collaborator_role: roleId as number,
               document: q,
               name,
               status: true,
@@ -3186,7 +3210,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
           this.collaboratorService
             .create({
               id_collaborator_document_type: docTypeId,
-              id_collaborator_role: roleId,
+              id_collaborator_role: roleId as number,
               document: q,
               name,
               status: true,
@@ -3205,7 +3229,8 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   private resolveDocumentTypeId(row: DraftCollaborator): number | null {
     if (row.id_collaborator_document_type != null) {
-      return this.asRoleId(row.id_collaborator_document_type);
+      const id = this.asRoleId(row.id_collaborator_document_type);
+      return typeof id === 'number' ? id : null;
     }
     const wanted = String(row.document_type_description || 'CPF')
       .normalize('NFD')
@@ -3261,35 +3286,40 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
           return doc === target || String(c.document) === q;
         });
         if (!found || found.is_blocklisted) return;
-        const masterRoleId = found.id_collaborator_role || null;
+        const masterRoleId = this.roleRef(found.id_collaborator_role, found.role?.description);
         const masterDesc =
           found.role?.description ||
-          this.roles().find((r) => r.id_collaborator_role === masterRoleId)?.description ||
+          this.roles().find((r) => sameEntityId(r.id_collaborator_role, masterRoleId))?.description ||
           null;
         this.draftCollaborators.update((list) =>
           list.map((c) => {
             if (c.clientKey !== clientKey || c.id_collaborator != null) return c;
-            const currentRole = this.asRoleId(c.id_collaborator_role);
+            const currentRole = this.roleRef(c.id_collaborator_role, c.role_description);
             const needsDecision =
               masterRoleId != null &&
               currentRole != null &&
-              Number(masterRoleId) !== Number(currentRole) &&
+              !sameEntityId(masterRoleId, currentRole) &&
               !c.roleChange;
+            const filledRole = currentRole ?? masterRoleId;
             return {
               ...c,
               id_collaborator: found.id_collaborator,
               collaborator_name: c.collaborator_name || found.name,
               collaborator_document: found.document || c.collaborator_document,
+              id_collaborator_role: filledRole,
+              role_description: currentRole
+                ? c.role_description
+                : masterDesc || c.role_description,
               cadastro_role_id: masterRoleId || c.cadastro_role_id || null,
               cadastro_role_description: masterDesc || c.cadastro_role_description || null,
               roleChange: needsDecision
                 ? {
-                    fromId: Number(masterRoleId),
+                    fromId: masterRoleId,
                     fromDesc: masterDesc || '—',
                     toId: currentRole,
                     toDesc:
                       c.role_description ||
-                      this.roles().find((r) => r.id_collaborator_role === currentRole)
+                      this.roles().find((r) => sameEntityId(r.id_collaborator_role, currentRole))
                         ?.description ||
                       '—',
                   }
@@ -3457,7 +3487,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   salvarVeiculoNovo() {
     const form = this.veicForm;
-    if (this.isAdmin && !this.idCompany) {
+    if (this.canPickCompany && !this.idCompany) {
       this.notification.error('Selecione a empresa do acesso no passo anterior.');
       return;
     }
@@ -3474,7 +3504,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     this.veicSaving.set(true);
     this.vehicleService
       .create({
-        ...(this.isAdmin && this.idCompany ? { id_company: this.idCompany } : {}),
+        ...(this.canPickCompany && this.idCompany ? { id_company: this.idCompany } : {}),
         plate: form.plate.trim().toUpperCase(),
         brand: form.brand.trim(),
         model: form.model.trim(),
@@ -3508,21 +3538,16 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   }
 
   private mapSheetRowToDraftCollaborator(row: UnifiedCollaboratorRow): DraftCollaborator {
-    const asId = (v: unknown): number | null => {
-      const n = Number(v);
-      return Number.isFinite(n) && n > 0 ? n : null;
-    };
-    const resolvedId = row.resolvido ? asId(row.resolvido['id_collaborator']) : null;
-    const resolvedRole = row.resolvido ? asId(row.resolvido['id_collaborator_role']) : null;
-    const atualRole = row.resolvido ? asId(row.resolvido['id_collaborator_role_atual']) : null;
-    const resolvedDocType = row.resolvido
-      ? asId(row.resolvido['id_collaborator_document_type'])
+    const resolvedId = row.resolvido ? entityId(row.resolvido['id_collaborator']) : null;
+    const resolvedRole = row.resolvido ? entityId(row.resolvido['id_collaborator_role']) : null;
+    const atualRole = row.resolvido ? entityId(row.resolvido['id_collaborator_role_atual']) : null;
+    const docTypeRaw = row.resolvido
+      ? entityId(row.resolvido['id_collaborator_document_type'])
       : null;
+    const resolvedDocType = typeof docTypeRaw === 'number' ? docTypeRaw : null;
     const roleDiff = (row.divergencias_vinculo || []).find((d) => d.campo === 'id_collaborator_role');
-    const toRoleId = resolvedRole;
-    const fromRoleId =
-      atualRole ??
-      (roleDiff ? this.resolveRoleIdByDescription(String(roleDiff.atual ?? '')) : null);
+    const toRoleId = this.roleRef(resolvedRole, roleDiff?.novo);
+    const fromRoleId = this.roleRef(atualRole, roleDiff?.atual);
     const toDesc =
       (toRoleId &&
         this.roles().find((r) => r.id_collaborator_role === toRoleId)?.description) ||
@@ -3535,7 +3560,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
       '—';
 
     const hasRoleDecision =
-      fromRoleId != null && toRoleId != null && fromRoleId !== toRoleId;
+      fromRoleId != null && toRoleId != null && !sameEntityId(fromRoleId, toRoleId);
 
     return {
       clientKey: `sheet-c-${row.linha}`,
@@ -3612,9 +3637,8 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
         );
         if (idx >= 0) {
           const existing = next[idx];
-          const existingRole = Number(existing.id_collaborator_role);
           // Não sobrescreve correção manual já feita pelo usuário
-          if (Number.isFinite(existingRole) && existingRole > 0 && !this.isPending(existing)) {
+          if (entityId(existing.id_collaborator_role) != null && !this.isPending(existing)) {
             continue;
           }
           next[idx] = { ...existing, ...row, clientKey: existing.clientKey };
@@ -3701,18 +3725,20 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   }
 
   private mapServerCollaborator(c: ServiceAccessCollaborator): DraftCollaborator {
-    const masterRoleId = c.master_id_collaborator_role ?? c.id_collaborator_role;
+    const linkRoleId = this.roleRef(c.id_collaborator_role, c.role_description);
+    const masterRoleId =
+      this.roleRef(c.master_id_collaborator_role, c.master_role_description) ?? linkRoleId;
     const masterRoleDesc =
       c.master_role_description ||
       c.role_description ||
-      this.roles().find((r) => r.id_collaborator_role === masterRoleId)?.description ||
+      this.roles().find((r) => sameEntityId(r.id_collaborator_role, masterRoleId))?.description ||
       '—';
     return {
       clientKey: `srv-c-${c.id_collaborator}`,
       id_collaborator: c.id_collaborator,
       collaborator_name: c.collaborator_name,
       collaborator_document: c.collaborator_document,
-      id_collaborator_role: c.id_collaborator_role,
+      id_collaborator_role: linkRoleId,
       role_description: c.role_description || '—',
       cadastro_role_id: masterRoleId,
       cadastro_role_description: masterRoleDesc,
@@ -3763,7 +3789,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   private applyCompanyValidator(): void {
     const ctrl = this.dadosForm.get('id_company');
     if (!ctrl) return;
-    if (this.isAdmin) {
+    if (this.canPickCompany) {
       ctrl.setValidators([Validators.required]);
     } else {
       ctrl.clearValidators();

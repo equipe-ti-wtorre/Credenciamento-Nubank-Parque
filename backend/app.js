@@ -11,6 +11,7 @@ const errorHandler = require("./middleware/errorHandler");
 const authRoutes = require("./modules/auth/auth.routes");
 const tenantRoutes = require("./modules/tenants/tenant.routes");
 const smtpRoutes = require("./modules/smtp/smtp.routes");
+const whatsappRoutes = require("./modules/whatsapp/whatsapp.routes");
 const emailTemplatesRoutes = require("./modules/email-templates/email-templates.routes");
 const acsEmailWebhookRoutes = require("./modules/smtp/acs-email-webhook.routes");
 const sendgridEmailWebhookRoutes = require("./modules/smtp/sendgrid-email-webhook.routes");
@@ -72,9 +73,12 @@ app.get("/", (req, res) => {
 });
 
 const v1Router = express.Router();
+v1Router.use(require("./middleware/publicResponse"));
+v1Router.use(require("./middleware/resolveIncomingPublicIds"));
 v1Router.use("/auth", authRoutes);
 v1Router.use("/tenants", tenantRoutes);
 v1Router.use("/smtp", smtpRoutes);
+v1Router.use("/whatsapp", whatsappRoutes);
 v1Router.use("/email-templates", emailTemplatesRoutes);
 v1Router.use("/webhooks", acsEmailWebhookRoutes);
 v1Router.use("/webhooks", sendgridEmailWebhookRoutes);

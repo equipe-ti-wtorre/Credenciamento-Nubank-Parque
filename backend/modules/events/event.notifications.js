@@ -9,16 +9,19 @@ const {
   buildBrandedEmail,
 } = require("../email-templates/email-template.layout");
 
+const { lookupPublicId } = require("../../utils/publicIdLookup");
+
 function resolveAppBaseUrl() {
   if (env.appPublicUrl) return env.appPublicUrl;
   if (env.corsOrigins?.[0]) return String(env.corsOrigins[0]).replace(/\/$/, "");
   return "";
 }
 
-function buildEventUrl(idEvent) {
+async function buildEventUrl(idEvent) {
+  const publicId = await lookupPublicId("event", "id_event", idEvent);
   const base = resolveAppBaseUrl();
-  if (!base) return null;
-  return `${base}/admin/eventos/${idEvent}`;
+  if (!base || !publicId) return null;
+  return `${base}/admin/eventos/abrir/${publicId}`;
 }
 
 function escapeHtml(value) {
@@ -118,7 +121,7 @@ function notifyEventCreated({
 }) {
   schedule(async () => {
     const org = env.organizationName || "Credenciamento";
-    const link = buildEventUrl(event.id_event) || "";
+    const link = await buildEventUrl(event.id_event) || "";
     const vars = {
       event_name: event.name,
       organization_name: org,
@@ -178,7 +181,7 @@ function notifyPartnerLinked({
 }) {
   schedule(async () => {
     const org = env.organizationName || "Credenciamento";
-    const link = buildEventUrl(event.id_event) || "";
+    const link = await buildEventUrl(event.id_event) || "";
     const vars = {
       event_name: event.name,
       organization_name: org,
@@ -242,7 +245,7 @@ function notifyPartnerComplete({
   requestId = null,
 }) {
   schedule(async () => {
-    const link = buildEventUrl(event.id_event) || "";
+    const link = await buildEventUrl(event.id_event) || "";
     const vars = {
       event_name: event.name,
       partner_name: partnerName || "Empresa parceira",

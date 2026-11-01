@@ -241,4 +241,4 @@ O cabeçalho do setor mostra quantos dos quatro fluxos estão ativos.
 
 ### O que acontece em seguida
 
-O setor ativo, com o fluxo ligado, passa a aparecer como **Setor aprovador** no acesso de serviço, no evento e no credenciamento. As pendências caem em **Aprovações** para os aprovadores e gestores daquele setor.
+O setor ativo, com o fluxo ligado, passa a aparecer como **Time aprovador** no acesso de serviço, no evento e no credenciamento. As pendências caem em **Aprovações** para os aprovadores e gestores daquele setor.

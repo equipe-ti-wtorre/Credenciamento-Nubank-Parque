@@ -24,6 +24,20 @@ function hashToken(token) {
   return crypto.createHash("sha256").update(String(token)).digest("hex");
 }
 
+async function producerOriginId(userId, conn = db) {
+  if (!userId) return null;
+  const [rows] = await conn.execute(
+    `SELECT u.id_company
+     FROM usuarios u
+     INNER JOIN company c ON c.id_company = u.id_company
+     INNER JOIN company_type ct ON ct.id_company_type = c.id_company_type
+     WHERE u.id = ? AND ct.description = 'Produtora'
+     LIMIT 1`,
+    [userId],
+  );
+  return rows[0]?.id_company ?? null;
+}
+
 function resolveAppBaseUrl() {
   if (env.appPublicUrl) return env.appPublicUrl;
   if (env.corsOrigins?.[0]) return String(env.corsOrigins[0]).replace(/\/$/, "");
@@ -319,7 +333,7 @@ async function completeSelfRegister(rawToken, data, req, logoFile = null) {
     await conn.beginTransaction();
 
     const [locked] = await conn.execute(
-      `SELECT id, used_at, expires_at, email, name, id_company_type
+      `SELECT id, used_at, expires_at, email, name, id_company_type, id_usuario_criador
        FROM company_self_register_tokens
        WHERE id = ? FOR UPDATE`,
       [row.id],
@@ -338,11 +352,12 @@ async function completeSelfRegister(rawToken, data, req, logoFile = null) {
     }
 
     const logoFilename = saveCompanyLogoFile(logoFile);
+    const idCompanyOrigem = await producerOriginId(tokenRow.id_usuario_criador, conn);
 
     const [companyResult] = await conn.execute(
-      `INSERT INTO company (id_company_type, cnpj, company_name, fancy_name, status, logo)
-       VALUES (?, ?, ?, ?, 1, ?)`,
-      [tokenRow.id_company_type, cnpj, companyName, fancyName, logoFilename],
+      `INSERT INTO company (id_company_type, cnpj, company_name, fancy_name, status, logo, id_company_origem)
+       VALUES (?, ?, ?, ?, 1, ?, ?)`,
+      [tokenRow.id_company_type, cnpj, companyName, fancyName, logoFilename, idCompanyOrigem],
     );
     companyId = companyResult.insertId;
 

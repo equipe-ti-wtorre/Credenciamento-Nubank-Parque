@@ -8,6 +8,7 @@ import { MsalConfigService } from '../../services/msal-config.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { TeamsContextService } from '../../services/teams-context.service';
 import { rememberReturnUrl } from '../../core/guards/auth.guard';
+import { GatewayAuthService } from '../../core/services/gateway-auth.service';
 
 @Component({
   selector: 'app-login',
@@ -26,6 +27,7 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
 
         <p *ngIf="idleMessage" class="login-nubank__msg login-nubank__msg--warn">{{ idleMessage }}</p>
         <p *ngIf="teamsHint" class="login-nubank__msg login-nubank__msg--info">{{ teamsHint }}</p>
+        <p *ngIf="sessionHint" class="login-nubank__msg login-nubank__msg--info">{{ sessionHint }}</p>
         <p *ngIf="msalWarning" class="login-nubank__msg login-nubank__msg--warn">{{ msalWarning }}</p>
 
         <ng-container *ngIf="showAdminLogin">
@@ -119,6 +121,7 @@ import { rememberReturnUrl } from '../../core/guards/auth.guard';
         <h2 class="text-xl font-medium text-white text-center">Credenciamento</h2>
         <p *ngIf="idleMessage" class="text-amber-300 text-sm text-center px-2">{{ idleMessage }}</p>
         <p *ngIf="teamsHint" class="text-sky-300 text-sm text-center px-2">{{ teamsHint }}</p>
+        <p *ngIf="sessionHint" class="text-sky-300 text-sm text-center px-2">{{ sessionHint }}</p>
         <p *ngIf="msalWarning" class="text-amber-300 text-xs text-center px-2">{{ msalWarning }}</p>
 
         <ng-container *ngIf="showAdminLogin">
@@ -197,7 +200,10 @@ export class LoginComponent implements OnInit {
   msalWarning: string | null = null;
   idleMessage: string | null = null;
   teamsHint: string | null = null;
+  sessionHint: string | null = null;
   inTeamsUi = false;
+  /** Login centralizado no navegador (fora do Teams e do app nativo). */
+  gatewayEnabled = false;
 
   constructor(
     private authService: AuthService,
@@ -206,6 +212,7 @@ export class LoginComponent implements OnInit {
     private msalConfigService: MsalConfigService,
     private notification: NotificationService,
     private teamsContext: TeamsContextService,
+    private gateway: GatewayAuthService,
   ) {}
 
   get isNubank(): boolean {
@@ -289,6 +296,13 @@ export class LoginComponent implements OnInit {
     } else {
       const ssoErr = this.teamsContext.consumeSsoError();
       this.teamsHint = ssoErr ? `SSO: ${ssoErr}` : null;
+
+      this.gatewayEnabled = await this.gateway.isAvailable();
+      if (this.gatewayEnabled) {
+        // Após inatividade não reentra sozinho: o usuário clica em "Entrar com Microsoft".
+        if (!this.idleMessage) await this.tryGatewayLogin();
+        return;
+      }
     }
 
     await this.msalConfigService.load();
@@ -321,8 +335,35 @@ export class LoginComponent implements OnInit {
     });
   }
 
+  private async tryGatewayLogin(): Promise<void> {
+    const returnedFromGateway = this.route.snapshot.queryParamMap.get('gw') === '1';
+    this.sessionHint = 'Verificando sua sessão corporativa…';
+    this.loading.set(true);
+    try {
+      const ok = await this.authService.loginWithGateway();
+      if (!ok && returnedFromGateway) {
+        this.notification.error(
+          'Login não concluído',
+          'O login corporativo não retornou uma sessão válida. Tente novamente.',
+        );
+      }
+    } catch (err) {
+      this.notification.error(
+        this.notification.extractErrorMessage(err, 'Não foi possível entrar com a conta corporativa.'),
+      );
+    } finally {
+      this.loading.set(false);
+      this.sessionHint = null;
+    }
+  }
+
   async loginMicrosoft() {
     if (this.loading() || this.msalBusy()) return;
+    if (this.gatewayEnabled && !this.inTeamsUi) {
+      this.loading.set(true);
+      await this.gateway.redirectToLogin();
+      return;
+    }
     this.loading.set(true);
     try {
       await this.msalConfigService.load();

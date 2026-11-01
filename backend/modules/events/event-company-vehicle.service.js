@@ -154,17 +154,19 @@ async function listEventVehicleCounts(idEvent, { onlyCompanyId } = {}) {
     params.push(Number(onlyCompanyId));
   }
   const [rows] = await db.execute(
-    `SELECT edc.id_company, COUNT(DISTINCT edcv.id_vehicle) AS vehicle_count
+    `SELECT CAST(c.public_id AS CHAR) AS public_id, COUNT(DISTINCT edcv.id_vehicle) AS vehicle_count
        FROM event_day_company_vehicle edcv
        INNER JOIN event_day_company edc ON edc.id_event_day_company = edcv.id_event_day_company
        INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+       INNER JOIN company c ON c.id_company = edc.id_company
       WHERE ed.id_event = ?${companyFilter}
-      GROUP BY edc.id_company`,
+      GROUP BY c.public_id`,
     params,
   );
   const map = {};
   for (const row of rows) {
-    map[Number(row.id_company)] = Number(row.vehicle_count) || 0;
+    if (!row.public_id) continue;
+    map[String(row.public_id)] = Number(row.vehicle_count) || 0;
   }
   return map;
 }

@@ -94,6 +94,18 @@ const env = {
   msalRedirectUriWeb: process.env.MSAL_REDIRECT_URI_WEB || "",
   msalRedirectUriAndroid: process.env.MSAL_REDIRECT_URI_ANDROID || "",
   msalRedirectUriIos: process.env.MSAL_REDIRECT_URI_IOS || "",
+  /** Login centralizado (auth-gateway). `url` é o issuer do JWT e a URL usada pelo navegador. */
+  authGateway: (() => {
+    const url = (process.env.AUTH_GATEWAY_URL || "").trim().replace(/\/+$/, "");
+    return {
+      enabled: process.env.AUTH_GATEWAY_ENABLED === "true" && !!url,
+      url,
+      jwksUrl: (process.env.AUTH_GATEWAY_JWKS_URL || "").trim() || `${url}/.well-known/jwks.json`,
+      revokedUrl: (process.env.AUTH_GATEWAY_REVOKED_URL || "").trim() || `${url}/sessions/revoked`,
+      cookieName: (process.env.AUTH_GATEWAY_COOKIE || "").trim() || "nbp_session",
+      audience: (process.env.AUTH_GATEWAY_AUDIENCE || "").trim() || "nbp-systems",
+    };
+  })(),
   /** URL https aberta ao clicar na notificação do Teams (feed de atividades). */
   teamsActivityWebUrl: process.env.TEAMS_ACTIVITY_WEB_URL || process.env.MSAL_REDIRECT_URI_WEB || "",
   /** ID do app no catálogo Graph (appCatalogs/teamsApps/{id}) após publicar o pacote Teams. */
@@ -235,6 +247,8 @@ const env = {
 
   /** Jobs HTTP poll em `processing` voltam para `queued` após este timeout. */
   facialJobStaleMinutes: Math.max(1, Number(process.env.FACIAL_JOB_STALE_MINUTES) || 30),
+  /** Horas extras após o fim do acesso antes de apagar a face nos terminais. */
+  facialRevokeGraceHours: Math.max(0, Number(process.env.FACIAL_REVOKE_GRACE_HOURS) || 4),
   /** Bearer compartilhado com o Gateway (HTTP poll). Obrigatório em dev e prod. */
   facialGatewayEventsSecret: requireFacialEventsSecret(process.env.FACIAL_GATEWAY_EVENTS_SECRET),
   /** IP(s) públicos de saída do Gateway (allowlist). Em produção é obrigatório. */

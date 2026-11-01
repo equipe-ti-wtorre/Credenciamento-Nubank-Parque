@@ -33,6 +33,7 @@ const MODULES = [
   { key: "company_users", label: "Usuários de empresas", group: "Sistema" },
   { key: "settings_tenants", label: "Tenants Azure", group: "Configurações" },
   { key: "settings_smtp", label: "Envios SMTP", group: "Configurações" },
+  { key: "settings_whatsapp", label: "WhatsApp (OpenWA)", group: "Configurações" },
   { key: "settings_facial", label: "Integração facial", group: "Configurações" },
   { key: "settings_email_templates", label: "Templates de e-mail", group: "Configurações" },
   { key: "settings_session", label: "Sessão", group: "Configurações" },

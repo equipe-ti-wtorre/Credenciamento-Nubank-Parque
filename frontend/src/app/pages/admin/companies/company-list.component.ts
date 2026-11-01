@@ -2,6 +2,7 @@ import { ChangeDetectorRef, Component, computed, inject, OnDestroy, OnInit, sign
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
 import { Subscription } from 'rxjs';
 import Swal from 'sweetalert2';
 import {
@@ -479,6 +480,7 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   showModal = signal(false);
   showInviteModal = signal(false);
   editingId = signal<number | null>(null);
+  private readonly nav = inject(NavigationStateService);
   logoPreviewUrl = signal<string | null>(null);
   pendingLogoFile = signal<File | null>(null);
   logoDragOver = signal(false);
@@ -528,12 +530,13 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    const aberto = this.nav.obter('/admin/empresas');
+    if (aberto?.public_id) this.consumeOpenQuery(aberto.public_id as never);
     this.routeSub = this.route.queryParamMap.subscribe((params) => {
       const raw = params.get('open');
       if (!raw) return;
-      const id = Number(raw);
-      if (!Number.isInteger(id) || id <= 0) return;
-      this.consumeOpenQuery(id);
+      if (!/^[0-9a-f-]{36}$/i.test(raw)) return;
+      this.consumeOpenQuery(raw as never);
     });
   }
 
@@ -645,6 +648,7 @@ export class CompanyListComponent implements OnInit, OnDestroy {
 
   novaEmpresa() {
     this.editingId.set(null);
+    this.nav.remover('/admin/empresas');
     this.form = this.emptyForm();
     this.resetLogoState();
     if (this.types().length > 0) {
@@ -690,6 +694,7 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   fecharModal() {
     this.showModal.set(false);
     this.editingId.set(null);
+    this.nav.remover('/admin/empresas');
     this.form = this.emptyForm();
     this.resetLogoState();
   }

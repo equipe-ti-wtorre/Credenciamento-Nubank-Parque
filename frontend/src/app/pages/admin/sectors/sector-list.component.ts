@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, OnInit, 
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
 import { SectorContact, SectorItem, SectorService } from '../../../services/sector.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -201,6 +202,7 @@ import {
 export class SectorListComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly router = inject(Router);
+  private readonly nav = inject(NavigationStateService);
 
   sectors = signal<SectorItem[]>([]);
   loading = signal(false);
@@ -230,7 +232,7 @@ export class SectorListComponent implements OnInit {
     this.loading.set(true);
     this.sectorService.list().subscribe({
       next: (res) => {
-        this.sectors.set(res.data);
+        this.sectors.set(res.sectors || []);
         this.loading.set(false);
         this.cdr.markForCheck();
       },
@@ -251,7 +253,12 @@ export class SectorListComponent implements OnInit {
     this.cdr.markForCheck();
 
     if (sector) {
-      this.sectorService.getById(sector.id).subscribe({
+      const sectorRef = this.sectorRef(sector);
+      if (!sectorRef) {
+        this.notification.error('Não foi possível identificar este setor.');
+        return;
+      }
+      this.sectorService.getById(sectorRef).subscribe({
         next: (res) => {
           this.formContacts = (res.sector.contacts || []).map((ct) => ({
             id: ct.id,
@@ -295,7 +302,16 @@ export class SectorListComponent implements OnInit {
   }
 
   gerenciar(s: SectorItem) {
-    this.router.navigate(['/admin/setores', s.id]);
+    const publicId = this.sectorRef(s);
+    if (!publicId) {
+      this.notification.error('Não foi possível identificar este setor.');
+      return;
+    }
+    void this.nav.navegar('/admin/setores/detalhe', { public_id: publicId });
+  }
+
+  private sectorRef(s: SectorItem): string {
+    return s.public_id || (s.id != null ? String(s.id) : '');
   }
 
   salvar() {
@@ -310,8 +326,14 @@ export class SectorListComponent implements OnInit {
       contacts: this.contatosPayload(),
     };
     const editing = this.editing();
+    const editingRef = editing ? this.sectorRef(editing) : '';
+    if (editing && !editingRef) {
+      this.saving.set(false);
+      this.notification.error('Não foi possível identificar este setor.');
+      return;
+    }
     const req = editing
-      ? this.sectorService.update(editing.id, payload)
+      ? this.sectorService.update(editingRef, payload)
       : this.sectorService.create(payload);
     req.subscribe({
       next: (res) => {
@@ -319,7 +341,12 @@ export class SectorListComponent implements OnInit {
         this.fecharModal();
         this.notification.success('Setor salvo.');
         if (!editing) {
-          this.router.navigate(['/admin/setores', res.sector.id]);
+          const publicId = res.sector.public_id || (res.sector.id != null ? String(res.sector.id) : '');
+          if (publicId) {
+            void this.nav.navegar('/admin/setores/detalhe', { public_id: publicId });
+          } else {
+            this.carregar();
+          }
         } else {
           this.carregar();
         }
@@ -332,7 +359,12 @@ export class SectorListComponent implements OnInit {
   }
 
   toggleStatus(s: SectorItem) {
-    this.sectorService.patchStatus(s.id, !s.ativo).subscribe({
+    const sectorRef = this.sectorRef(s);
+    if (!sectorRef) {
+      this.notification.error('Não foi possível identificar este setor.');
+      return;
+    }
+    this.sectorService.patchStatus(sectorRef, !s.ativo).subscribe({
       next: () => {
         this.notification.success(s.ativo ? 'Setor desativado.' : 'Setor ativado.');
         this.carregar();

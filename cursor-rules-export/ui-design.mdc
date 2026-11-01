@@ -15,7 +15,7 @@ Um botão colorido por contexto (rodapé, barra, bloco).
 | Tonal | `btn-action-tonal` | Apoio (baixar modelo) — fundo `--brand-tonal-bg` |
 | Destrutiva | `btn-action-danger` | Excluir — vermelho, só irreversível |
 
-`disabled` é cinza de verdade mais o atributo, não só opacidade. Rótulo descreve o objeto: “Salvar colaborador”. Classes `.btn-primary` / `.btn-secondary` são legado.
+`disabled` é cinza de verdade mais o atributo, não só opacidade. Rótulo descreve o objeto: “Salvar colaborador”. Classes `.btn-primary`, `.btn-secondary` e `.btn-primary-blue` são legado — em código novo, `btn-action-*`.
 
 Verde de status (`--success*`, `--menu-status`) não vira segundo CTA.
 
@@ -23,11 +23,27 @@ Verde de status (`--success*`, `--menu-status`) não vira segundo CTA.
 
 Usar `<app-modal>` (`open`, `title`, `subtitle`, `size` `sm|md|lg|xl`, `(close)`). Sem overlay `fixed inset-0`.
 
-Rodapé `modal-footer`: secundária e depois primária, grupo à direita. Foco no primeiro campo, Esc fecha, focus trap. Confirmação destrutiva fica no serviço de alerta.
+```html
+<app-modal [open]="showModal()" title="Editar colaborador" subtitle="Opcional: descrição" size="md" (close)="fecharModal()">
+  <div modal-footer class="modal-footer">
+    <button type="button" class="btn-action-secondary" (click)="fecharModal()">Cancelar</button>
+    <button type="submit" class="btn-action-primary" [disabled]="form.invalid">Salvar colaborador</button>
+  </div>
+</app-modal>
+```
+
+Rodapé `modal-footer`: secundária e depois primária, grupo à direita. O componente já traz `role="dialog"`, `aria-modal`, `aria-labelledby`, foco no primeiro campo, Esc, focus trap e `prefers-reduced-motion`. Confirmação destrutiva fica no serviço de alerta.
 
 ## Campos
 
 `form-label` (maiúsculas pequenas), opcional em `form-label__optional`, `form-field`, `form-select`. Altura `--form-field-height`. Foco: borda `--brand` + halo `--brand-focus-ring`.
+
+```html
+<label class="form-label">Nome <span class="form-label__optional">(opcional)</span></label>
+<input class="form-field" type="text" />
+<select class="form-select"></select>
+<textarea class="form-field" rows="3"></textarea>
+```
 
 ## Filtros de lista
 
@@ -37,7 +53,32 @@ Texto filtra ao digitar, debounce 500ms. Select, data e checkbox filtram na hora
 
 Faixa `upload-dropzone upload-dropzone--banner`: input file oculto, clique, Enter/Espaço, drag-and-drop.
 
-Copy: “Arraste o arquivo aqui ou **clique para procurar**” (`upload-dropzone__link`). Hint com formato e tamanho. Ícone 40×40 em `--brand`, ou preview. Ação à direita (`upload-dropzone__action`) só para baixar modelo. Estados `--dragover` e `--selected`.
+```html
+<input #fileInput type="file" class="hidden" (change)="onFileSelected($event)" />
+<div
+  class="upload-dropzone upload-dropzone--banner"
+  [class.upload-dropzone--dragover]="dragOver()"
+  [class.upload-dropzone--selected]="!!previewUrl()"
+  tabindex="0"
+  role="button"
+  (click)="fileInput.click()"
+  (keydown.enter)="fileInput.click()"
+  (keydown.space)="$event.preventDefault(); fileInput.click()"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <div class="upload-dropzone__main">
+    <span class="upload-dropzone__icon" aria-hidden="true"><!-- seta 40×40, ou upload-dropzone__preview --></span>
+    <span class="upload-dropzone__text">
+      <span class="upload-dropzone__title">Arraste o arquivo aqui ou <span class="upload-dropzone__link">clique para procurar</span></span>
+      <span class="upload-dropzone__hint">Formato .png, .jpg — máx. 2 MB</span>
+    </span>
+  </div>
+</div>
+```
+
+Copy: “Arraste o arquivo aqui ou **clique para procurar**” (`upload-dropzone__link`). Hint com formato e tamanho; com arquivo, pode mostrar o nome. Ícone 40×40 em `--brand`, ou preview no lugar do ícone. Ação à direita (`upload-dropzone__action`) só para baixar modelo. Estados `--dragover` e `--selected`. Desabilitado com `aria-disabled="true"`.
 
 ## Anti-padrões
 
@@ -45,4 +86,6 @@ Copy: “Arraste o arquivo aqui ou **clique para procurar**” (`upload-dropzone
 - Modal montado na página
 - Botão Filtrar
 - “Escolher arquivo” solto ou dropzone vertical
+- Classes `wimp-dropzone*` ou `collab-dropzone*`
+- Ação à direita do dropzone que não seja baixar modelo
 - Hex de marca no componente

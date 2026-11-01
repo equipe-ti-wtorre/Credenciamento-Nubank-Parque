@@ -5,8 +5,11 @@ import Swal from 'sweetalert2';
 import {
   AccessProfile,
   ModulesCatalog,
+  ProfileLookupTeam,
+  ProfileLookupUser,
   ProfilePermission,
   ProfileService,
+  ProfileTeam,
   ProfileUser,
 } from '../../../services/profile.service';
 import { NotificationService } from '../../../core/services/notification.service';
@@ -73,7 +76,12 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
               <tr *ngFor="let p of profiles()" class="border-t border-slate-100 hover:bg-slate-50">
                 <td class="px-4 py-3 font-medium text-slate-800">{{ p.nome }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ p.codigo }}</td>
-                <td class="px-4 py-3 text-slate-600">{{ p.user_count || 0 }}</td>
+                <td class="px-4 py-3 text-slate-600">
+                {{ p.user_count || 0 }}
+                <span *ngIf="p.team_count" class="text-xs text-slate-500">
+                  · {{ p.team_count }} {{ p.team_count === 1 ? 'time' : 'times' }}
+                </span>
+              </td>
                 <td class="px-4 py-3">
                   <span
                     class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
@@ -163,37 +171,152 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
           Exige empresa vinculada ao usuário
         </label>
 
-        <div *ngIf="editingProfile" class="mb-4">
-          <div class="flex items-center justify-between mb-2">
-            <label class="form-label mb-0">Usuários neste perfil</label>
-            <span *ngIf="!loadingUsers" class="text-xs text-slate-500">{{ profileUsers.length }}</span>
-          </div>
-          <p *ngIf="loadingUsers" class="text-sm text-slate-500 py-2">Carregando usuários...</p>
-          <p *ngIf="!loadingUsers && profileUsers.length === 0" class="text-sm text-slate-500 py-2">
-            Nenhum usuário vinculado a este perfil.
+        <div class="mb-4">
+          <p class="form-label">Vínculos deste perfil</p>
+          <p class="text-xs text-slate-500 mb-3">
+            O usuário passa a usar este perfil. O time soma estas permissões ao perfil individual de cada membro.
           </p>
-          <ul
-            *ngIf="!loadingUsers && profileUsers.length > 0"
-            class="border border-[var(--app-border)] rounded-xl overflow-y-auto max-h-48 divide-y divide-slate-100"
-            role="list"
-          >
-            <li *ngFor="let u of profileUsers" class="flex items-center gap-3 px-3 py-2">
-              <span
-                class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-xs font-semibold text-slate-600"
-                aria-hidden="true"
+
+          <div class="grid grid-cols-1 md:grid-cols-[10rem_1fr] gap-3 mb-3">
+            <div>
+              <label class="form-label" for="profile-link-type">Tipo</label>
+              <select
+                id="profile-link-type"
+                class="form-select"
+                [(ngModel)]="linkTipo"
+                name="linkTipo"
+                (ngModelChange)="onLinkTipoChange()"
               >
-                {{ iniciais(u.nome_completo) }}
-              </span>
-              <div class="min-w-0">
-                <p class="text-sm font-medium text-slate-800 truncate">{{ u.nome_completo }}</p>
-                <p class="text-xs text-slate-500 truncate">
-                  {{ u.email }}
-                  <ng-container *ngIf="u.departamento"> · {{ u.departamento }}</ng-container>
-                  <ng-container *ngIf="u.company_nome"> · {{ u.company_nome }}</ng-container>
-                </p>
-              </div>
-            </li>
-          </ul>
+                <option value="usuario">Usuário</option>
+                <option value="time" [disabled]="editingProfile?.is_super_admin">Time</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="profile-link-search">Buscar</label>
+              <input
+                id="profile-link-search"
+                class="form-field"
+                type="text"
+                [(ngModel)]="linkQuery"
+                name="linkQuery"
+                (ngModelChange)="onLinkSearchChange($event)"
+                [placeholder]="linkTipo === 'usuario' ? 'Nome, e-mail ou login' : 'Nome do time'"
+                autocomplete="off"
+              />
+              <p class="text-xs text-slate-500 mt-1">Mínimo de 2 caracteres.</p>
+              <p *ngIf="editingProfile?.is_super_admin" class="text-xs text-slate-500 mt-1">
+                Times não podem ser vinculados ao perfil de super administrador.
+              </p>
+              <p *ngIf="linkLoading" class="text-sm text-slate-500 py-2">Buscando...</p>
+              <ul
+                *ngIf="!linkLoading && linkTipo === 'usuario' && userResults.length > 0"
+                class="mt-1 border border-[var(--app-border)] rounded-xl overflow-hidden max-h-48 overflow-y-auto"
+                role="listbox"
+              >
+                <li *ngFor="let u of userResults" class="border-t border-slate-100 first:border-t-0">
+                  <button type="button" class="w-full text-left px-3 py-2 hover:bg-slate-50" (click)="adicionarUsuario(u)">
+                    <p class="text-sm font-medium text-slate-800">{{ u.nome_completo }}</p>
+                    <p class="text-xs text-slate-500">
+                      {{ u.email }}
+                      <ng-container *ngIf="u.perfil_nome"> · {{ u.perfil_nome }}</ng-container>
+                    </p>
+                  </button>
+                </li>
+              </ul>
+              <ul
+                *ngIf="!linkLoading && linkTipo === 'time' && teamResults.length > 0"
+                class="mt-1 border border-[var(--app-border)] rounded-xl overflow-hidden max-h-48 overflow-y-auto"
+                role="listbox"
+              >
+                <li *ngFor="let t of teamResults" class="border-t border-slate-100 first:border-t-0">
+                  <button type="button" class="w-full text-left px-3 py-2 hover:bg-slate-50" (click)="adicionarTime(t)">
+                    <p class="text-sm font-medium text-slate-800">{{ t.nome }}</p>
+                    <p class="text-xs text-slate-500">
+                      {{ t.membros_ativos }} {{ t.membros_ativos === 1 ? 'membro' : 'membros' }}
+                    </p>
+                  </button>
+                </li>
+              </ul>
+              <p
+                *ngIf="linkQuery.trim().length >= 2 && !linkLoading && semResultadosBusca"
+                class="text-sm text-slate-500 py-2"
+              >
+                Nenhum resultado encontrado.
+              </p>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="form-label mb-0">Times neste perfil</span>
+              <span class="text-xs text-slate-500">{{ profileTeams.length }}</span>
+            </div>
+            <p *ngIf="profileTeams.length === 0" class="text-sm text-slate-500 py-2">
+              Nenhum time vinculado a este perfil.
+            </p>
+            <ul
+              *ngIf="profileTeams.length > 0"
+              class="border border-[var(--app-border)] rounded-xl overflow-y-auto max-h-48 divide-y divide-slate-100"
+              role="list"
+            >
+              <li *ngFor="let t of profileTeams" class="flex items-center gap-3 px-3 py-2">
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-medium text-slate-800 truncate">{{ t.nome }}</p>
+                  <p class="text-xs text-slate-500">
+                    {{ t.membros_ativos }} {{ t.membros_ativos === 1 ? 'membro ativo' : 'membros ativos' }}
+                  </p>
+                </div>
+                <app-action-btn
+                  icon="delete"
+                  [title]="'Remover time ' + t.nome"
+                  variant="danger"
+                  (action)="removerTime(t)"
+                />
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="form-label mb-0">Usuários neste perfil</span>
+              <span *ngIf="!loadingUsers" class="text-xs text-slate-500">{{ profileUsers.length }}</span>
+            </div>
+            <p *ngIf="loadingUsers" class="text-sm text-slate-500 py-2">Carregando usuários...</p>
+            <p *ngIf="!loadingUsers && profileUsers.length === 0" class="text-sm text-slate-500 py-2">
+              Nenhum usuário vinculado a este perfil.
+            </p>
+            <ul
+              *ngIf="!loadingUsers && profileUsers.length > 0"
+              class="border border-[var(--app-border)] rounded-xl overflow-y-auto max-h-48 divide-y divide-slate-100"
+              role="list"
+            >
+              <li *ngFor="let u of profileUsers" class="flex items-center gap-3 px-3 py-2">
+                <span
+                  class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-xs font-semibold text-slate-600"
+                  aria-hidden="true"
+                >
+                  {{ iniciais(u.nome_completo) }}
+                </span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-medium text-slate-800 truncate">{{ u.nome_completo }}</p>
+                  <p class="text-xs text-slate-500 truncate">
+                    {{ u.email }}
+                    <ng-container *ngIf="u.departamento"> · {{ u.departamento }}</ng-container>
+                    <ng-container *ngIf="u.company_nome"> · {{ u.company_nome }}</ng-container>
+                  </p>
+                  <p *ngIf="u.perfil_anterior" class="text-xs text-slate-500">
+                    Sairá do perfil {{ u.perfil_anterior }}.
+                  </p>
+                </div>
+                <app-action-btn
+                  icon="delete"
+                  [title]="'Remover usuário ' + u.nome_completo"
+                  variant="danger"
+                  (action)="removerUsuario(u)"
+                />
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div class="mb-3 flex flex-wrap gap-2">
@@ -243,7 +366,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
       </form>
       <div modal-footer class="modal-footer">
         <button type="button" (click)="fecharModal()" class="btn-action-secondary">Cancelar</button>
-        <button type="submit" form="profile-form" [disabled]="saving()" class="btn-action-primary">
+        <button type="submit" form="profile-form" [disabled]="saving() || !podeSalvarVinculos" class="btn-action-primary">
           {{ saving() ? 'Salvando...' : 'Salvar' }}
         </button>
       </div>
@@ -274,7 +397,25 @@ export class ProfileListComponent {
   formRequiresCompany = false;
   selectedPermissions = new Set<string>();
   profileUsers: ProfileUser[] = [];
+  profileTeams: ProfileTeam[] = [];
   loadingUsers = false;
+  assigneesReady = true;
+  linkTipo: 'usuario' | 'time' = 'usuario';
+  linkQuery = '';
+  linkLoading = false;
+  userResults: ProfileLookupUser[] = [];
+  teamResults: ProfileLookupTeam[] = [];
+  private linkTimer: ReturnType<typeof setTimeout> | null = null;
+  private linkRequest = 0;
+  private readonly linkDebounceMs = 500;
+
+  get podeSalvarVinculos(): boolean {
+    return !this.editingProfile || this.assigneesReady;
+  }
+
+  get semResultadosBusca(): boolean {
+    return this.linkTipo === 'usuario' ? this.userResults.length === 0 : this.teamResults.length === 0;
+  }
 
   constructor() {
     void this.init();
@@ -317,14 +458,20 @@ export class ProfileListComponent {
     this.formRequiresCompany = false;
     this.selectedPermissions = new Set([permissionKey('dashboard', 'view')]);
     this.profileUsers = [];
+    this.profileTeams = [];
     this.loadingUsers = false;
+    this.assigneesReady = true;
+    this.limparBuscaVinculo();
     this.showModal = true;
   }
 
   editarPerfil(profile: AccessProfile) {
     this.aplicarPerfilNoForm(profile);
     this.profileUsers = [];
+    this.profileTeams = [];
     this.loadingUsers = true;
+    this.assigneesReady = false;
+    this.limparBuscaVinculo();
     this.showModal = true;
 
     this.profileService.getById(profile.id).subscribe({
@@ -332,12 +479,15 @@ export class ProfileListComponent {
         if (this.editingProfile?.id !== profile.id) return;
         this.aplicarPerfilNoForm(res.profile);
         this.profileUsers = res.profile.users || [];
+        this.profileTeams = res.profile.teams || [];
         this.loadingUsers = false;
+        this.assigneesReady = true;
         this.cdr.markForCheck();
       },
       error: (err) => {
         if (this.editingProfile?.id !== profile.id) return;
         this.loadingUsers = false;
+        this.assigneesReady = false;
         this.notification.error(err.error?.message || 'Falha ao carregar usuários do perfil.');
         this.cdr.markForCheck();
       },
@@ -348,7 +498,122 @@ export class ProfileListComponent {
     this.showModal = false;
     this.editingProfile = null;
     this.profileUsers = [];
+    this.profileTeams = [];
     this.loadingUsers = false;
+    this.assigneesReady = true;
+    this.limparBuscaVinculo();
+  }
+
+  onLinkTipoChange() {
+    if (this.linkTipo === 'time' && this.editingProfile?.is_super_admin) {
+      this.linkTipo = 'usuario';
+    }
+    this.linkQuery = '';
+    this.userResults = [];
+    this.teamResults = [];
+    this.linkLoading = false;
+    this.linkRequest += 1;
+  }
+
+  onLinkSearchChange(value: string) {
+    if (this.linkTimer !== null) clearTimeout(this.linkTimer);
+    const term = value.trim();
+    if (term.length < 2) {
+      this.userResults = [];
+      this.teamResults = [];
+      this.linkLoading = false;
+      this.linkRequest += 1;
+      return;
+    }
+    this.linkLoading = true;
+    const tipo = this.linkTipo;
+    this.linkTimer = setTimeout(() => this.buscarVinculos(tipo, term), this.linkDebounceMs);
+  }
+
+  adicionarUsuario(user: ProfileLookupUser) {
+    if (this.profileUsers.some((item) => item.id === user.id)) return;
+    const mesmoPerfil = this.editingProfile != null && user.id_perfil === this.editingProfile.id;
+    this.profileUsers = [
+      ...this.profileUsers,
+      {
+        id: user.id,
+        nome_completo: user.nome_completo,
+        email: user.email,
+        departamento: user.departamento,
+        company_nome: null,
+        perfil_anterior: !mesmoPerfil && user.perfil_nome ? user.perfil_nome : null,
+      },
+    ];
+    this.limparBuscaVinculo();
+  }
+
+  adicionarTime(team: ProfileLookupTeam) {
+    if (this.editingProfile?.is_super_admin) return;
+    if (this.profileTeams.some((item) => item.id === team.id)) return;
+    this.profileTeams = [
+      ...this.profileTeams,
+      { id: team.id, nome: team.nome, membros_ativos: team.membros_ativos },
+    ];
+    this.limparBuscaVinculo();
+  }
+
+  removerUsuario(user: ProfileUser) {
+    this.profileUsers = this.profileUsers.filter((item) => item.id !== user.id);
+  }
+
+  removerTime(team: ProfileTeam) {
+    this.profileTeams = this.profileTeams.filter((item) => item.id !== team.id);
+  }
+
+  private limparBuscaVinculo() {
+    if (this.linkTimer !== null) {
+      clearTimeout(this.linkTimer);
+      this.linkTimer = null;
+    }
+    this.linkRequest += 1;
+    this.linkTipo = 'usuario';
+    this.linkQuery = '';
+    this.linkLoading = false;
+    this.userResults = [];
+    this.teamResults = [];
+  }
+
+  private buscarVinculos(tipo: 'usuario' | 'time', term: string) {
+    const request = ++this.linkRequest;
+    if (tipo === 'usuario') {
+      this.profileService.lookupUsers(term).subscribe({
+        next: (res) => {
+          if (request !== this.linkRequest || this.linkTipo !== tipo) return;
+          const vinculados = new Set(this.profileUsers.map((user) => user.id));
+          this.userResults = res.results.filter((user) => !vinculados.has(user.id));
+          this.teamResults = [];
+          this.linkLoading = false;
+          this.cdr.markForCheck();
+        },
+        error: () => this.falhaBuscaVinculo(request),
+      });
+      return;
+    }
+
+    this.profileService.lookupTeams(term).subscribe({
+      next: (res) => {
+        if (request !== this.linkRequest || this.linkTipo !== tipo) return;
+        const vinculados = new Set(this.profileTeams.map((team) => team.id));
+        this.teamResults = res.results.filter((team) => !vinculados.has(team.id));
+        this.userResults = [];
+        this.linkLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => this.falhaBuscaVinculo(request),
+    });
+  }
+
+  private falhaBuscaVinculo(request: number) {
+    if (request !== this.linkRequest) return;
+    this.userResults = [];
+    this.teamResults = [];
+    this.linkLoading = false;
+    this.cdr.markForCheck();
   }
 
   iniciais(nome: string): string {
@@ -421,6 +686,10 @@ export class ProfileListComponent {
       this.notification.warning('Selecione ao menos uma permissão.');
       return;
     }
+    if (!this.podeSalvarVinculos) {
+      this.notification.warning('Aguarde o carregamento dos vínculos.');
+      return;
+    }
 
     this.saving.set(true);
     const payload = {
@@ -428,6 +697,8 @@ export class ProfileListComponent {
       descricao: this.formDescricao.trim() || null,
       requires_company: this.formRequiresCompany,
       permissions,
+      usuarios_ids: this.profileUsers.map((user) => user.id),
+      setores_ids: this.profileTeams.map((team) => team.id),
     };
 
     const request = this.editingProfile

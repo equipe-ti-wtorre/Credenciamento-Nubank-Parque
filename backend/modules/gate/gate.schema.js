@@ -48,7 +48,7 @@ const manualReleaseSchema = Joi.object({
     "any.required": "Informe a empresa.",
   }),
   id_setor: Joi.number().integer().positive().required().messages({
-    "any.required": "Informe o setor aprovador.",
+    "any.required": "Informe o time aprovador.",
   }),
   finalidade: Joi.string().trim().max(500).required().messages({
     "string.empty": "Informe o nome do evento.",

@@ -10,8 +10,6 @@ const {
   buildEnrollCommand,
   buildRevokeCommand,
 } = require("./facial.contract");
-const facialGatewayConfig = require("./facial-gateway-config.service");
-const serviceBusClient = require("./service-bus.client");
 const enrollmentService = require("./facial.enrollment.service");
 const jobsService = require("./facial.jobs.service");
 const {
@@ -48,29 +46,24 @@ async function dispatchCommand({
           validDateEnd: options.validDateEnd,
         });
 
+  const devicesService = require("./facial.devices.service");
+  const hasDevices = await devicesService.hasEnabled();
+  const loggedPayload =
+    type === COMMAND_ENROLL
+      ? { ...payload, photoBase64: photoBuffer ? `[${photoBuffer.length} bytes]` : null }
+      : { ...payload };
+  if (!hasDevices) loggedPayload.skipped = "no_devices";
+
   await enrollmentService.logEnrollmentPayload({
     idCollaborator: id,
     correlationId,
     direction: "outbound",
-    payload:
-      type === COMMAND_ENROLL
-        ? { ...payload, photoBase64: photoBuffer ? `[${photoBuffer.length} bytes]` : null }
-        : payload,
+    payload: loggedPayload,
   });
 
-  const runtime = await facialGatewayConfig.getRuntimeConfig();
-  if (!runtime.enabled) {
-    logger.debug({ correlationId, type }, "Integração facial desabilitada — comando ignorado");
-    return { skipped: true, reason: "disabled", correlationId, linkedId, userId };
-  }
-
-  const transport = facialGatewayConfig.resolveTransport(runtime);
-  if (transport === "service_bus") {
-    const result = await serviceBusClient.sendCommand(payload, { correlationId });
-    if (result.sent) {
-      await enrollmentService.markEnrollmentPending(id, { correlationId, linkedId, userId });
-    }
-    return { ...result, correlationId, linkedId, userId, transport };
+  if (!hasDevices) {
+    logger.debug({ correlationId, type }, "Sem terminal Dahua ativo — comando ignorado");
+    return { skipped: true, reason: "no_devices", correlationId, linkedId, userId };
   }
 
   await jobsService.enqueueJob({
@@ -82,9 +75,10 @@ async function dispatchCommand({
     validDateEnd: options.validDateEnd,
   });
   await enrollmentService.markEnrollmentPending(id, { correlationId, linkedId, userId });
+  require("./facial.direct.service").scheduleDirectJobs();
   return {
     queued: true,
-    transport: "http_poll",
+    transport: "direct_dahua",
     correlationId,
     linkedId,
     userId,

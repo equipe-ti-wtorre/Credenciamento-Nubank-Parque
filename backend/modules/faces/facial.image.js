@@ -259,7 +259,7 @@ async function tryJpegUnderBudget(imageBuffer, { width, height, maxBytes }) {
     }
     last = out;
     if (out.length <= maxBytes) {
-      return { viable: true, bytes: out.length, width, height, quality: q };
+      return { viable: true, bytes: out.length, width, height, quality: q, buffer: out };
     }
   }
   return {
@@ -268,6 +268,7 @@ async function tryJpegUnderBudget(imageBuffer, { width, height, maxBytes }) {
     width,
     height,
     quality: 25,
+    buffer: last,
   };
 }
 

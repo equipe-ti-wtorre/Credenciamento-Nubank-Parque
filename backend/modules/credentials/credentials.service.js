@@ -749,7 +749,10 @@ function scheduleTeamsNotification(credential) {
   ].join(" ");
 
   const eventId = credential.event?.id_event || null;
-  const link = eventId ? `/admin/eventos/${eventId}` : "/admin/eventos";
+  const eventPublicId = credential.event?.public_id || null;
+  const link = eventPublicId
+    ? `/admin/eventos/abrir/${eventPublicId}`
+    : "/admin/eventos";
 
   setImmediate(() => {
     teamsService
@@ -1201,6 +1204,7 @@ module.exports = {
   previewEventCompanyCredentialsBulk,
   commitEventCompanyCredentialsBulk,
   assertCanOperateOnLink,
+  assertCredentialInScope,
   listCompanyLinksOnEvent,
   resolveInitialStatus,
   resolveIndicationStatus,

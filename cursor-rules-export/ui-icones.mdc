@@ -48,9 +48,9 @@ Botão só-ícone exige `title` / `aria-label`. Menu: `aria-haspopup="menu"`, `a
 | Ação | Path |
 |------|------|
 | Ativar / Desativar | `M18.36 6.64a9 9 0 1 1-12.73 0` + `M12 2v10` |
-| Excluir | `M3 6h18` + corpo da lixeira + `M10 11v6` + `M14 11v6` |
-| Blocklist | shield `M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z` + X ou check |
-| Reenviar e-mail | envelope + `m22 6-10 7L2 6` |
+| Excluir | `M3 6h18` + `M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6` + `M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2` + `M10 11v6` + `M14 11v6` |
+| Blocklist | shield `M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z` + X (incluir) ou check (remover) |
+| Reenviar e-mail | `M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z` + `m22 6-10 7L2 6` |
 
 Ativar/Desativar fica neutro. Só exclusão irreversível usa danger. `variant="success"` é proibido. Lista simples dentro de modal pode manter botões visíveis, sem kebab.
 

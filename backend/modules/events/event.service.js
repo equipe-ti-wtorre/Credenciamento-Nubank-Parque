@@ -1284,7 +1284,7 @@ async function reopenEventForApproval(conn, eventRow, { force = false, idSetor =
   const resolvedSetor = idSetor != null ? Number(idSetor) : await resolveEventSetorId(conn, idEvent);
   if (!resolvedSetor) {
     throw new AppError(
-      "Não foi possível reabrir a aprovação: setor aprovador não encontrado.",
+      "Não foi possível reabrir a aprovação: time aprovador não encontrado.",
       422,
     );
   }
@@ -2442,17 +2442,18 @@ async function getCompanyNotifyCompleteAt(idEvent, idCompany) {
 async function getEventCompaniesNotifyMap(idEvent) {
   if (!(await tableExists("event_company_notify"))) return {};
   const [rows] = await db.execute(
-    `SELECT id_company, notified_complete_at
-       FROM event_company_notify
-      WHERE id_event = ?`,
+    `SELECT CAST(c.public_id AS CHAR) AS public_id, n.notified_complete_at
+       FROM event_company_notify n
+       INNER JOIN company c ON c.id_company = n.id_company
+      WHERE n.id_event = ?`,
     [idEvent],
   );
   const map = {};
   for (const row of rows) {
-    const id = Number(row.id_company);
-    if (!Number.isInteger(id) || id <= 0) continue;
+    const id = row.public_id ? String(row.public_id) : "";
+    if (!id) continue;
     const raw = row.notified_complete_at || null;
-    map[String(id)] = raw
+    map[id] = raw
       ? raw instanceof Date
         ? raw.toISOString()
         : String(raw)
@@ -2500,7 +2501,7 @@ async function submitEventApproval(req, id) {
       ? Number(eventRow.id_solicitante)
       : req.user?.id || null;
   if (!idSetor) {
-    throw new AppError("Evento sem setor aprovador definido.", 422);
+    throw new AppError("Evento sem time aprovador definido.", 422);
   }
   if (!idSolicitante) {
     throw new AppError("Evento sem solicitante definido.", 422);
@@ -2828,6 +2829,7 @@ module.exports = {
   listProducerCompanies,
   listPadraoCompaniesForEvent,
   userIsSectorApproverForEvent,
+  assertCanReadEvent,
   getEventSolicitanteId,
   markApproved,
   markRejected,

@@ -134,6 +134,8 @@ async function loadEntityExtras(aprovacao) {
   };
 }
 
+const { lookupPublicId } = require("../../utils/publicIdLookup");
+
 function tipoLabelOf(aprovacao) {
   if (aprovacao.tipo_entidade === "EVENTO") return "Evento";
   if (aprovacao.tipo_entidade === "CREDENCIAMENTO_EVENTO") return "Credenciamento";
@@ -165,27 +167,37 @@ function buildMessage(aprovacao, extra = "", extras = {}) {
   return msg;
 }
 
-function approvalPath(idAprovacao, extras = {}) {
+async function approvalPath(idAprovacao, extras = {}) {
   if (extras.id_event_accreditation) {
-    return `/admin/credenciamento-eventos/${extras.id_event_accreditation}`;
+    const publicId =
+      extras.event_accreditation_public_id ||
+      (await lookupPublicId(
+        "event_accreditation",
+        "id_event_accreditation",
+        extras.id_event_accreditation,
+      ));
+    return publicId
+      ? `/admin/credenciamento-eventos/abrir/${publicId}`
+      : "/admin/credenciamento-eventos";
   }
-  return `/aprovacoes/${idAprovacao}`;
+  const publicId = await lookupPublicId("aprovacoes", "id", idAprovacao);
+  return publicId ? `/aprovacoes/abrir/${publicId}` : "/aprovacoes";
 }
 
-function appDetailUrl(idAprovacao, extras = {}) {
+async function appDetailUrl(idAprovacao, extras = {}) {
   const base =
     normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
     normalizeHttpsAppUrl(env.msalRedirectUriWeb);
   if (!base) return null;
-  return `${base.replace(/\/$/, "")}${approvalPath(idAprovacao, extras)}`;
+  return `${base.replace(/\/$/, "")}${await approvalPath(idAprovacao, extras)}`;
 }
 
-function cardPayloadBase(aprovacao, extras = {}) {
+async function cardPayloadBase(aprovacao, extras = {}) {
   const tipoLabel = tipoLabelOf(aprovacao);
   // Base SPA https; na entrega o Teams service reescreve OpenUrl para deep link da aba (sem navegador).
   const detailUrl =
-    appDetailUrl(aprovacao.id, extras) ||
-    `https://cred.nbpdev.com.br${approvalPath(aprovacao.id, extras)}`;
+    (await appDetailUrl(aprovacao.id, extras)) ||
+    `https://cred.nbpdev.com.br${await approvalPath(aprovacao.id, extras)}`;
   return {
     idAprovacao: aprovacao.id,
     tipoLabel,
@@ -203,7 +215,7 @@ function cardPayloadBase(aprovacao, extras = {}) {
 }
 
 async function notifyUsers(approvers, { mensagem, tipo, titulo, idReferencia, adaptiveCard }) {
-  const path = approvalPath(idReferencia);
+  const path = await approvalPath(idReferencia);
   let sent = 0;
   for (const approver of approvers) {
     if (approver.email) {
@@ -254,10 +266,17 @@ async function notifyUsers(approvers, { mensagem, tipo, titulo, idReferencia, ad
 
 async function notifyApprovalCreated({ idAprovacao, idSetor, idSolicitante }) {
   try {
+    const ctx = await loadApprovalContext(idAprovacao);
+    if (!ctx) {
+      log.warn({ idAprovacao }, "Contexto da aprovação não encontrado para notificação");
+      return { notified: 0, reason: "missing_context" };
+    }
     // Inclui aprovadores/gestores mesmo se também forem o solicitante (cenário comum em setores pequenos).
     // Quem é só SOLICITANTE não entra — listEligibleApprovers filtra por papel.
+    // Fluxos individuais também limitam quem recebe acesso de serviço e credenciamento.
     let approvers = await approvalsService.listEligibleApprovers(idSetor, 1, {
       excludeUserIds: [],
+      tipoEntidade: ctx.tipo_entidade,
     });
     if (!approvers.length) {
       log.warn(
@@ -266,16 +285,11 @@ async function notifyApprovalCreated({ idAprovacao, idSetor, idSolicitante }) {
       );
       return { notified: 0, reason: "no_approvers" };
     }
-    const ctx = await loadApprovalContext(idAprovacao);
-    if (!ctx) {
-      log.warn({ idAprovacao }, "Contexto da aprovação não encontrado para notificação");
-      return { notified: 0, reason: "missing_context" };
-    }
     const extras = await loadEntityExtras(ctx);
     const mensagem = buildPendingSummary(ctx, extras);
     const card = buildApprovalDecisionCard(
       {
-        ...cardPayloadBase(ctx, extras),
+        ...(await cardPayloadBase(ctx, extras)),
         titulo: "Nova aprovação pendente",
         summary: mensagem,
         mensagem,
@@ -316,11 +330,12 @@ async function notifyApprovalAdvanced(result, decidedByUserId) {
     const extras = await loadEntityExtras(ctx);
     const approvers = await approvalsService.listEligibleApprovers(ctx.id_setor, result.nivelAtual, {
       excludeUserIds: [ctx.id_solicitante, decidedByUserId],
+      tipoEntidade: ctx.tipo_entidade,
     });
     const mensagem = buildPendingSummary(ctx, extras);
     const card = buildApprovalDecisionCard(
       {
-        ...cardPayloadBase(ctx, extras),
+        ...(await cardPayloadBase(ctx, extras)),
         nivel: result.nivelAtual ?? ctx.nivel_atual,
         titulo: "Aprovação avançou de nível",
         summary: mensagem,
@@ -351,9 +366,9 @@ async function notifyApprovalFinalized(idAprovacao, status, comentario) {
       mensagem += ` Comentário: ${comentario}`;
     }
 
-    const path = approvalPath(idAprovacao, extras);
+    const path = await approvalPath(idAprovacao, extras);
     const card = buildInfoCard({
-      ...cardPayloadBase(ctx, extras),
+      ...(await cardPayloadBase(ctx, extras)),
       titulo: status === "APROVADO" ? "Solicitação aprovada" : "Solicitação reprovada",
       mensagem,
     });

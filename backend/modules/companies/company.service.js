@@ -4,21 +4,7 @@ const { normalizeCnpj, isValidCnpj } = require("../../utils/cnpj");
 const { buildCompanyScope: buildScopeFromUser } = require("../../utils/permissions");
 
 const TYPE_EMPRESA_PADRAO = "Empresa Padrão";
-
-let cachedEmpresaPadraoTypeId = null;
-
-async function getEmpresaPadraoTypeId() {
-  if (cachedEmpresaPadraoTypeId != null) return cachedEmpresaPadraoTypeId;
-  const [rows] = await db.execute(
-    "SELECT id_company_type FROM company_type WHERE description = ? LIMIT 1",
-    [TYPE_EMPRESA_PADRAO],
-  );
-  if (rows.length === 0) {
-    throw new AppError("Tipo de empresa 'Empresa Padrão' não configurado.", 500);
-  }
-  cachedEmpresaPadraoTypeId = rows[0].id_company_type;
-  return cachedEmpresaPadraoTypeId;
-}
+const TYPE_PRODUTORA = "Produtora";
 
 function buildCompanyScope(req) {
   return buildScopeFromUser(req.user);
@@ -39,9 +25,8 @@ async function applyScopeToWhere(scope, alias = "c") {
   }
 
   if (scope.mode === "produtora") {
-    const padraoTypeId = await getEmpresaPadraoTypeId();
-    conditions.push(`(${alias}.id_company = ? OR ${alias}.id_company_type = ?)`);
-    params.push(scope.ownCompanyId, padraoTypeId);
+    conditions.push(`(${alias}.id_company = ? OR ${alias}.id_company_origem = ?)`);
+    params.push(scope.ownCompanyId, scope.ownCompanyId);
     return { conditions, params };
   }
 
@@ -63,8 +48,7 @@ async function assertCanReadCompany(req, companyRow) {
 
   if (scope.mode === "produtora") {
     if (id === scope.ownCompanyId) return;
-    const padraoTypeId = await getEmpresaPadraoTypeId();
-    if (companyRow.id_company_type === padraoTypeId) return;
+    if (Number(companyRow.id_company_origem) === Number(scope.ownCompanyId)) return;
     throw new AppError("Empresa não encontrada.", 404);
   }
 }
@@ -274,23 +258,36 @@ async function insertContacts(conn, companyId, contacts) {
   }
 }
 
-async function createCompany(data) {
+function producerOriginFromUser(user) {
+  if (user?.id_company == null) return null;
+  const type = String(user.company_type || "").trim();
+  const codigo = String(user.role || user.perfil || user.profile?.codigo || "").toUpperCase();
+  if (type === TYPE_PRODUTORA || codigo === "PRODUTORA") {
+    return Number(user.id_company);
+  }
+  return null;
+}
+
+async function createCompany(data, { idCompanyOrigem = null } = {}) {
   await assertCompanyTypeExists(data.id_company_type);
   const cnpj = validateCnpjOrThrow(data.cnpj);
+  const origem =
+    idCompanyOrigem != null && Number(idCompanyOrigem) > 0 ? Number(idCompanyOrigem) : null;
 
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
 
     const [result] = await conn.execute(
-      `INSERT INTO company (id_company_type, cnpj, company_name, fancy_name, status)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO company (id_company_type, cnpj, company_name, fancy_name, status, id_company_origem)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       [
         data.id_company_type,
         cnpj,
         data.company_name,
         data.fancy_name || null,
         data.status !== false ? 1 : 0,
+        origem,
       ],
     );
 
@@ -445,6 +442,7 @@ module.exports = {
   listCompanyTypes,
   listCompanies,
   getCompanyById,
+  producerOriginFromUser,
   createCompany,
   updateCompany,
   updateCompanyStatus,

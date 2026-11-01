@@ -40,6 +40,7 @@ export interface FaceValidationReport {
 }
 
 export interface CollaboratorItem {
+  public_id?: string;
   id_collaborator: number;
   id_collaborator_document_type: number;
   id_collaborator_role: number;

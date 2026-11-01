@@ -4,6 +4,8 @@ const { AUDIT_MODULES, AUDIT_ACTIONS } = require("../../observability/audit.cons
 const { buildAuditMetadata, buildHttpContext } = require("../../observability/audit.metadata");
 const { setAuditLoginContext } = require("../../observability/audit.auth");
 const authService = require("./auth.service");
+const gatewayService = require("./gateway.service");
+const env = require("../../config/env");
 const {
   loginSchema,
   refreshSchema,
@@ -56,6 +58,48 @@ exports.loginMicrosoft = async (req, res, next) => {
         event: "auth.login_microsoft",
         outcome: "success",
         provider: "microsoft",
+        resource: { type: "user", id: result.user.id, email: result.user.email },
+        http: buildHttpContext(req, { statusCode: 200 }),
+      }),
+    });
+    markAuditLogged(req);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.gatewayConfig = (req, res) => {
+  res.json(gatewayService.publicConfig());
+};
+
+exports.gatewaySession = async (req, res, next) => {
+  try {
+    setAuditLoginContext(req, { provider: "gateway" });
+    if (!env.authGateway.enabled) {
+      throw new AppError("Login centralizado desativado.", 404, true, null, "GATEWAY_DISABLED");
+    }
+    const token = gatewayService.readGatewayCookie(req);
+    if (!token) {
+      throw new AppError("Faça login para continuar.", 401, true, null, "UNAUTHENTICATED");
+    }
+    let payload;
+    try {
+      payload = await gatewayService.verifyGatewayToken(token);
+    } catch {
+      throw new AppError("Sua sessão expirou. Entre novamente.", 401, true, null, "SESSION_INVALID");
+    }
+
+    const result = await authService.loginGateway(payload, req);
+    await logAudit({
+      userId: result.user.id,
+      action: AUDIT_ACTIONS.LOGIN_MICROSOFT,
+      module: AUDIT_MODULES.AUTH,
+      req,
+      metadata: buildAuditMetadata({
+        event: "auth.login_gateway",
+        outcome: "success",
+        provider: "gateway",
         resource: { type: "user", id: result.user.id, email: result.user.email },
         http: buildHttpContext(req, { statusCode: 200 }),
       }),

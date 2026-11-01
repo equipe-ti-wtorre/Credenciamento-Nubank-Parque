@@ -121,11 +121,39 @@ async function tryApplyGateFromFacial({ collaboratorId, direcao, blocked, duplic
       skipped: false,
       action_registered: result?.data?.action_registered || null,
       error_code: result?.error_code || null,
+      reason: applied ? null : result?.reason || null,
       type: result?.data?.type || null,
     };
   } catch (err) {
     logger.warn({ err, collaboratorId, direcao }, "Falha ao aplicar portaria a partir do facial");
     return { applied: false, skipped: false, error_code: "GATE_APPLY_FAILED" };
+  }
+}
+
+async function saveGateOutcome(logId, direcao, gate) {
+  try {
+    await db.execute(
+      `UPDATE facial_access_log
+       SET payload_json = JSON_SET(
+         payload_json,
+         '$.direcao', ?,
+         '$.gate', JSON_OBJECT(
+           'applied', ?, 'skipped', ?, 'action_registered', ?, 'error_code', ?, 'reason', ?
+         )
+       )
+       WHERE id = ?`,
+      [
+        direcao || null,
+        gate?.applied ? 1 : 0,
+        gate?.skipped ? 1 : 0,
+        gate?.action_registered || null,
+        gate?.error_code || null,
+        gate?.reason || null,
+        logId,
+      ],
+    );
+  } catch (err) {
+    logger.warn({ err, logId }, "Falha ao gravar resultado da portaria no log facial");
   }
 }
 
@@ -206,6 +234,7 @@ async function recordAccessEvent(payload) {
       blocked: !!payload.blocked,
       duplicate: false,
     });
+    await saveGateOutcome(result.insertId, direcao, gate);
 
     return { duplicate: false, id: result.insertId, collaboratorId, direcao, gate };
   } catch (err) {

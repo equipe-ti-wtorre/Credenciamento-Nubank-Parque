@@ -260,17 +260,28 @@ const decideSchema = Joi.object({
   note: Joi.string().trim().max(160).allow("", null).optional(),
 });
 
+// Linha de vínculo (empresa: event_accreditation_collaborator; interno: event_accreditation_internal):
+// aceita public_id (UUID) ou id numérico. O service resolve UUID → id interno.
+const collaboratorRowId = Joi.alternatives().try(
+  Joi.string().guid({ version: ["uuidv1", "uuidv4"] }),
+  Joi.number().integer().positive(),
+);
+
 const changeBraceletSchema = Joi.object({
   target: Joi.string().valid("company", "internal").required(),
-  id: Joi.number().integer().positive().optional(),
-  ids: Joi.array().items(Joi.number().integer().positive()).min(1).optional(),
+  id: collaboratorRowId.optional(),
+  ids: Joi.array().items(collaboratorRowId).min(1).optional(),
   id_bracelet_type: Joi.number().integer().positive().required(),
 })
   .or("id", "ids")
   .custom((value) => {
     const ids = [...(value.ids || [])];
     if (value.id) ids.push(value.id);
-    value.ids = [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))];
+    value.ids = [
+      ...new Set(
+        ids.filter((v) => (typeof v === "string" ? v.trim() !== "" : Number.isInteger(v) && v > 0)),
+      ),
+    ];
     return value;
   });
 
@@ -283,8 +294,31 @@ const sectorCompaniesSchema = Joi.object({
 });
 
 const internalRegisterSchema = Joi.object({
-  id_bracelet_type: Joi.number().integer().positive().required(),
-});
+  id_bracelet_type: Joi.number().integer().positive(),
+  id_bracelet_types: Joi.array().items(Joi.number().integer().positive()).min(1),
+})
+  .or("id_bracelet_type", "id_bracelet_types")
+  .custom((value, helpers) => {
+    const ids = [];
+    if (Array.isArray(value.id_bracelet_types)) ids.push(...value.id_bracelet_types);
+    if (value.id_bracelet_type) ids.push(value.id_bracelet_type);
+    const unique = [];
+    const seen = new Set();
+    for (const raw of ids) {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n <= 0 || seen.has(n)) continue;
+      seen.add(n);
+      unique.push(n);
+    }
+    if (!unique.length) return helpers.error("any.custom");
+    value.id_bracelet_types = unique;
+    return value;
+  })
+  .messages({
+    "object.missing": "Selecione ao menos uma pulseira.",
+    "array.min": "Selecione ao menos uma pulseira.",
+    "any.custom": "Selecione ao menos uma pulseira.",
+  });
 
 const inviteSchema = Joi.object({
   subject: Joi.string().trim().max(255).required(),

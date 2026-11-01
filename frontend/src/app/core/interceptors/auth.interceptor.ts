@@ -40,6 +40,7 @@ export class AuthInterceptor implements HttpInterceptor {
       req.url.includes('/tenants/msal-config') ||
       req.url.includes('/auth/login') ||
       req.url.includes('/auth/refresh') ||
+      req.url.includes('/auth/gateway') ||
       req.url.includes('/auth/invite') ||
       req.url.includes('/auth/company-register') ||
       req.url.includes('/error-logs/client') ||
@@ -104,7 +105,7 @@ export class AuthInterceptor implements HttpInterceptor {
       switchMap((newToken) => {
         if (!newToken) {
           if (!authService.isLoggingOut()) {
-            void authService.logout();
+            void authService.logout({ reason: 'expired' });
           }
           return throwError(() => error);
         }
@@ -115,7 +116,7 @@ export class AuthInterceptor implements HttpInterceptor {
       }),
       catchError((refreshErr) => {
         if (!authService.isLoggingOut()) {
-          void authService.logout();
+          void authService.logout({ reason: 'expired' });
         }
         return throwError(() => refreshErr);
       }),

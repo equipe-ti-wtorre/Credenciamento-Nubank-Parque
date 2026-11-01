@@ -10,6 +10,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
 import {
   ApprovalEntityCollaborator,
   ApprovalEntityVehicle,
@@ -440,7 +441,7 @@ type InboxTab = 'pending' | 'mine' | 'team';
                     <path d="M3 21h18M5 21V7l7-4 7 4v14M10 21v-5h4v5" />
                   </svg>
                   <div class="min-w-0">
-                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Setor</dt>
+                    <dt class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time aprovador</dt>
                     <dd class="text-sm font-medium text-slate-800">{{ item.setor.nome }}</dd>
                   </div>
                 </div>
@@ -812,7 +813,7 @@ type InboxTab = 'pending' | 'mine' | 'team';
       [open]="detailOpen()"
       [title]="detailModalTitle()"
       [subtitle]="detailModalSubtitle()"
-      size="lg"
+      size="xl"
       (close)="fecharDetalhe()"
     >
       <div *ngIf="detailLoading()" class="text-sm text-slate-500 py-8 text-center">Carregando...</div>
@@ -846,7 +847,7 @@ type InboxTab = 'pending' | 'mine' | 'team';
             <p class="sm:col-span-2" *ngIf="ent.observacao">
               <span class="text-slate-500">Observação:</span> {{ ent.observacao }}
             </p>
-            <p><span class="text-slate-500">Setor:</span> {{ d.setor.nome }}</p>
+            <p><span class="text-slate-500">Time aprovador:</span> {{ d.setor.nome }}</p>
             <p><span class="text-slate-500">Solicitante:</span> {{ d.solicitante.nome || '—' }}</p>
             <p>
               <span class="text-slate-500">Status:</span>
@@ -924,7 +925,7 @@ type InboxTab = 'pending' | 'mine' | 'team';
                   *ngFor="let c of d.entidade?.collaborators"
                   class="border-b border-slate-50 last:border-0"
                 >
-                  <td class="py-2 pr-3 text-slate-800">
+                  <td class="py-2 pr-3 text-slate-800 min-w-[11rem]">
                     {{ c.nome }}
                     <span class="block text-xs text-slate-500" *ngIf="c.empresa || c.fase">
                       <ng-container *ngIf="c.empresa">{{ c.empresa }}</ng-container>
@@ -933,9 +934,9 @@ type InboxTab = 'pending' | 'mine' | 'team';
                       <ng-container *ngIf="c.dataDia"> · {{ c.dataDia | date: 'dd/MM/yyyy' }}</ng-container>
                     </span>
                   </td>
-                  <td class="py-2 pr-3 text-slate-600">{{ c.documento }}</td>
+                  <td class="py-2 pr-3 text-slate-600 break-all">{{ c.documento }}</td>
                   <td class="py-2 pr-3 text-slate-600">{{ c.funcao }}</td>
-                  <td class="py-2 pr-3">
+                  <td class="py-2 pr-3 whitespace-nowrap">
                     <app-bracelet-select
                       *ngIf="canEditBracelet(c, d)"
                       [options]="braceletOptions(d)"
@@ -954,7 +955,7 @@ type InboxTab = 'pending' | 'mine' | 'team';
                       —
                     </span>
                   </td>
-                  <td class="py-2">
+                  <td class="py-2 whitespace-nowrap">
                     <span
                       class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
                       [ngClass]="liberacaoBadgeClass(c.statusLiberacao)"
@@ -1439,6 +1440,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly nav = inject(NavigationStateService);
   private readonly collaboratorService = inject(CollaboratorService);
   private readonly authService = inject(AuthService);
 
@@ -1498,15 +1500,14 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
     const idParam = this.route.snapshot.queryParamMap.get('id');
     const actionParam = this.route.snapshot.queryParamMap.get('action');
     if (!idParam) return;
-    const id = Number(idParam);
-    if (!Number.isFinite(id) || id <= 0) return;
     this.deepLinkHandled = true;
-
-    // Compat: ?id= → página focada /aprovacoes/:id
-    const query: Record<string, string> = {};
-    if (actionParam) query['action'] = actionParam;
-    void this.router.navigate(['/aprovacoes', id], {
-      queryParams: query,
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idParam);
+    if (!uuid) {
+      void this.router.navigate(['/aprovacoes'], { replaceUrl: true });
+      return;
+    }
+    void this.router.navigate(['/aprovacoes/abrir', idParam], {
+      queryParams: actionParam ? { action: actionParam } : {},
       replaceUrl: true,
     });
   }
@@ -1593,7 +1594,7 @@ export class ApprovalsInboxComponent implements OnInit, OnDestroy {
 
   onPickBracelet(
     c: ApprovalEntityCollaborator,
-    idBracelet: number | null,
+    idBracelet: number | string | null,
     item: ApprovalItem | null | undefined,
   ): void {
     const accreditationId = toPositiveId(item?.entidade?.idAccreditation);

@@ -52,14 +52,14 @@
         </select>
       </div>
       <div class="field">
-        <label class="field__label" for="nev-setor">Setor aprovador</label>
+        <label class="field__label" for="nev-setor">Time aprovador</label>
         <select
           id="nev-setor"
           class="select"
           [ngModel]="idSetor()"
           (ngModelChange)="idSetor.set($event)"
         >
-          <option [ngValue]="null" disabled>Selecione o setor</option>
+          <option [ngValue]="null" disabled>Selecione o time</option>
           @for (s of sectors(); track s.id) {
             <option [ngValue]="s.id">{{ s.nome }}</option>
           }

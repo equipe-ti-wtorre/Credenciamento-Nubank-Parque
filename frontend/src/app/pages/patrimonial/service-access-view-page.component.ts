@@ -6,11 +6,14 @@ import {
   OnDestroy,
   OnInit,
   computed,
+  inject,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
+import { redirecionarSeAcessoNegado } from '../../core/utils/acesso-negado';
 import {
   PatrimonialService,
   ServiceAccessCollaborator,
@@ -957,7 +960,7 @@ interface ColabGroup {
                   </svg>
                 </div>
                 <div>
-                  <div class="k">Setor</div>
+                  <div class="k">Time aprovador</div>
                   <div class="v">{{ svc.setor_nome || svc.requesting_department || '—' }}</div>
                 </div>
               </div>
@@ -1337,6 +1340,8 @@ export class ServiceAccessViewPageComponent implements OnInit, OnDestroy {
   dateKey = dateKey;
 
   private serviceId = 0;
+  private readonly nav = inject(NavigationStateService);
+  private readonly router = inject(Router);
   private lastSilentLoadAt = 0;
   private thumbnailLoadId = 0;
 
@@ -1518,13 +1523,14 @@ export class ServiceAccessViewPageComponent implements OnInit, OnDestroy {
     this.inTeams.set(inTeams);
     this.standaloneShell.set(inTeams || !document.querySelector('app-main-layout'));
 
-    const id = Number(this.route.snapshot.paramMap.get('id'));
-    if (!Number.isFinite(id) || id <= 0) {
+    const id = this.nav.obter('/acessos-servico/detalhe')?.public_id || '';
+    if (!id) {
       this.error.set('Acesso de serviço inválido.');
       this.loading.set(false);
+      void this.router.navigate(['/admin/acessos-servico']);
       return;
     }
-    this.serviceId = id;
+    this.serviceId = id as never;
     this.carregar();
   }
 
@@ -1564,6 +1570,7 @@ export class ServiceAccessViewPageComponent implements OnInit, OnDestroy {
       error: (err) => {
         this.loading.set(false);
         if (!options.silent) {
+          if (redirecionarSeAcessoNegado(err, this.router, this.notification, '/admin/acessos-servico')) return;
           this.error.set(
             this.notification.extractErrorMessage(
               err,

@@ -18,6 +18,7 @@ export interface CompanyContact {
 }
 
 export interface CompanyItem {
+  public_id?: string;
   id_company: number;
   id_company_type: number;
   cnpj: string;

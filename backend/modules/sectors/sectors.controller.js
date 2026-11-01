@@ -8,6 +8,7 @@ const {
   contactCreateSchema,
   contactUpdateSchema,
   memberCreateSchema,
+  memberFlowSchema,
   memberUpdateSchema,
   flowsUpdateSchema,
 } = require("./sectors.schema");
@@ -218,6 +219,32 @@ exports.addMember = async (req, res, next) => {
     });
 
     res.status(201).json({ members });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.patchMemberFlow = async (req, res, next) => {
+  try {
+    await assertCanManageSector(req);
+    const { error, value } = memberFlowSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const members = await sectorsService.patchMemberFlow(
+      req.params.id,
+      req.params.linkId,
+      value,
+    );
+
+    attachAudit(req, {
+      action: "UPDATE",
+      module: "sectors",
+      event: "sectors.members.flow",
+      resource: { type: "sector", id: Number(req.params.id) },
+      metadata: { linkId: Number(req.params.linkId), ...value },
+    });
+
+    res.json({ members });
   } catch (err) {
     next(err);
   }

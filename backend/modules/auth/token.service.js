@@ -5,12 +5,13 @@ const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
 const { assertUserCanAccess } = require("../../utils/userDepartment");
 const profilesService = require("../profiles/profiles.service");
+const { isRevoked: isGatewaySessionRevoked } = require("./gateway.service");
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-async function generateAccessToken(user) {
+async function generateAccessToken(user, gatewaySid = null) {
   const ctx = await profilesService.loadUserProfileContext(user.id);
   const role = ctx?.codigo || user.role || "USER";
   const payload = {
@@ -19,6 +20,7 @@ async function generateAccessToken(user) {
     id_perfil: ctx?.id_perfil || user.id_perfil || null,
     id_company: user.id_company != null ? user.id_company : null,
   };
+  if (gatewaySid) payload.gw_sid = gatewaySid;
   return jwt.sign(payload, env.jwtSecret, {
     expiresIn: env.jwtAccessExpires,
   });
@@ -45,18 +47,26 @@ function getRefreshExpiryDate() {
   return d;
 }
 
-async function createTokenPair(user, req) {
-  const accessToken = await generateAccessToken(user);
+/**
+ * `gatewaySid` / `gatewayExp` (segundos): sessão do auth-gateway. O refresh não passa do fim dela
+ * e é recusado se o gateway encerrar a sessão.
+ */
+async function createTokenPair(user, req, { gatewaySid = null, gatewayExp = null } = {}) {
+  const accessToken = await generateAccessToken(user, gatewaySid);
   const refreshToken = generateRefreshToken();
   const tokenHash = hashToken(refreshToken);
-  const expiresAt = getRefreshExpiryDate();
+  let expiresAt = getRefreshExpiryDate();
+  if (gatewayExp) {
+    const gatewayEnd = new Date(gatewayExp * 1000);
+    if (gatewayEnd < expiresAt) expiresAt = gatewayEnd;
+  }
   const clientType = req?.clientType || "web";
   const deviceInfo = req?.headers?.["user-agent"] || null;
 
   await db.execute(
-    `INSERT INTO refresh_tokens (user_id, token_hash, client_type, device_info, expires_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [user.id, tokenHash, clientType, deviceInfo, expiresAt],
+    `INSERT INTO refresh_tokens (user_id, token_hash, client_type, device_info, gateway_sid, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [user.id, tokenHash, clientType, deviceInfo, gatewaySid, expiresAt],
   );
 
   return { accessToken, refreshToken };
@@ -84,6 +94,9 @@ async function refreshAccessToken(refreshToken, req) {
   if (!row.ativo) {
     throw new AppError("Usuário inativo.", 403);
   }
+  if (row.gateway_sid && isGatewaySessionRevoked(row.gateway_sid)) {
+    throw new AppError("Sua sessão foi encerrada. Entre novamente.", 401);
+  }
 
   assertUserCanAccess({ departamento: row.departamento });
 
@@ -92,7 +105,7 @@ async function refreshAccessToken(refreshToken, req) {
     id_perfil: row.id_perfil,
     id_company: row.id_company != null ? row.id_company : null,
   };
-  const accessToken = await generateAccessToken(user);
+  const accessToken = await generateAccessToken(user, row.gateway_sid || null);
   const ctx = await profilesService.loadUserProfileContext(user.id);
   return {
     accessToken,

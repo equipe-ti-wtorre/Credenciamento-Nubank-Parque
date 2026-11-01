@@ -2,6 +2,8 @@ import { ChangeDetectorRef, Component, computed, inject, OnInit, signal } from '
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
+import { redirecionarSeAcessoNegado } from '../../../core/utils/acesso-negado';
 import Swal from 'sweetalert2';
 import {
   EventDayCompanyBrief,
@@ -709,6 +711,7 @@ interface AggregatedCompany {
 export class EventDetailComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly route = inject(ActivatedRoute);
+  private readonly nav = inject(NavigationStateService);
   readonly formatDateBr = formatDateBr;
 
   event = signal<EventDetail | null>(null);
@@ -744,7 +747,7 @@ export class EventDetailComponent implements OnInit {
   notifyCompleteSaving = signal(false);
   notifyCompleteCompanyId = signal<number | null>(null);
 
-  vehicleCounts = signal<Record<number, number>>({});
+  vehicleCounts = signal<Record<string, number>>({});
 
   responsavelFormId: number | null = null;
 
@@ -834,20 +837,18 @@ export class EventDetailComponent implements OnInit {
     const user = await this.authService.getCurrentUser();
     this.userRole = String(user?.role || user?.perfil || '').toUpperCase();
     this.isAdmin = this.userRole === 'ADMIN';
-    this.userCompanyId = user?.id_company != null ? Number(user.id_company) : null;
+    this.userCompanyId = user?.id_company != null ? user.id_company : null;
     this.isPartnerCompanyUser =
       this.userRole === 'PADRAO' ||
       this.userRole === 'EMPRESA_GESTOR' ||
       this.userRole === 'EMPRESA_SOLICITANTE';
 
-    this.route.paramMap.subscribe((params) => {
-      const id = Number(params.get('id'));
-      if (!id || Number.isNaN(id)) {
-        void this.router.navigate(['/admin/eventos']);
-        return;
-      }
-      this.carregar(id);
-    });
+    const id = this.nav.obter('/admin/eventos/detalhe')?.public_id;
+    if (!id) {
+      void this.router.navigate(['/admin/eventos']);
+      return;
+    }
+    this.carregar(id as never);
   }
 
   initials(name: string): string {
@@ -1035,7 +1036,7 @@ export class EventDetailComponent implements OnInit {
     if (!this.canManageCompanies() && this.event()?.is_solicitante) return false;
     if (this.userCompanyId == null) return false;
     // Cada empresa indica só os próprios colaboradores (admin/responsável não escrevem pela parceira).
-    return Number(row.id_company) === Number(this.userCompanyId);
+    return String(row.id_company) === String(this.userCompanyId);
   }
 
   /** Empresas nas quais o usuário pode incluir colaboradores/veículos. */
@@ -1211,20 +1212,22 @@ export class EventDetailComponent implements OnInit {
       this.notification.error('Evento desativado. Reative-o para gerenciar colaboradores.');
       return;
     }
-    void this.router.navigate(['/admin/eventos', ev.id_event, 'colaboradores'], {
-      queryParams: {
-        ...(companyId != null ? { companyId } : {}),
-        ...(seg ? { seg } : {}),
+    void this.nav.navegar(
+      '/admin/eventos/colaboradores',
+      {
+        public_id: String(ev.public_id || ev.id_event),
+        ...(companyId != null ? { company_id: String(companyId) } : {}),
       },
-    });
+      { queryParams: seg ? { seg } : {} },
+    );
   }
 
   private refreshVehicleCounts(eventId: number) {
     this.eventService.listVehicleCounts(eventId).subscribe({
       next: (res) => {
-        const normalized: Record<number, number> = {};
+        const normalized: Record<string, number> = {};
         for (const [k, v] of Object.entries(res.counts || {})) {
-          normalized[Number(k)] = Number(v) || 0;
+          normalized[String(k)] = Number(v) || 0;
         }
         this.vehicleCounts.set(normalized);
         this.cdr.markForCheck();
@@ -1725,6 +1728,7 @@ export class EventDetailComponent implements OnInit {
       error: (err) => {
         this.loading.set(false);
         this.cdr.markForCheck();
+        if (redirecionarSeAcessoNegado(err, this.router, this.notification, '/admin/eventos')) return;
         this.notification.error(this.extractError(err) || 'Falha ao carregar evento.');
         void this.router.navigate(['/admin/eventos']);
       },

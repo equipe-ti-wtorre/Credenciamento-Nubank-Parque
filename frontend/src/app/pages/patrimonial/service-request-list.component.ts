@@ -1,6 +1,7 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
 import { PatrimonialService, ServiceAccessItem, formatAccessScheduleLabel } from '../../services/patrimonial.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService, hasPermission } from '../../core/services/auth.service';
@@ -70,7 +71,7 @@ function formatPeriodBr(
               <tr>
                 <th class="px-4 py-3 text-left">Evento</th>
                 <th class="px-4 py-3 text-left">Período</th>
-                <th class="px-4 py-3 text-left hidden lg:table-cell">Setor</th>
+                <th class="px-4 py-3 text-left hidden lg:table-cell">Time aprovador</th>
                 <th class="px-4 py-3 text-left hidden md:table-cell">Solicitante</th>
                 <th class="px-4 py-3 text-center">Colab.</th>
                 <th class="px-4 py-3 text-center">Veíc.</th>
@@ -294,6 +295,7 @@ function formatPeriodBr(
   ],
 })
 export class ServiceRequestListComponent implements OnInit {
+  private readonly nav = inject(NavigationStateService);
   services = signal<ServiceAccessItem[]>([]);
   loading = signal(false);
   isAdmin = false;
@@ -335,7 +337,7 @@ export class ServiceRequestListComponent implements OnInit {
   }
 
   abrirDetalhe(s: ServiceAccessItem) {
-    this.router.navigate(['/admin/acessos-servico', s.id_service_access]);
+    void this.nav.navegar('/admin/acessos-servico/detalhe', { public_id: String(s.public_id || s.id_service_access) });
   }
 
   toggleEnabled(s: ServiceAccessItem) {

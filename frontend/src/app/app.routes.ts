@@ -6,6 +6,7 @@ import { LoginComponent } from './pages/login/login.component';
 import { DashboardComponent } from './pages/dashboard/dashboard.component';
 import { TenantListComponent } from './pages/admin/tenants/tenant-list.component';
 import { SmtpSettingsComponent } from './pages/admin/smtp/smtp-settings.component';
+import { WhatsappSettingsComponent } from './pages/admin/whatsapp/whatsapp-settings.component';
 import { FacialSettingsComponent } from './pages/admin/facial/facial-settings.component';
 import { EmailTemplatesComponent } from './pages/admin/email-templates/email-templates.component';
 import { SessionSettingsComponent } from './pages/admin/session/session-settings.component';
@@ -48,6 +49,7 @@ import { AuthGuard } from './core/guards/auth.guard';
 import { TeamsAwareAuthGuard } from './core/guards/teams-aware-auth.guard';
 import { PermissionGuard } from './core/guards/permission.guard';
 import { SectorGestorGuard } from './core/guards/sector-gestor.guard';
+import { handoffGuard, requireNavStateGuard } from './core/guards/nav-state.guard';
 
 export const routes: Routes = [
   {
@@ -88,30 +90,68 @@ export const routes: Routes = [
   },
   // Página focada (Teams / deep link) — SSO automático no Teams, sem tela de login
   {
-    path: 'aprovacoes/:id',
+    path: 'aprovacoes/detalhe',
     loadComponent: () =>
       import('./pages/approvals/teams-approval-page.component').then(
         (m) => m.TeamsApprovalPageComponent,
       ),
-    canActivate: [TeamsAwareAuthGuard, PermissionGuard],
-    data: { permission: { module: 'approvals', action: 'view' }, title: 'Aprovação' },
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard, requireNavStateGuard],
+    data: {
+      permission: { module: 'approvals', action: 'view' },
+      title: 'Aprovação',
+      navRoute: '/aprovacoes/detalhe',
+      listRoute: '/aprovacoes',
+    },
   },
   {
-    path: 'acessos-servico/:id',
+    path: 'aprovacoes/abrir/:publicId',
+    loadComponent: () =>
+      import('./pages/approvals/teams-approval-page.component').then(
+        (m) => m.TeamsApprovalPageComponent,
+      ),
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard, handoffGuard],
+    data: {
+      permission: { module: 'approvals', action: 'view' },
+      title: 'Aprovação',
+      cleanRoute: '/aprovacoes/detalhe',
+      listRoute: '/aprovacoes',
+    },
+  },
+  {
+    path: 'acessos-servico/detalhe',
     loadComponent: () =>
       import('./pages/patrimonial/service-access-view-page.component').then(
         (m) => m.ServiceAccessViewPageComponent,
       ),
-    canActivate: [TeamsAwareAuthGuard, PermissionGuard],
-    data: { permission: { module: 'service_access', action: 'view' }, title: 'Acesso de serviço' },
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard, requireNavStateGuard],
+    data: {
+      permission: { module: 'service_access', action: 'view' },
+      title: 'Acesso de serviço',
+      navRoute: '/acessos-servico/detalhe',
+      listRoute: '/admin/acessos-servico',
+    },
   },
   {
-    path: 'credenciamento-eventos/:id',
+    path: 'acessos-servico/abrir/:publicId',
+    loadComponent: () =>
+      import('./pages/patrimonial/service-access-view-page.component').then(
+        (m) => m.ServiceAccessViewPageComponent,
+      ),
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard, handoffGuard],
+    data: {
+      permission: { module: 'service_access', action: 'view' },
+      title: 'Acesso de serviço',
+      cleanRoute: '/acessos-servico/detalhe',
+      listRoute: '/admin/acessos-servico',
+    },
+  },
+  {
+    path: 'credenciamento-eventos/detalhe',
     loadComponent: () =>
       import('./pages/event-accreditation/event-accreditation-view-page.component').then(
         (m) => m.EventAccreditationViewPageComponent,
       ),
-    canActivate: [TeamsAwareAuthGuard, PermissionGuard],
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard, requireNavStateGuard],
     data: {
       permissionAny: [
         { module: 'event_accreditation', action: 'view' },
@@ -119,6 +159,26 @@ export const routes: Routes = [
       ],
       allowAdInternal: true,
       title: 'Credenciamento',
+      navRoute: '/credenciamento-eventos/detalhe',
+      listRoute: '/admin/credenciamento-eventos',
+    },
+  },
+  {
+    path: 'credenciamento-eventos/abrir/:publicId',
+    loadComponent: () =>
+      import('./pages/event-accreditation/event-accreditation-view-page.component').then(
+        (m) => m.EventAccreditationViewPageComponent,
+      ),
+    canActivate: [TeamsAwareAuthGuard, PermissionGuard, handoffGuard],
+    data: {
+      permissionAny: [
+        { module: 'event_accreditation', action: 'view' },
+        { module: 'approvals', action: 'view' },
+      ],
+      allowAdInternal: true,
+      title: 'Credenciamento',
+      cleanRoute: '/credenciamento-eventos/detalhe',
+      listRoute: '/admin/credenciamento-eventos',
     },
   },
   {
@@ -256,10 +316,15 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
-        path: 'admin/acessos-servico/:id',
+        path: 'admin/acessos-servico/detalhe',
         component: ServiceAccessDetailComponent,
-        canActivate: [PermissionGuard],
-        data: { permission: { module: 'service_access', action: 'view' }, title: 'Detalhe do acesso de serviço' },
+        canActivate: [PermissionGuard, requireNavStateGuard],
+        data: {
+          permission: { module: 'service_access', action: 'view' },
+          title: 'Detalhe do acesso de serviço',
+          navRoute: '/admin/acessos-servico/detalhe',
+          listRoute: '/admin/acessos-servico',
+        },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -293,9 +358,9 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
-        path: 'admin/credenciamento-eventos/:id',
+        path: 'admin/credenciamento-eventos/detalhe',
         component: EventAccreditationDetailComponent,
-        canActivate: [PermissionGuard],
+        canActivate: [PermissionGuard, requireNavStateGuard],
         data: {
           permissionAny: [
             { module: 'event_accreditation', action: 'view' },
@@ -303,8 +368,25 @@ export const routes: Routes = [
           ],
           allowAdInternal: true,
           title: 'Detalhe do credenciamento',
+          navRoute: '/admin/credenciamento-eventos/detalhe',
+          listRoute: '/admin/credenciamento-eventos',
         },
         runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/credenciamento-eventos/abrir/:publicId',
+        component: EventAccreditationDetailComponent,
+        canActivate: [PermissionGuard, handoffGuard],
+        data: {
+          permissionAny: [
+            { module: 'event_accreditation', action: 'view' },
+            { module: 'approvals', action: 'view' },
+          ],
+          allowAdInternal: true,
+          title: 'Detalhe do credenciamento',
+          cleanRoute: '/admin/credenciamento-eventos/detalhe',
+          listRoute: '/admin/credenciamento-eventos',
+        },
       },
       {
         path: 'admin/eventos',
@@ -330,30 +412,48 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
-        path: 'admin/eventos/:id',
+        path: 'admin/eventos/detalhe',
         component: EventDetailComponent,
-        canActivate: [PermissionGuard],
+        canActivate: [PermissionGuard, requireNavStateGuard],
         data: {
           permissionAny: [
             { module: 'events', action: 'view' },
             { module: 'approvals', action: 'view' },
           ],
           title: 'Detalhe do evento',
+          navRoute: '/admin/eventos/detalhe',
+          listRoute: '/admin/eventos',
         },
         runGuardsAndResolvers: 'always',
       },
       {
-        path: 'admin/eventos/:id/colaboradores',
+        path: 'admin/eventos/colaboradores',
         component: EventCollaboratorsComponent,
-        canActivate: [PermissionGuard],
+        canActivate: [PermissionGuard, requireNavStateGuard],
         data: {
           permissionAny: [
             { module: 'events', action: 'view' },
             { module: 'approvals', action: 'view' },
           ],
           title: 'Colaboradores do evento',
+          navRoute: '/admin/eventos/colaboradores',
+          listRoute: '/admin/eventos',
         },
         runGuardsAndResolvers: 'always',
+      },
+      {
+        path: 'admin/eventos/abrir/:publicId',
+        component: EventDetailComponent,
+        canActivate: [PermissionGuard, handoffGuard],
+        data: {
+          permissionAny: [
+            { module: 'events', action: 'view' },
+            { module: 'approvals', action: 'view' },
+          ],
+          title: 'Detalhe do evento',
+          cleanRoute: '/admin/eventos/detalhe',
+          listRoute: '/admin/eventos',
+        },
       },
       {
         path: 'admin/mercadorias/relatorios',
@@ -391,10 +491,15 @@ export const routes: Routes = [
         runGuardsAndResolvers: 'always',
       },
       {
-        path: 'admin/setores/:id',
+        path: 'admin/setores/detalhe',
         component: SectorDetailComponent,
-        canActivate: [PermissionGuard, SectorGestorGuard],
-        data: { permission: { module: 'sectors', action: 'view' }, title: 'Detalhe do setor' },
+        canActivate: [PermissionGuard, SectorGestorGuard, requireNavStateGuard],
+        data: {
+          permission: { module: 'sectors', action: 'view' },
+          title: 'Detalhe do setor',
+          navRoute: '/admin/setores/detalhe',
+          listRoute: '/admin/setores',
+        },
         runGuardsAndResolvers: 'always',
       },
       {
@@ -417,6 +522,13 @@ export const routes: Routes = [
             canActivate: [PermissionGuard],
             runGuardsAndResolvers: 'always',
             data: { permission: { module: 'settings_smtp', action: 'view' }, title: 'Envios SMTP' },
+          },
+          {
+            path: 'whatsapp',
+            component: WhatsappSettingsComponent,
+            canActivate: [PermissionGuard],
+            runGuardsAndResolvers: 'always',
+            data: { permission: { module: 'settings_whatsapp', action: 'view' }, title: 'WhatsApp (OpenWA)' },
           },
           {
             path: 'facial',

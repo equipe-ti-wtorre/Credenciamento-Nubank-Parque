@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 
 export type ApprovalEntityType =
@@ -64,7 +64,9 @@ export interface ApprovalBraceletType {
 }
 
 export interface ApprovalEntityCollaborator {
+  /** public_id (UUID) da linha de vínculo — é o valor enviado em approvedCollaboratorIds. */
   id: number;
+  public_id?: string;
   idCollaborator: number;
   nome: string;
   documento: string;
@@ -82,7 +84,9 @@ export interface ApprovalEntityCollaborator {
 }
 
 export interface ApprovalEntityVehicle {
+  /** public_id (UUID) da linha de vínculo — é o valor enviado em approvedVehicleIds. */
   id: number;
+  public_id?: string;
   idVehicle: number;
   placa: string;
   marca?: string | null;
@@ -148,13 +152,43 @@ export interface ApprovalListResponse {
   pagination: { page: number; pageSize: number; total: number };
 }
 
+/**
+ * A API expõe os itens da entidade (colaboradores/veículos) com `public_id` da linha de
+ * vínculo e sem `id` numérico. O adaptador global não preenche `id` para colaboradores
+ * (a heurística por `documento` grava em `id_collaborator`), então normalizamos aqui:
+ * `id` passa a ser o UUID, que é o que a aprovação seletiva envia de volta.
+ */
+function normalizeEntityItem<T extends { id: number; public_id?: string }>(item: T): T {
+  if (item && item.id == null && item.public_id) {
+    return { ...item, id: item.public_id as unknown as number };
+  }
+  return item;
+}
+
+export function normalizeApprovalItem(item: ApprovalItem): ApprovalItem {
+  const entidade = item?.entidade;
+  if (!entidade) return item;
+  return {
+    ...item,
+    entidade: {
+      ...entidade,
+      collaborators: (entidade.collaborators ?? []).map(normalizeEntityItem),
+      vehicles: (entidade.vehicles ?? []).map(normalizeEntityItem),
+    },
+  };
+}
+
+function normalizeList(res: ApprovalListResponse): ApprovalListResponse {
+  return { ...res, data: (res.data ?? []).map(normalizeApprovalItem) };
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApprovalService {
   constructor(private api: ApiService) {}
 
   listPending(page = 1, pageSize = 20): Observable<ApprovalListResponse> {
     const params = new HttpParams().set('page', String(page)).set('pageSize', String(pageSize));
-    return this.api.get<ApprovalListResponse>('/approvals/pending', params);
+    return this.api.get<ApprovalListResponse>('/approvals/pending', params).pipe(map(normalizeList));
   }
 
   countPending(): Observable<{ total: number }> {
@@ -164,17 +198,19 @@ export class ApprovalService {
   listMine(page = 1, pageSize = 20, status?: ApprovalStatus): Observable<ApprovalListResponse> {
     let params = new HttpParams().set('page', String(page)).set('pageSize', String(pageSize));
     if (status) params = params.set('status', status);
-    return this.api.get<ApprovalListResponse>('/approvals/mine', params);
+    return this.api.get<ApprovalListResponse>('/approvals/mine', params).pipe(map(normalizeList));
   }
 
   listTeam(page = 1, pageSize = 20, status?: ApprovalStatus): Observable<ApprovalListResponse> {
     let params = new HttpParams().set('page', String(page)).set('pageSize', String(pageSize));
     if (status) params = params.set('status', status);
-    return this.api.get<ApprovalListResponse>('/approvals/team', params);
+    return this.api.get<ApprovalListResponse>('/approvals/team', params).pipe(map(normalizeList));
   }
 
   get(id: number): Observable<{ approval: ApprovalItem }> {
-    return this.api.get<{ approval: ApprovalItem }>(`/approvals/${id}`);
+    return this.api
+      .get<{ approval: ApprovalItem }>(`/approvals/${id}`)
+      .pipe(map((res) => ({ ...res, approval: normalizeApprovalItem(res.approval) })));
   }
 
   approve(
@@ -308,7 +344,11 @@ export function approvalHistoryDotClass(tipo: ApprovalHistoryType | string): str
   }
 }
 
+const PUBLIC_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export function toPositiveId(id: number | string | null | undefined): number | null {
+  if (typeof id === 'string' && PUBLIC_ID_RE.test(id.trim())) return id.trim() as never;
   const n = Number(id);
   return Number.isInteger(n) && n > 0 ? n : null;
 }

@@ -10,11 +10,15 @@ const permissionSchema = Joi.object({
     .required(),
 });
 
+const idListSchema = Joi.array().items(Joi.number().integer().positive());
+
 const profileCreateSchema = Joi.object({
   nome: Joi.string().max(100).required(),
   descricao: Joi.string().max(255).allow("", null).optional(),
   requires_company: Joi.boolean().optional(),
   permissions: Joi.array().items(permissionSchema).min(1).required(),
+  usuarios_ids: idListSchema.optional(),
+  setores_ids: idListSchema.optional(),
 });
 
 const profileUpdateSchema = Joi.object({
@@ -23,6 +27,8 @@ const profileUpdateSchema = Joi.object({
   requires_company: Joi.boolean().optional(),
   ativo: Joi.boolean().optional(),
   permissions: Joi.array().items(permissionSchema).min(1).optional(),
+  usuarios_ids: idListSchema.optional(),
+  setores_ids: idListSchema.optional(),
 })
   .min(1)
   .messages({

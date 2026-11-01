@@ -14,6 +14,7 @@ import { Observable } from 'rxjs';
 import { ModalComponent } from '../../shared/modal/modal.component';
 import { NotificationService } from '../../core/services/notification.service';
 import { CollaboratorRole, CollaboratorService } from '../../services/collaborator.service';
+import { entityId, sameEntityId } from '../../core/public-id.adapter';
 import { PatrimonialService } from '../../services/patrimonial.service';
 import {
   CadastroStatus,
@@ -49,7 +50,7 @@ interface ColDecisionState {
   include: boolean;
   camposMaster: Record<string, boolean>;
   aplicarFuncao: boolean;
-  roleId?: number | null;
+  roleId?: number | string | null;
   braceletId?: number | null;
   /** Decisão explícita Aplicar/Manter (como no cadastro). */
   roleDecision?: 'aplicar' | 'manter' | null;
@@ -1083,7 +1084,7 @@ interface VeicDecisionState {
 export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   @Input({ required: true }) open = false;
   /** 0/null = ainda sem rascunho; pede ao pai via draftRequired antes das APIs. */
-  @Input() serviceAccessId: number | null = null;
+  @Input() serviceAccessId: number | string | null = null;
   /**
    * Incrementado pelo pai após create/update do rascunho (datas sincronizadas).
    * O embed espera este token antes de preview/upload quando pediu draftRequired.
@@ -1109,11 +1110,11 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   @Output() completed = new EventEmitter<{
     roleProposals: {
       documento: string;
-      id_collaborator: number | null;
+      id_collaborator: number | string | null;
       from: string;
-      fromRoleId: number | null;
+      fromRoleId: number | string | null;
       to: string;
-      toRoleId: number | null;
+      toRoleId: number | string | null;
     }[];
   }>();
   @Output() draftRequired = new EventEmitter<void>();
@@ -1125,11 +1126,11 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   @Output() roleProposals = new EventEmitter<
     {
       documento: string;
-      id_collaborator: number | null;
+      id_collaborator: number | string | null;
       from: string;
-      fromRoleId: number | null;
+      fromRoleId: number | string | null;
       to: string;
-      toRoleId: number | null;
+      toRoleId: number | string | null;
     }[]
   >();
   /** Emite quando a etapa interna muda (upload / review / result). */
@@ -1139,11 +1140,11 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   private pendingTemplate = false;
   private lastRoleProposals: {
     documento: string;
-    id_collaborator: number | null;
+    id_collaborator: number | string | null;
     from: string;
-    fromRoleId: number | null;
+    fromRoleId: number | string | null;
     to: string;
-    toRoleId: number | null;
+    toRoleId: number | string | null;
   }[] = [];
 
   step = signal<WizardStep>('upload');
@@ -1316,7 +1317,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     return !!state?.include && !state.roleDecision;
   }
 
-  selectedRoleForRow(row: UnifiedCollaboratorRow, d: UnifiedDivergence): number | null {
+  selectedRoleForRow(row: UnifiedCollaboratorRow, d: UnifiedDivergence): number | string | null {
     const state = this.colDecisions()[row.linha];
     if (state?.roleId != null) return state.roleId;
     if (state?.roleDecision === 'manter') return this.resolveRoleId(String(d.atual ?? ''));
@@ -1324,7 +1325,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     return this.resolveRoleId(String(d.novo ?? '')) ?? this.resolveRoleId(String(d.atual ?? ''));
   }
 
-  private resolveRoleId(description: string): number | null {
+  private resolveRoleId(description: string): number | string | null {
     const fold = (s: string) =>
       String(s || '')
         .normalize('NFD')
@@ -1404,7 +1405,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   private hasServiceId(): boolean {
-    return Number(this.serviceAccessId) > 0;
+    return entityId(this.serviceAccessId) != null;
   }
 
   private hasApiReady(): boolean {
@@ -1497,7 +1498,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
       return;
     }
     this.templateDownloading.set(true);
-    this.patrimonialService.baixarBulkImportTemplate(this.serviceAccessId!).subscribe({
+    this.patrimonialService.baixarBulkImportTemplate(this.serviceAccessId! as number).subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1521,7 +1522,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     this.uploadError.set(null);
     const preview$ = this.apiAdapter
       ? this.apiAdapter.preview(f)
-      : this.patrimonialService.bulkImportPreview(this.serviceAccessId!, f);
+      : this.patrimonialService.bulkImportPreview(this.serviceAccessId! as number, f);
     preview$.subscribe({
       next: (prev) => {
         this.preview.set(prev);
@@ -1560,10 +1561,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
   }
 
   private emitRoleProposals(prev: UnifiedBulkPreviewResult) {
-    const asId = (v: unknown): number | null => {
-      const n = Number(v);
-      return Number.isFinite(n) && n > 0 ? n : null;
-    };
+    const asId = (v: unknown): number | string | null => entityId(v);
     const proposals = prev.colaboradores
       .filter((r) => r.cadastro !== 'erro')
       .map((row) => {
@@ -1573,11 +1571,14 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
           ? asId(row.resolvido['id_collaborator_role_atual'])
           : null;
         const idCol = row.resolvido ? asId(row.resolvido['id_collaborator']) : null;
+        const listed = (id: number | string | null) =>
+          id != null && this.roles().some((r) => sameEntityId(r.id_collaborator_role, id));
 
-        // Divergência explícita OU ids diferentes em resolvido
+        // Divergência explícita, ou dois ids da lista que não são a mesma função.
+        // Id numérico legado (não está na lista) não conta como troca.
         const hasDiff =
           !!diff ||
-          (fromRoleId != null && toRoleId != null && Number(fromRoleId) !== Number(toRoleId));
+          (listed(fromRoleId) && listed(toRoleId) && !sameEntityId(fromRoleId, toRoleId));
         if (!hasDiff) return null;
 
         return {
@@ -1690,8 +1691,8 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     }));
   }
 
-  setColRole(line: number, roleId: number | null) {
-    const id = roleId != null && Number(roleId) > 0 ? Number(roleId) : null;
+  setColRole(line: number, roleId: number | string | null) {
+    const id = entityId(roleId);
     this.colDecisions.update((m) => {
       const current = m[line] || { include: false, camposMaster: {}, aplicarFuncao: true };
       const braceletOk = !this.preview()?.colaboradores.find((r) => r.linha === line)?.pendente_pulseira
@@ -1726,8 +1727,8 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     });
   }
 
-  setColRoleChoice(line: number, roleId: number | null, diff: UnifiedDivergence) {
-    const id = roleId != null && Number(roleId) > 0 ? Number(roleId) : null;
+  setColRoleChoice(line: number, roleId: number | string | null, diff: UnifiedDivergence) {
+    const id = entityId(roleId);
     const toId = this.resolveRoleId(String(diff.novo ?? ''));
     const fromId = this.resolveRoleId(String(diff.atual ?? ''));
     let roleDecision: 'aplicar' | 'manter' | null = null;
@@ -1840,8 +1841,9 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
           .map(([k]) => k),
         aplicarFuncao: state.aplicarFuncao === true,
       };
-      if (state.roleId != null && Number(state.roleId) > 0) {
-        decision.id_collaborator_role = Number(state.roleId);
+      const roleId = entityId(state.roleId);
+      if (roleId != null) {
+        decision.id_collaborator_role = roleId as number;
       }
       if (state.braceletId != null && Number(state.braceletId) > 0) {
         decision.id_bracelet_type = Number(state.braceletId);
@@ -1875,7 +1877,7 @@ export class ServiceAccessBulkImportWizardComponent implements OnChanges {
     const confirm$ = this.apiAdapter
       ? this.apiAdapter.confirm(prev.previewToken, { colaboradores, veiculos })
       : this.patrimonialService.bulkImportConfirm(
-          this.serviceAccessId!,
+          this.serviceAccessId! as number,
           prev.previewToken,
           { colaboradores, veiculos },
           { notify_approvers: this.notifyApprovers },

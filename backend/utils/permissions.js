@@ -59,15 +59,16 @@ function buildCompanyScope(user) {
     if (!idCompany) {
       throw new AppError("Usuário sem empresa vinculada.", 403);
     }
+    const companyType = String(user.company_type || "").trim();
     const codigo = getProfileCodigo(user);
-    if (
-      codigo === "PADRAO" ||
-      codigo === "EMPRESA_GESTOR" ||
-      codigo === "EMPRESA_SOLICITANTE"
-    ) {
-      return { mode: "padrao", onlyCompanyId: idCompany };
+    if (companyType === "Produtora" || codigo === "PRODUTORA") {
+      return { mode: "produtora", ownCompanyId: idCompany };
     }
-    return { mode: "produtora", ownCompanyId: idCompany };
+    return { mode: "padrao", onlyCompanyId: idCompany };
+  }
+
+  if (hasPermission(user, "companies", "view") || hasPermission(user, "fleet", "view")) {
+    return { mode: "admin" };
   }
 
   throw new AppError("Perfil sem permissão para consultar empresas.", 403);

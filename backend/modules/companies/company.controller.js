@@ -44,7 +44,9 @@ exports.create = async (req, res, next) => {
     const { error, value } = companyCreateSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const company = await companyService.createCompany(value);
+    const company = await companyService.createCompany(value, {
+      idCompanyOrigem: companyService.producerOriginFromUser(req.user),
+    });
 
     attachAudit(req, {
       action: "CREATE",

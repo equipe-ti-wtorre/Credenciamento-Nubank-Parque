@@ -11,6 +11,7 @@ const {
 const { buildDecisionResultCard } = require("../adaptiveCards");
 const env = require("../../../config/env");
 const { normalizeHttpsAppUrl, buildTeamsActivityWebUrl } = require("../../../utils/microsoftGraph");
+const { lookupPublicId } = require("../../../utils/publicIdLookup");
 
 const log = child({ module: "teams.bot" });
 
@@ -42,13 +43,14 @@ async function findUserByAadIdOrEmail(activity) {
   return null;
 }
 
-function buildDetailUrl(idAprovacao) {
+async function buildDetailUrl(idAprovacao) {
+  const publicId = await lookupPublicId("aprovacoes", "id", idAprovacao);
   const base =
     normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
     normalizeHttpsAppUrl(env.msalRedirectUriWeb) ||
     null;
-  if (!base) return null;
-  return `${base.replace(/\/$/, "")}/aprovacoes/${idAprovacao}`;
+  if (!base || !publicId) return null;
+  return `${base.replace(/\/$/, "")}/aprovacoes/abrir/${publicId}`;
 }
 
 function extractActionData(activity) {
@@ -206,7 +208,7 @@ class CredenciamentoBot extends ActivityHandler {
     };
 
     const facts = await loadApprovalFacts(idAprovacao);
-    const detailUrl = buildDetailUrl(idAprovacao);
+    const detailUrl = await buildDetailUrl(idAprovacao);
     const openUrl = detailUrl
       ? buildTeamsActivityWebUrl(detailUrl, { manifestAppId: env.teamsAppExternalId })
       : null;

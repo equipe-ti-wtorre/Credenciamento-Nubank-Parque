@@ -9,6 +9,7 @@ export interface EventDayType {
 }
 
 export interface EventItem {
+  public_id?: string;
   id_event: number;
   name: string;
   start: string;
@@ -295,7 +296,7 @@ export class EventService {
     });
   }
 
-  listVehicleCounts(idEvent: number): Observable<{ counts: Record<number, number> }> {
+  listVehicleCounts(idEvent: number): Observable<{ counts: Record<string, number> }> {
     return this.api.get<{ counts: Record<number, number> }>(`/events/${idEvent}/vehicle-counts`);
   }
 

@@ -8,6 +8,8 @@ export interface HealthInfo {
   appName?: string;
   version: string;
   timestamp: string;
+  environment?: string;
+  publicUrl?: string;
 }
 
 @Injectable({ providedIn: 'root' })

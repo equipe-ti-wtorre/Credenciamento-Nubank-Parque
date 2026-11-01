@@ -3,6 +3,7 @@ const { verifyAccessToken } = require("../modules/auth/token.service");
 const AppError = require("../utils/AppError");
 const { assertUserCanAccess, DEPARTMENT_REQUIRED_MESSAGE } = require("../utils/userDepartment");
 const profilesService = require("../modules/profiles/profiles.service");
+const { isRevoked: isGatewaySessionRevoked } = require("../modules/auth/gateway.service");
 
 async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization || req.headers.Authorization;
@@ -16,6 +17,12 @@ async function authMiddleware(req, res, next) {
   const token = authHeader.split(" ")[1];
   try {
     const decoded = verifyAccessToken(token);
+    if (decoded.gw_sid && isGatewaySessionRevoked(decoded.gw_sid)) {
+      return res.status(401).json({
+        message: "Sua sessão foi encerrada. Entre novamente.",
+        requestId: req.requestId,
+      });
+    }
     const ctx = await profilesService.loadUserProfileContext(decoded.id);
     if (!ctx || !ctx.ativo) {
       return res.status(403).json({
@@ -32,6 +39,7 @@ async function authMiddleware(req, res, next) {
       perfil: ctx.codigo,
       id_perfil: ctx.id_perfil,
       id_company: ctx.id_company,
+      company_type: ctx.company_type || null,
       is_super_admin: ctx.is_super_admin,
       requires_company: ctx.requires_company,
       is_ad_user: !!ctx.is_ad_user,

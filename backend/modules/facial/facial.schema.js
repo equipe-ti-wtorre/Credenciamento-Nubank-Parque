@@ -62,10 +62,25 @@ const facialEnrollBodySchema = Joi.object({
   photoBase64: Joi.string().allow("", null).optional(),
 }).unknown(true);
 
+const facialDeviceSchema = Joi.object({
+  device_key: Joi.string()
+    .trim()
+    .pattern(/^[A-Za-z0-9_-]{1,64}$/)
+    .required()
+    .messages({ "string.pattern.base": "Identificador do aparelho: letras, números, _ e -" }),
+  name: Joi.string().trim().min(1).max(128).required(),
+  host: Joi.string().trim().min(1).max(255).required(),
+  port: Joi.number().integer().min(1).max(65535).default(80),
+  username: Joi.string().trim().min(1).max(128).required(),
+  password: Joi.string().allow("").max(128).optional(),
+  enabled: Joi.boolean().default(true),
+});
+
 module.exports = {
   enrollmentStatusSchema,
   accessEventSchema,
   facialGatewaySettingsSchema,
   claimJobsSchema,
   facialEnrollBodySchema,
+  facialDeviceSchema,
 };

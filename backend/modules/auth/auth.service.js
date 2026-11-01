@@ -98,19 +98,57 @@ async function loginLocal(username, password, req) {
 async function loginMicrosoft(azureUser, req) {
   setAuditLoginContext(req, { provider: "microsoft" });
 
-  const oid = azureUser.oid;
   const email =
     azureUser.preferred_username ||
     azureUser.upn ||
     azureUser.email ||
     azureUser.unique_name ||
     null;
-  const nome = azureUser.name || azureUser.displayName;
+  const userLocal = await resolveMicrosoftUser(
+    {
+      oid: azureUser.oid,
+      email,
+      nome: azureUser.name || azureUser.displayName,
+      tid: azureUser.tid || null,
+    },
+    req,
+    "microsoft",
+  );
+  const tokens = await createTokenPair(userLocal, req);
+  return await buildAuthResponse(tokens, userLocal);
+}
+
+/** Sessão do auth-gateway (payload do JWT já validado) → tokens locais vinculados ao jti. */
+async function loginGateway(payload, req) {
+  setAuditLoginContext(req, { provider: "gateway" });
+
+  const userLocal = await resolveMicrosoftUser(
+    {
+      oid: payload.oid,
+      email: payload.email || payload.sub || null,
+      nome: payload.name,
+      tid: payload.tid || null,
+    },
+    req,
+    "gateway",
+  );
+  const tokens = await createTokenPair(userLocal, req, {
+    gatewaySid: payload.jti || null,
+    gatewayExp: payload.exp || null,
+  });
+  return await buildAuthResponse(tokens, userLocal);
+}
+
+/**
+ * Localiza o usuário pelo oid (microsoft_id); senão vincula por e-mail ou cria com perfil USER.
+ * O e-mail de usuários já existentes não é sobrescrito (notificações Teams usam o e-mail).
+ */
+async function resolveMicrosoftUser({ oid, email, nome, tid }, req, provider) {
   if (!oid) {
     throw new AppError("Dados não retornados pela Microsoft.", 400);
   }
 
-  setAuditLoginContext(req, { provider: "microsoft", loginHint: email || oid });
+  setAuditLoginContext(req, { provider, loginHint: email || oid });
 
   let userLocal = null;
   const [byOid] = await db.execute(
@@ -125,14 +163,13 @@ async function loginMicrosoft(azureUser, req) {
       assertUserCanAccess(userLocal);
     } catch (err) {
       setAuditLoginContext(req, {
-        provider: "microsoft",
+        provider,
         userId: userLocal.id,
         loginHint: email || oid,
       });
       throw err;
     }
-    const tokens = await createTokenPair(userLocal, req);
-    return await buildAuthResponse(tokens, userLocal);
+    return userLocal;
   }
 
   if (!email) {
@@ -142,7 +179,7 @@ async function loginMicrosoft(azureUser, req) {
     );
   }
 
-  const graphProfile = await fetchMicrosoftProfile(oid, azureUser.tid || null);
+  const graphProfile = await fetchMicrosoftProfile(oid, tid || null);
   if (!graphProfile.ok || !hasValidDepartment(graphProfile.departamento)) {
     throw new AppError(DEPARTMENT_REQUIRED_MESSAGE, 403);
   }
@@ -189,19 +226,18 @@ async function loginMicrosoft(azureUser, req) {
   }
 
   if (!userLocal.ativo) {
-    setAuditLoginContext(req, { provider: "microsoft", userId: userLocal.id, loginHint: email });
+    setAuditLoginContext(req, { provider, userId: userLocal.id, loginHint: email });
     throw new AppError("Usuário inativo.", 403);
   }
 
   try {
     assertUserCanAccess(userLocal);
   } catch (err) {
-    setAuditLoginContext(req, { provider: "microsoft", userId: userLocal.id, loginHint: email });
+    setAuditLoginContext(req, { provider, userId: userLocal.id, loginHint: email });
     throw err;
   }
 
-  const tokens = await createTokenPair(userLocal, req);
-  return await buildAuthResponse(tokens, userLocal);
+  return userLocal;
 }
 
 async function getMe(userId) {
@@ -259,6 +295,7 @@ module.exports = {
   buildAuthResponse,
   loginLocal,
   loginMicrosoft,
+  loginGateway,
   getMe,
   getProfilePhoto,
 };

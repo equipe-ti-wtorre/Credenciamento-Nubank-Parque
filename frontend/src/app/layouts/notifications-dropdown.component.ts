@@ -314,7 +314,16 @@ export class NotificationsDropdownComponent implements OnInit, OnDestroy {
     const navigate = () => {
       this.close();
       if (alert.link) {
-        void this.router.navigateByUrl(alert.link);
+        let link = alert.link;
+        try {
+          if (/^https?:\/\//i.test(link)) {
+            const url = new URL(link);
+            link = url.pathname + url.search;
+          }
+        } catch {
+          /* mantém o link original */
+        }
+        void this.router.navigateByUrl(link);
       }
     };
 

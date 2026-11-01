@@ -1,5 +1,6 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
 import Swal from 'sweetalert2';
 import {
   EventDayCompanyBrief,
@@ -49,6 +50,7 @@ export class EventCreateComponent implements OnInit, OnDestroy {
   private readonly notification = inject(NotificationService);
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly nav = inject(NavigationStateService);
 
   readonly stepDefs = STEP_DEFS;
   readonly step = signal(1);
@@ -132,7 +134,7 @@ export class EventCreateComponent implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     const user = await this.authService.refreshCurrentUser({ fallbackToCache: true });
-    this.defaultEmpresaId = user?.id_company != null ? Number(user.id_company) : null;
+    this.defaultEmpresaId = user?.id_company != null ? user.id_company : null;
     const role = String(user?.role || user?.perfil || user?.profile?.codigo || '').toUpperCase();
     this.lockEmpresa.set(role === 'PRODUTORA' && this.defaultEmpresaId != null);
 
@@ -359,7 +361,7 @@ export class EventCreateComponent implements OnInit, OnDestroy {
       this.notification.success(
         'Evento criado. A empresa responsável será notificada por e-mail.',
       );
-      void this.router.navigate(['/admin/eventos', id]);
+      void this.nav.navegar('/admin/eventos/detalhe', { public_id: String(id) });
     };
     const file = this.coverFile;
     if (!file) {

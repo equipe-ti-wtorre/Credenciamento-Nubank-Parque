@@ -13,20 +13,26 @@ const { SQL_HAS_DEPARTMENT } = require("../../utils/userDepartment");
 const COVER_DIR = path.join(__dirname, "../../storage/event-accreditation-covers");
 const INVITE_FILE_DIR = path.join(__dirname, "../../storage/event-accreditation-invite-files");
 
+const { lookupPublicId } = require("../../utils/publicIdLookup");
+
 function resolveAppBaseUrl() {
   if (env.appPublicUrl) return env.appPublicUrl;
   if (env.corsOrigins?.[0]) return String(env.corsOrigins[0]).replace(/\/$/, "");
   return "";
 }
 
-function buildItemUrl(id) {
+async function buildItemUrl(id) {
+  const publicId = await lookupPublicId("event_accreditation", "id_event_accreditation", id);
   const base = resolveAppBaseUrl();
-  if (!base) return null;
-  return `${base}/admin/credenciamento-eventos/${id}`;
+  if (!base || !publicId) return null;
+  return `${base}/admin/credenciamento-eventos/abrir/${publicId}`;
 }
 
-function buildTeamsItemUrl(id) {
-  const path = `/credenciamento-eventos/${id}`;
+async function buildTeamsItemUrl(id) {
+  const publicId = await lookupPublicId("event_accreditation", "id_event_accreditation", id);
+  const path = publicId
+    ? `/credenciamento-eventos/abrir/${publicId}`
+    : "/credenciamento-eventos";
   const base =
     normalizeHttpsAppUrl(env.teamsActivityWebUrl) ||
     normalizeHttpsAppUrl(env.msalRedirectUriWeb) ||
@@ -134,10 +140,10 @@ function buildDefaultInviteSubject(item) {
   return `Indicação de colaboradores — ${item.name}`;
 }
 
-function buildDefaultInviteHtml(item, { coverDataUri } = {}) {
+async function buildDefaultInviteHtml(item, { coverDataUri } = {}) {
   const name = escapeHtml(item.name);
   const deadline = formatDateTimeBr(item.inscription_end);
-  const link = buildItemUrl(item.id_event_accreditation) || "";
+  const link = (await buildItemUrl(item.id_event_accreditation)) || "";
   const dataUri = coverDataUri || readCoverDataUri(item.cover);
   const cover = dataUri
     ? `<p><img src="${dataUri}" alt="" data-ea-cover="1" style="max-width:560px;width:100%;border-radius:12px;margin:0 0 16px;" /></p>`
@@ -245,7 +251,7 @@ function notifyCompaniesInvited({
 }) {
   schedule(async () => {
     const org = env.organizationName || "Credenciamento";
-    const link = buildItemUrl(item.id_event_accreditation) || "";
+    const link = await buildItemUrl(item.id_event_accreditation) || "";
     const name = escapeHtml(item.name);
     const deadline = formatDateTimeBr(item.inscription_end);
     const subject = `Indicação de colaboradores — ${item.name}`;
@@ -293,7 +299,7 @@ async function sendInviteToCompanies({
 }) {
   const coverDataUri = readCoverDataUri(item.cover);
   const resolvedHtml = applyCoverToHtml(
-    html || buildDefaultInviteHtml(item, { coverDataUri }),
+    html || await buildDefaultInviteHtml(item, { coverDataUri }),
     coverDataUri,
   );
   const resolvedSubject = subject || buildDefaultInviteSubject(item);
@@ -329,7 +335,7 @@ async function sendCompaniesReminder({
     item,
     companyIds,
     subject: subject || `Lembrete: ${buildDefaultInviteSubject(item)}`,
-    html: html || buildDefaultInviteHtml(item),
+    html: html || await buildDefaultInviteHtml(item),
     files,
     usuarioId,
     requestId,
@@ -383,7 +389,7 @@ function notifyInternalUsersInvited({ item, usuarioId = null, requestId = null }
       return;
     }
     const org = env.organizationName || "Credenciamento";
-    const link = buildItemUrl(item.id_event_accreditation) || "";
+    const link = await buildItemUrl(item.id_event_accreditation) || "";
     const name = escapeHtml(item.name);
     const deadline = formatDateTimeBr(item.inscription_end);
     const subject = `Credenciamento interno — ${item.name}`;
@@ -405,7 +411,7 @@ function notifyInternalUsersInvited({ item, usuarioId = null, requestId = null }
         : "",
     ].join("");
 
-    const teamsPath = `/credenciamento-eventos/${item.id_event_accreditation}`;
+    const teamsPath = (await buildTeamsItemUrl(item.id_event_accreditation)).replace(/^https?:\/\/[^/]+/, "") || "/credenciamento-eventos";
     const teamsMensagem = `Você pode se inscrever no credenciamento interno de ${item.name} (${kindLabel(item.event_kind)}). Prazo: ${deadline}.`;
     const teamsCard = buildInfoCard({
       titulo: subject,
@@ -414,7 +420,7 @@ function notifyInternalUsersInvited({ item, usuarioId = null, requestId = null }
       finalidade: item.name,
       periodo: deadline,
       setorNome: item.setor_nome || null,
-      detailUrl: buildTeamsItemUrl(item.id_event_accreditation),
+      detailUrl: await buildTeamsItemUrl(item.id_event_accreditation),
     });
 
     for (const user of recipients) {
@@ -461,7 +467,7 @@ function notifyInternalUsersInvited({ item, usuarioId = null, requestId = null }
         tipo: "event_accreditation_internal",
         titulo: `Credenciamento interno — ${item.name}`,
         mensagem: `Você pode se inscrever até ${deadline}.`,
-        link: link ? `/admin/credenciamento-eventos/${item.id_event_accreditation}` : null,
+        link: link ? new URL(link).pathname : null,
         tipoReferencia: "event_accreditation",
         idReferencia: item.id_event_accreditation,
       },
@@ -475,7 +481,13 @@ async function listSectorManagers(idSetor) {
        FROM setor_usuarios su
        INNER JOIN usuarios u ON u.id = su.id_usuario
       WHERE su.id_setor = ? AND su.ativo = 1 AND u.ativo = 1
-        AND su.papel IN ('GESTOR', 'APROVADOR')`,
+        AND su.papel IN ('GESTOR', 'APROVADOR')
+        AND EXISTS (
+          SELECT 1 FROM setor_usuario_fluxos suf
+           WHERE suf.id_setor_usuario = su.id
+             AND suf.tipo_entidade = 'CREDENCIAMENTO_EVENTO'
+             AND suf.ativo = 1
+        )`,
     [idSetor],
   );
   return rows;
@@ -483,10 +495,10 @@ async function listSectorManagers(idSetor) {
 
 function notifySectorsToInviteCompanies({ item, setores, usuarioId = null }) {
   schedule(async () => {
-    const link = buildItemUrl(item.id_event_accreditation);
+    const link = await buildItemUrl(item.id_event_accreditation);
     const deadline = formatDateTimeBr(item.inscription_end);
     const mensagem = `O credenciamento "${item.name}" foi criado. Indique as empresas do seu setor. Prazo de inscrição: ${deadline}.`;
-    const path = `/admin/credenciamento-eventos/${item.id_event_accreditation}`;
+    const path = link ? new URL(link).pathname : "/admin/credenciamento-eventos";
     const card = buildInfoCard({
       titulo: `Indicar empresas — ${item.name}`,
       mensagem,
@@ -494,7 +506,7 @@ function notifySectorsToInviteCompanies({ item, setores, usuarioId = null }) {
       finalidade: item.name,
       periodo: deadline,
       setorNome: null,
-      detailUrl: buildTeamsItemUrl(item.id_event_accreditation),
+      detailUrl: await buildTeamsItemUrl(item.id_event_accreditation),
     });
     const userIds = new Set();
     for (const setor of setores || []) {
@@ -535,8 +547,8 @@ function notifySectorIndication({
   usuarioId = null,
 }) {
   schedule(async () => {
-    const link = buildItemUrl(item.id_event_accreditation);
-    const path = `/admin/credenciamento-eventos/${item.id_event_accreditation}`;
+    const link = await buildItemUrl(item.id_event_accreditation);
+    const path = link ? new URL(link).pathname : "/admin/credenciamento-eventos";
     const mensagem = `${companyName} concluiu a indicação de colaboradores em "${item.name}". Valide os dados.`;
     const card = buildInfoCard({
       titulo: `Indicação concluída — ${item.name}`,
@@ -545,7 +557,7 @@ function notifySectorIndication({
       finalidade: `${item.name} — ${companyName}`,
       periodo: formatDateTimeBr(item.inscription_end),
       setorNome: item.setor_nome || null,
-      detailUrl: buildTeamsItemUrl(item.id_event_accreditation),
+      detailUrl: await buildTeamsItemUrl(item.id_event_accreditation),
     });
     const managers = await listSectorManagers(idSetor);
     const userIds = [];
@@ -596,8 +608,8 @@ async function notifyOwnerValidated({
   }
   const label = status === "APROVADO" ? "aprovou" : "reprovou";
   const mensagem = `O setor ${label} a indicação de ${companyName} no credenciamento "${item.name}".`;
-  const path = `/admin/credenciamento-eventos/${item.id_event_accreditation}`;
-  const link = buildItemUrl(item.id_event_accreditation);
+  const path = link ? new URL(link).pathname : "/admin/credenciamento-eventos";
+  const link = await buildItemUrl(item.id_event_accreditation);
   const card = buildInfoCard({
     titulo: `Validação do setor — ${item.name}`,
     mensagem,
@@ -605,7 +617,7 @@ async function notifyOwnerValidated({
     finalidade: `${item.name} — ${companyName}`,
     periodo: formatDateTimeBr(item.inscription_end),
     setorNome: item.setor_nome || null,
-    detailUrl: buildTeamsItemUrl(item.id_event_accreditation),
+    detailUrl: await buildTeamsItemUrl(item.id_event_accreditation),
   });
   if (owner.email) {
     try {

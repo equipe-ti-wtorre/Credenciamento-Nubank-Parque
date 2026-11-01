@@ -87,7 +87,7 @@ export interface UnifiedColaboradorDecision {
   camposMaster?: string[];
   aplicarFuncao?: boolean;
   /** Correção de função em linhas pendente_funcao. */
-  id_collaborator_role?: number;
+  id_collaborator_role?: number | string;
   /** Correção de pulseira em linhas pendente_pulseira. */
   id_bracelet_type?: number;
 }

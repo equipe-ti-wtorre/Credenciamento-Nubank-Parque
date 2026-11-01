@@ -11,12 +11,12 @@ Use quando uma produtora vai realizar show, jogo, montagem ou desmontagem e as e
 ### Antes de abrir o evento
 
 1. Em **Cadastros → Empresas**, confirme a produtora e as parceiras. Se a parceira ainda não existe, envie **Enviar link de cadastro** ou cadastre com **+ Nova empresa**.
-2. Em **Cadastros → Times**, confirme o setor aprovador, com membros **Aprovador** ou **Gestor** e o fluxo **Evento** ligado.
+2. Em **Cadastros → Times**, confirme o time aprovador, com membros **Aprovador** ou **Gestor** e o fluxo **Evento** ligado.
 3. Em **Cadastros → Colaboradores**, deixe as pessoas com documento, função e foto. A foto é necessária para o facial na portaria.
 
 ### Criar e aprovar
 
-1. Em **Acessos → Eventos**, clique para criar o evento: período, nome, empresa responsável, setor aprovador e foto.
+1. Em **Acessos → Eventos**, clique para criar o evento: período, nome, empresa responsável, time aprovador e foto.
 2. Marque os dias (**Montagem**, **Show**, **Desmontagem**, **Jogo**) e salve.
 3. Na ficha, ligue **Alerta portaria** se a entrada deve avisar o Teams.
 4. **Vincular empresa** em cada fase. A parceira inclui colaboradores e veículos (**Colaboradores** na ficha, indicação manual ou planilha).
@@ -64,7 +64,7 @@ Use para prestador, manutenção ou fornecedor com período e horário definidos
 ### Pedir
 
 1. **Acessos → Acessos de Serviço → + Novo acesso**.
-2. Período, horário, empresa, setor aprovador, nome do evento e descrição do serviço. Marque entrada de colaborador, de veículo ou os dois.
+2. Período, horário, empresa, time aprovador, nome do evento e descrição do serviço. Marque entrada de colaborador, de veículo ou os dois.
 3. Inclua as pessoas e os veículos, ou importe a planilha (**Baixar modelo**, revisar, **Importar**).
 4. **Enviar para aprovação**.
 

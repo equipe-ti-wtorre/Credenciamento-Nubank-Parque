@@ -19,6 +19,8 @@ router.get("/", async (req, res) => {
     db: dbStatus,
     appName: env.organizationName,
     version: packageJson.version,
+    environment: env.nodeEnv,
+    publicUrl: env.appPublicUrl || null,
     timestamp: new Date().toISOString(),
     requestId: req.requestId,
   });

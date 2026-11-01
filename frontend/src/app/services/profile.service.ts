@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 import { PermissionAction } from '../config/modules.config';
@@ -14,6 +15,28 @@ export interface ProfileUser {
   email: string;
   departamento: string | null;
   company_nome: string | null;
+  perfil_anterior?: string | null;
+}
+
+export interface ProfileTeam {
+  id: number;
+  nome: string;
+  membros_ativos: number;
+}
+
+export interface ProfileLookupUser {
+  id: number;
+  nome_completo: string;
+  email: string;
+  departamento: string | null;
+  id_perfil: number | null;
+  perfil_nome: string | null;
+}
+
+export interface ProfileLookupTeam {
+  id: number;
+  nome: string;
+  membros_ativos: number;
 }
 
 export interface AccessProfile {
@@ -26,7 +49,9 @@ export interface AccessProfile {
   requires_company: boolean;
   ativo: boolean;
   user_count?: number;
+  team_count?: number;
   users?: ProfileUser[];
+  teams?: ProfileTeam[];
   permissions: ProfilePermission[];
   criado_em?: string;
   atualizado_em?: string;
@@ -51,6 +76,8 @@ export interface ProfileCreatePayload {
   descricao?: string | null;
   requires_company?: boolean;
   permissions: ProfilePermission[];
+  usuarios_ids?: number[];
+  setores_ids?: number[];
 }
 
 export interface ProfileUpdatePayload extends Partial<ProfileCreatePayload> {
@@ -83,5 +110,15 @@ export class ProfileService {
 
   remove(id: number): Observable<{ ok: boolean }> {
     return this.api.delete<{ ok: boolean }>(`/profiles/${id}`);
+  }
+
+  lookupUsers(q: string): Observable<{ results: ProfileLookupUser[] }> {
+    const params = new HttpParams().set('tipo', 'usuario').set('q', q);
+    return this.api.get<{ results: ProfileLookupUser[] }>('/profiles/lookup', params);
+  }
+
+  lookupTeams(q: string): Observable<{ results: ProfileLookupTeam[] }> {
+    const params = new HttpParams().set('tipo', 'time').set('q', q);
+    return this.api.get<{ results: ProfileLookupTeam[] }>('/profiles/lookup', params);
   }
 }

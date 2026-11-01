@@ -2236,11 +2236,12 @@ async function createManualRelease(req, data) {
     [idSetor],
   );
   if (!setorRows.length) {
-    throw new AppError("Setor aprovador inválido ou sem fluxo ativo para acesso de serviço.", 400);
+    throw new AppError("Time aprovador inválido ou sem fluxo ativo para acesso de serviço.", 400);
   }
 
   const eligibleApprovers = await approvalsService.listEligibleApprovers(idSetor, 1, {
     excludeUserIds: [],
+    tipoEntidade: "ACESSO_SERVICO",
   });
   if (!eligibleApprovers.length) {
     throw new AppError(
@@ -2374,7 +2375,7 @@ async function getServiceAuthorizers(idServiceAccess) {
     [id],
   );
   if (!approvalRows.length || !approvalRows[0].id_setor) {
-    throw new AppError("Este acesso não possui setor aprovador vinculado.", 422);
+    throw new AppError("Este acesso não possui time aprovador vinculado.", 422);
   }
 
   const idSetor = Number(approvalRows[0].id_setor);
@@ -2426,6 +2427,7 @@ async function notifyPendingServiceApproval(req, idServiceAccess) {
 
   const eligible = await approvalsService.listEligibleApprovers(Number(row.id_setor), 1, {
     excludeUserIds: [],
+    tipoEntidade: "ACESSO_SERVICO",
   });
   if (!eligible.length) {
     throw new AppError(

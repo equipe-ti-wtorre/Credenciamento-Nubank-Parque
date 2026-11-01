@@ -2,6 +2,7 @@ import { ChangeDetectorRef, Component, inject, OnDestroy, OnInit, signal } from 
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
 import { Subscription } from 'rxjs';
 import Swal from 'sweetalert2';
 import {
@@ -1006,6 +1007,7 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
   pictureValidationOk = signal(false);
   thumbnailUrls = signal<Record<number, string>>({});
   editingId = signal<number | null>(null);
+  private readonly nav = inject(NavigationStateService);
   blocklistReason = signal<string | null>(null);
   inlineEditingRoleId = signal<number | null>(null);
   inlineEditingRoleName = '';
@@ -1068,12 +1070,13 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    const aberto = this.nav.obter('/admin/colaboradores');
+    if (aberto?.public_id) this.consumeOpenQuery(aberto.public_id as never);
     this.routeSub = this.route.queryParamMap.subscribe((params) => {
       const raw = params.get('open');
       if (!raw) return;
-      const id = Number(raw);
-      if (!Number.isInteger(id) || id <= 0) return;
-      this.consumeOpenQuery(id);
+      if (!/^[0-9a-f-]{36}$/i.test(raw)) return;
+      this.consumeOpenQuery(raw as never);
     });
   }
 
@@ -1387,6 +1390,7 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
 
   novoColaborador() {
     this.editingId.set(null);
+    this.nav.remover('/admin/colaboradores');
     this.blocklistReason.set(null);
     this.form = this.emptyForm();
     this.revokePicturePreview();
@@ -1699,6 +1703,7 @@ export class CollaboratorListComponent implements OnInit, OnDestroy {
   fecharModal() {
     this.showModal.set(false);
     this.editingId.set(null);
+    this.nav.remover('/admin/colaboradores');
     this.blocklistReason.set(null);
     this.pictureDragOver.set(false);
     this.pictureValidating.set(false);

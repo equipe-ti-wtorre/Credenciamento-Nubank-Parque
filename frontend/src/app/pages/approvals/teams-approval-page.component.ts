@@ -1,3 +1,7 @@
+import { inject } from '@angular/core';
+import { Router } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
+import { redirecionarSeAcessoNegado } from '../../core/utils/acesso-negado';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -144,7 +148,7 @@ import {
                   {{ ent.startDate | date: 'dd/MM/yyyy' }} – {{ ent.endDate | date: 'dd/MM/yyyy' }}
                 </p>
                 <p *ngIf="ent.empresa"><span class="text-slate-500">Empresa:</span> {{ ent.empresa }}</p>
-                <p><span class="text-slate-500">Setor:</span> {{ d.setor.nome }}</p>
+                <p><span class="text-slate-500">Time aprovador:</span> {{ d.setor.nome }}</p>
                 <p><span class="text-slate-500">Solicitante:</span> {{ d.solicitante.nome || '—' }}</p>
                 <p class="sm:col-span-2" *ngIf="ent.observacao">
                   <span class="text-slate-500">Observação:</span> {{ ent.observacao }}
@@ -652,6 +656,8 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
 
   comment = '';
   private approvalId = 0;
+  private readonly nav = inject(NavigationStateService);
+  private readonly router = inject(Router);
   private lastSilentLoadAt = 0;
   private thumbnailLoadId = 0;
 
@@ -678,15 +684,17 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     this.inTeams.set(inTeams);
     this.standaloneShell.set(inTeams || !document.querySelector('app-main-layout'));
 
-    const id = Number(this.route.snapshot.paramMap.get('id'));
-    if (!Number.isFinite(id) || id <= 0) {
+    const aberto = this.nav.obter('/aprovacoes/detalhe');
+    const id = aberto?.public_id || '';
+    if (!id) {
       this.error.set('Aprovação inválida.');
       this.loading.set(false);
+      void this.router.navigate(['/aprovacoes']);
       return;
     }
-    this.approvalId = id;
+    this.approvalId = id as never;
 
-    const action = this.route.snapshot.queryParamMap.get('action');
+    const action = aberto?.action || this.route.snapshot.queryParamMap.get('action');
     this.carregar({
       after: () => {
         if (action === 'reject' || action === 'approve' || action === 'decide') {
@@ -702,7 +710,7 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
 
   title(): string {
     const d = this.approval();
-    return d ? approvalItemTitle(d) : `Aprovação #${this.approvalId || ''}`;
+    return d ? approvalItemTitle(d) : 'Aprovação';
   }
 
   lastDecisionLabel(): string | null {
@@ -736,6 +744,7 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
       error: (err) => {
         this.loading.set(false);
         if (!options.silent) {
+          if (redirecionarSeAcessoNegado(err, this.router, this.notification, '/aprovacoes')) return;
           this.error.set(
             this.notification.extractErrorMessage(err, 'Não foi possível carregar a aprovação.'),
           );
@@ -812,7 +821,7 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     return (this.braceletOptions().length || 0) > 0;
   }
 
-  onPickBracelet(c: ApprovalEntityCollaborator, idBracelet: number | null): void {
+  onPickBracelet(c: ApprovalEntityCollaborator, idBracelet: number | string | null): void {
     const d = this.approval();
     const accreditationId = toPositiveId(d?.entidade?.idAccreditation);
     const braceletId = toPositiveId(idBracelet);

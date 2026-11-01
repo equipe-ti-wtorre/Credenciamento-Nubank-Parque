@@ -152,6 +152,7 @@ export interface AccreditationInternal {
 }
 
 export interface EventAccreditationItem {
+  public_id?: string;
   id_event_accreditation: number;
   name: string;
   event_kind: EventAccreditationKind;
@@ -182,6 +183,7 @@ export interface EventAccreditationItem {
   companies?: AccreditationCompany[];
   internals?: AccreditationInternal[];
   my_internal?: AccreditationInternal | null;
+  my_internals?: AccreditationInternal[];
   can_register_internal?: boolean;
   kpis?: EventAccreditationKpis;
   setor_approvers_count?: number;
@@ -384,7 +386,11 @@ export class EventAccreditationService {
   addCollaborator(
     id: number,
     idCompany: number,
-    payload: { id_collaborator: number; id_collaborator_role: number; id_bracelet_type: number },
+    payload: {
+      id_collaborator: number;
+      id_collaborator_role: number;
+      id_bracelet_type: number | string;
+    },
   ): Observable<{ item: EventAccreditationItem }> {
     return this.api.post<{ item: EventAccreditationItem }>(
       `/event-accreditations/${id}/companies/${idCompany}/collaborators`,
@@ -489,7 +495,7 @@ export class EventAccreditationService {
 
   registerInternal(
     id: number,
-    payload: { id_bracelet_type: number },
+    payload: { id_bracelet_type?: number; id_bracelet_types?: number[] },
   ): Observable<{ item: EventAccreditationItem }> {
     return this.api.post<{ item: EventAccreditationItem }>(
       `/event-accreditations/${id}/internal/register`,
@@ -505,7 +511,12 @@ export class EventAccreditationService {
 
   changeBracelet(
     id: number,
-    payload: { target: 'company' | 'internal'; id?: number; ids?: number[]; id_bracelet_type: number },
+    payload: {
+      target: 'company' | 'internal';
+      id?: number | string;
+      ids?: Array<number | string>;
+      id_bracelet_type: number | string;
+    },
   ): Observable<{ item: EventAccreditationItem }> {
     return this.api.patch<{ item: EventAccreditationItem }>(
       `/event-accreditations/${id}/collaborators/bracelet`,

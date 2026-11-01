@@ -9,7 +9,8 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
 import { HttpErrorResponse } from '@angular/common/http';
 import Swal from 'sweetalert2';
 import {
@@ -93,7 +94,6 @@ function maskDocument(document: string): string {
   imports: [
     CommonModule,
     FormsModule,
-    RouterLink,
     ModalComponent,
     CollaboratorPhotoComponent,
     ActionBtnComponent,
@@ -104,7 +104,7 @@ function maskDocument(document: string): string {
     <div class="ec-page">
       <a
         *ngIf="event()"
-        [routerLink]="['/admin/eventos', event()!.id_event]"
+        (click)="voltarAoEvento()"
         class="back"
       >
         ← Voltar ao evento
@@ -517,7 +517,7 @@ function maskDocument(document: string): string {
 
         <div class="ec-footer">
           <a
-            [routerLink]="['/admin/eventos', event()!.id_event]"
+            (click)="voltarAoEvento()"
             class="btn btn--ghost"
           >
             Voltar
@@ -638,6 +638,7 @@ function maskDocument(document: string): string {
 export class EventCollaboratorsComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly route = inject(ActivatedRoute);
+  private readonly nav = inject(NavigationStateService);
   @ViewChild(ServiceAccessBulkImportWizardComponent)
   private bulkWizard?: ServiceAccessBulkImportWizardComponent;
 
@@ -830,7 +831,7 @@ export class EventCollaboratorsComponent implements OnInit {
     const user = await this.authService.getCurrentUser();
     this.userRole = String(user?.role || user?.perfil || '').toUpperCase();
     this.isAdmin = this.userRole === 'ADMIN';
-    this.userCompanyId = user?.id_company != null ? Number(user.id_company) : null;
+    this.userCompanyId = user?.id_company != null ? user.id_company : null;
     this.isPartnerCompanyUser =
       this.userRole === 'PADRAO' ||
       this.userRole === 'EMPRESA_GESTOR' ||
@@ -841,23 +842,21 @@ export class EventCollaboratorsComponent implements OnInit {
       error: (err) => this.notification.notifyHttpError(err, 'Falha ao carregar tipos de documento.'),
     });
 
+    const navCompany = this.nav.obter('/admin/eventos/colaboradores')?.company_id || null;
     this.route.queryParamMap.subscribe((qp) => {
-      const rawCompany = qp.get('companyId');
-      const n = rawCompany != null ? Number(rawCompany) : NaN;
-      this.pendingQueryCompanyId = Number.isFinite(n) && n > 0 ? n : null;
+      const rawCompany = navCompany || qp.get('companyId');
+      this.pendingQueryCompanyId = (rawCompany || null) as never;
       const rawSeg = qp.get('seg');
       this.pendingQuerySeg = rawSeg === 'ind' || rawSeg === 'lote' ? rawSeg : null;
       if (this.event()) this.applyPendingSelection();
     });
 
-    this.route.paramMap.subscribe((params) => {
-      const id = Number(params.get('id'));
-      if (!id || Number.isNaN(id)) {
-        void this.router.navigate(['/admin/eventos']);
-        return;
-      }
-      this.carregar(id);
-    });
+    const id = this.nav.obter('/admin/eventos/colaboradores')?.public_id;
+    if (!id) {
+      void this.router.navigate(['/admin/eventos']);
+      return;
+    }
+    this.carregar(id as never);
   }
 
   initials(name: string): string {
@@ -886,7 +885,7 @@ export class EventCollaboratorsComponent implements OnInit {
     if (this.event()?.ativo === false) return false;
     if (!this.canManageCompanies() && this.event()?.is_solicitante) return false;
     if (this.userCompanyId == null) return false;
-    return Number(row.id_company) === Number(this.userCompanyId);
+    return String(row.id_company) === String(this.userCompanyId);
   }
 
   canManageCompany(): boolean {
@@ -1244,13 +1243,23 @@ export class EventCollaboratorsComponent implements OnInit {
     this.leaveWizardToEvent();
   }
 
+  voltarAoEvento(): void {
+    const ev = this.event();
+    const publicId = ev?.public_id || ev?.id_event;
+    if (!publicId) {
+      void this.router.navigate(['/admin/eventos']);
+      return;
+    }
+    void this.nav.navegar('/admin/eventos/detalhe', { public_id: String(publicId) });
+  }
+
   private leaveWizardToEvent() {
     const eventId = this.event()?.id_event;
     if (!eventId) {
       void this.router.navigate(['/admin/eventos']);
       return;
     }
-    void this.router.navigate(['/admin/eventos', eventId]);
+    void this.nav.navegar('/admin/eventos/detalhe', { public_id: String(this.event()?.public_id || eventId) });
   }
 
   private vincularColaboradorEmFases(

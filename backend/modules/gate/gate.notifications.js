@@ -5,6 +5,7 @@ const { child } = require("../../config/logger");
 const teamsService = require("../teams/teams.service");
 const alertsService = require("../alerts/alerts.service");
 const { buildInfoCard } = require("../teams/adaptiveCards");
+const { lookupPublicId } = require("../../utils/publicIdLookup");
 
 const log = child({ module: "gate.notifications" });
 
@@ -57,7 +58,13 @@ async function listGateCheckInRecipients(idServiceAccess) {
       `SELECT su.id_usuario
          FROM setor_usuarios su
         WHERE su.id_setor = ? AND su.ativo = 1
-          AND su.papel IN ('APROVADOR', 'GESTOR')`,
+          AND su.papel IN ('APROVADOR', 'GESTOR')
+          AND EXISTS (
+            SELECT 1 FROM setor_usuario_fluxos suf
+             WHERE suf.id_setor_usuario = su.id
+               AND suf.tipo_entidade = 'ACESSO_SERVICO'
+               AND suf.ativo = 1
+          )`,
       [idSetor],
     );
     for (const m of members) userIds.add(Number(m.id_usuario));
@@ -383,7 +390,8 @@ async function notifyServiceGateCheckIn({ idServiceAccess, finalidade, items }) 
     if (!recipients.length) return;
 
     const copy = buildServiceCheckInCopy(idServiceAccess, finalidade, items);
-    const path = `/acessos-servico/${idServiceAccess}`;
+    const publicId = await lookupPublicId("service_access", "id_service_access", idServiceAccess);
+    const path = publicId ? `/acessos-servico/abrir/${publicId}` : "/acessos-servico";
     const detailUrl = teamsService.buildUserDeepLink(path);
 
     const card = buildInfoCard({
@@ -439,7 +447,8 @@ async function notifyEventGateCheckIn({ idEvent, eventName, items }) {
     if (!recipients.length) return;
 
     const copy = buildEventCheckInCopy(idEvent, eventName, items);
-    const path = `/admin/eventos/${idEvent}`;
+    const eventPublicId = await lookupPublicId("event", "id_event", idEvent);
+    const path = eventPublicId ? `/admin/eventos/abrir/${eventPublicId}` : "/admin/eventos";
     const detailUrl = teamsService.buildUserDeepLink(path);
 
     const card = buildInfoCard({

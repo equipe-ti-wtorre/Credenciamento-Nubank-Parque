@@ -7,7 +7,9 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
+import { redirecionarSeAcessoNegado } from '../../core/utils/acesso-negado';
 import { NotificationService } from '../../core/services/notification.service';
 import {
   AccreditationInternal,
@@ -336,7 +338,7 @@ import { EventKindBadgeComponent } from './event-kind-badge.component';
                   </svg>
                 </span>
                 <div>
-                  <div class="k">Setor aprovador</div>
+                  <div class="k">Time aprovador</div>
                   <div class="v">{{ setoresLabel(ev) }}</div>
                 </div>
               </div>
@@ -345,15 +347,15 @@ import { EventKindBadgeComponent } from './event-kind-badge.component';
             @if (ev.can_register_internal) {
               <section class="eav-section">
                 <h2 class="eav-sec-title">Inscrever-me neste evento</h2>
-                <p class="eav-sec-sub">Escolha uma pulseira disponível para colaboradores internos.</p>
-                <div class="eav-chips" role="radiogroup" aria-label="Pulseira">
+                <p class="eav-sec-sub">Escolha uma ou mais pulseiras disponíveis para colaboradores internos.</p>
+                <div class="eav-chips" role="group" aria-label="Pulseiras">
                   @for (b of bracelets(ev); track b.id_bracelet_type) {
                     <button
                       type="button"
                       class="eav-br-pick"
-                      role="radio"
-                      [attr.aria-checked]="pickBracelet === b.id_bracelet_type"
-                      [class.on]="pickBracelet === b.id_bracelet_type"
+                      role="checkbox"
+                      [attr.aria-checked]="pickedBracelets().has(b.id_bracelet_type)"
+                      [class.on]="pickedBracelets().has(b.id_bracelet_type)"
                       (click)="toggleBracelet(b.id_bracelet_type)"
                     >
                       <app-bracelet-chip
@@ -361,7 +363,7 @@ import { EventKindBadgeComponent } from './event-kind-badge.component';
                         [icon]="b.icon"
                         [color]="b.color"
                         [selectable]="true"
-                        [selected]="pickBracelet === b.id_bracelet_type"
+                        [selected]="pickedBracelets().has(b.id_bracelet_type)"
                       />
                     </button>
                   }
@@ -369,26 +371,26 @@ import { EventKindBadgeComponent } from './event-kind-badge.component';
                 <button
                   type="button"
                   class="eav-btn eav-btn-pri"
-                  [disabled]="acting() || !pickBracelet"
+                  [disabled]="acting() || pickedBracelets().size === 0"
                   (click)="inscrever()"
                 >
                   {{ acting() ? 'Enviando…' : 'Inscrever-me' }}
                 </button>
               </section>
-            } @else if (ev.my_internal) {
+            } @else if (myInternals(ev).length) {
               <section class="eav-section">
                 <h2 class="eav-sec-title">Sua inscrição</h2>
                 <p class="eav-sec-sub">
-                  Pulseira
-                  <app-bracelet-chip
-                    [name]="ev.my_internal.bracelet_name"
-                    [icon]="ev.my_internal.bracelet_icon"
-                    [color]="ev.my_internal.bracelet_color"
-                  />
-                  ·
-                  <span class="eav-pill" [class]="pillClass(ev.my_internal)">{{ pillLabel(ev.my_internal) }}</span>
+                  @for (row of myInternals(ev); track row.id_event_accreditation_internal) {
+                    <app-bracelet-chip
+                      [name]="row.bracelet_name"
+                      [icon]="row.bracelet_icon"
+                      [color]="row.bracelet_color"
+                    />
+                    <span class="eav-pill" [class]="pillClass(row)">{{ pillLabel(row) }}</span>
+                  }
                 </p>
-                @if (ev.inscription_open && isPending(ev.my_internal)) {
+                @if (ev.inscription_open && hasPendingOwn(ev)) {
                   <button
                     type="button"
                     class="eav-btn eav-btn-sec"
@@ -423,6 +425,8 @@ import { EventKindBadgeComponent } from './event-kind-badge.component';
 export class EventAccreditationViewPageComponent implements OnInit {
   private readonly service = inject(EventAccreditationService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly nav = inject(NavigationStateService);
   private readonly notification = inject(NotificationService);
   private readonly cdr = inject(ChangeDetectorRef);
 
@@ -430,18 +434,19 @@ export class EventAccreditationViewPageComponent implements OnInit {
   readonly coverSrc = signal<string | null>(null);
   readonly loading = signal(true);
   readonly acting = signal(false);
-  pickBracelet: number | null = null;
+  readonly pickedBracelets = signal<Set<number>>(new Set());
 
   readonly formatDateTimeBr = formatDateTimeBr;
   readonly formatEventDatesBr = formatEventDatesBr;
 
   ngOnInit(): void {
-    const id = Number(this.route.snapshot.paramMap.get('id'));
-    if (!Number.isInteger(id) || id <= 0) {
+    const id = this.nav.obter('/credenciamento-eventos/detalhe')?.public_id || '';
+    if (!id) {
       this.loading.set(false);
+      void this.router.navigate(['/admin/credenciamento-eventos']);
       return;
     }
-    this.load(id);
+    this.load(id as never);
   }
 
   setoresLabel(ev: EventAccreditationItem): string {
@@ -455,7 +460,19 @@ export class EventAccreditationViewPageComponent implements OnInit {
   }
 
   toggleBracelet(id: number): void {
-    this.pickBracelet = this.pickBracelet === id ? null : id;
+    const next = new Set(this.pickedBracelets());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.pickedBracelets.set(next);
+  }
+
+  myInternals(ev: EventAccreditationItem): AccreditationInternal[] {
+    if (ev.my_internals?.length) return ev.my_internals;
+    return ev.my_internal ? [ev.my_internal] : [];
+  }
+
+  hasPendingOwn(ev: EventAccreditationItem): boolean {
+    return this.myInternals(ev).some((row) => this.isPending(row));
   }
 
   isPending(row: AccreditationInternal): boolean {
@@ -476,17 +493,22 @@ export class EventAccreditationViewPageComponent implements OnInit {
 
   inscrever(): void {
     const ev = this.item();
-    if (!ev || !this.pickBracelet) {
-      this.notification.error('Selecione uma pulseira.');
+    const braceletIds = [...this.pickedBracelets()];
+    if (!ev || !braceletIds.length) {
+      this.notification.error('Selecione ao menos uma pulseira.');
       return;
     }
     this.acting.set(true);
-    this.service.registerInternal(ev.id_event_accreditation, { id_bracelet_type: this.pickBracelet }).subscribe({
+    this.service.registerInternal(ev.id_event_accreditation, { id_bracelet_types: braceletIds }).subscribe({
       next: (res) => {
         this.acting.set(false);
-        this.pickBracelet = null;
+        this.pickedBracelets.set(new Set());
         this.applyItem(res.item);
-        this.notification.success('Inscrição enviada para aprovação.');
+        this.notification.success(
+          braceletIds.length === 1
+            ? 'Inscrição enviada para aprovação.'
+            : `${braceletIds.length} inscrições enviadas para aprovação.`,
+        );
       },
       error: (err) => {
         this.acting.set(false);
@@ -524,7 +546,9 @@ export class EventAccreditationViewPageComponent implements OnInit {
       error: (err) => {
         this.loading.set(false);
         this.item.set(null);
-        this.notification.notifyHttpError(err, 'Falha ao carregar o credenciamento.');
+        if (!redirecionarSeAcessoNegado(err, this.router, this.notification, '/admin/credenciamento-eventos')) {
+          this.notification.notifyHttpError(err, 'Falha ao carregar o credenciamento.');
+        }
         this.cdr.markForCheck();
       },
     });

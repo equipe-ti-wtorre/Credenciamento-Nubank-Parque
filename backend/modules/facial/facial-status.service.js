@@ -2,8 +2,16 @@
 
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
-const facialGatewayConfig = require("./facial-gateway-config.service");
-const { listDeviceResults, summarizeEnrollmentError } = require("./facial.contract");
+const devicesService = require("./facial.devices.service");
+const {
+  COMMAND_ENROLL,
+  COMMAND_REVOKE,
+  listDeviceResults,
+  parseCollaboratorId,
+  summarizeEnrollmentError,
+} = require("./facial.contract");
+const { resolveAccessDirection } = require("./facial.direction");
+const { accessMethodLabel, accessStatusLabel } = require("./dahua.access");
 
 function parseJson(value) {
   if (value == null) return null;
@@ -25,13 +33,8 @@ function stripSensitivePayload(payload) {
 }
 
 async function getStatusSummary() {
-  const config = await facialGatewayConfig.getPublicConfig();
-  const configComplete =
-    config.transport === "service_bus"
-      ? config.has_events_secret &&
-        config.has_commands_connection_string &&
-        config.has_status_connection_string
-      : !!config.has_events_secret;
+  const directDevices = await devicesService.countEnabled();
+  const configComplete = directDevices > 0;
 
   const enrollmentCounts = {
     synced: 0,
@@ -89,14 +92,14 @@ async function getStatusSummary() {
      LIMIT 1`,
   );
 
+  const lastDeviceId = lastAccess?.deviceId || null;
+  const deviceNames = lastDeviceId ? await loadDeviceNames() : new Map();
+
   return {
     integration: {
-      enabled: config.enabled,
+      enabled: directDevices > 0,
       configComplete,
-      transport: config.transport,
-      commandsQueue: config.commands_queue,
-      statusQueue: config.status_queue,
-      atualizado_em: config.atualizado_em,
+      transport: "direct_dahua",
     },
     enrollment: {
       ...enrollmentCounts,
@@ -106,7 +109,8 @@ async function getStatusSummary() {
       total24h: Number(access24h?.total24h) || 0,
       blocked24h: Number(access24h?.blocked24h) || 0,
       lastEventAt: lastAccess?.lastEventAt || null,
-      lastDeviceId: lastAccess?.deviceId || null,
+      lastDeviceId,
+      lastDeviceName: lastDeviceId ? deviceNames.get(String(lastDeviceId)) || null : null,
     },
   };
 }
@@ -126,11 +130,50 @@ function mapSyncChecks(payload) {
   }));
 }
 
-function mapEnrollmentLogRow(row) {
+async function loadDeviceNames() {
+  const [rows] = await db.execute("SELECT device_key, name FROM facial_devices");
+  const map = new Map();
+  for (const row of rows) map.set(String(row.device_key), row.name || null);
+  return map;
+}
+
+async function loadCollaboratorNames(ids) {
+  const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
+  const map = new Map();
+  if (!unique.length) return map;
+  const placeholders = unique.map(() => "?").join(", ");
+  const [rows] = await db.execute(
+    `SELECT id_collaborator, name FROM collaborator WHERE id_collaborator IN (${placeholders})`,
+    unique,
+  );
+  for (const row of rows) map.set(Number(row.id_collaborator), row.name || null);
+  return map;
+}
+
+function resolveEnrollmentAction(payload) {
+  const raw = String(payload.command || payload.type || "").toLowerCase();
+  if (raw === COMMAND_REVOKE) return COMMAND_REVOKE;
+  if (raw === COMMAND_ENROLL) return COMMAND_ENROLL;
+  return null;
+}
+
+function resolveEnrollmentStage(row, payload, syncTest) {
+  if (syncTest) return "test";
+  if (payload.skipped) return "skipped";
+  return row.direction === "inbound" ? "result" : "queued";
+}
+
+function mapEnrollmentLogRow(row, deviceNames) {
   const payload = stripSensitivePayload(parseJson(row.payload_json)) || {};
   const syncTest = isSyncTestPayload(payload);
+  const stage = resolveEnrollmentStage(row, payload, syncTest);
   const checks = mapSyncChecks(payload);
-  const devices = syncTest ? [] : listDeviceResults(payload.devices);
+  const devices = syncTest
+    ? []
+    : listDeviceResults(payload.devices).map((device) => ({
+        ...device,
+        deviceName: deviceNames.get(device.deviceId) || null,
+      }));
   const overallStatus =
     payload.overallStatus ||
     payload.overall_status ||
@@ -140,16 +183,18 @@ function mapEnrollmentLogRow(row) {
         : Number(payload.warningCount) > 0
           ? "warning"
           : "ok"
-      : null);
+      : stage === "skipped"
+        ? "skipped"
+        : null);
   const failedCheckLabels = checks
     .filter((check) => !check.ok)
     .map((check) => check.label)
     .filter(Boolean);
   const error = syncTest
     ? payload.error || failedCheckLabels.join("; ") || null
-    : summarizeEnrollmentError(payload.error || payload.message || payload.reason, devices) ||
+    : summarizeEnrollmentError(payload.error || payload.message, devices) ||
       (String(overallStatus || "").toLowerCase() === "failed"
-        ? "Falha no enrollment sem detalhe do Gateway"
+        ? "Falha sem detalhe do terminal"
         : null);
   return {
     id: row.id,
@@ -160,6 +205,8 @@ function mapEnrollmentLogRow(row) {
     collaborator_name: row.collaborator_name || null,
     type: payload.type || payload.command || null,
     command: payload.command || null,
+    action: resolveEnrollmentAction(payload),
+    stage,
     overallStatus,
     error,
     devices,
@@ -167,20 +214,41 @@ function mapEnrollmentLogRow(row) {
   };
 }
 
-function mapAccessLogRow(row) {
+function mapGate(payload) {
+  const gate = payload.gate;
+  if (!gate || typeof gate !== "object") return null;
+  return {
+    applied: !!gate.applied,
+    skipped: !!gate.skipped,
+    action_registered: gate.action_registered || null,
+    error_code: gate.error_code || null,
+    reason: gate.reason || null,
+  };
+}
+
+function mapAccessLogRow(row, deviceNames, collaboratorNames) {
   const payload = parseJson(row.payload_json) || {};
+  const collaboratorId = parseCollaboratorId(row.linked_id, row.user_id);
+  const blocked = !!row.blocked;
   return {
     id: row.id,
     criado_em: row.criado_em,
     gateway_event_id: row.gateway_event_id,
     device_id: row.device_id,
+    device_name: deviceNames.get(String(row.device_id)) || null,
     user_id: row.user_id,
     linked_id: row.linked_id,
+    id_collaborator: collaboratorId,
+    collaborator_name: collaboratorId ? collaboratorNames.get(collaboratorId) || null : null,
     event_time: row.event_time,
-    blocked: !!row.blocked,
+    direction: resolveAccessDirection({ direcao: payload.direcao, deviceId: row.device_id }),
+    blocked,
     antipassback: !!row.antipassback,
     method: payload.method || null,
     status: payload.status || null,
+    method_label: accessMethodLabel(payload.method),
+    status_label: accessStatusLabel(payload.status, blocked),
+    gate: mapGate(payload),
   };
 }
 
@@ -210,9 +278,10 @@ async function listLogs({ type, page = 1, limit = 15 }) {
       [safeLimit, offset],
     );
 
+    const deviceNames = await loadDeviceNames();
     return {
       type: logType,
-      logs: rows.map(mapEnrollmentLogRow),
+      logs: rows.map((row) => mapEnrollmentLogRow(row, deviceNames)),
       pagination: {
         page: safePage,
         limit: safeLimit,
@@ -234,9 +303,13 @@ async function listLogs({ type, page = 1, limit = 15 }) {
     [safeLimit, offset],
   );
 
+  const deviceNames = await loadDeviceNames();
+  const collaboratorNames = await loadCollaboratorNames(
+    rows.map((row) => parseCollaboratorId(row.linked_id, row.user_id)),
+  );
   return {
     type: logType,
-    logs: rows.map(mapAccessLogRow),
+    logs: rows.map((row) => mapAccessLogRow(row, deviceNames, collaboratorNames)),
     pagination: {
       page: safePage,
       limit: safeLimit,
