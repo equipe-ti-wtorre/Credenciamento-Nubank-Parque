@@ -1,7 +1,17 @@
 node_modules/
 dist/
 .env
+*.env
+!.env.example
+.env.bak*
+.env.example.bak*
 *.log
 .DS_Store
 .angular/
 backend/storage/
+storage/
+tmp/
+*.zip
+*.pem
+cursor-rules-export/
+frontend/dist-prod/

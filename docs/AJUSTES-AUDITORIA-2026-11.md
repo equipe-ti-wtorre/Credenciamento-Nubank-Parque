@@ -17,11 +17,11 @@ Este arquivo é o roteiro para o Cursor aplicar as correções. Siga a ordem: ca
 
 O último commit é de 02/10/2026 e há **187 arquivos alterados sem commit** (+4.890/−2.204 linhas), incluindo `authMiddleware.js`, `env.js`, `migrationManifest.js` e `modules.config.js`.
 
-- [ ] Criar o branch `chore/snapshot-servidor-2026-11` e commitar o estado atual como está, sem refatorar.
-- [ ] Antes do commit, conferir que nenhum `.env`, chave, `.pem` ou dump entrou no stage (`git status`, `git diff --cached --name-only`).
-- [ ] Ajustar o `.gitignore` para ignorar `tmp/`, `*.zip`, `storage/`, `.env`, `*.pem` e `cursor-rules-export/`.
-- [ ] Tirar do versionamento (`git rm --cached`) os arquivos `credenciamento-teams*.zip`, `exemplo-importacao-credenciamento-eventos.xlsx` e `tmp/`. A planilha de exemplo vai para `docs/exemplos/`.
-- [ ] Decidir sobre a exclusão de `V2/.cursor/rules/*`: confirmar se foi intencional antes de commitar.
+- [x] Criar o branch `chore/snapshot-servidor-2026-11` e commitar o estado atual como está, sem refatorar.
+- [x] Antes do commit, conferir que nenhum `.env`, chave, `.pem` ou dump entrou no stage (`git status`, `git diff --cached --name-only`).
+- [x] Ajustar o `.gitignore` para ignorar `tmp/`, `*.zip`, `storage/`, `.env`, `*.pem` e `cursor-rules-export/`.
+- [x] Tirar do versionamento (`git rm --cached`) os arquivos `credenciamento-teams*.zip`, `exemplo-importacao-credenciamento-eventos.xlsx` e `tmp/`. A planilha de exemplo vai para `docs/exemplos/`.
+- [x] Decidir sobre a exclusão de `V2/.cursor/rules/*`: confirmar se foi intencional antes de commitar.
 - [ ] Push para os dois remotes (`origin` e `gittrabalho`).
 
 **Pronto quando:** `git status` está limpo e o branch existe no GitHub da equipe.
