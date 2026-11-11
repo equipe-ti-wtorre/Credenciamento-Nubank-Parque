@@ -115,12 +115,16 @@ async function migrateUsuarios(connection) {
     `);
   } else if (await columnExists(connection, "usuarios", "id_perfil")) {
     await connection.query(`
-      UPDATE usuarios u
-      INNER JOIN perfis p ON p.id = u.id_perfil AND p.codigo = 'ADMIN'
-      SET u.departamento = 'Administração'
-      WHERE (u.departamento IS NULL OR TRIM(u.departamento) = '')
-        AND u.is_ad_user = 0
-      LIMIT 1
+      UPDATE usuarios SET departamento = 'Administração'
+      WHERE id = (
+        SELECT id FROM (
+          SELECT u.id FROM usuarios u
+          INNER JOIN perfis p ON p.id = u.id_perfil AND p.codigo = 'ADMIN'
+          WHERE (u.departamento IS NULL OR TRIM(u.departamento) = '')
+            AND u.is_ad_user = 0
+          ORDER BY u.id LIMIT 1
+        ) t
+      )
     `);
   }
 
