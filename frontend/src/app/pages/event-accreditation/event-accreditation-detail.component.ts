@@ -16,7 +16,8 @@ import {
   formatCpf,
 } from '../../services/collaborator.service';
 import { STATUS_APROVADO, STATUS_NEGADO } from '../../services/credential.service';
-import { formatCnpj } from '../../services/company.service';
+import { CompanyService, formatCnpj } from '../../services/company.service';
+import { MicrosoftProfileService } from '../../core/services/microsoft-profile.service';
 import {
   AccreditationCompany,
   AccreditationCompanyBrief,
@@ -566,7 +567,13 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
           <article class="ead-empresa ead-self">
             <div class="ead-empresa__head">
               <div class="ead-empresa__id">
-                <div class="ead-empresa__logo" aria-hidden="true">AD</div>
+                <div class="ead-empresa__logo">
+                  @if (ownInternalPhoto(ev); as url) {
+                    <img [src]="url" alt="" />
+                  } @else {
+                    AD
+                  }
+                </div>
                 <div>
                   <h3 class="ead-empresa__nome">Sua inscrição</h3>
                   <p class="ead-self__d">
@@ -707,7 +714,13 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       }
                       <td>
                         <div class="ead-pessoa">
-                          <div class="ead-avatar" aria-hidden="true">{{ personInitials(c.nome_completo) }}</div>
+                          <div class="ead-avatar">
+                            @if (userPhoto(c.id_usuario); as url) {
+                              <img [src]="url" alt="" />
+                            } @else {
+                              {{ personInitials(c.nome_completo) }}
+                            }
+                          </div>
                           <span class="ead-pessoa__meta">
                             <span>{{ c.nome_completo }}</span>
                             <span class="ead-doc">{{ c.email }}</span>
@@ -820,7 +833,13 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
           <article class="ead-empresa">
             <div class="ead-empresa__head">
               <div class="ead-empresa__id">
-                <div class="ead-empresa__logo" aria-hidden="true">{{ companyInitials(company) }}</div>
+                <div class="ead-empresa__logo">
+                  @if (companyLogo(company); as url) {
+                    <img [src]="url" [alt]="company.fancy_name || company.company_name" />
+                  } @else {
+                    {{ companyInitials(company) }}
+                  }
+                </div>
                 <div>
                   <h3 class="ead-empresa__nome">{{ company.fancy_name || company.company_name }}</h3>
                   @if (company.setor_nome) {
@@ -1910,6 +1929,13 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         font-weight: 600;
         font-size: 14px;
         flex: 0 0 38px;
+        overflow: hidden;
+      }
+      .ead-empresa__logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
       }
       .ead-empresa__nome {
         font-family: var(--font-display);
@@ -2097,6 +2123,13 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         font-size: 12px;
         font-weight: 600;
         flex: 0 0 32px;
+        overflow: hidden;
+      }
+      .ead-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
       }
       .ead-tabela thead th.ead-acoes,
       .ead-tabela td.ead-acoes {
@@ -2730,6 +2763,8 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
 })
 export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   private readonly service = inject(EventAccreditationService);
+  private readonly companiesApi = inject(CompanyService);
+  private readonly profilePhotos = inject(MicrosoftProfileService);
   private readonly collaborators = inject(CollaboratorService);
   private readonly notification = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
@@ -2738,6 +2773,10 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   readonly item = signal<EventAccreditationItem | null>(null);
   readonly coverSrc = signal<string | null>(null);
+  readonly companyLogos = signal<Record<string, string>>({});
+  readonly userPhotos = signal<Record<string, string>>({});
+  private companyLogoLoad = 0;
+  private userPhotoLoad = 0;
   readonly editCoverPreview = signal<string | null>(null);
   editCoverFile: File | null = null;
   private editCoverObjectUrl: string | null = null;
@@ -2884,6 +2923,52 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   companyInitials(company: AccreditationCompany): string {
     return this.personInitials(company.fancy_name || company.company_name);
+  }
+
+  companyLogo(company: AccreditationCompany): string | null {
+    return this.companyLogos()[String(company.id_company)] || null;
+  }
+
+  userPhoto(idUsuario: number | string | null | undefined): string | null {
+    if (idUsuario == null || idUsuario === '') return null;
+    return this.userPhotos()[String(idUsuario)] || null;
+  }
+
+  ownInternalPhoto(ev: EventAccreditationItem): string | null {
+    const id = this.myInternalsOf(ev)[0]?.id_usuario;
+    return this.userPhoto(id);
+  }
+
+  private loadCompanyLogos(item: EventAccreditationItem): void {
+    const loadId = ++this.companyLogoLoad;
+    this.companyLogos.set({});
+    for (const company of item.companies || []) {
+      if (!company.logo) continue;
+      const key = String(company.id_company);
+      this.companiesApi.getLogoBlob(company.logo).subscribe({
+        next: (url) => {
+          if (loadId !== this.companyLogoLoad) return;
+          this.companyLogos.update((map) => ({ ...map, [key]: url }));
+        },
+        error: () => {},
+      });
+    }
+  }
+
+  private loadInternalPhotos(item: EventAccreditationItem): void {
+    const loadId = ++this.userPhotoLoad;
+    this.userPhotos.set({});
+    const ids = new Set<string>();
+    for (const row of [...(item.internals || []), ...(item.my_internals || [])]) {
+      if (row.id_usuario != null && row.id_usuario !== ('' as never)) ids.add(String(row.id_usuario));
+    }
+    if (item.my_internal?.id_usuario != null) ids.add(String(item.my_internal.id_usuario));
+    for (const id of ids) {
+      void this.profilePhotos.fetchUserPhotoObjectUrl(id).then((url) => {
+        if (loadId !== this.userPhotoLoad || !url) return;
+        this.userPhotos.update((map) => ({ ...map, [id]: url }));
+      });
+    }
   }
 
   personInitials(name?: string | null): string {
@@ -3173,6 +3258,8 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   private applyItem(item: EventAccreditationItem): void {
     this.item.set(item);
+    this.loadCompanyLogos(item);
+    this.loadInternalPhotos(item);
     this.coverSrc.set(null);
     if (item.cover) {
       this.service.getCoverBlob(item.cover).subscribe({

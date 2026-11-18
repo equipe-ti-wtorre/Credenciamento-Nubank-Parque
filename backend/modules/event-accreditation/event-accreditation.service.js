@@ -774,7 +774,7 @@ async function listCompaniesOf(id, partnerOnlyCompanyId = null) {
     params.push(partnerOnlyCompanyId);
   }
   const [rows] = await db.execute(
-    `SELECT eac.*, c.company_name, c.fancy_name,
+    `SELECT eac.*, c.company_name, c.fancy_name, c.logo,
             s.nome AS setor_nome,
             a.id AS id_aprovacao, a.status AS aprovacao_status
        FROM event_accreditation_company eac
@@ -1088,6 +1088,7 @@ async function hydrateDetail(req, row) {
       setor_nome: c.setor_nome || null,
       company_name: c.company_name,
       fancy_name: c.fancy_name || null,
+      logo: c.logo || null,
       indication_status: c.indication_status,
       indicated_complete_at: formatDateTimeField(c.indicated_complete_at),
       id_aprovacao: c.id_aprovacao != null ? Number(c.id_aprovacao) : null,
@@ -2685,13 +2686,16 @@ async function sendCompanyInvites(req, item, companyIds, { reminder = false } = 
   const mapped = mapItemRow(item);
   const invite = await findInviteByAccreditation(item.id_event_accreditation);
   const files = invite ? await listInviteFiles(invite.id_event_accreditation_invite) : [];
+  const inviteHtml = notifications.isUsableInviteHtml(invite?.html)
+    ? invite.html
+    : await notifications.buildDefaultInviteHtml(mapped);
   return notifications.sendInviteToCompanies({
     item: mapped,
     companyIds,
     subject: reminder
       ? `Lembrete: ${invite?.subject || notifications.buildDefaultInviteSubject(mapped)}`
       : invite?.subject || notifications.buildDefaultInviteSubject(mapped),
-    html: invite?.html || notifications.buildDefaultInviteHtml(mapped),
+    html: inviteHtml,
     files,
     usuarioId: req.user?.id,
     requestId: req.requestId,
@@ -3003,11 +3007,14 @@ async function notifyCompanies(req, id, payload = {}) {
   const mapped = mapItemRow(row);
   const invite = await findInviteByAccreditation(itemId);
   const files = invite ? await listInviteFiles(invite.id_event_accreditation_invite) : [];
+  const inviteHtml = notifications.isUsableInviteHtml(invite?.html)
+    ? invite.html
+    : await notifications.buildDefaultInviteHtml(mapped);
   const results = await notifications.sendInviteToCompanies({
     item: mapped,
     companyIds,
     subject: invite?.subject || notifications.buildDefaultInviteSubject(mapped),
-    html: invite?.html || notifications.buildDefaultInviteHtml(mapped),
+    html: inviteHtml,
     files,
     usuarioId: req.user?.id,
     requestId: req.requestId,
@@ -3627,9 +3634,17 @@ async function listInviteFiles(inviteId, conn = db) {
 
 async function ensureInviteDraft(item, conn = db) {
   const existing = await findInviteByAccreditation(item.id_event_accreditation, conn);
-  if (existing) return existing;
+  if (existing && notifications.isUsableInviteHtml(existing.html)) return existing;
+  const html = await notifications.buildDefaultInviteHtml(item);
+  if (existing) {
+    await conn.execute(
+      `UPDATE event_accreditation_invite SET html = ? WHERE id_event_accreditation_invite = ?`,
+      [html, existing.id_event_accreditation_invite],
+    );
+    existing.html = html;
+    return existing;
+  }
   const subject = notifications.buildDefaultInviteSubject(item);
-  const html = notifications.buildDefaultInviteHtml(item);
   const [result] = await conn.execute(
     `INSERT INTO event_accreditation_invite
        (id_event_accreditation, subject, html, status)

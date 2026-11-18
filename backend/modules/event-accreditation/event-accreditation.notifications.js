@@ -56,6 +56,58 @@ function formatDateTimeBr(value) {
   return d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
+function formatDateBr(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  }
+  const text = String(value).slice(0, 10);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+function formatDateTimeShortBr(value) {
+  if (!value) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatEventPeriod(item) {
+  const start = formatDateBr(item?.start);
+  const end = formatDateBr(item?.end);
+  if (!start && !end) return "";
+  if (!end || start === end) return start || end;
+  return `${start} a ${end}`;
+}
+
+function formatIndicationWindow(item) {
+  const hasStart = !!item?.inscription_start;
+  const hasEnd = !!item?.inscription_end;
+  if (!hasStart && !hasEnd) return "";
+  const start = formatDateTimeShortBr(item.inscription_start);
+  const end = formatDateTimeShortBr(item.inscription_end);
+  if (hasStart && hasEnd) return `${start} até ${end}`;
+  return hasStart ? start : end;
+}
+
+function isUsableInviteHtml(html) {
+  if (typeof html !== "string") return false;
+  if (html.includes("[object Promise]")) return false;
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return text.length > 0;
+}
+
 async function resolveCompanyEmails(idCompany) {
   const emails = new Set();
   const [contacts] = await db.execute(
@@ -142,7 +194,8 @@ function buildDefaultInviteSubject(item) {
 
 async function buildDefaultInviteHtml(item, { coverDataUri } = {}) {
   const name = escapeHtml(item.name);
-  const deadline = formatDateTimeBr(item.inscription_end);
+  const period = formatEventPeriod(item);
+  const indication = formatIndicationWindow(item);
   const link = (await buildItemUrl(item.id_event_accreditation)) || "";
   const dataUri = coverDataUri || readCoverDataUri(item.cover);
   const cover = dataUri
@@ -154,7 +207,8 @@ async function buildDefaultInviteHtml(item, { coverDataUri } = {}) {
     cover,
     `<h2>Credenciamento de evento</h2>`,
     `<p>A empresa foi convidada a indicar colaboradores para <strong>${name}</strong> (${kindLabel(item.event_kind)}).</p>`,
-    `<p>Prazo de inscrição: <strong>${escapeHtml(deadline)}</strong>.</p>`,
+    period ? `<p>Período do evento: <strong>${escapeHtml(period)}</strong>.</p>` : "",
+    indication ? `<p>Prazo de indicação: <strong>${escapeHtml(indication)}</strong>.</p>` : "",
     link
       ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#1d54e6;color:#fff;text-decoration:none;border-radius:8px;">Abrir credenciamento</a></p>`
       : "",
@@ -298,10 +352,10 @@ async function sendInviteToCompanies({
   context = {},
 }) {
   const coverDataUri = readCoverDataUri(item.cover);
-  const resolvedHtml = applyCoverToHtml(
-    html || await buildDefaultInviteHtml(item, { coverDataUri }),
-    coverDataUri,
-  );
+  const body = isUsableInviteHtml(html)
+    ? html
+    : await buildDefaultInviteHtml(item, { coverDataUri });
+  const resolvedHtml = applyCoverToHtml(body, coverDataUri);
   const resolvedSubject = subject || buildDefaultInviteSubject(item);
   const attachments = buildInviteAttachments(item, files);
   const text = htmlToText(resolvedHtml);
@@ -655,6 +709,7 @@ module.exports = {
   resolveCompanyEmails,
   buildDefaultInviteSubject,
   buildDefaultInviteHtml,
+  isUsableInviteHtml,
   applyCoverToHtml,
   readCoverDataUri,
   COVER_DIR,
