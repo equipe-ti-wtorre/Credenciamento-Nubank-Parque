@@ -38,7 +38,9 @@ function globalKey(req) {
 }
 
 function isAuthRoute(req) {
-  return /^\/api\/(?:v1\/)?auth\/(login|login-microsoft|refresh)(?:\/|$)/.test(requestPath(req));
+  return /^\/api\/(?:v1\/)?auth\/(login|login-microsoft|refresh|forgot-password|reset-password)(?:\/|$)/.test(
+    requestPath(req),
+  );
 }
 
 function isHealthRoute(req) {
@@ -141,15 +143,35 @@ function buildClientErrorLimiter() {
   });
 }
 
+function buildPasswordResetLimiter() {
+  if (env.rateLimitDisabled) return noopLimiter;
+
+  return rateLimit({
+    ...limiterOptions,
+    windowMs: env.rateLimitAuthWindowMs,
+    max: 5,
+    skipSuccessfulRequests: false,
+    message: {
+      message: "Muitas solicitações de recuperação de senha. Tente novamente mais tarde.",
+    },
+    handler: createAuthRateLimitHandler(
+      "local",
+      "Muitas solicitações de recuperação de senha. Tente novamente mais tarde.",
+    ),
+  });
+}
+
 const globalLimiter = buildGlobalLimiter();
 const authLimiter = buildAuthLimiter();
 const microsoftAuthLimiter = buildMicrosoftAuthLimiter();
+const passwordResetLimiter = buildPasswordResetLimiter();
 const clientErrorLimiter = buildClientErrorLimiter();
 
 module.exports = {
   globalLimiter,
   authLimiter,
   microsoftAuthLimiter,
+  passwordResetLimiter,
   clientErrorLimiter,
   clientKey,
   globalKey,

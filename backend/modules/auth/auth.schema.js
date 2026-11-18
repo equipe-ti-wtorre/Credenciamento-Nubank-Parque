@@ -51,10 +51,40 @@ const companyRegisterCompleteSchema = Joi.object({
   }),
 });
 
+const companyPasswordSchema = Joi.string()
+  .min(8)
+  .max(128)
+  .pattern(/[a-z]/)
+  .pattern(/[A-Z]/)
+  .pattern(/\d/)
+  .pattern(/[^A-Za-z0-9]/)
+  .required()
+  .messages({
+    "string.min": "A senha deve ter no mínimo 8 caracteres.",
+    "string.pattern.base": "A senha deve ter maiúscula, minúscula, número e símbolo.",
+  });
+
+const forgotPasswordSchema = Joi.object({
+  email: Joi.string().trim().email().required().messages({
+    "string.email": "Informe um e-mail válido.",
+    "any.required": "Informe um e-mail válido.",
+  }),
+});
+
+const resetPasswordSchema = Joi.object({
+  token: Joi.string().hex().length(64).required(),
+  password: companyPasswordSchema,
+  password_confirm: Joi.string().valid(Joi.ref("password")).required().messages({
+    "any.only": "A confirmação de senha não confere.",
+  }),
+});
+
 module.exports = {
   loginSchema,
   refreshSchema,
   logoutSchema,
   inviteCompleteSchema,
   companyRegisterCompleteSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 };

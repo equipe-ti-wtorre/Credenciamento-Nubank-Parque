@@ -235,6 +235,24 @@ export class AuthService {
     );
   }
 
+  requestPasswordReset(email: string) {
+    return this.api.post<{ message: string }>('/auth/forgot-password', { email });
+  }
+
+  getPasswordReset(token: string) {
+    return this.api.get<{ reset: { email_masked: string; expires_at: string } }>(
+      `/auth/reset-password/${encodeURIComponent(token)}`,
+    );
+  }
+
+  resetPassword(payload: { token: string; password: string; password_confirm: string }) {
+    return this.api.post<AuthSession>('/auth/reset-password', payload).pipe(
+      tap((response) => {
+        void this.saveSession(response);
+      }),
+    );
+  }
+
   /** Exchange getAuthToken → JWT. silent=false permite UI de consentimento do Teams. */
   async tryTeamsSsoLogin(
     options: { silent?: boolean; navigate?: boolean } = {},

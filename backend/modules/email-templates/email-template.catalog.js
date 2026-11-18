@@ -21,6 +21,22 @@ const TEMPLATE_CATALOG = {
       invite_ttl_hours: "72",
     },
   },
+  password_reset: {
+    variables: [
+      { key: "nome", label: "Nome do usuário" },
+      { key: "organization_name", label: "Nome da organização" },
+      { key: "company_name", label: "Nome da empresa" },
+      { key: "reset_url", label: "URL de redefinição" },
+      { key: "reset_ttl_hours", label: "Validade do link (horas)" },
+    ],
+    sampleVars: {
+      nome: "Maria Silva",
+      organization_name: "Credenciamento",
+      company_name: "Empresa Exemplo Ltda",
+      reset_url: "https://exemplo.local/login?reset=abc123",
+      reset_ttl_hours: "2",
+    },
+  },
   company_self_register: {
     variables: [
       { key: "nome", label: "Nome do convidado" },

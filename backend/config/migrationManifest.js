@@ -782,6 +782,10 @@ const migrations = [
     filename: "095_refresh_tokens_gateway_sid.sql",
     validate: (conn) => columnExists(conn, "refresh_tokens", "gateway_sid"),
   },
+  {
+    filename: "096_password_reset_tokens.sql",
+    validate: (conn) => tableExists(conn, "password_reset_tokens"),
+  },
 ];
 
 module.exports = migrations;
