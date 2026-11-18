@@ -26,6 +26,7 @@ export interface ApprovalSectorBrief {
 export interface ApprovalUserBrief {
   id: number;
   nome: string | null;
+  empresa?: string | null;
 }
 
 export interface ApprovalDecision {
@@ -131,6 +132,8 @@ export interface ApprovalItem {
   solicitante: ApprovalUserBrief;
   nivelAtual: number;
   niveisExigidos: number;
+  /** Quantidade de ciclos da mesma entidade. Reenvio quando maior que 1. */
+  ciclo?: number;
   status: ApprovalStatus;
   criadoEm: string;
   finalizadoEm: string | null;

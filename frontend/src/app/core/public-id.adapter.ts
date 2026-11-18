@@ -109,7 +109,12 @@ function restoreOwn(row: Record<string, unknown>): void {
     row['id_event_day_company'] = pub;
     return;
   }
-  if (row['collaborator_name'] != null && row['id_service_access_collaborator'] == null) {
+  if (
+    row['collaborator_name'] != null &&
+    row['id_service_access_collaborator'] == null &&
+    row['id_event_accreditation_collaborator'] == null &&
+    row['id_event_day_company_collaborator'] == null
+  ) {
     row['id_service_access_collaborator'] = pub;
     return;
   }
@@ -158,6 +163,20 @@ function restoreOwn(row: Record<string, unknown>): void {
     row['id_bracelet_type'] == null
   ) {
     row['id_bracelet_type'] = pub;
+    if (row['id'] == null) row['id'] = pub;
+    return;
+  }
+  // Setor do credenciamento: a API promove id_setor para public_id e apaga o campo.
+  // Sem id_setor a tela envia "undefined" na URL e o convite responde 404.
+  // Não usar só `nome`: solicitante e outros registros também chegam assim.
+  if (
+    row['nome'] != null &&
+    row['id_setor'] == null &&
+    (row['approvers_count'] != null ||
+      row['can_add_companies'] != null ||
+      row['can_notify_companies'] != null)
+  ) {
+    row['id_setor'] = pub;
     if (row['id'] == null) row['id'] = pub;
     return;
   }

@@ -185,8 +185,10 @@ function rewrite(node, parentKey) {
   if (own && own.table) {
     const id = numericId(out[own.key]);
     const pub = id == null ? null : lookup(own.table, id);
-    if (!identity && !hadPublic && pub) out.public_id = pub;
-    else if ((identity || hadPublic) && pub && own.out) out[own.out] = pub;
+    if (!identity && !hadPublic && pub) {
+      out.public_id = pub;
+      if (own.out) out[own.out] = pub;
+    } else if ((identity || hadPublic) && pub && own.out) out[own.out] = pub;
     delete out[own.key];
   } else if (!identity && out.id != null && !isUuid(out.public_id)) {
     const hinted = PARENT_HINT[parentKey] || inferGenericTable(out);

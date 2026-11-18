@@ -143,6 +143,8 @@ const PARENT_HINT = {
   solicitante: { table: "usuarios", pk: "id" },
   usuario: { table: "usuarios", pk: "id" },
   user: { table: "usuarios", pk: "id" },
+  approved_by: { table: "usuarios", pk: "id" },
+  rejected_by: { table: "usuarios", pk: "id" },
   usuarios: { table: "usuarios", pk: "id" },
   users: { table: "usuarios", pk: "id" },
   company: { table: "company", pk: "id_company" },

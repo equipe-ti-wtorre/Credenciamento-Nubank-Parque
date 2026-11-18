@@ -200,6 +200,20 @@ export const routes: Routes = [
         data: { permission: { module: 'approvals', action: 'view' }, title: 'Aprovações' },
       },
       {
+        path: 'aprovacoes/solicitacao',
+        loadComponent: () =>
+          import('./pages/approvals/teams-approval-page.component').then(
+            (m) => m.TeamsApprovalPageComponent,
+          ),
+        canActivate: [PermissionGuard, requireNavStateGuard],
+        data: {
+          permission: { module: 'approvals', action: 'view' },
+          title: 'Detalhe da solicitação',
+          navRoute: '/aprovacoes/solicitacao',
+          listRoute: '/aprovacoes',
+        },
+      },
+      {
         path: 'portaria',
         component: GateControlComponent,
         canActivate: [PermissionGuard],

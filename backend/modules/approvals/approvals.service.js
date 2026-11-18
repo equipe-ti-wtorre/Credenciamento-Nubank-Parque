@@ -275,7 +275,12 @@ function mapApprovalRow(row) {
     tipoEntidade: row.tipo_entidade,
     idEntidade: row.id_entidade,
     setor: { id: row.id_setor, nome: row.setor_nome },
-    solicitante: { id: row.id_solicitante, nome: row.solicitante_nome || null },
+    solicitante: {
+      id: row.id_solicitante,
+      nome: row.solicitante_nome || null,
+      empresa: row.solicitante_empresa || null,
+    },
+    ciclo: row.ciclo != null ? Number(row.ciclo) : 1,
     nivelAtual: row.nivel_atual,
     niveisExigidos: row.niveis_exigidos,
     status: row.status,
@@ -619,14 +624,26 @@ const ENTITY_SUMMARY_JOINS = `
     ON eac_co.id_company = eac_e.id_company
   LEFT JOIN event_accreditation ea_int
     ON a.tipo_entidade = 'CREDENCIAMENTO_EVENTO_INTERNO'
-   AND ea_int.id_event_accreditation = a.id_entidade`;
+   AND ea_int.id_event_accreditation = a.id_entidade
+  LEFT JOIN company sol_co ON sol_co.id_company = sol.id_company`;
 
 const ENTITY_SUMMARY_SELECT = `
   , COALESCE(sa_e.finalidade, sa_e.service_type, ev_e.name,
       CONCAT(ea_e.name, ' — ', COALESCE(eac_co.fancy_name, eac_co.company_name)),
       CONCAT(ea_int.name, ' — Internos')) AS entidade_nome
   , COALESCE(sa_e.start_date, ev_e.start, ea_e.start, ea_int.start) AS entidade_start
-  , COALESCE(sa_e.end_date, ev_e.end, ea_e.end, ea_int.end) AS entidade_end`;
+  , COALESCE(sa_e.end_date, ev_e.end, ea_e.end, ea_int.end) AS entidade_end
+  , COALESCE(
+      NULLIF(TRIM(sol_co.fancy_name), ''),
+      NULLIF(TRIM(sol_co.company_name), ''),
+      NULLIF(TRIM(sol.departamento), '')
+    ) AS solicitante_empresa
+  , (
+      SELECT COUNT(*)
+        FROM aprovacoes a_ciclo
+       WHERE a_ciclo.tipo_entidade = a.tipo_entidade
+         AND a_ciclo.id_entidade = a.id_entidade
+    ) AS ciclo`;
 
 function liberacaoStatus(accessId, approvalStatus) {
   if (accessId) return 'APROVADO';
