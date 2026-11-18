@@ -66,6 +66,106 @@ function interpretCgiResponse(status, data) {
   return { ok: true };
 }
 
+/** Valor de query CGI: espaço vira %20 e os dois-pontos da data ficam literais. */
+function encodeCgiValue(value) {
+  return encodeURIComponent(String(value)).replace(/%3A/gi, ":");
+}
+
+function cgiPath(pathname, pairs) {
+  const query = pairs
+    .filter(([, value]) => value != null && String(value) !== "")
+    .map(([key, value]) => `${key}=${encodeCgiValue(value)}`)
+    .join("&");
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+/**
+ * ASI7213Y (firmware 2022) não tem AccessUser.cgi.
+ * O cartão entra por recordUpdater e a face por FaceInfoManager.
+ */
+function buildLegacyCardInsertPath({ userId, userName, validFrom, validTo }) {
+  const id = String(userId);
+  const name = String(userName || id).trim().slice(0, USER_NAME_MAX) || id;
+  return cgiPath("/cgi-bin/recordUpdater.cgi", [
+    ["action", "insert"],
+    ["name", "AccessControlCard"],
+    ["CardNo", id],
+    ["UserID", id],
+    ["CardName", name],
+    ["CardStatus", "0"],
+    ["CardType", "0"],
+    ["UserType", "0"],
+    ["Doors[0]", "0"],
+    ["TimeSections[0]", "0"],
+    ["ValidDateStart", validFrom || ""],
+    ["ValidDateEnd", validTo || ""],
+  ]);
+}
+
+function buildLegacyCardUpdatePath({ recNo, userName, validFrom, validTo }) {
+  const name = String(userName || "").trim().slice(0, USER_NAME_MAX);
+  return cgiPath("/cgi-bin/recordUpdater.cgi", [
+    ["action", "update"],
+    ["name", "AccessControlCard"],
+    ["recno", recNo],
+    ["CardName", name],
+    ["CardStatus", "0"],
+    ["ValidDateStart", validFrom || ""],
+    ["ValidDateEnd", validTo || ""],
+  ]);
+}
+
+function buildLegacyCardRemovePath(recNo) {
+  return cgiPath("/cgi-bin/recordUpdater.cgi", [
+    ["action", "remove"],
+    ["name", "AccessControlCard"],
+    ["recno", recNo],
+  ]);
+}
+
+function buildLegacyCardFindPath(userId) {
+  return cgiPath("/cgi-bin/recordFinder.cgi", [
+    ["action", "find"],
+    ["name", "AccessControlCard"],
+    ["count", "20"],
+    ["condition.UserID", String(userId)],
+  ]);
+}
+
+function buildLegacyFaceRemovePath(userId) {
+  return cgiPath("/cgi-bin/FaceInfoManager.cgi", [
+    ["action", "remove"],
+    ["UserID", String(userId)],
+  ]);
+}
+
+function buildLegacyFaceBody({ userId, photoBase64 }) {
+  return {
+    UserID: String(userId),
+    Info: { PhotoData: [photoBase64] },
+  };
+}
+
+function parseCgiRecords(data) {
+  const text = responseText(data);
+  const records = [];
+  const lineRe = /^records\[(\d+)\]\.([^=]+)=(.*)$/;
+  for (const line of text.split(/\r?\n/)) {
+    const match = lineRe.exec(line.trim());
+    if (!match) continue;
+    const index = Number(match[1]);
+    const bucket = records[index] || {};
+    bucket[match[2]] = match[3];
+    records[index] = bucket;
+  }
+  return records.filter(Boolean);
+}
+
+function parseCgiRecNo(data) {
+  const match = /RecNo=(\d+)/i.exec(responseText(data));
+  return match ? match[1] : null;
+}
+
 function summarizeFail(data) {
   const codes = Array.isArray(data.FailCodes) ? data.FailCodes.join(",") : "";
   const list = Array.isArray(data.UserList) ? data.UserList : data.FaceList;
@@ -85,4 +185,13 @@ module.exports = {
   buildInsertFaceBody,
   buildRemoveUserBody,
   interpretCgiResponse,
+  encodeCgiValue,
+  buildLegacyCardInsertPath,
+  buildLegacyCardUpdatePath,
+  buildLegacyCardRemovePath,
+  buildLegacyCardFindPath,
+  buildLegacyFaceRemovePath,
+  buildLegacyFaceBody,
+  parseCgiRecords,
+  parseCgiRecNo,
 };

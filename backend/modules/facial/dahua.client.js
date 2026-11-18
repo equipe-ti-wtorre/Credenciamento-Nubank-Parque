@@ -11,6 +11,13 @@ const {
   buildInsertFaceBody,
   buildRemoveUserBody,
   interpretCgiResponse,
+  buildLegacyCardInsertPath,
+  buildLegacyCardUpdatePath,
+  buildLegacyCardRemovePath,
+  buildLegacyCardFindPath,
+  buildLegacyFaceRemovePath,
+  buildLegacyFaceBody,
+  parseCgiRecords,
 } = require("./dahua.payload");
 const { buildAccessQuery } = require("./dahua.access");
 
@@ -18,6 +25,8 @@ const logger = child({ module: "dahua-client" });
 
 const TEST_TIMEOUT_MS = 8000;
 const ENROLL_TIMEOUT_MS = 20000;
+/** device_key -> true quando o firmware é o FaceInfoManager (ASI7213Y 2022). */
+const legacyApiByDevice = new Map();
 
 function md5(value) {
   return crypto.createHash("md5").update(value).digest("hex");
@@ -143,7 +152,135 @@ async function ensurePhotoBase64(photoBase64) {
   return compressed.buffer.toString("base64");
 }
 
+function responseText(data) {
+  if (data == null) return "";
+  if (typeof data === "string") return data;
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return String(data);
+  }
+}
+
+/**
+ * O ASI7213Y build 2022 não publica AccessUser.cgi (responde 400 como CGI inexistente).
+ * FaceInfoManager.cgi?action=startFind devolve Token nesse firmware.
+ */
+async function usesLegacyFaceApi(device) {
+  if (legacyApiByDevice.has(device.device_key)) {
+    return legacyApiByDevice.get(device.device_key);
+  }
+  const res = await requestCgi(device, {
+    method: "GET",
+    path: "/cgi-bin/FaceInfoManager.cgi?action=startFind",
+    timeoutMs: TEST_TIMEOUT_MS,
+  });
+  const text = responseText(res.data);
+  const legacy = res.status === 200 && /"Token"\s*:/.test(text);
+  if (legacy) {
+    const token = /"Token"\s*:\s*(\d+)/.exec(text);
+    if (token) {
+      await requestCgi(device, {
+        method: "GET",
+        path: `/cgi-bin/FaceInfoManager.cgi?action=stopFind&Token=${token[1]}`,
+        timeoutMs: TEST_TIMEOUT_MS,
+      }).catch(() => undefined);
+    }
+  }
+  if (res.status) legacyApiByDevice.set(device.device_key, legacy);
+  return legacy;
+}
+
+async function getCgi(device, path) {
+  const res = await requestCgi(device, {
+    method: "GET",
+    path,
+    timeoutMs: ENROLL_TIMEOUT_MS,
+  });
+  return {
+    interpreted: interpretCgiResponse(res.status, res.data),
+    data: res.data,
+  };
+}
+
+async function findLegacyCards(device, userId) {
+  const found = await getCgi(device, buildLegacyCardFindPath(userId));
+  if (!found.interpreted.ok) {
+    throw new Error(found.interpreted.error || "Falha ao consultar o usuário no terminal");
+  }
+  return parseCgiRecords(found.data).filter((card) => card.RecNo);
+}
+
+async function upsertLegacyCard(device, { userId, userName, validFrom, validTo }) {
+  const existing = await findLegacyCards(device, userId);
+  if (existing.length) {
+    for (const card of existing) {
+      const updated = await getCgi(
+        device,
+        buildLegacyCardUpdatePath({
+          recNo: card.RecNo,
+          userName,
+          validFrom,
+          validTo,
+        }),
+      );
+      if (!updated.interpreted.ok) {
+        throw new Error(updated.interpreted.error || "Falha ao atualizar usuário no terminal");
+      }
+    }
+    return;
+  }
+  const inserted = await getCgi(
+    device,
+    buildLegacyCardInsertPath({ userId, userName, validFrom, validTo }),
+  );
+  if (!inserted.interpreted.ok) {
+    throw new Error(inserted.interpreted.error || "Falha ao gravar usuário no terminal");
+  }
+}
+
+async function enrollLegacy(device, { userId, userName, photoBase64, validFrom, validTo }) {
+  await upsertLegacyCard(device, { userId, userName, validFrom, validTo });
+  const face = await ensurePhotoBase64(photoBase64);
+  const body = buildLegacyFaceBody({ userId, photoBase64: face });
+  const added = await postCgi(
+    device,
+    "/cgi-bin/FaceInfoManager.cgi?action=add",
+    body,
+    ENROLL_TIMEOUT_MS,
+  );
+  if (added.ok) return { ok: true };
+  const updated = await postCgi(
+    device,
+    "/cgi-bin/FaceInfoManager.cgi?action=update",
+    body,
+    ENROLL_TIMEOUT_MS,
+  );
+  if (!updated.ok) {
+    throw new Error(updated.error || added.error || "Falha ao gravar a face no terminal");
+  }
+  return { ok: true };
+}
+
+async function revokeLegacy(device, userId) {
+  const cards = await findLegacyCards(device, userId);
+  for (const card of cards) {
+    const removed = await getCgi(device, buildLegacyCardRemovePath(card.RecNo));
+    if (!removed.interpreted.ok && !removed.interpreted.notFound) {
+      throw new Error(removed.interpreted.error || "Falha ao remover usuário do terminal");
+    }
+  }
+  const face = await getCgi(device, buildLegacyFaceRemovePath(userId));
+  if (!face.interpreted.ok && !face.interpreted.notFound) {
+    throw new Error(face.interpreted.error || "Falha ao remover a face do terminal");
+  }
+  return { ok: true };
+}
+
 async function enrollOnDevice(device, { userId, userName, photoBase64, validFrom, validTo }) {
+  if (await usesLegacyFaceApi(device)) {
+    return enrollLegacy(device, { userId, userName, photoBase64, validFrom, validTo });
+  }
   const record = buildAccessUserRecord({ userId, userName, validFrom, validTo });
   const inserted = await postCgi(
     device,
@@ -185,6 +322,9 @@ async function enrollOnDevice(device, { userId, userName, photoBase64, validFrom
 }
 
 async function revokeOnDevice(device, userId) {
+  if (await usesLegacyFaceApi(device)) {
+    return revokeLegacy(device, userId);
+  }
   const result = await postCgi(
     device,
     "/cgi-bin/AccessUser.cgi?action=removeMulti",

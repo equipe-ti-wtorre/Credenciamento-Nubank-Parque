@@ -11,6 +11,9 @@ const {
   buildInsertFaceBody,
   buildRemoveUserBody,
   interpretCgiResponse,
+  buildLegacyCardInsertPath,
+  buildLegacyFaceBody,
+  parseCgiRecords,
 } = require("../dahua.payload");
 const { periodEndPlusGrace, shouldRevokeAfterGrace } = require("../facial.expire.rules");
 const {
@@ -53,6 +56,30 @@ test("monta insert de usuário, face e remove", () => {
   const faceBody = buildInsertFaceBody({ userId: 42, photoBase64: "abc" });
   assert.deepStrictEqual(faceBody.FaceList[0].PhotoData, ["abc"]);
   assert.deepStrictEqual(buildRemoveUserBody("42"), { UserIDList: ["42"] });
+});
+
+test("cartão legado do ASI7213Y usa recordUpdater e data com dois-pontos", () => {
+  const path = buildLegacyCardInsertPath({
+    userId: 3,
+    userName: "Diego Gomes",
+    validFrom: "2026-11-03 00:00:00",
+    validTo: "2026-11-03 23:59:59",
+  });
+  assert.ok(path.startsWith("/cgi-bin/recordUpdater.cgi?"));
+  assert.ok(path.includes("action=insert"));
+  assert.ok(path.includes("name=AccessControlCard"));
+  assert.ok(path.includes("UserID=3"));
+  assert.ok(path.includes("CardName=Diego%20Gomes"));
+  assert.ok(path.includes("ValidDateStart=2026-11-03%2000:00:00"));
+  assert.ok(path.includes("Doors[0]=0"));
+  assert.ok(!path.includes("%3A"));
+
+  const face = buildLegacyFaceBody({ userId: 3, photoBase64: "abc" });
+  assert.strictEqual(face.UserID, "3");
+  assert.deepStrictEqual(face.Info.PhotoData, ["abc"]);
+
+  const records = parseCgiRecords("records[0].RecNo=1748\nrecords[0].UserID=3\n");
+  assert.strictEqual(records[0].RecNo, "1748");
 });
 
 test("interpreta resposta CGI", () => {
