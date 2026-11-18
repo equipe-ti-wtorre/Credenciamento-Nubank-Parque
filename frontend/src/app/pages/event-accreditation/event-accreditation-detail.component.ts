@@ -3343,6 +3343,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   canShowNotifyOwner(company: AccreditationCompany): boolean {
     return (
       !!company.can_decide &&
+      (company.collaborators?.length ?? 0) > 0 &&
       (company.indication_status === 'APROVADO' || company.indication_status === 'NEGADO')
     );
   }

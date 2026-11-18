@@ -168,6 +168,20 @@ function isInscriptionOpen(row, now = new Date()) {
   return now >= start && now <= end;
 }
 
+function isInscriptionEnded(row, now = new Date()) {
+  if (!row?.inscription_end) return false;
+  const end = row.inscription_end instanceof Date ? row.inscription_end : new Date(row.inscription_end);
+  return !Number.isNaN(end.getTime()) && now > end;
+}
+
+/** Convite só faz sentido enquanto a empresa ainda pode indicar. */
+function assertCanInviteCompanies(row) {
+  assertActive(row);
+  if (isInscriptionEnded(row)) {
+    throw new AppError("As indicações deste credenciamento já foram encerradas.", 409);
+  }
+}
+
 function assertActive(row) {
   if (row && row.ativo != null && !Number(row.ativo)) {
     throw new AppError("Credenciamento desativado. Reative-o para continuar.", 403);
@@ -1169,7 +1183,7 @@ async function hydrateDetail(req, row) {
       ...s,
       approvers_count: approvers.length,
       can_add_companies: canManageSector && isInscriptionOpen(fresh) && !!Number(fresh.ativo),
-      can_notify_companies: canManageSector,
+      can_notify_companies: canManageSector && !isInscriptionEnded(fresh) && !!Number(fresh.ativo),
     });
   }
   if (!setores.length && fresh.id_setor && seesAll) {
@@ -1197,7 +1211,7 @@ async function hydrateDetail(req, row) {
     can_manage: canManage,
     can_decide: canDecide,
     can_decide_internal: decideInternal,
-    can_notify: canManage,
+    can_notify: canManage && !isInscriptionEnded(fresh) && !!Number(fresh.ativo),
     can_toggle_active:
       (isSuperAdmin(req.user) || Number(fresh.id_solicitante) === Number(req.user?.id)) &&
       hasPermission(req.user, "event_accreditation", "edit"),
@@ -2848,6 +2862,7 @@ async function notifySectorCompanies(req, id, idSetor, payload = {}) {
   if (!(await canManageSectorCompanies(req, row, setorId))) {
     throw new AppError("Sem permissão para notificar empresas deste setor.", 403);
   }
+  assertCanInviteCompanies(row);
   const [links] = await db.execute(
     `SELECT id_company, id_event_accreditation_company FROM event_accreditation_company
       WHERE id_event_accreditation = ? AND id_setor = ? AND indication_status = ?`,
@@ -2945,6 +2960,13 @@ async function notifyOwnerValidated(req, id, idCompany) {
   ) {
     throw new AppError("Valide a indicação antes de notificar o responsável.", 409);
   }
+  const [[{ total: indicados }]] = await db.execute(
+    "SELECT COUNT(*) AS total FROM event_accreditation_collaborator WHERE id_event_accreditation_company = ?",
+    [link.id_event_accreditation_company],
+  );
+  if (!Number(indicados)) {
+    throw new AppError("Esta empresa não indicou colaboradores; não há resultado para avisar ao responsável.", 409);
+  }
   if (isPhotoRequiredActive(row)) {
     const missing = await countMissingPhotos(link.id_event_accreditation_company);
     if (missing > 0) {
@@ -2980,6 +3002,7 @@ async function notifyCompanies(req, id, payload = {}) {
   if (!canManage && !canSector) {
     throw new AppError("Sem permissão para notificar empresas deste credenciamento.", 403);
   }
+  assertCanInviteCompanies(row);
 
   const sectorFilter = !canManage
     ? memberships.filter((m) => SECTOR_MANAGE_PAPEIS.includes(m.papel)).map((m) => m.id_setor)
