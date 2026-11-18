@@ -12,7 +12,7 @@ const {
   buildLinkNote,
   buildBrandedEmail,
 } = require("../email-templates/email-template.layout");
-const { createTokenPair } = require("./token.service");
+const { createTokenPair, revokeAllUserTokens } = require("./token.service");
 const { assertUserCanAccess } = require("../../utils/userDepartment");
 const { logger } = require("../../config/logger");
 
@@ -145,20 +145,33 @@ async function requestReset(email, req) {
   const expiresAt = new Date(Date.now() + RESET_TTL_HOURS * 60 * 60 * 1000);
   const companyName = user.company_name || user.fancy_name || "";
 
-  await invalidateActiveTokens(user.id);
-  await db.execute(
-    `INSERT INTO password_reset_tokens (id_usuario, token_hash, expires_at)
-     VALUES (?, ?, ?)`,
-    [user.id, tokenHash, expiresAt],
-  );
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await invalidateActiveTokens(user.id, conn);
+    await conn.execute(
+      `INSERT INTO password_reset_tokens (id_usuario, token_hash, expires_at)
+       VALUES (?, ?, ?)`,
+      [user.id, tokenHash, expiresAt],
+    );
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 
-  await sendResetEmail({
-    to: user.email,
-    nome: user.nome_completo,
-    companyName,
-    rawToken,
-    usuarioId: user.id,
-    requestId: req?.id || req?.requestId,
+  // Envio fora da resposta: tempo e erro de SMTP não podem revelar se o e-mail tem conta.
+  setImmediate(() => {
+    sendResetEmail({
+      to: user.email,
+      nome: user.nome_completo,
+      companyName,
+      rawToken,
+      usuarioId: user.id,
+      requestId: req?.id || req?.requestId,
+    }).catch(() => undefined);
   });
 
   return { message: GENERIC_MESSAGE };
@@ -201,6 +214,16 @@ async function completeReset(rawToken, password, req) {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
+    // Consome o token de forma atômica: dois envios com o mesmo link não trocam a senha duas vezes.
+    const [consumed] = await conn.execute(
+      `UPDATE password_reset_tokens
+          SET used_at = NOW()
+        WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW()`,
+      [hashToken(rawToken)],
+    );
+    if (consumed.affectedRows !== 1) {
+      throw new AppError("Este link já foi utilizado ou expirou. Solicite uma nova recuperação de senha.", 410);
+    }
     await conn.execute(`UPDATE usuarios SET senha_hash = ? WHERE id = ?`, [
       senhaHash,
       row.id_usuario,
@@ -211,6 +234,8 @@ async function completeReset(rawToken, password, req) {
         WHERE id_usuario = ? AND used_at IS NULL`,
       [row.id_usuario],
     );
+    // Senha nova encerra as sessões abertas com a senha antiga.
+    await revokeAllUserTokens(row.id_usuario, conn);
     await conn.commit();
   } catch (err) {
     await conn.rollback();

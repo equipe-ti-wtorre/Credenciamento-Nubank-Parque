@@ -126,8 +126,8 @@ async function revokeRefreshToken(refreshToken) {
   );
 }
 
-async function revokeAllUserTokens(userId) {
-  await db.execute(
+async function revokeAllUserTokens(userId, conn = db) {
+  await conn.execute(
     `UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL`,
     [userId],
   );
