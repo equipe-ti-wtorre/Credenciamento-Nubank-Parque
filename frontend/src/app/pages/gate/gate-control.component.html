@@ -536,7 +536,15 @@
         <div class="c-aprovador">
           <ng-container *ngIf="row.next_action === 'REJECTED'; else approvedBlock">
             <div *ngIf="row.rejected_by as rejector; else noRejector" class="approver">
-              <span class="approver-avatar" aria-hidden="true">{{ rejector.initials }}</span>
+              <img
+                *ngIf="approverPhotoUrl(rejector.id) as photo"
+                [src]="photo"
+                [alt]="rejector.name"
+                class="approver-avatar approver-avatar--photo"
+              />
+              <span *ngIf="!approverPhotoUrl(rejector.id)" class="approver-avatar" aria-hidden="true">{{
+                rejector.initials
+              }}</span>
               <div class="approver-text">
                 <div class="approver-name">{{ rejector.name }}</div>
                 <div class="approver-meta">
@@ -1156,6 +1164,7 @@
     [open]="showReleaseModal()"
     [target]="releaseTarget()"
     [operatorName]="operatorName()"
+    [initialPhotoUrl]="releaseInitialPhoto()"
     (close)="onReleaseClose()"
     (confirm)="onReleaseConfirm($event)"
     (pictureUpdated)="onReleasePictureUpdated($event)"

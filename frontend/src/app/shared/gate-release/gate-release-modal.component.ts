@@ -62,6 +62,8 @@ export class GateReleaseModalComponent implements OnChanges, OnDestroy {
   @Input() open = false;
   @Input() target: GateReleaseTarget | null = null;
   @Input() operatorName = '';
+  /** Miniatura já carregada na lista da portaria, para aparecer na hora. */
+  @Input() initialPhotoUrl: string | null = null;
 
   @Output() close = new EventEmitter<void>();
   @Output() confirm = new EventEmitter<GateReleaseResult>();
@@ -120,13 +122,20 @@ export class GateReleaseModalComponent implements OnChanges, OnDestroy {
   });
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['open'] || changes['target']) {
-      if (this.open && this.target) {
-        this.resetState();
-        this.loadPhoto(this.target.collaborator.picture);
-      } else if (!this.open) {
-        this.cleanupUrls();
-      }
+    const opened = !!(changes['open'] || changes['target']);
+    if (opened && this.open && this.target) {
+      this.resetState();
+      this.applyPhoto();
+      return;
+    }
+    if (opened && !this.open) {
+      this.cleanupUrls();
+      return;
+    }
+    if (changes['initialPhotoUrl'] && this.open && this.initialPhotoUrl && !this.photoUrl()) {
+      this.photoUrl.set(this.initialPhotoUrl);
+      this.photoLoading.set(false);
+      this.cdr.detectChanges();
     }
   }
 
@@ -142,21 +151,36 @@ export class GateReleaseModalComponent implements OnChanges, OnDestroy {
     this.withoutPhoto.set(false);
     this.capturedNow.set(false);
     this.photoBusy.set(false);
+    this.photoLoading.set(false);
     this.showWebcam.set(false);
     this.showFaceCrop.set(false);
   }
 
   private cleanupUrls(): void {
-    const photo = this.photoUrl();
-    if (photo) URL.revokeObjectURL(photo);
+    this.revokeOwnedPhoto(this.photoUrl());
     this.photoUrl.set(null);
     this.revokeFaceCropSource();
+  }
+
+  /** Não revoga a miniatura compartilhada com a lista da portaria. */
+  private revokeOwnedPhoto(url: string | null): void {
+    if (!url || !url.startsWith('blob:') || url === this.initialPhotoUrl) return;
+    URL.revokeObjectURL(url);
   }
 
   private revokeFaceCropSource(): void {
     const url = this.faceCropSourceUrl();
     if (url) URL.revokeObjectURL(url);
     this.faceCropSourceUrl.set(null);
+  }
+
+  private applyPhoto(): void {
+    if (this.initialPhotoUrl) {
+      this.photoUrl.set(this.initialPhotoUrl);
+      this.photoLoading.set(false);
+      return;
+    }
+    this.loadPhoto(this.target?.collaborator.picture);
   }
 
   private loadPhoto(picture: string | null | undefined): void {
@@ -297,8 +321,7 @@ export class GateReleaseModalComponent implements OnChanges, OnDestroy {
     this.collaboratorService.uploadPicture(id, file).subscribe({
       next: (res) => {
         this.photoBusy.set(false);
-        const previous = this.photoUrl();
-        if (previous) URL.revokeObjectURL(previous);
+        this.revokeOwnedPhoto(this.photoUrl());
         this.photoUrl.set(URL.createObjectURL(file));
         this.capturedNow.set(true);
         this.withoutPhoto.set(false);

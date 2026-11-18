@@ -298,7 +298,7 @@ export interface GateWeekDay {
 }
 
 export interface GateApprovedBy {
-  id?: number;
+  id?: number | string;
   name: string;
   initials: string;
   sector: string | null;

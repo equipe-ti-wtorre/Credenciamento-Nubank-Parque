@@ -397,9 +397,13 @@ async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId
     SELECT edcc.id_event_day_company_collaborator
     FROM event_day_company_collaborator edcc
     INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
-    WHERE edcc.id_collaborator = ? AND edc.id_event_day = ?
+    INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+    INNER JOIN event_day target ON target.id_event_day = ?
+    WHERE edcc.id_collaborator = ?
+      AND ed.id_event = target.id_event
+      AND ed.date = target.date
   `;
-  const params = [idCollaborator, idEventDay];
+  const params = [idEventDay, idCollaborator];
   if (excludeId != null) {
     sql += " AND edcc.id_event_day_company_collaborator <> ?";
     params.push(excludeId);
@@ -410,6 +414,34 @@ async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId
     throw new AppError(
       "Colaborador já possui credencial solicitada para este dia do evento.",
       409,
+      true,
+      null,
+      "CREDENTIAL_SAME_DAY",
+    );
+  }
+}
+
+/** Uma pessoa só pode ser indicada por uma empresa dentro do mesmo evento. */
+async function assertSingleCompanyOnEvent(idCollaborator, idEvent, idCompany) {
+  const [rows] = await db.execute(
+    `SELECT co.company_name
+       FROM event_day_company_collaborator edcc
+       INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+       INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+       INNER JOIN company co ON co.id_company = edc.id_company
+      WHERE edcc.id_collaborator = ?
+        AND ed.id_event = ?
+        AND edc.id_company <> ?
+      LIMIT 1`,
+    [idCollaborator, idEvent, idCompany],
+  );
+  if (rows.length > 0) {
+    throw new AppError(
+      `Colaborador já está indicado neste evento por ${rows[0].company_name}.`,
+      409,
+      true,
+      null,
+      "CREDENTIAL_OTHER_COMPANY",
     );
   }
 }
@@ -615,6 +647,11 @@ async function createCredential(req, data) {
   assertLinkedEventActive(link);
   await assertCanOperateOnLink(req, link);
 
+  await assertSingleCompanyOnEvent(
+    data.id_collaborator,
+    link.id_event,
+    link.id_company,
+  );
   await assertNoDuplicateOnEventDay(data.id_collaborator, link.id_event_day);
 
   const idRole = data.id_collaborator_role ?? collaborator.id_collaborator_role;
@@ -1049,7 +1086,28 @@ async function previewEventCompanyCredentialsBulk(req, idEvent, idCompany, file)
     );
     const existing = existingRows[0] || null;
     const roleId = await resolveOrCreateRoleId(parsed.roleDescription);
-    const status = existing ? "link" : "create";
+    let status = existing ? "link" : "create";
+    let message = existing
+      ? "Cadastro existente — será credenciado nos dias da empresa."
+      : "Novo colaborador — será cadastrado e credenciado.";
+    if (existing) {
+      const [otherCompany] = await db.execute(
+        `SELECT co.company_name
+           FROM event_day_company_collaborator edcc
+           INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
+           INNER JOIN event_day ed ON ed.id_event_day = edc.id_event_day
+           INNER JOIN company co ON co.id_company = edc.id_company
+          WHERE edcc.id_collaborator = ?
+            AND ed.id_event = ?
+            AND edc.id_company <> ?
+          LIMIT 1`,
+        [existing.id_collaborator, eventId, companyId],
+      );
+      if (otherCompany.length) {
+        status = "error";
+        message = `Colaborador já está indicado neste evento por ${otherCompany[0].company_name}.`;
+      }
+    }
     const item = {
       line,
       status,
@@ -1067,9 +1125,7 @@ async function previewEventCompanyCredentialsBulk(req, idEvent, idCompany, file)
             document: existing.document,
           }
         : undefined,
-      message: existing
-        ? "Cadastro existente — será credenciado nos dias da empresa."
-        : "Novo colaborador — será cadastrado e credenciado.",
+      message,
     };
     rows.push(item);
     sessionRows.push({
@@ -1157,8 +1213,7 @@ async function commitEventCompanyCredentialsBulk(req, idEvent, idCompany, { prev
         linked += 1;
       }
 
-      await collaboratorService.linkCollaboratorToCompany(collaboratorId, companyId);
-
+      let rowCreated = 0;
       for (const link of links) {
         try {
           await createCredential(req, {
@@ -1166,14 +1221,20 @@ async function commitEventCompanyCredentialsBulk(req, idEvent, idCompany, { prev
             id_collaborator: collaboratorId,
             id_collaborator_role: row.id_collaborator_role,
           });
-          credentialsCreated += 1;
+          rowCreated += 1;
         } catch (err) {
-          if (err.statusCode === 409 || /já credenciado|já existe|duplicad/i.test(err.message || "")) {
+          if (err.code === "CREDENTIAL_OTHER_COMPANY") throw err;
+          if (
+            err.code === "CREDENTIAL_SAME_DAY" ||
+            err.statusCode === 409 ||
+            /já credenciado|já existe|duplicad/i.test(err.message || "")
+          ) {
             continue;
           }
           throw err;
         }
       }
+      credentialsCreated += rowCreated;
     } catch (err) {
       errors.push({ line: row.line, reason: err.message || "Falha ao importar." });
     }

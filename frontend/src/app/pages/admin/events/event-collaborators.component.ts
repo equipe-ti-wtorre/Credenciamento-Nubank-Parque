@@ -1281,6 +1281,7 @@ export class EventCollaboratorsComponent implements OnInit {
     this.individualSubmitting.set(true);
     let done = 0;
     let ok = 0;
+    let conflictMessage = '';
     const finish = () => {
       done += 1;
       if (done >= linkIds.length) {
@@ -1291,7 +1292,9 @@ export class EventCollaboratorsComponent implements OnInit {
           const eventId = this.event()?.id_event;
           if (eventId) this.carregarCredenciais(eventId);
         } else {
-          this.notification.error('Este colaborador já possui credencial nos dias selecionados.');
+          this.notification.error(
+            conflictMessage || 'Este colaborador já possui credencial nos dias selecionados.',
+          );
         }
         this.cdr.markForCheck();
       }
@@ -1310,6 +1313,7 @@ export class EventCollaboratorsComponent implements OnInit {
           },
           error: (err) => {
             if (err instanceof HttpErrorResponse && err.status === 409) {
+              if (!conflictMessage) conflictMessage = this.extractError(err) || '';
               finish();
               return;
             }
