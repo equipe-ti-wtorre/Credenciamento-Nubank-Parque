@@ -140,6 +140,12 @@ export function isAdInternalUser(user: AuthUser | null | undefined): boolean {
 /** idle: inatividade; expired: sessão recusada pela API (sem sair do gateway). */
 export type LogoutReason = 'idle' | 'expired';
 
+/**
+ * Sessão do auth-gateway: o navegador manda o cookie httpOnly nbp_session à API e o front não guarda
+ * token. Este marcador só indica que há sessão (guards, inatividade); nunca vai no Authorization.
+ */
+export const GATEWAY_SESSION_MARKER = 'gateway-cookie';
+
 export interface AuthSession {
   auth?: boolean;
   accessToken?: string;
@@ -190,7 +196,7 @@ export class AuthService {
   }
 
   getAccessTokenSync(): string | null {
-    return this.accessTokenCache;
+    return this.accessTokenCache === GATEWAY_SESSION_MARKER ? null : this.accessTokenCache;
   }
 
   async saveSession(response: AuthSession, provider?: 'gateway') {
@@ -212,15 +218,46 @@ export class AuthService {
     void this.injector.get(SessionIdleService).resetAfterLogin();
   }
 
-  /** Sessão do auth-gateway → tokens locais. false se o gateway não tem sessão ativa. */
+  /**
+   * Entra com a sessão do auth-gateway: a API lê o cookie nbp_session, então só carrega o usuário
+   * (permissões) pelo /auth/me. false se o gateway não tem sessão ativa.
+   */
   async loginWithGateway(options: { navigate?: boolean } = {}): Promise<boolean> {
     if (!(await this.gateway.hasSession())) return false;
-    const res = await this.gateway.exchange();
-    await this.saveSession(res, 'gateway');
+    await this.startGatewaySession();
+    let res: { user: AuthUser };
+    try {
+      res = await firstValueFrom(this.api.get<{ user: AuthUser }>('/auth/me'));
+    } catch (err) {
+      // Ex.: 403 AWAITING_ACCESS (1º acesso sem perfil): não fica com sessão pela metade.
+      await this.clearLocalSession();
+      throw err;
+    }
+    await this.storage.set('currentUser', JSON.stringify(res.user));
+    void this.injector.get(SessionIdleService).resetAfterLogin();
     if (options.navigate !== false) {
       this.navigateAfterLogin();
     }
     return true;
+  }
+
+  /** Troca qualquer token guardado pelo marcador da sessão do gateway. */
+  private async startGatewaySession(): Promise<void> {
+    this.msalHandlingPaused = false;
+    this.accessTokenCache = GATEWAY_SESSION_MARKER;
+    this.refreshTokenCache = null;
+    await this.storage.set('token', GATEWAY_SESSION_MARKER);
+    await this.storage.remove('refreshToken');
+    await this.storage.set(AuthService.AUTH_PROVIDER_KEY, 'gateway');
+  }
+
+  private async clearLocalSession(): Promise<void> {
+    this.accessTokenCache = null;
+    this.refreshTokenCache = null;
+    await this.storage.remove('token');
+    await this.storage.remove('refreshToken');
+    await this.storage.remove('currentUser');
+    await this.storage.remove(AuthService.AUTH_PROVIDER_KEY);
   }
 
   private async isGatewaySession(): Promise<boolean> {
@@ -757,7 +794,17 @@ export class AuthService {
     return !!token;
   }
 
+  /**
+   * 401 da API. Sessão do gateway: o /me do gateway renova o cookie e a chamada é refeita
+   * (devolve o marcador). Sessão local (empresa, admin local, Teams): usa o refresh token.
+   */
   async refreshSession(): Promise<string | null> {
+    if (await this.isGatewaySession()) {
+      if (!(await this.gateway.hasSession())) return null;
+      await this.startGatewaySession();
+      return GATEWAY_SESSION_MARKER;
+    }
+
     const refreshToken =
       this.refreshTokenCache || (await this.storage.get('refreshToken'));
     if (!refreshToken) return null;
@@ -768,17 +815,6 @@ export class AuthService {
       );
       await this.saveSession(res);
       return res.accessToken || res.token || null;
-    } catch {
-      return this.renewFromGateway();
-    }
-  }
-
-  /** Refresh local venceu: se o gateway ainda tem sessão (o /me renova o cookie), refaz a troca. */
-  private async renewFromGateway(): Promise<string | null> {
-    if (!(await this.isGatewaySession())) return null;
-    try {
-      if (!(await this.loginWithGateway({ navigate: false }))) return null;
-      return this.accessTokenCache;
     } catch {
       return null;
     }

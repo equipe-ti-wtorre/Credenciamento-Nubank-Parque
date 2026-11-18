@@ -2,7 +2,6 @@ import { Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 import { PlatformService } from './platform.service';
-import type { AuthSession } from './auth.service';
 
 export interface GatewayConfig {
   enabled: boolean;
@@ -12,8 +11,8 @@ export interface GatewayConfig {
 const DISABLED: GatewayConfig = { enabled: false, url: null };
 
 /**
- * Login centralizado (auth-gateway). O cookie nbp_session é httpOnly no domínio pai:
- * o front só consulta o gateway e pede ao backend a troca pela sessão local.
+ * Login centralizado (auth-gateway). O cookie nbp_session é httpOnly no domínio pai e vai sozinho
+ * para a API, que o valida a cada chamada; o front só consulta o gateway (sessão, login e saída).
  */
 @Injectable({ providedIn: 'root' })
 export class GatewayAuthService {
@@ -52,10 +51,6 @@ export class GatewayAuthService {
     } catch {
       return false;
     }
-  }
-
-  exchange(): Promise<AuthSession> {
-    return firstValueFrom(this.api.post<AuthSession>('/auth/gateway/session', {}));
   }
 
   async redirectToLogin(): Promise<void> {

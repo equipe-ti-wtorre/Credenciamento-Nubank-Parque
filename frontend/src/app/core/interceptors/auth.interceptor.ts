@@ -16,7 +16,7 @@ import {
   finalize,
   take,
 } from 'rxjs';
-import { AuthService } from '../services/auth.service';
+import { AuthService, GATEWAY_SESSION_MARKER } from '../services/auth.service';
 import { ApiService } from '../services/api.service';
 import { SessionIdleService } from '../services/session-idle.service';
 
@@ -109,9 +109,11 @@ export class AuthInterceptor implements HttpInterceptor {
           }
           return throwError(() => error);
         }
-        const retry = req.clone({
-          setHeaders: { Authorization: `Bearer ${newToken}` },
-        });
+        // Sessão do gateway: o cookie renovado vai sozinho; nada de Authorization.
+        const retry =
+          newToken === GATEWAY_SESSION_MARKER
+            ? req
+            : req.clone({ setHeaders: { Authorization: `Bearer ${newToken}` } });
         return next.handle(retry);
       }),
       catchError((refreshErr) => {

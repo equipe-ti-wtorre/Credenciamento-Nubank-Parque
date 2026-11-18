@@ -22,7 +22,6 @@ router.post(
   authController.loginMicrosoft,
 );
 router.get("/gateway/config", authController.gatewayConfig);
-router.post("/gateway/session", microsoftAuthLimiter, authController.gatewaySession);
 router.post("/refresh", authController.refresh);
 router.post("/logout", authController.logout);
 router.post("/forgot-password", passwordResetLimiter, authController.forgotPassword);

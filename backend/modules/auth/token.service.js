@@ -5,7 +5,6 @@ const env = require("../../config/env");
 const AppError = require("../../utils/AppError");
 const { assertUserCanAccess } = require("../../utils/userDepartment");
 const profilesService = require("../profiles/profiles.service");
-const { isRevoked: isGatewaySessionRevoked } = require("./gateway.service");
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -94,7 +93,8 @@ async function refreshAccessToken(refreshToken, req) {
   if (!row.ativo) {
     throw new AppError("Usuário inativo.", 403);
   }
-  if (row.gateway_sid && isGatewaySessionRevoked(row.gateway_sid)) {
+  // Sessão do gateway não usa mais refresh local: o navegador manda o cookie nbp_session.
+  if (row.gateway_sid) {
     throw new AppError("Sua sessão foi encerrada. Entre novamente.", 401);
   }
 
@@ -134,7 +134,7 @@ async function revokeAllUserTokens(userId, conn = db) {
 }
 
 function verifyAccessToken(token) {
-  return jwt.verify(token, env.jwtSecret);
+  return jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
 }
 
 module.exports = {

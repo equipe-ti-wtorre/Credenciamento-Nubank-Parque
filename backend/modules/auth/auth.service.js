@@ -10,6 +10,8 @@ const { assertUserCanAccess, hasValidDepartment, DEPARTMENT_REQUIRED_MESSAGE } =
 const { createTokenPair } = require("./token.service");
 const { setAuditLoginContext } = require("../../observability/audit.auth");
 const profilesService = require("../profiles/profiles.service");
+const { logAudit } = require("../../utils/auditLogger");
+const { AUDIT_MODULES, AUDIT_ACTIONS } = require("../../observability/audit.constants");
 
 async function mapUserResponse(user) {
   const ctx = await profilesService.loadUserProfileContext(user.id);
@@ -69,8 +71,9 @@ async function loginLocal(username, password, req) {
     new AppError("Usuário ou senha inválidos.", 401);
 
   if (!user) throw credentialsError();
-  if (user.is_ad_user === 1 && !user.senha_hash) {
-    throw new AppError('Use "Entrar com Microsoft".', 400);
+  // Conta do Entra entra só pelo login corporativo (auth-gateway), nunca por senha.
+  if (Number(user.is_ad_user) === 1) {
+    throw new AppError('Conta corporativa: use "Entrar com Microsoft".', 400);
   }
   if (!user.senha_hash) throw credentialsError();
 
@@ -118,25 +121,59 @@ async function loginMicrosoft(azureUser, req) {
   return await buildAuthResponse(tokens, userLocal);
 }
 
-/** Sessão do auth-gateway (payload do JWT já validado) → tokens locais vinculados ao jti. */
-async function loginGateway(payload, req) {
-  setAuditLoginContext(req, { provider: "gateway" });
+const seenGatewaySessions = new Set();
 
-  const userLocal = await resolveMicrosoftUser(
-    {
-      oid: payload.oid,
-      email: payload.email || payload.sub || null,
-      nome: payload.name,
-      tid: payload.tid || null,
-    },
-    req,
-    "gateway",
-  );
-  const tokens = await createTokenPair(userLocal, req, {
-    gatewaySid: payload.jti || null,
-    gatewayExp: payload.exp || null,
-  });
-  return await buildAuthResponse(tokens, userLocal);
+/** Registra o login uma vez por sessão do gateway (jti), no 1º uso da API. */
+function noteGatewayLogin(payload, user, req) {
+  const key = payload.jti || `${payload.oid}:${payload.iat}`;
+  if (seenGatewaySessions.has(key)) return;
+  if (seenGatewaySessions.size > 5000) seenGatewaySessions.clear();
+  seenGatewaySessions.add(key);
+  Promise.resolve(
+    logAudit({
+      userId: user.id,
+      action: AUDIT_ACTIONS.LOGIN_MICROSOFT,
+      module: AUDIT_MODULES.AUTH,
+      req,
+      metadata: { event: "auth.login_gateway", outcome: "success", provider: "gateway" },
+    }),
+  ).catch(() => undefined);
+}
+
+/**
+ * Usuário da sessão do auth-gateway (payload já validado), pelo oid. No 1º acesso cria o usuário
+ * sem perfil, pelo mesmo caminho do login Microsoft (departamento obrigatório).
+ */
+async function resolveGatewayUser(payload, req) {
+  const findByOid = async () => {
+    const [rows] = await db.execute(
+      "SELECT id, ativo FROM usuarios WHERE microsoft_id = ? LIMIT 1",
+      [payload.oid],
+    );
+    return rows[0] || null;
+  };
+  let user = await findByOid();
+  if (!user) {
+    try {
+      user = await resolveMicrosoftUser(
+        {
+          oid: payload.oid,
+          email: payload.email || payload.sub || null,
+          nome: payload.name,
+          tid: payload.tid || null,
+        },
+        req,
+        "gateway",
+      );
+    } catch (err) {
+      // Várias chamadas simultâneas no 1º acesso: só uma insere.
+      if (err.code !== "ER_DUP_ENTRY") throw err;
+      user = await findByOid();
+      if (!user) throw err;
+    }
+  }
+  noteGatewayLogin(payload, user, req);
+  return user;
 }
 
 /**
@@ -186,8 +223,8 @@ async function resolveMicrosoftUser({ oid, email, nome, tid }, req, provider) {
 
   const departamento = graphProfile.departamento;
   const nomeCompleto = graphProfile.displayName || nome || email.split("@")[0];
-  const defaultProfile = await profilesService.getProfileByCodigo("USER");
-  const defaultProfileId = defaultProfile?.id || null;
+  // 1º acesso entra sem perfil ("aguardando liberação"); o administrador do sistema define o perfil.
+  const defaultProfileId = null;
 
   if (!userLocal) {
     const [byEmail] = await db.execute(
@@ -295,7 +332,7 @@ module.exports = {
   buildAuthResponse,
   loginLocal,
   loginMicrosoft,
-  loginGateway,
+  resolveGatewayUser,
   getMe,
   getProfilePhoto,
 };

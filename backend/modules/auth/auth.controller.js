@@ -5,7 +5,6 @@ const { buildAuditMetadata, buildHttpContext } = require("../../observability/au
 const { setAuditLoginContext } = require("../../observability/audit.auth");
 const authService = require("./auth.service");
 const gatewayService = require("./gateway.service");
-const env = require("../../config/env");
 const {
   loginSchema,
   refreshSchema,
@@ -71,46 +70,6 @@ exports.loginMicrosoft = async (req, res, next) => {
 
 exports.gatewayConfig = (req, res) => {
   res.json(gatewayService.publicConfig());
-};
-
-exports.gatewaySession = async (req, res, next) => {
-  try {
-    setAuditLoginContext(req, { provider: "gateway" });
-    if (!env.authGateway.enabled) {
-      throw new AppError("Login centralizado desativado.", 404, true, null, "GATEWAY_DISABLED");
-    }
-    const token = gatewayService.readGatewayCookie(req);
-    if (!token) {
-      throw new AppError("Faça login para continuar.", 401, true, null, "UNAUTHENTICATED");
-    }
-    let payload;
-    try {
-      payload = await gatewayService.verifyGatewayToken(token);
-    } catch (err) {
-      const { logger } = require("../../config/logger");
-      logger.warn({ err: err?.message }, "Falha ao validar o token do gateway");
-      throw new AppError("Sua sessão expirou. Entre novamente.", 401, true, null, "SESSION_INVALID");
-    }
-
-    const result = await authService.loginGateway(payload, req);
-    await logAudit({
-      userId: result.user.id,
-      action: AUDIT_ACTIONS.LOGIN_MICROSOFT,
-      module: AUDIT_MODULES.AUTH,
-      req,
-      metadata: buildAuditMetadata({
-        event: "auth.login_gateway",
-        outcome: "success",
-        provider: "gateway",
-        resource: { type: "user", id: result.user.id, email: result.user.email },
-        http: buildHttpContext(req, { statusCode: 200 }),
-      }),
-    });
-    markAuditLogged(req);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
 };
 
 exports.refresh = async (req, res, next) => {
