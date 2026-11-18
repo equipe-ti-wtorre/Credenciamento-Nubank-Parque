@@ -60,7 +60,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
         </div>
       </div>
 
-      <div class="card-surface tabela-rolavel tabela-rolavel--acoes">
+      <div class="card-surface tabela-rolavel">
         <table class="w-full text-sm">
           <thead class="table-head sticky top-0 bg-slate-50 z-10">
             <tr>

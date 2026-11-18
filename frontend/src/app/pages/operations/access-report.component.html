@@ -337,13 +337,13 @@
 
   <!-- Tabela -->
   <div class="table-card">
-    <div class="table-scroll">
+    <div class="table-scroll tabela-rolavel">
       <table class="rel">
         <thead>
           <tr>
             <th>Entrada</th>
             <th>Saída</th>
-            <th>Origem</th>
+            <th class="rel-col-origem">Origem</th>
             <th>Pessoa / Veículo</th>
             <th>Documento / Placa</th>
             <th>Contexto</th>
@@ -367,7 +367,7 @@
                 </span>
                 <span *ngIf="!item.check_out" class="empty-cell">—</span>
               </td>
-              <td>
+              <td class="rel-col-origem">
                 <span
                   class="pill-origem"
                   [class.veiculo]="item.source_key === 'service_vehicle'"

@@ -37,7 +37,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
         <button type="button" class="btn-action-primary" (click)="abrirModal()">+ Novo local</button>
       </div>
 
-      <div class="card-surface tabela-rolavel tabela-rolavel--acoes">
+      <div class="card-surface tabela-rolavel">
         <table class="w-full text-sm">
           <thead class="table-head bg-slate-50">
             <tr>

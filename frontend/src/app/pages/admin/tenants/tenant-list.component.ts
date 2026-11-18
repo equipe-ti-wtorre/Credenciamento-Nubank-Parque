@@ -144,7 +144,7 @@ export interface TenantDashboardItem extends AzureTenant {
         <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
           <h3 class="text-xs font-bold text-slate-500 uppercase">Detalhes cadastrais</h3>
         </div>
-        <div class="tabela-rolavel tabela-rolavel--acoes">
+        <div class="tabela-rolavel">
           <table class="w-full text-sm">
             <thead class="table-head">
               <tr>

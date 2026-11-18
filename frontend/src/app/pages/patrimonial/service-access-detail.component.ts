@@ -665,7 +665,7 @@ type ModalMode = 'search' | 'create';
           <p class="text-xs text-slate-500 mb-3">
             Inclua ou remova na lista e clique em <strong>Salvar</strong> para gravar e notificar os aprovadores uma única vez.
           </p>
-          <div class="tabela-rolavel tabela-rolavel--acoes">
+          <div class="tabela-rolavel">
             <table class="w-full text-sm">
               <thead>
                 <tr class="text-xs uppercase text-slate-500 border-b">
@@ -836,7 +836,7 @@ type ModalMode = 'search' | 'create';
           <p class="text-xs text-slate-500 mb-3">
             Inclua ou remova na lista e clique em <strong>Salvar</strong> para gravar e notificar os aprovadores uma única vez.
           </p>
-          <div class="tabela-rolavel tabela-rolavel--acoes">
+          <div class="tabela-rolavel">
             <table class="w-full text-sm">
               <thead>
                 <tr class="text-xs uppercase text-slate-500 border-b">

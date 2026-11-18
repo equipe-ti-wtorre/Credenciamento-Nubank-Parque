@@ -119,7 +119,7 @@ function fmtDateTimeShort(value?: string | null): string {
         }
       </div>
 
-      <div class="eal-tablecard tabela-rolavel tabela-rolavel--acoes">
+      <div class="eal-tablecard tabela-rolavel">
         <table>
           <thead>
             <tr>
@@ -129,7 +129,7 @@ function fmtDateTimeShort(value?: string | null): string {
                   <svg class="eal-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>
                 </button>
               </th>
-              <th><div class="eal-th">Tipo</div></th>
+              <th class="eal-col-tipo"><div class="eal-th">Tipo</div></th>
               <th [attr.aria-sort]="ariaSort('data')">
                 <button class="eal-th" type="button" (click)="toggleSort('data')">
                   Data do evento
@@ -177,6 +177,9 @@ function fmtDateTimeShort(value?: string | null): string {
                           @if (e.internal_enabled) {
                             <span class="eal-chip eal-chip--ad eal-chip--plain">Colaborador Interno</span>
                           }
+                          <span class="eal-chip eal-chip--plain eal-tipo-inline" [ngClass]="kindChipClass(e.event_kind)">
+                            {{ kindLabel(e.event_kind) }}
+                          </span>
                         </div>
                         <div class="eal-evento__sub">
                           {{ setoresLabel(e) }}
@@ -185,7 +188,7 @@ function fmtDateTimeShort(value?: string | null): string {
                       </div>
                     </div>
                   </td>
-                  <td data-k="Tipo">
+                  <td class="eal-col-tipo" data-k="Tipo">
                     <span class="eal-chip eal-chip--plain" [ngClass]="kindChipClass(e.event_kind)">
                       {{ kindLabel(e.event_kind) }}
                     </span>
@@ -198,9 +201,9 @@ function fmtDateTimeShort(value?: string | null): string {
                   </td>
                   <td data-k="Inscrições">
                     <div class="eal-prazo__v">
-                      {{ fmtDateTimeShort(e.inscription_start) }}
+                      <span class="eal-nw">{{ fmtDateTimeShort(e.inscription_start) }}</span>
                       <span class="eal-seta">→</span>
-                      {{ fmtDateTimeShort(e.inscription_end) }}
+                      <span class="eal-nw">{{ fmtDateTimeShort(e.inscription_end) }}</span>
                     </div>
                     <div class="eal-prazo__r" [ngClass]="prazoInfo(e).cls">{{ prazoInfo(e).txt }}</div>
                     <div class="eal-bar"><i [class.eal-low]="prazoInfo(e).cls !== 'off'" [style.width.%]="prazoInfo(e).pct"></i></div>
@@ -689,8 +692,8 @@ function fmtDateTimeShort(value?: string | null): string {
         background: #efe9f5;
         overflow: hidden;
         margin-top: 7px;
-        width: 172px;
-        max-width: 100%;
+        width: 100%;
+        max-width: 172px;
       }
       .eal-bar i {
         display: block;
@@ -719,6 +722,53 @@ function fmtDateTimeShort(value?: string | null): string {
       }
       .eal-acoes .action-menu {
         justify-content: flex-end;
+      }
+      .eal-nw {
+        white-space: nowrap;
+      }
+      .eal-tipo-inline {
+        display: none;
+      }
+      /* Área estreita (notebook com zoom): a tabela cabe sem rolagem lateral */
+      @container (max-width: 1300px) {
+        .eal-th {
+          padding: 11px 10px;
+        }
+        .eal tbody td {
+          padding: 6px 10px;
+        }
+        .eal-c-evento {
+          padding-left: 8px;
+        }
+        .eal-thumb {
+          width: 64px;
+          height: 48px;
+          flex-basis: 64px;
+        }
+        .eal-prazo__v,
+        .eal-prog {
+          white-space: normal;
+        }
+        .eal tbody .eal-chip:not(.eal-chip--plain) {
+          white-space: normal;
+          height: auto;
+          min-height: 24px;
+          padding: 3px 10px;
+          line-height: 1.25;
+        }
+      }
+      @container (max-width: 1100px) {
+        .eal-col-tipo {
+          display: none;
+        }
+        .eal-tipo-inline {
+          display: inline-flex;
+        }
+      }
+      @container (max-width: 960px) {
+        .eal-thumb {
+          display: none;
+        }
       }
       .eal-foot {
         display: flex;
@@ -871,10 +921,6 @@ function fmtDateTimeShort(value?: string | null): string {
       @media (max-width: 920px) {
         .eal thead {
           display: none;
-        }
-        .eal tbody td:last-child {
-          position: static;
-          box-shadow: none;
         }
         .eal tbody tr {
           display: grid;

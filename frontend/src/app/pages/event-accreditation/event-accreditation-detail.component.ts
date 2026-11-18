@@ -674,7 +674,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 <p class="ead-empty__d">Quando o credenciamento interno está ligado, os usuários AD se inscrevem sozinhos.</p>
               </div>
             } @else {
-              <div class="tabela-rolavel tabela-rolavel--acoes">
+              <div class="tabela-rolavel">
                 <table class="ead-tabela">
                   <thead>
                     <tr>
@@ -1072,7 +1072,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 />
               </div>
               @let rows = filteredCollaborators(company);
-              <div class="tabela-rolavel tabela-rolavel--acoes">
+              <div class="tabela-rolavel">
                 <table class="ead-tabela">
                   <thead>
                     <tr>
