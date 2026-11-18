@@ -272,7 +272,7 @@
     minmax(88px, 0.8fr)
     minmax(130px, 1.05fr)
     minmax(72px, 0.65fr)
-    minmax(132px, 0.85fr)
+    minmax(150px, 0.95fr)
     auto;
   gap: 12px 14px;
   align-items: center;
@@ -468,15 +468,17 @@
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  border-radius: 99px;
+  border-radius: 14px;
   padding: 4px 10px;
-  white-space: nowrap;
+  max-width: 100%;
+  line-height: 1.25;
 }
 
 .ap-st::before {
   content: '';
   width: 6px;
   height: 6px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: currentColor;
 }
@@ -672,7 +674,7 @@
   color: var(--text-muted);
 }
 
-@container (max-width: 1080px) {
+@container (max-width: 1200px) {
   .ap-lh {
     display: none;
   }

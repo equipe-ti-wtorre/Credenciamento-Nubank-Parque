@@ -134,7 +134,7 @@ interface TestResult {
             acompanhe o histórico de envios.
           </p>
         </div>
-        <div *ngIf="activeTab === 'config'" class="flex flex-wrap gap-2 shrink-0">
+        <div *ngIf="activeTab === 'config'" class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="setTab('teste')" class="btn-action-secondary" [disabled]="!status?.configured">
             Enviar teste
           </button>
@@ -142,12 +142,12 @@ interface TestResult {
             {{ saving ? 'Salvando...' : 'Salvar configuração' }}
           </button>
         </div>
-        <div *ngIf="activeTab === 'teste'" class="flex flex-wrap gap-2 shrink-0">
+        <div *ngIf="activeTab === 'teste'" class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="carregarStatus()" class="btn-action-secondary" [disabled]="loadingStatus">
             {{ loadingStatus ? 'Atualizando...' : 'Atualizar status' }}
           </button>
         </div>
-        <div *ngIf="activeTab === 'limites'" class="flex flex-wrap gap-2 shrink-0">
+        <div *ngIf="activeTab === 'limites'" class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="carregarLimites()" class="btn-action-secondary" [disabled]="loadingLimits || savingLimits">
             Descartar alterações
           </button>
@@ -155,7 +155,7 @@ interface TestResult {
             {{ savingLimits ? 'Aplicando...' : 'Salvar e aplicar limites' }}
           </button>
         </div>
-        <div *ngIf="activeTab === 'historico'" class="flex flex-wrap gap-2 shrink-0">
+        <div *ngIf="activeTab === 'historico'" class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="setTab('teste')" class="btn-action-secondary" [disabled]="!status?.configured">
             Enviar teste
           </button>
@@ -616,7 +616,7 @@ interface TestResult {
           </div>
         </div>
 
-        <div class="card-surface overflow-hidden">
+        <div class="card-surface tabela-rolavel">
           <table class="w-full text-sm">
             <thead class="table-head sticky top-0 bg-slate-50 z-10">
               <tr>

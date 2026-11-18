@@ -144,49 +144,51 @@ export interface TenantDashboardItem extends AzureTenant {
         <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
           <h3 class="text-xs font-bold text-slate-500 uppercase">Detalhes cadastrais</h3>
         </div>
-        <table class="w-full text-sm">
-          <thead class="table-head">
-            <tr>
-              <th class="px-4 py-3">Nome</th>
-              <th class="px-4 py-3">Tenant ID</th>
-              <th class="px-4 py-3">Client ID</th>
-              <th class="px-4 py-3">Status</th>
-              <th class="px-4 py-3 text-right">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let t of dashboardItems()" class="border-t border-slate-100 hover:bg-slate-50">
-              <td class="px-4 py-3 font-medium text-slate-800">{{ t.nome }}</td>
-              <td class="px-4 py-3 font-mono text-xs truncate max-w-[160px] text-slate-600" [title]="t.azure_tenant_id">
-                {{ t.azure_tenant_id }}
-              </td>
-              <td class="px-4 py-3 font-mono text-xs truncate max-w-[160px] text-slate-600" [title]="t.client_id">
-                {{ t.client_id }}
-              </td>
-              <td class="px-4 py-3">
-                <span
-                  class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
-                  [class.bg-emerald-100]="t.connectionStatus === 'ok'"
-                  [class.text-emerald-800]="t.connectionStatus === 'ok'"
-                  [class.bg-rose-100]="t.connectionStatus === 'error'"
-                  [class.text-rose-800]="t.connectionStatus === 'error'"
-                  [class.bg-slate-100]="t.connectionStatus === 'inactive'"
-                  [class.text-slate-600]="t.connectionStatus === 'inactive'"
-                  [class.bg-amber-100]="t.connectionStatus === 'unknown'"
-                  [class.text-amber-800]="t.connectionStatus === 'unknown'"
-                >
-                  {{ statusLabel(t.connectionStatus) }}
-                </span>
-              </td>
-              <td class="px-4 py-3">
-                <ng-container *ngTemplateOutlet="tenantActions; context: { $implicit: t }"></ng-container>
-              </td>
-            </tr>
-            <tr *ngIf="dashboardItems().length === 0 && !loading()">
-              <td colspan="5" class="px-4 py-8 text-center text-slate-500">Nenhum tenant cadastrado.</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="tabela-rolavel">
+          <table class="w-full text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3">Nome</th>
+                <th class="px-4 py-3">Tenant ID</th>
+                <th class="px-4 py-3">Client ID</th>
+                <th class="px-4 py-3">Status</th>
+                <th class="px-4 py-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let t of dashboardItems()" class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3 font-medium text-slate-800">{{ t.nome }}</td>
+                <td class="px-4 py-3 font-mono text-xs truncate max-w-[160px] text-slate-600" [title]="t.azure_tenant_id">
+                  {{ t.azure_tenant_id }}
+                </td>
+                <td class="px-4 py-3 font-mono text-xs truncate max-w-[160px] text-slate-600" [title]="t.client_id">
+                  {{ t.client_id }}
+                </td>
+                <td class="px-4 py-3">
+                  <span
+                    class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                    [class.bg-emerald-100]="t.connectionStatus === 'ok'"
+                    [class.text-emerald-800]="t.connectionStatus === 'ok'"
+                    [class.bg-rose-100]="t.connectionStatus === 'error'"
+                    [class.text-rose-800]="t.connectionStatus === 'error'"
+                    [class.bg-slate-100]="t.connectionStatus === 'inactive'"
+                    [class.text-slate-600]="t.connectionStatus === 'inactive'"
+                    [class.bg-amber-100]="t.connectionStatus === 'unknown'"
+                    [class.text-amber-800]="t.connectionStatus === 'unknown'"
+                  >
+                    {{ statusLabel(t.connectionStatus) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3">
+                  <ng-container *ngTemplateOutlet="tenantActions; context: { $implicit: t }"></ng-container>
+                </td>
+              </tr>
+              <tr *ngIf="dashboardItems().length === 0 && !loading()">
+                <td colspan="5" class="px-4 py-8 text-center text-slate-500">Nenhum tenant cadastrado.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <ng-template #tenantActions let-t>

@@ -44,6 +44,8 @@ import { GlobalSearchComponent } from './global-search.component';
 import { TeamsContextService } from '../services/teams-context.service';
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
+/** Abaixo desta largura (notebook com zoom 125%/150%) o menu começa recolhido. */
+const NARROW_SCREEN_QUERY = '(max-width: 1199.98px)';
 const SIDEBAR_NAV_GROUPS_KEY_PREFIX = 'sidebarNavGroups:';
 const DEFAULT_TITLE = 'Credenciamento';
 
@@ -84,7 +86,20 @@ interface NavGroup {
 export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('navScroll') private navScrollRef?: ElementRef<HTMLElement>;
 
-  collapsed = signal(false);
+  /** Preferência salva do usuário (vale em telas largas). */
+  private readonly collapsedPref = signal(false);
+  private readonly narrowQuery = window.matchMedia(NARROW_SCREEN_QUERY);
+  private readonly narrowScreen = signal(this.narrowQuery.matches);
+  /** Em tela estreita o menu abre só enquanto a pessoa quiser; não altera a preferência salva. */
+  private readonly narrowExpanded = signal(false);
+  private readonly onNarrowChange = (e: MediaQueryListEvent) => {
+    this.narrowScreen.set(e.matches);
+    this.narrowExpanded.set(false);
+    this.scheduleNavScrollHintUpdate();
+  };
+  readonly collapsed = computed(() =>
+    this.narrowScreen() ? !this.narrowExpanded() : this.collapsedPref(),
+  );
   pageTitle = signal(DEFAULT_TITLE);
   isGatePage = signal(false);
   pendingApprovals = signal(0);
@@ -207,7 +222,8 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
 
   async ngOnInit() {
     const storedCollapsed = await this.storage.get(SIDEBAR_COLLAPSED_KEY);
-    this.collapsed.set(storedCollapsed === '1');
+    this.collapsedPref.set(storedCollapsed === '1');
+    this.narrowQuery.addEventListener('change', this.onNarrowChange);
 
     void this.theme.syncFromApi();
     void this.sessionIdle.startMonitoring();
@@ -267,6 +283,7 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.routerSub?.unsubscribe();
     this.navResizeObserver?.disconnect();
+    this.narrowQuery.removeEventListener('change', this.onNarrowChange);
     if (this.navHintRaf) cancelAnimationFrame(this.navHintRaf);
   }
 
@@ -459,8 +476,13 @@ export class MainLayoutComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async toggleSidebar() {
-    const next = !this.collapsed();
-    this.collapsed.set(next);
+    if (this.narrowScreen()) {
+      this.narrowExpanded.update((v) => !v);
+      this.scheduleNavScrollHintUpdate();
+      return;
+    }
+    const next = !this.collapsedPref();
+    this.collapsedPref.set(next);
     await this.storage.set(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
     this.scheduleNavScrollHintUpdate();
   }

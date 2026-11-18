@@ -56,7 +56,7 @@ function formatPeriodBr(
             Cadastro de acessos com período, finalidade e vínculo de colaboradores e veículos.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" class="btn-secondary" (click)="carregar()" [disabled]="loading()">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
@@ -65,14 +65,14 @@ function formatPeriodBr(
       </div>
 
       <div class="card-surface overflow-hidden sa-list__desktop">
-        <div class="sa-list__scroll">
+        <div class="sa-list__scroll tabela-rolavel">
           <table class="w-full text-sm sa-list__table">
             <thead class="table-head bg-slate-50">
               <tr>
                 <th class="px-4 py-3 text-left">Evento</th>
                 <th class="px-4 py-3 text-left">Período</th>
                 <th class="px-4 py-3 text-left hidden lg:table-cell">Time aprovador</th>
-                <th class="px-4 py-3 text-left hidden md:table-cell">Solicitante</th>
+                <th class="px-4 py-3 text-left hidden md:table-cell col-sec">Solicitante</th>
                 <th class="px-4 py-3 text-center">Colab.</th>
                 <th class="px-4 py-3 text-center">Veíc.</th>
                 <th class="px-4 py-3 text-left">Aprovação</th>
@@ -93,7 +93,7 @@ function formatPeriodBr(
                 <td class="px-4 py-3 text-slate-600 hidden lg:table-cell">
                   {{ s.setor_nome || s.requesting_department }}
                 </td>
-                <td class="px-4 py-3 text-slate-600 hidden md:table-cell">
+                <td class="px-4 py-3 text-slate-600 hidden md:table-cell col-sec">
                   {{ s.solicitante?.nome || '—' }}
                 </td>
                 <td class="px-4 py-3 text-center tabular-nums text-slate-700 font-medium">

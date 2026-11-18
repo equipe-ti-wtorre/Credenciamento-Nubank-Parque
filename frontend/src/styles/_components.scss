@@ -883,3 +883,28 @@
     transition: none !important;
   }
 }
+
+/* =========================================================
+   Tabelas em telas estreitas (notebook com zoom 125%/150%)
+   .tabela-rolavel: a tabela se ajusta à largura disponível (menos
+   espaçamento nas células e colunas secundárias escondidas); a rolagem
+   horizontal fica só como último recurso.
+   .col-sec: coluna escondida quando a área da tabela tem menos de 900px.
+   ========================================================= */
+.tabela-rolavel {
+  overflow-x: auto;
+  container-type: inline-size;
+}
+
+@container (max-width: 1100px) {
+  .tabela-rolavel :is(th, td) {
+    padding-left: 0.625rem;
+    padding-right: 0.625rem;
+  }
+}
+
+@container (max-width: 900px) {
+  .tabela-rolavel .col-sec {
+    display: none;
+  }
+}

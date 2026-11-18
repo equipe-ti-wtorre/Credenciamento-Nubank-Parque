@@ -36,7 +36,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
             Gestores e solicitantes vinculados às empresas cadastradas.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="carregar()" [disabled]="loading()" class="btn-secondary disabled:opacity-50">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
@@ -91,7 +91,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
         </div>
       </div>
 
-      <div class="card-surface overflow-hidden">
+      <div class="card-surface tabela-rolavel">
         <table class="w-full text-sm">
           <thead class="table-head sticky top-0 bg-slate-50 z-10">
             <tr>

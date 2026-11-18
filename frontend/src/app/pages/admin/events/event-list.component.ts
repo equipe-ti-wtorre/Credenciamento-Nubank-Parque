@@ -44,7 +44,7 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
             Orquestração de eventos, dias de operação e empresas permitidas por dia.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="carregar()" [disabled]="loading()" class="btn-action-secondary disabled:opacity-50">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
@@ -79,7 +79,7 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
         </div>
       </div>
 
-      <div class="card-surface overflow-hidden">
+      <div class="card-surface tabela-rolavel">
         <table class="w-full text-sm">
           <thead class="table-head sticky top-0 bg-slate-50 z-10">
             <tr>

@@ -473,7 +473,21 @@ select.field {
 table.rel {
   width: 100%;
   border-collapse: collapse;
-  min-width: 960px;
+}
+
+@container (max-width: 1100px) {
+  .rel thead th,
+  .rel tbody td {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+/* Coluna de menor prioridade: some primeiro quando falta espaço */
+@container (max-width: 820px) {
+  .rel .rel-col-origem {
+    display: none;
+  }
 }
 
 .rel thead th {

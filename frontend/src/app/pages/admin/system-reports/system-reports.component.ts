@@ -164,52 +164,54 @@ type ReportTab = 'audit' | 'errors';
         <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
           <h3 class="text-xs font-bold text-slate-500 uppercase">Logs de auditoria</h3>
         </div>
-        <table class="w-full text-sm">
-          <thead class="table-head sticky top-0 bg-slate-50 z-10">
-            <tr>
-              <th class="px-4 py-3 text-left">Data</th>
-              <th class="px-4 py-3 text-left">Usuário</th>
-              <th class="px-4 py-3 text-left">Ação</th>
-              <th class="px-4 py-3 text-left">Módulo</th>
-              <th class="px-4 py-3 text-left">IP</th>
-              <th class="px-4 py-3 text-left">Request ID</th>
-              <th class="px-4 py-3 text-left">Detalhes</th>
-            </tr>
-          </thead>
-          <tbody>
-            <ng-container *ngIf="!loading; else loadingRow">
-              <tr
-                *ngFor="let item of auditItems"
-                class="border-t border-slate-100 hover:bg-slate-50"
-              >
-                <td class="px-4 py-3 text-slate-600 whitespace-nowrap">
-                  {{ item.created_at | date: 'dd/MM/yy HH:mm:ss' }}
-                </td>
-                <td class="px-4 py-3">{{ item.user_id ?? '—' }}</td>
-                <td class="px-4 py-3 font-medium">{{ item.action }}</td>
-                <td class="px-4 py-3">{{ item.module }}</td>
-                <td class="px-4 py-3 text-xs text-slate-600">{{ item.ip || '—' }}</td>
-                <td class="px-4 py-3 text-xs font-mono truncate max-w-[120px]" [title]="item.request_id || ''">
-                  {{ item.request_id || '—' }}
-                </td>
-                <td class="px-4 py-3">
-                  <button
-                    type="button"
-                    (click)="verDetalheAuditoria(item)"
-                    class="text-sm text-[var(--color-primary-dark)] hover:underline"
-                  >
-                    Ver
-                  </button>
-                </td>
+        <div class="tabela-rolavel">
+          <table class="w-full text-sm">
+            <thead class="table-head sticky top-0 bg-slate-50 z-10">
+              <tr>
+                <th class="px-4 py-3 text-left">Data</th>
+                <th class="px-4 py-3 text-left">Usuário</th>
+                <th class="px-4 py-3 text-left">Ação</th>
+                <th class="px-4 py-3 text-left">Módulo</th>
+                <th class="px-4 py-3 text-left">IP</th>
+                <th class="px-4 py-3 text-left">Request ID</th>
+                <th class="px-4 py-3 text-left">Detalhes</th>
               </tr>
-              <tr *ngIf="auditItems.length === 0">
-                <td colspan="7" class="px-4 py-8 text-center text-slate-500">
-                  Nenhum registro de auditoria encontrado.
-                </td>
-              </tr>
-            </ng-container>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <ng-container *ngIf="!loading; else loadingRow">
+                <tr
+                  *ngFor="let item of auditItems"
+                  class="border-t border-slate-100 hover:bg-slate-50"
+                >
+                  <td class="px-4 py-3 text-slate-600 whitespace-nowrap">
+                    {{ item.created_at | date: 'dd/MM/yy HH:mm:ss' }}
+                  </td>
+                  <td class="px-4 py-3">{{ item.user_id ?? '—' }}</td>
+                  <td class="px-4 py-3 font-medium">{{ item.action }}</td>
+                  <td class="px-4 py-3">{{ item.module }}</td>
+                  <td class="px-4 py-3 text-xs text-slate-600">{{ item.ip || '—' }}</td>
+                  <td class="px-4 py-3 text-xs font-mono truncate max-w-[120px]" [title]="item.request_id || ''">
+                    {{ item.request_id || '—' }}
+                  </td>
+                  <td class="px-4 py-3">
+                    <button
+                      type="button"
+                      (click)="verDetalheAuditoria(item)"
+                      class="text-sm text-[var(--color-primary-dark)] hover:underline"
+                    >
+                      Ver
+                    </button>
+                  </td>
+                </tr>
+                <tr *ngIf="auditItems.length === 0">
+                  <td colspan="7" class="px-4 py-8 text-center text-slate-500">
+                    Nenhum registro de auditoria encontrado.
+                  </td>
+                </tr>
+              </ng-container>
+            </tbody>
+          </table>
+        </div>
         <ng-container *ngTemplateOutlet="paginationBar"></ng-container>
       </div>
 
@@ -217,64 +219,66 @@ type ReportTab = 'audit' | 'errors';
         <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
           <h3 class="text-xs font-bold text-slate-500 uppercase">Logs de erros</h3>
         </div>
-        <table class="w-full text-sm">
-          <thead class="table-head sticky top-0 bg-slate-50 z-10">
-            <tr>
-              <th class="px-4 py-3 text-left">Data</th>
-              <th class="px-4 py-3 text-left">Nível</th>
-              <th class="px-4 py-3 text-left">Módulo</th>
-              <th class="px-4 py-3 text-left">Mensagem</th>
-              <th class="px-4 py-3 text-left">Status</th>
-              <th class="px-4 py-3 text-left">Rota</th>
-              <th class="px-4 py-3 text-left">Detalhes</th>
-            </tr>
-          </thead>
-          <tbody>
-            <ng-container *ngIf="!loading; else loadingRow">
-              <tr
-                *ngFor="let item of errorItems"
-                class="border-t border-slate-100 hover:bg-slate-50"
-              >
-                <td class="px-4 py-3 text-slate-600 whitespace-nowrap">
-                  {{ item.created_at | date: 'dd/MM/yy HH:mm:ss' }}
-                </td>
-                <td class="px-4 py-3">
-                  <span
-                    class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
-                    [class.bg-rose-100]="item.level === 'error'"
-                    [class.text-rose-800]="item.level === 'error'"
-                    [class.bg-amber-100]="item.level === 'warn'"
-                    [class.text-amber-800]="item.level === 'warn'"
-                  >
-                    {{ item.level }}
-                  </span>
-                </td>
-                <td class="px-4 py-3">{{ item.module }}</td>
-                <td class="px-4 py-3 truncate max-w-[220px]" [title]="item.message">
-                  {{ item.message }}
-                </td>
-                <td class="px-4 py-3">{{ item.status_code ?? '—' }}</td>
-                <td class="px-4 py-3 text-xs truncate max-w-[140px]" [title]="rotaCompleta(item)">
-                  {{ rotaCompleta(item) }}
-                </td>
-                <td class="px-4 py-3">
-                  <button
-                    type="button"
-                    (click)="verDetalheErro(item)"
-                    class="text-sm text-[var(--color-primary-dark)] hover:underline"
-                  >
-                    Ver
-                  </button>
-                </td>
+        <div class="tabela-rolavel">
+          <table class="w-full text-sm">
+            <thead class="table-head sticky top-0 bg-slate-50 z-10">
+              <tr>
+                <th class="px-4 py-3 text-left">Data</th>
+                <th class="px-4 py-3 text-left">Nível</th>
+                <th class="px-4 py-3 text-left">Módulo</th>
+                <th class="px-4 py-3 text-left">Mensagem</th>
+                <th class="px-4 py-3 text-left">Status</th>
+                <th class="px-4 py-3 text-left">Rota</th>
+                <th class="px-4 py-3 text-left">Detalhes</th>
               </tr>
-              <tr *ngIf="errorItems.length === 0">
-                <td colspan="7" class="px-4 py-8 text-center text-slate-500">
-                  Nenhum erro registrado.
-                </td>
-              </tr>
-            </ng-container>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <ng-container *ngIf="!loading; else loadingRow">
+                <tr
+                  *ngFor="let item of errorItems"
+                  class="border-t border-slate-100 hover:bg-slate-50"
+                >
+                  <td class="px-4 py-3 text-slate-600 whitespace-nowrap">
+                    {{ item.created_at | date: 'dd/MM/yy HH:mm:ss' }}
+                  </td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                      [class.bg-rose-100]="item.level === 'error'"
+                      [class.text-rose-800]="item.level === 'error'"
+                      [class.bg-amber-100]="item.level === 'warn'"
+                      [class.text-amber-800]="item.level === 'warn'"
+                    >
+                      {{ item.level }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3">{{ item.module }}</td>
+                  <td class="px-4 py-3 truncate max-w-[220px]" [title]="item.message">
+                    {{ item.message }}
+                  </td>
+                  <td class="px-4 py-3">{{ item.status_code ?? '—' }}</td>
+                  <td class="px-4 py-3 text-xs truncate max-w-[140px]" [title]="rotaCompleta(item)">
+                    {{ rotaCompleta(item) }}
+                  </td>
+                  <td class="px-4 py-3">
+                    <button
+                      type="button"
+                      (click)="verDetalheErro(item)"
+                      class="text-sm text-[var(--color-primary-dark)] hover:underline"
+                    >
+                      Ver
+                    </button>
+                  </td>
+                </tr>
+                <tr *ngIf="errorItems.length === 0">
+                  <td colspan="7" class="px-4 py-8 text-center text-slate-500">
+                    Nenhum erro registrado.
+                  </td>
+                </tr>
+              </ng-container>
+            </tbody>
+          </table>
+        </div>
         <ng-container *ngTemplateOutlet="paginationBar"></ng-container>
       </div>
     </div>

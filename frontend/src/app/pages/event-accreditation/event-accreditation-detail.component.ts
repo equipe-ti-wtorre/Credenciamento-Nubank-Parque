@@ -674,96 +674,98 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 <p class="ead-empty__d">Quando o credenciamento interno está ligado, os usuários AD se inscrevem sozinhos.</p>
               </div>
             } @else {
-              <table class="ead-tabela">
-                <thead>
-                  <tr>
-                    @if (ev.can_manage || ev.can_decide_internal) {
-                      <th class="ead-chk-col">
-                        <input
-                          type="checkbox"
-                          class="ead-chk"
-                          [checked]="allPendingInternalsPicked(ev)"
-                          [disabled]="!countInternalPending(ev)"
-                          (change)="toggleAllInternals(ev, $event)"
-                          aria-label="Selecionar todos os internos pendentes"
-                        />
-                      </th>
-                    }
-                    <th>Colaborador</th>
-                    <th>Departamento</th>
-                    <th>Pulseira</th>
-                    <th>Situação</th>
-                    <th class="ead-acoes">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (c of ev.internals || []; track c.id_event_accreditation_internal) {
+              <div class="tabela-rolavel">
+                <table class="ead-tabela">
+                  <thead>
                     <tr>
                       @if (ev.can_manage || ev.can_decide_internal) {
+                        <th class="ead-chk-col">
+                          <input
+                            type="checkbox"
+                            class="ead-chk"
+                            [checked]="allPendingInternalsPicked(ev)"
+                            [disabled]="!countInternalPending(ev)"
+                            (change)="toggleAllInternals(ev, $event)"
+                            aria-label="Selecionar todos os internos pendentes"
+                          />
+                        </th>
+                      }
+                      <th>Colaborador</th>
+                      <th>Departamento</th>
+                      <th>Pulseira</th>
+                      <th>Situação</th>
+                      <th class="ead-acoes">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (c of ev.internals || []; track c.id_event_accreditation_internal) {
+                      <tr>
+                        @if (ev.can_manage || ev.can_decide_internal) {
+                          <td>
+                            @if (isPendingInternal(c)) {
+                              <input
+                                type="checkbox"
+                                class="ead-chk"
+                                [checked]="isInternalPicked(c.id_event_accreditation_internal)"
+                                (change)="toggleInternalPick(c.id_event_accreditation_internal, $event)"
+                                [attr.aria-label]="'Selecionar ' + c.nome_completo"
+                              />
+                            }
+                          </td>
+                        }
                         <td>
-                          @if (isPendingInternal(c)) {
-                            <input
-                              type="checkbox"
-                              class="ead-chk"
-                              [checked]="isInternalPicked(c.id_event_accreditation_internal)"
-                              (change)="toggleInternalPick(c.id_event_accreditation_internal, $event)"
-                              [attr.aria-label]="'Selecionar ' + c.nome_completo"
+                          <div class="ead-pessoa">
+                            <div class="ead-avatar">
+                              @if (userPhoto(c.id_usuario); as url) {
+                                <img [src]="url" alt="" />
+                              } @else {
+                                {{ personInitials(c.nome_completo) }}
+                              }
+                            </div>
+                            <span class="ead-pessoa__meta">
+                              <span>{{ c.nome_completo }}</span>
+                              <span class="ead-doc">{{ c.email }}</span>
+                            </span>
+                          </div>
+                        </td>
+                        <td>{{ c.departamento || '—' }}</td>
+                        <td>
+                          @if ((ev.can_manage || ev.can_decide_internal) && isPendingInternal(c)) {
+                            <app-bracelet-select
+                              [options]="ev.internal_bracelet_types || []"
+                              [value]="c.id_bracelet_type"
+                              [disabled]="acting()"
+                              [ariaLabel]="'Pulseira de ' + c.nome_completo"
+                              (valueChange)="onPickBracelet('internal', c.id_event_accreditation_internal, $event)"
+                            />
+                          } @else {
+                            <app-bracelet-chip
+                              [name]="c.bracelet_name"
+                              [icon]="c.bracelet_icon"
+                              [color]="c.bracelet_color"
                             />
                           }
                         </td>
-                      }
-                      <td>
-                        <div class="ead-pessoa">
-                          <div class="ead-avatar">
-                            @if (userPhoto(c.id_usuario); as url) {
-                              <img [src]="url" alt="" />
-                            } @else {
-                              {{ personInitials(c.nome_completo) }}
-                            }
-                          </div>
-                          <span class="ead-pessoa__meta">
-                            <span>{{ c.nome_completo }}</span>
-                            <span class="ead-doc">{{ c.email }}</span>
-                          </span>
-                        </div>
-                      </td>
-                      <td>{{ c.departamento || '—' }}</td>
-                      <td>
-                        @if ((ev.can_manage || ev.can_decide_internal) && isPendingInternal(c)) {
-                          <app-bracelet-select
-                            [options]="ev.internal_bracelet_types || []"
-                            [value]="c.id_bracelet_type"
-                            [disabled]="acting()"
-                            [ariaLabel]="'Pulseira de ' + c.nome_completo"
-                            (valueChange)="onPickBracelet('internal', c.id_event_accreditation_internal, $event)"
-                          />
-                        } @else {
-                          <app-bracelet-chip
-                            [name]="c.bracelet_name"
-                            [icon]="c.bracelet_icon"
-                            [color]="c.bracelet_color"
-                          />
-                        }
-                      </td>
-                      <td>
-                        <span class="ead-chip" [ngClass]="'ead-chip--' + internalPillClass(c)">{{ internalPillLabel(c) }}</span>
-                      </td>
-                      <td class="ead-acoes">
-                        @if ((ev.can_manage || ev.can_decide_internal) && isPendingInternal(c)) {
-                          <div class="ead-acoes__row">
-                            <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivoInterno([c.id_event_accreditation_internal])">
-                              Recusar
-                            </button>
-                            <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_internal], 'approve', undefined, undefined, 'internal')">
-                              Aprovar
-                            </button>
-                          </div>
-                        }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
+                        <td>
+                          <span class="ead-chip" [ngClass]="'ead-chip--' + internalPillClass(c)">{{ internalPillLabel(c) }}</span>
+                        </td>
+                        <td class="ead-acoes">
+                          @if ((ev.can_manage || ev.can_decide_internal) && isPendingInternal(c)) {
+                            <div class="ead-acoes__row">
+                              <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivoInterno([c.id_event_accreditation_internal])">
+                                Recusar
+                              </button>
+                              <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_internal], 'approve', undefined, undefined, 'internal')">
+                                Aprovar
+                              </button>
+                            </div>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
             }
             @if (reasonFor()?.target === 'internal') {
               <div class="ead-reason-wrap">
@@ -1070,155 +1072,157 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 />
               </div>
               @let rows = filteredCollaborators(company);
-              <table class="ead-tabela">
-                <thead>
-                  <tr>
-                    @if (company.can_decide) {
-                      <th class="ead-chk-col">
-                        <input
-                          type="checkbox"
-                          class="ead-chk"
-                          [checked]="allPendingPicked(company)"
-                          [disabled]="!countPending(company)"
-                          (change)="toggleAll(company, $event)"
-                          aria-label="Selecionar todos"
-                        />
-                      </th>
-                    }
-                    <th>Colaborador</th>
-                    <th>CPF</th>
-                    <th>Função</th>
-                    <th>Pulseira</th>
-                    <th>Situação</th>
-                    <th class="ead-acoes">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (c of rows; track c.id_event_accreditation_collaborator) {
-                    <tr [class.blocked]="isBlocked(c)">
+              <div class="tabela-rolavel">
+                <table class="ead-tabela">
+                  <thead>
+                    <tr>
                       @if (company.can_decide) {
+                        <th class="ead-chk-col">
+                          <input
+                            type="checkbox"
+                            class="ead-chk"
+                            [checked]="allPendingPicked(company)"
+                            [disabled]="!countPending(company)"
+                            (change)="toggleAll(company, $event)"
+                            aria-label="Selecionar todos"
+                          />
+                        </th>
+                      }
+                      <th>Colaborador</th>
+                      <th>CPF</th>
+                      <th>Função</th>
+                      <th>Pulseira</th>
+                      <th>Situação</th>
+                      <th class="ead-acoes">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (c of rows; track c.id_event_accreditation_collaborator) {
+                      <tr [class.blocked]="isBlocked(c)">
+                        @if (company.can_decide) {
+                          <td>
+                            @if (isPending(c)) {
+                              <input
+                                type="checkbox"
+                                class="ead-chk"
+                                [checked]="isPicked(company, c.id_event_accreditation_collaborator)"
+                                (change)="togglePick(company, c.id_event_accreditation_collaborator, $event)"
+                                [attr.aria-label]="'Selecionar ' + c.collaborator_name"
+                              />
+                            }
+                          </td>
+                        }
                         <td>
-                          @if (isPending(c)) {
-                            <input
-                              type="checkbox"
-                              class="ead-chk"
-                              [checked]="isPicked(company, c.id_event_accreditation_collaborator)"
-                              (change)="togglePick(company, c.id_event_accreditation_collaborator, $event)"
-                              [attr.aria-label]="'Selecionar ' + c.collaborator_name"
+                          <div class="ead-pessoa">
+                            <app-collaborator-photo
+                              size="sm"
+                              mode="immediate"
+                              [name]="c.collaborator_name"
+                              [picture]="c.collaborator_picture"
+                              [collaboratorId]="c.id_collaborator"
+                              [editable]="canAddCollaborators(ev, company) || !!company.can_decide"
+                              (pictureChange)="onCollaboratorPhotoChanged(company, c, $event)"
+                            />
+                            <span>{{ c.collaborator_name }}</span>
+                          </div>
+                        </td>
+                        <td class="ead-doc">{{ c.collaborator_document }}</td>
+                        <td>{{ c.role_description }}</td>
+                        <td>
+                          @if (canEditCompanyBracelet(ev, company, c)) {
+                            <app-bracelet-select
+                              [options]="ev.bracelet_types || []"
+                              [value]="c.id_bracelet_type"
+                              [disabled]="acting()"
+                              [ariaLabel]="'Pulseira de ' + c.collaborator_name"
+                              (valueChange)="onPickBracelet('company', c.id_event_accreditation_collaborator, $event)"
+                            />
+                          } @else {
+                            <app-bracelet-chip
+                              [name]="c.bracelet_name"
+                              [icon]="c.bracelet_icon"
+                              [color]="c.bracelet_color"
                             />
                           }
                         </td>
-                      }
-                      <td>
-                        <div class="ead-pessoa">
-                          <app-collaborator-photo
-                            size="sm"
-                            mode="immediate"
-                            [name]="c.collaborator_name"
-                            [picture]="c.collaborator_picture"
-                            [collaboratorId]="c.id_collaborator"
-                            [editable]="canAddCollaborators(ev, company) || !!company.can_decide"
-                            (pictureChange)="onCollaboratorPhotoChanged(company, c, $event)"
-                          />
-                          <span>{{ c.collaborator_name }}</span>
-                        </div>
-                      </td>
-                      <td class="ead-doc">{{ c.collaborator_document }}</td>
-                      <td>{{ c.role_description }}</td>
-                      <td>
-                        @if (canEditCompanyBracelet(ev, company, c)) {
-                          <app-bracelet-select
-                            [options]="ev.bracelet_types || []"
-                            [value]="c.id_bracelet_type"
-                            [disabled]="acting()"
-                            [ariaLabel]="'Pulseira de ' + c.collaborator_name"
-                            (valueChange)="onPickBracelet('company', c.id_event_accreditation_collaborator, $event)"
-                          />
-                        } @else {
-                          <app-bracelet-chip
-                            [name]="c.bracelet_name"
-                            [icon]="c.bracelet_icon"
-                            [color]="c.bracelet_color"
-                          />
-                        }
-                      </td>
-                      <td>
-                        <div class="ead-sit">
-                          <span class="ead-chip" [ngClass]="'ead-chip--' + collabPillClass(c)">{{ collabPillLabel(c) }}</span>
-                          @if (showsMissingPhoto(ev, c)) {
-                            <span class="ead-chip ead-chip--wait">Sem foto</span>
-                          }
-                          @if (c.decided_by_name && (isApproved(c) || isBlocked(c))) {
-                            <span class="ead-audit">
-                              por {{ c.decided_by_name }} · {{ formatAuditAt(c.decided_at) }}
-                              @if (c.decision_reason) {
-                                · <span class="why">{{ c.decision_reason }}</span>
-                              }
-                            </span>
-                          }
-                        </div>
-                      </td>
-                      <td class="ead-acoes">
-                        <div class="ead-acoes__row">
-                          @if (company.can_decide && isPending(c)) {
-                            <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
-                              Recusar
-                            </button>
-                            <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'approve')">
-                              Aprovar
-                            </button>
-                          }
-                          @if (company.can_decide && isApproved(c)) {
-                            <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
-                              Bloquear
-                            </button>
-                          }
-                          @if (company.can_decide && isBlocked(c)) {
-                            <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'unblock')">
-                              Desbloquear
-                            </button>
-                          }
-                          @if (canAddCollaborators(ev, company) && (company.indication_status === 'INDICACAO' || isPending(c))) {
-                            <app-action-btn icon="delete" title="Remover" variant="danger" (action)="remover(company, c.id_event_accreditation_collaborator)" />
-                          }
-                        </div>
-                      </td>
-                    </tr>
-                  }
-                  @if (!rows.length) {
-                    <tr>
-                      <td [attr.colspan]="company.can_decide ? 7 : 6">
-                        <div class="ead-empty ead-empty--inline">
-                          <p class="ead-empty__t">Nenhum indicado neste filtro</p>
-                          <p class="ead-empty__d">Ajuste função ou pulseira para ver outros colaboradores.</p>
-                        </div>
-                      </td>
-                    </tr>
-                  }
-                  @if (reasonFor()?.companyId === company.id_event_accreditation_company) {
-                    <tr class="ead-reason">
-                      <td [attr.colspan]="company.can_decide ? 7 : 6">
-                        <div class="ead-reason-wrap">
-                          <span class="ead-reason-msg">
-                            <b>Bloquear {{ reasonFor()?.ids?.length || 0 }} colaborador(es).</b>
-                            O motivo fica registrado e é visível para a empresa.
-                          </span>
-                          <select class="form-select" [(ngModel)]="blockReason" name="ead_block_reason" aria-label="Motivo do bloqueio">
-                            @for (m of blockReasons; track m) {
-                              <option [ngValue]="m">{{ m }}</option>
+                        <td>
+                          <div class="ead-sit">
+                            <span class="ead-chip" [ngClass]="'ead-chip--' + collabPillClass(c)">{{ collabPillLabel(c) }}</span>
+                            @if (showsMissingPhoto(ev, c)) {
+                              <span class="ead-chip ead-chip--wait">Sem foto</span>
                             }
-                          </select>
-                          <input class="form-field" [(ngModel)]="blockNote" name="ead_block_note" placeholder="Observação (opcional)" aria-label="Observação" />
-                          <button type="button" class="ead-btn ead-btn--sm" (click)="fecharMotivo()">Cancelar</button>
-                          <button type="button" class="ead-btn ead-btn--sm ead-btn--danger" [disabled]="acting()" (click)="confirmarBloqueio()">
-                            Confirmar bloqueio
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
+                            @if (c.decided_by_name && (isApproved(c) || isBlocked(c))) {
+                              <span class="ead-audit">
+                                por {{ c.decided_by_name }} · {{ formatAuditAt(c.decided_at) }}
+                                @if (c.decision_reason) {
+                                  · <span class="why">{{ c.decision_reason }}</span>
+                                }
+                              </span>
+                            }
+                          </div>
+                        </td>
+                        <td class="ead-acoes">
+                          <div class="ead-acoes__row">
+                            @if (company.can_decide && isPending(c)) {
+                              <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
+                                Recusar
+                              </button>
+                              <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'approve')">
+                                Aprovar
+                              </button>
+                            }
+                            @if (company.can_decide && isApproved(c)) {
+                              <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
+                                Bloquear
+                              </button>
+                            }
+                            @if (company.can_decide && isBlocked(c)) {
+                              <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'unblock')">
+                                Desbloquear
+                              </button>
+                            }
+                            @if (canAddCollaborators(ev, company) && (company.indication_status === 'INDICACAO' || isPending(c))) {
+                              <app-action-btn icon="delete" title="Remover" variant="danger" (action)="remover(company, c.id_event_accreditation_collaborator)" />
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                    }
+                    @if (!rows.length) {
+                      <tr>
+                        <td [attr.colspan]="company.can_decide ? 7 : 6">
+                          <div class="ead-empty ead-empty--inline">
+                            <p class="ead-empty__t">Nenhum indicado neste filtro</p>
+                            <p class="ead-empty__d">Ajuste função ou pulseira para ver outros colaboradores.</p>
+                          </div>
+                        </td>
+                      </tr>
+                    }
+                    @if (reasonFor()?.companyId === company.id_event_accreditation_company) {
+                      <tr class="ead-reason">
+                        <td [attr.colspan]="company.can_decide ? 7 : 6">
+                          <div class="ead-reason-wrap">
+                            <span class="ead-reason-msg">
+                              <b>Bloquear {{ reasonFor()?.ids?.length || 0 }} colaborador(es).</b>
+                              O motivo fica registrado e é visível para a empresa.
+                            </span>
+                            <select class="form-select" [(ngModel)]="blockReason" name="ead_block_reason" aria-label="Motivo do bloqueio">
+                              @for (m of blockReasons; track m) {
+                                <option [ngValue]="m">{{ m }}</option>
+                              }
+                            </select>
+                            <input class="form-field" [(ngModel)]="blockNote" name="ead_block_note" placeholder="Observação (opcional)" aria-label="Observação" />
+                            <button type="button" class="ead-btn ead-btn--sm" (click)="fecharMotivo()">Cancelar</button>
+                            <button type="button" class="ead-btn ead-btn--sm ead-btn--danger" [disabled]="acting()" (click)="confirmarBloqueio()">
+                              Confirmar bloqueio
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
               @if (company.indicated_complete_at) {
                 <div class="ead-rodape">
                   <p>Indicação enviada em {{ formatDateTimeBr(company.indicated_complete_at) }}</p>

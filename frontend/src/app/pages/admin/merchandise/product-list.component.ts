@@ -33,7 +33,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
         <button type="button" class="btn-action-primary" (click)="abrirModal()">+ Novo produto</button>
       </div>
 
-      <div class="card-surface overflow-hidden">
+      <div class="card-surface tabela-rolavel">
         <table class="w-full text-sm">
           <thead class="table-head bg-slate-50">
             <tr>
