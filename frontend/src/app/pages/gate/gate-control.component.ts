@@ -181,7 +181,7 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
   todayServices = signal<GateTodayService[]>([]);
   todayLoading = signal(false);
   thumbnailUrls = signal<Record<string, string>>({});
-  approverPhotoUrls = signal<Record<number, string>>({});
+  approverPhotoUrls = signal<Record<string, string>>({});
   successPhotoUrl = signal<string | null>(null);
 
   private thumbnailLoadId = 0;
@@ -971,9 +971,23 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     return this.thumbnailUrls()[accessId] ?? null;
   }
 
-  approverPhotoUrl(userId: number | undefined | null): string | null {
+  /** Foto já baixada na lista, reaproveitada no modal de liberação. */
+  releaseInitialPhoto(): string | null {
+    const id = this.releaseTarget()?.access_id;
+    return id ? this.pictureUrl(id) : null;
+  }
+
+  approverPhotoUrl(userId: number | string | undefined | null): string | null {
+    const key = this.approverKey(userId);
+    if (!key) return null;
+    return this.approverPhotoUrls()[key] ?? null;
+  }
+
+  private approverKey(userId: number | string | undefined | null): string | null {
     if (userId == null) return null;
-    return this.approverPhotoUrls()[userId] ?? null;
+    const key = String(userId).trim();
+    if (!key || key === '0') return null;
+    return key;
   }
 
   initials(name: string): string {
@@ -1026,8 +1040,9 @@ export class GateControlComponent implements AfterViewInit, OnDestroy {
     const ids = [
       ...new Set(
         list
-          .map((row) => row.approved_by?.id)
-          .filter((id): id is number => typeof id === 'number' && id > 0),
+          .flatMap((row) => [row.approved_by?.id, row.rejected_by?.id])
+          .map((id) => this.approverKey(id))
+          .filter((id): id is string => !!id),
       ),
     ];
     await Promise.all(

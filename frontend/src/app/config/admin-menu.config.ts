@@ -9,82 +9,145 @@ export interface SettingsNavItem {
   module?: string;
 }
 
-export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
+export interface SettingsNavGroup {
+  id: string;
+  label: string;
+  icon: string;
+  subtitle?: string;
+  items: SettingsNavItem[];
+}
+
+export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
   {
-    path: 'tenants-azure',
-    label: 'Tenants Azure',
+    id: 'acesso',
+    label: 'Acesso',
     icon: '🔗',
-    subtitle: 'Autenticação AD',
-    module: 'settings_tenants',
+    subtitle: 'Azure, sessão e horários',
+    items: [
+      {
+        path: 'tenants-azure',
+        label: 'Tenants Azure',
+        icon: '🔗',
+        subtitle: 'Autenticação AD',
+        module: 'settings_tenants',
+      },
+      {
+        path: 'sessao',
+        label: 'Sessão',
+        icon: '🔒',
+        subtitle: 'Inatividade e login',
+        module: 'settings_session',
+      },
+      {
+        path: 'horarios-acesso',
+        label: 'Horários de acesso',
+        icon: '🕒',
+        subtitle: 'Comercial / Noturno',
+        module: 'settings_access_schedule',
+      },
+    ],
   },
   {
-    path: 'smtp',
-    label: 'Envios de e-mail',
+    id: 'email',
+    label: 'E-mail',
     icon: '📧',
-    subtitle: 'SMTP / Azure ACS',
-    module: 'settings_smtp',
+    subtitle: 'SMTP e templates',
+    items: [
+      {
+        path: 'smtp',
+        label: 'Envios de e-mail',
+        icon: '📧',
+        subtitle: 'SMTP / Azure ACS',
+        module: 'settings_smtp',
+      },
+      {
+        path: 'templates-email',
+        label: 'Templates de e-mail',
+        icon: '✉️',
+        subtitle: 'HTML e assuntos',
+        module: 'settings_email_templates',
+      },
+    ],
   },
   {
-    path: 'facial',
+    id: 'comunicacao',
+    label: 'Comunicação',
+    icon: '💬',
+    subtitle: 'WhatsApp, Teams e avisos',
+    items: [
+      {
+        path: 'whatsapp',
+        label: 'WhatsApp',
+        icon: '📱',
+        subtitle: 'Gateway OpenWA',
+        module: 'settings_whatsapp',
+      },
+      {
+        path: 'teams',
+        label: 'Integração Teams',
+        icon: '💬',
+        subtitle: 'Microsoft Graph',
+        module: 'settings_teams',
+      },
+      {
+        path: 'notificacoes-credenciamento',
+        label: 'Notificações de credenciamento',
+        icon: '🔔',
+        subtitle: 'Aviso interno AD',
+        module: 'settings_event_accreditation',
+      },
+    ],
+  },
+  {
+    id: 'facial',
     label: 'Integração facial',
     icon: '🙂',
     subtitle: 'HTTP poll / Service Bus',
-    module: 'settings_facial',
+    items: [
+      {
+        path: 'facial',
+        label: 'Integração facial',
+        icon: '🙂',
+        subtitle: 'HTTP poll / Service Bus',
+        module: 'settings_facial',
+      },
+    ],
   },
   {
-    path: 'templates-email',
-    label: 'Templates de e-mail',
-    icon: '✉️',
-    subtitle: 'HTML e assuntos',
-    module: 'settings_email_templates',
-  },
-  {
-    path: 'sessao',
-    label: 'Sessão',
-    icon: '🔒',
-    subtitle: 'Inatividade e login',
-    module: 'settings_session',
-  },
-  {
-    path: 'aparencia',
-    label: 'Aparência',
+    id: 'sistema',
+    label: 'Sistema',
     icon: '🎨',
-    subtitle: 'Paleta de cores',
-    module: 'settings_appearance',
+    subtitle: 'Aparência e relatórios',
+    items: [
+      {
+        path: 'aparencia',
+        label: 'Aparência',
+        icon: '🎨',
+        subtitle: 'Paleta de cores',
+        module: 'settings_appearance',
+      },
+      {
+        path: 'relatorios-sistema',
+        label: 'Relatórios do sistema',
+        icon: '📋',
+        subtitle: 'Auditoria e erros',
+        module: 'settings_system_reports',
+      },
+    ],
   },
   {
-    path: 'teams',
-    label: 'Integração Teams',
-    icon: '💬',
-    subtitle: 'Microsoft Graph',
-    module: 'settings_teams',
-  },
-  {
-    path: 'relatorios-sistema',
-    label: 'Relatórios do sistema',
-    icon: '📋',
-    subtitle: 'Auditoria e erros',
-    module: 'settings_system_reports',
-  },
-  {
-    path: 'sobre',
+    id: 'sobre',
     label: 'Sobre',
     icon: 'ℹ️',
     subtitle: 'Versão do sistema',
-    module: 'settings_about',
-  },
-  {
-    path: 'notificacoes-credenciamento',
-    label: 'Notificações de credenciamento',
-    icon: '🔔',
-    subtitle: 'Aviso interno AD',
-    module: 'settings_event_accreditation',
-  },
-  {
-    path: 'horarios-acesso',
-    label: 'Horários de acesso',
-    icon: '🕒',
-    subtitle: 'Comercial / Noturno',
-    module: 'settings_access_schedule',
+    items: [
+      {
+        path: 'sobre',
+        label: 'Sobre',
+        icon: 'ℹ️',
+        subtitle: 'Versão do sistema',
+        module: 'settings_about',
+      },
+    ],
   },
 ];

@@ -33,6 +33,12 @@ async function claimJobs(req, res, next) {
       throw new AppError(error.details.map((d) => d.message).join("; "), 400);
     }
 
+    const devicesService = require("./facial.devices.service");
+    if (await devicesService.hasEnabled()) {
+      res.json({ jobs: [], transport: "direct_dahua" });
+      return;
+    }
+
     const jobs = await jobsService.claimJobs(value.limit);
     logger.info({ count: jobs.length }, "HTTP poll: job(s) claimados do Gateway");
     res.json({ jobs });

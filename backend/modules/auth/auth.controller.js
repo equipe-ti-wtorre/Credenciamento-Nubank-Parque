@@ -4,6 +4,7 @@ const { AUDIT_MODULES, AUDIT_ACTIONS } = require("../../observability/audit.cons
 const { buildAuditMetadata, buildHttpContext } = require("../../observability/audit.metadata");
 const { setAuditLoginContext } = require("../../observability/audit.auth");
 const authService = require("./auth.service");
+const gatewayService = require("./gateway.service");
 const {
   loginSchema,
   refreshSchema,
@@ -65,6 +66,10 @@ exports.loginMicrosoft = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+exports.gatewayConfig = (req, res) => {
+  res.json(gatewayService.publicConfig());
 };
 
 exports.refresh = async (req, res, next) => {
@@ -242,6 +247,57 @@ exports.completeInvite = async (req, res, next) => {
     });
     markAuditLogged(req);
 
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.forgotPassword = async (req, res, next) => {
+  try {
+    const { forgotPasswordSchema } = require("./auth.schema");
+    const passwordResetService = require("./password-reset.service");
+    const { error, value } = forgotPasswordSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const result = await passwordResetService.requestReset(value.email, req);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getPasswordReset = async (req, res, next) => {
+  try {
+    const passwordResetService = require("./password-reset.service");
+    const reset = await passwordResetService.getResetInfo(req.params.token);
+    res.json({ reset });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.resetPassword = async (req, res, next) => {
+  try {
+    const { resetPasswordSchema } = require("./auth.schema");
+    const passwordResetService = require("./password-reset.service");
+    const { error, value } = resetPasswordSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const result = await passwordResetService.completeReset(value.token, value.password, req);
+    await logAudit({
+      userId: result.user.id,
+      action: AUDIT_ACTIONS.LOGIN,
+      module: AUDIT_MODULES.AUTH,
+      req,
+      metadata: buildAuditMetadata({
+        event: "auth.password_reset",
+        outcome: "success",
+        provider: "password_reset",
+        resource: { type: "user", id: result.user.id, email: result.user.email },
+        http: buildHttpContext(req, { statusCode: 200 }),
+      }),
+    });
+    markAuditLogged(req);
     res.json(result);
   } catch (err) {
     next(err);

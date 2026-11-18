@@ -37,6 +37,15 @@ async function notifyServiceIfPending(req, id) {
   }
 }
 
+exports.listCompanies = async (req, res, next) => {
+  try {
+    const companies = await serviceAccessService.listActiveCompaniesForPicker(req);
+    res.json({ companies });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.list = async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);

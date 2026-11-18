@@ -8,6 +8,8 @@ export interface HealthInfo {
   appName?: string;
   version: string;
   timestamp: string;
+  environment?: string;
+  publicUrl?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -15,6 +17,6 @@ export class HealthService {
   constructor(private api: ApiService) {}
 
   getHealth(): Observable<HealthInfo> {
-    return this.api.get<HealthInfo>('/health');
+    return this.api.get<HealthInfo>('/health/details');
   }
 }

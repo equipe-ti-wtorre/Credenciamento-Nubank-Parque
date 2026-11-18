@@ -1,7 +1,11 @@
 const crypto = require("crypto");
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
-const { buildCompanyScope, applyScopeToWhere } = require("../companies/company.service");
+const {
+  buildCompanyScope,
+  applyScopeToWhere,
+  findActiveCompanyById,
+} = require("../companies/company.service");
 const collaboratorService = require("../collaborators/collaborator.service");
 const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
 const vehicleService = require("./vehicle.service");
@@ -177,16 +181,61 @@ function scheduleEquals(a, b) {
   );
 }
 
-function resolveCompanyIdForCreate(req, bodyCompanyId) {
-  const scope = buildCompanyScope(req);
+function userRequiresCompany(user) {
+  return !!(user?.requires_company || user?.profile?.requires_company);
+}
+
+/** Escopo de empresa só neste módulo. Usuário interno sem empresa vinculada opera qualquer empresa. */
+function serviceCompanyScope(req) {
+  try {
+    return buildCompanyScope(req);
+  } catch (err) {
+    const canOperate =
+      hasPermission(req.user, "service_access", "view") ||
+      hasPermission(req.user, "service_access", "create") ||
+      hasPermission(req.user, "service_access", "edit");
+    if (
+      err instanceof AppError &&
+      err.statusCode === 403 &&
+      !userRequiresCompany(req.user) &&
+      canOperate
+    ) {
+      return { mode: "admin" };
+    }
+    throw err;
+  }
+}
+
+async function resolveCompanyIdForCreate(req, bodyCompanyId) {
+  const scope = serviceCompanyScope(req);
   if (scope.mode === "admin") {
     if (!bodyCompanyId) throw new AppError("Informe a empresa.", 400);
-    return bodyCompanyId;
+    const company = await findActiveCompanyById(bodyCompanyId);
+    if (!company) throw new AppError("Empresa inválida ou inativa.", 400);
+    return company.id_company;
   }
   if (scope.mode === "padrao" || scope.mode === "produtora") {
     return scope.onlyCompanyId ?? scope.ownCompanyId;
   }
   throw new AppError("Perfil sem permissão.", 403);
+}
+
+async function listActiveCompaniesForPicker(req) {
+  if (userRequiresCompany(req.user)) {
+    throw new AppError("Perfil sem permissão.", 403);
+  }
+  serviceCompanyScope(req);
+  const [rows] = await db.execute(
+    `SELECT id_company, fancy_name, company_name
+     FROM company
+     WHERE status = 1
+     ORDER BY company_name ASC`,
+  );
+  return rows.map((row) => ({
+    id_company: row.id_company,
+    fancy_name: row.fancy_name || null,
+    company_name: row.company_name,
+  }));
 }
 
 async function getUserDepartment(userId) {
@@ -196,7 +245,7 @@ async function getUserDepartment(userId) {
 }
 
 async function assertServiceInScope(req, row) {
-  const scope = buildCompanyScope(req);
+  const scope = serviceCompanyScope(req);
   if (scope.mode === "admin") return;
   if (scope.mode === "padrao") {
     if (row.id_company !== scope.onlyCompanyId) {
@@ -412,7 +461,7 @@ function buildListFilters(query = {}) {
 
 async function listServiceAccess(req, { page = 1, limit = 20, filters = {} } = {}) {
   assertCanManageServices(req);
-  const scope = buildCompanyScope(req);
+  const scope = serviceCompanyScope(req);
   const scopeWhere = await applyScopeToWhere(scope, "c");
   const filterData = buildListFilters(filters);
 
@@ -517,7 +566,7 @@ async function getServiceAccessRow(id) {
 
 async function createServiceAccess(req, data) {
   assertCanManageServices(req);
-  const idCompany = resolveCompanyIdForCreate(req, data.id_company);
+  const idCompany = await resolveCompanyIdForCreate(req, data.id_company);
   const userId = req.user?.id || null;
   let department = data.requesting_department?.trim();
   if (!department) {
@@ -546,10 +595,10 @@ async function createServiceAccess(req, data) {
       [idSetor],
     );
     if (!setorRows.length) {
-      throw new AppError("Setor aprovador inválido ou inativo.", 400);
+      throw new AppError("Time aprovador inválido ou inativo.", 400);
     }
 
-    await approvalsService.assertUserCanOpenForSector(conn, idSetor, req.user);
+    await approvalsService.assertUserCanOpenForSector(conn, idSetor, req.user, "ACESSO_SERVICO");
 
     const [saResult] = await conn.execute(
       `INSERT INTO service_access (
@@ -797,7 +846,7 @@ async function updateServiceAccess(req, id, data) {
       [idSetor],
     );
     if (!setorRows.length) {
-      throw new AppError("Setor aprovador inválido ou inativo.", 400);
+      throw new AppError("Time aprovador inválido ou inativo.", 400);
     }
 
     const [flowRows] = await db.execute(
@@ -1476,7 +1525,7 @@ async function reopenServiceAccessForApproval(
       : await resolveServiceSetorId(conn, idServiceAccess, serviceRow);
   if (!resolvedSetor) {
     throw new AppError(
-      "Não foi possível abrir a aprovação: setor aprovador não encontrado.",
+      "Não foi possível abrir a aprovação: time aprovador não encontrado.",
       422,
     );
   }
@@ -3032,8 +3081,10 @@ async function deleteDraftServiceAccess(req, id) {
 }
 
 module.exports = {
+  listActiveCompaniesForPicker,
   listServiceAccess,
   getServiceAccessById,
+  assertServiceInScope,
   createServiceAccess,
   deleteDraftServiceAccess,
   updateServiceAccess,

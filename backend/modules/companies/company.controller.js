@@ -44,7 +44,14 @@ exports.create = async (req, res, next) => {
     const { error, value } = companyCreateSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const company = await companyService.createCompany(value);
+    const company = await companyService.createCompany(value, {
+      idCompanyOrigem: companyService.producerOriginFromUser(req.user),
+    });
+
+    const { invites, invite_errors } = await companyService.sendContactInvites(company, {
+      usuarioId: req.user?.id,
+      requestId: req.requestId,
+    });
 
     attachAudit(req, {
       action: "CREATE",
@@ -58,10 +65,12 @@ exports.create = async (req, res, next) => {
       changes: {
         company_name: company.company_name,
         id_company_type: company.id_company_type,
+        invites: invites.map((invite) => invite.email),
+        invite_errors,
       },
     });
 
-    res.status(201).json({ company });
+    res.status(201).json({ company, invites, invite_errors });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
       return next(new AppError("CNPJ já cadastrado.", 409));

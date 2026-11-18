@@ -139,8 +139,8 @@ function getActorCompanyId(req) {
   return id;
 }
 
-async function linkCollaboratorToCompany(idCollaborator, idCompany) {
-  await db.execute(
+async function linkCollaboratorToCompany(idCollaborator, idCompany, conn = db) {
+  await conn.execute(
     `INSERT IGNORE INTO company_collaborator (id_company, id_collaborator) VALUES (?, ?)`,
     [idCompany, idCollaborator],
   );

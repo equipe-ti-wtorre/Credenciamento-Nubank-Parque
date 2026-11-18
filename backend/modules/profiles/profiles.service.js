@@ -12,7 +12,7 @@ function revokeAllUserTokens(userId) {
   return revoke(userId);
 }
 
-function mapProfileRow(row, permissions = [], userCount = 0) {
+function mapProfileRow(row, permissions = [], userCount = 0, teamCount = 0) {
   if (!row) return null;
   return {
     id: row.id,
@@ -23,7 +23,8 @@ function mapProfileRow(row, permissions = [], userCount = 0) {
     is_super_admin: !!row.is_super_admin,
     requires_company: !!row.requires_company,
     ativo: !!row.ativo,
-    user_count: userCount,
+    user_count: Number(userCount) || 0,
+    team_count: Number(teamCount) || 0,
     permissions,
     criado_em: row.criado_em,
     atualizado_em: row.atualizado_em,
@@ -64,17 +65,49 @@ async function loadPermissionsForProfile(idPerfil) {
   return rows;
 }
 
-async function countUsersByProfile(idPerfil) {
-  const [[{ total }]] = await db.execute(
+const EFFECTIVE_USER_COUNT_SQL = `
+  SELECT COUNT(DISTINCT u.id) AS total
+  FROM usuarios u
+  WHERE u.ativo = 1
+    AND (
+      u.id_perfil = ?
+      OR EXISTS (
+        SELECT 1
+        FROM setor_usuarios su
+        INNER JOIN perfil_setores ps ON ps.id_setor = su.id_setor AND ps.id_perfil = ?
+        INNER JOIN setores s ON s.id = su.id_setor AND s.ativo = 1
+        WHERE su.id_usuario = u.id AND su.ativo = 1
+      )
+    )`;
+
+async function countUsersByProfile(idPerfil, connection = null) {
+  const conn = connection || db;
+  const [[{ total }]] = await conn.execute(EFFECTIVE_USER_COUNT_SQL, [idPerfil, idPerfil]);
+  return Number(total) || 0;
+}
+
+async function countDirectUsersByProfile(idPerfil, connection = null) {
+  const conn = connection || db;
+  const [[{ total }]] = await conn.execute(
     "SELECT COUNT(*) AS total FROM usuarios WHERE id_perfil = ? AND ativo = 1",
     [idPerfil],
   );
-  return total;
+  return Number(total) || 0;
+}
+
+async function countTeamsByProfile(idPerfil, connection = null) {
+  const conn = connection || db;
+  const [[{ total }]] = await conn.execute(
+    "SELECT COUNT(*) AS total FROM perfil_setores WHERE id_perfil = ?",
+    [idPerfil],
+  );
+  return Number(total) || 0;
 }
 
 function mapProfileUserRow(row) {
   return {
     id: row.id,
+    public_id: row.public_id,
     nome_completo: row.nome_completo,
     email: row.email,
     departamento: row.departamento || null,
@@ -84,7 +117,7 @@ function mapProfileUserRow(row) {
 
 async function listUsersByProfile(idPerfil) {
   const [rows] = await db.execute(
-    `SELECT u.id, u.nome_completo, u.email, u.departamento,
+    `SELECT u.id, u.public_id, u.nome_completo, u.email, u.departamento,
             COALESCE(NULLIF(TRIM(c.fancy_name), ''), c.company_name) AS company_nome
      FROM usuarios u
      LEFT JOIN company c ON c.id_company = u.id_company
@@ -95,6 +128,169 @@ async function listUsersByProfile(idPerfil) {
   return rows.map(mapProfileUserRow);
 }
 
+async function listTeamsByProfile(idPerfil, connection = null) {
+  const conn = connection || db;
+  const [rows] = await conn.execute(
+    `SELECT s.id, s.public_id, s.nome,
+            (SELECT COUNT(*) FROM setor_usuarios su
+              WHERE su.id_setor = s.id AND su.ativo = 1) AS membros_ativos
+     FROM perfil_setores ps
+     INNER JOIN setores s ON s.id = ps.id_setor
+     WHERE ps.id_perfil = ?
+     ORDER BY s.nome ASC`,
+    [idPerfil],
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    public_id: row.public_id,
+    nome: row.nome,
+    membros_ativos: Number(row.membros_ativos) || 0,
+  }));
+}
+
+function normalizeIdList(ids) {
+  const seen = new Set();
+  const normalized = [];
+  for (const raw of ids || []) {
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new AppError("Identificador inválido.", 400);
+    }
+    if (seen.has(id)) continue;
+    seen.add(id);
+    normalized.push(id);
+  }
+  return normalized;
+}
+
+async function assertActiveIds(connection, table, ids, message) {
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => "?").join(",");
+  const [rows] = await connection.execute(
+    `SELECT id FROM ${table} WHERE ativo = 1 AND id IN (${placeholders})`,
+    ids,
+  );
+  if (rows.length !== ids.length) {
+    throw new AppError(message, 400);
+  }
+}
+
+async function assertSuperAdminRemains(idPerfil, nextUserIds, connection) {
+  const [[{ others }]] = await connection.execute(
+    `SELECT COUNT(*) AS others
+     FROM usuarios u
+     INNER JOIN perfis p ON p.id = u.id_perfil
+     WHERE p.is_super_admin = 1 AND u.ativo = 1 AND u.id_perfil <> ?`,
+    [idPerfil],
+  );
+  let overlap = 0;
+  if (nextUserIds.length > 0) {
+    const placeholders = nextUserIds.map(() => "?").join(",");
+    const [[{ total }]] = await connection.execute(
+      `SELECT COUNT(*) AS total
+       FROM usuarios u
+       INNER JOIN perfis p ON p.id = u.id_perfil
+       WHERE p.is_super_admin = 1 AND u.ativo = 1 AND u.id_perfil <> ?
+         AND u.id IN (${placeholders})`,
+      [idPerfil, ...nextUserIds],
+    );
+    overlap = Number(total) || 0;
+  }
+  const nextTotal = (Number(others) || 0) - overlap + nextUserIds.length;
+  if (nextTotal < 1) {
+    throw new AppError("Não é possível rebaixar ou bloquear o último administrador ativo.", 400);
+  }
+}
+
+async function syncProfileUsers(idPerfil, userIds, connection, profile) {
+  const ids = normalizeIdList(userIds);
+  await assertActiveIds(
+    connection,
+    "usuarios",
+    ids,
+    "Um ou mais usuários não existem ou estão inativos.",
+  );
+
+  if (profile.codigo === "USER") {
+    const [currentRows] = await connection.execute(
+      "SELECT id FROM usuarios WHERE id_perfil = ? AND ativo = 1",
+      [idPerfil],
+    );
+    const nextIds = new Set(ids);
+    const removed = currentRows.some((row) => !nextIds.has(row.id));
+    if (removed) {
+      throw new AppError("Não é possível desvincular usuários do perfil padrão.", 400);
+    }
+  }
+
+  if (profile.is_super_admin) {
+    await assertSuperAdminRemains(idPerfil, ids, connection);
+  } else if (ids.length > 0) {
+    const placeholders = ids.map(() => "?").join(",");
+    const [[{ moving }]] = await connection.execute(
+      `SELECT COUNT(*) AS moving
+       FROM usuarios u
+       INNER JOIN perfis p ON p.id = u.id_perfil
+       WHERE p.is_super_admin = 1 AND u.ativo = 1 AND u.id IN (${placeholders})`,
+      ids,
+    );
+    const [[{ remaining }]] = await connection.execute(
+      `SELECT COUNT(*) AS remaining
+       FROM usuarios u
+       INNER JOIN perfis p ON p.id = u.id_perfil
+       WHERE p.is_super_admin = 1 AND u.ativo = 1 AND u.id NOT IN (${placeholders})`,
+      ids,
+    );
+    if ((Number(moving) || 0) > 0 && (Number(remaining) || 0) < 1) {
+      throw new AppError("Não é possível rebaixar ou bloquear o último administrador ativo.", 400);
+    }
+  }
+
+  const userProfile = await getProfileByCodigo("USER");
+  if (!userProfile) {
+    throw new AppError("Perfil padrão USER não encontrado.", 500);
+  }
+
+  if (ids.length === 0) {
+    await connection.execute(
+      "UPDATE usuarios SET id_perfil = ? WHERE id_perfil = ? AND ativo = 1",
+      [userProfile.id, idPerfil],
+    );
+    return;
+  }
+
+  const placeholders = ids.map(() => "?").join(",");
+  await connection.execute(
+    `UPDATE usuarios SET id_perfil = ? WHERE id_perfil = ? AND ativo = 1 AND id NOT IN (${placeholders})`,
+    [userProfile.id, idPerfil, ...ids],
+  );
+  await connection.execute(
+    `UPDATE usuarios SET id_perfil = ? WHERE ativo = 1 AND id IN (${placeholders})`,
+    [idPerfil, ...ids],
+  );
+}
+
+async function syncProfileTeams(idPerfil, setorIds, connection, profile) {
+  const ids = normalizeIdList(setorIds);
+  if (profile.is_super_admin && ids.length > 0) {
+    throw new AppError("Não é possível vincular um time ao perfil de super administrador.", 400);
+  }
+  await assertActiveIds(
+    connection,
+    "setores",
+    ids,
+    "Um ou mais times não existem ou estão inativos.",
+  );
+
+  await connection.execute("DELETE FROM perfil_setores WHERE id_perfil = ?", [idPerfil]);
+  for (const idSetor of ids) {
+    await connection.execute(
+      "INSERT INTO perfil_setores (id_perfil, id_setor) VALUES (?, ?)",
+      [idPerfil, idSetor],
+    );
+  }
+}
+
 async function findById(id) {
   const [rows] = await db.execute("SELECT * FROM perfis WHERE id = ? LIMIT 1", [id]);
   return rows[0] || null;
@@ -103,8 +299,23 @@ async function findById(id) {
 async function listProfiles() {
   const [rows] = await db.execute(
     `SELECT p.*, (
-       SELECT COUNT(*) FROM usuarios u WHERE u.id_perfil = p.id AND u.ativo = 1
-     ) AS user_count
+       SELECT COUNT(DISTINCT u.id)
+       FROM usuarios u
+       WHERE u.ativo = 1
+         AND (
+           u.id_perfil = p.id
+           OR EXISTS (
+             SELECT 1
+             FROM setor_usuarios su
+             INNER JOIN perfil_setores ps ON ps.id_setor = su.id_setor AND ps.id_perfil = p.id
+             INNER JOIN setores s ON s.id = su.id_setor AND s.ativo = 1
+             WHERE su.id_usuario = u.id AND su.ativo = 1
+           )
+         )
+     ) AS user_count,
+     (
+       SELECT COUNT(*) FROM perfil_setores pst WHERE pst.id_perfil = p.id
+     ) AS team_count
      FROM perfis p
      ORDER BY p.is_system DESC, p.nome ASC`,
   );
@@ -112,7 +323,7 @@ async function listProfiles() {
   const profiles = [];
   for (const row of rows) {
     const permissions = await loadPermissionsForProfile(row.id);
-    profiles.push(mapProfileRow(row, permissions, row.user_count));
+    profiles.push(mapProfileRow(row, permissions, row.user_count, row.team_count));
   }
   return profiles;
 }
@@ -121,11 +332,12 @@ async function getProfileById(id) {
   const row = await findById(id);
   if (!row) throw new AppError("Perfil não encontrado.", 404);
   const permissions = await loadPermissionsForProfile(id);
-  const [userCount, users] = await Promise.all([
+  const [userCount, users, teams] = await Promise.all([
     countUsersByProfile(id),
     listUsersByProfile(id),
+    listTeamsByProfile(id),
   ]);
-  return { ...mapProfileRow(row, permissions, userCount), users };
+  return { ...mapProfileRow(row, permissions, userCount, teams.length), users, teams };
 }
 
 async function replacePermissions(idPerfil, permissions, connection = null) {
@@ -144,10 +356,28 @@ async function replacePermissions(idPerfil, permissions, connection = null) {
   }
 }
 
-async function revokeUsersOfProfile(idPerfil) {
-  const [users] = await db.execute("SELECT id FROM usuarios WHERE id_perfil = ?", [idPerfil]);
-  for (const user of users) {
-    await revokeAllUserTokens(user.id);
+async function listAffectedUserIds(idPerfil, connection = null) {
+  const conn = connection || db;
+  const [users] = await conn.execute(
+    `SELECT DISTINCT u.id
+     FROM usuarios u
+     WHERE u.id_perfil = ?
+        OR u.id IN (
+          SELECT su.id_usuario
+          FROM setor_usuarios su
+          INNER JOIN perfil_setores ps ON ps.id_setor = su.id_setor
+          INNER JOIN setores s ON s.id = su.id_setor AND s.ativo = 1
+          WHERE ps.id_perfil = ? AND su.ativo = 1
+        )`,
+    [idPerfil, idPerfil],
+  );
+  return users.map((user) => user.id);
+}
+
+async function revokeUsersOfProfile(idPerfil, connection = null) {
+  const ids = await listAffectedUserIds(idPerfil, connection);
+  for (const userId of ids) {
+    await revokeAllUserTokens(userId);
   }
 }
 
@@ -172,6 +402,13 @@ async function createProfile(data) {
       ],
     );
     await replacePermissions(result.insertId, permissions, connection);
+    const created = { ...data, id: result.insertId, codigo, is_super_admin: 0 };
+    if (data.usuarios_ids !== undefined) {
+      await syncProfileUsers(result.insertId, data.usuarios_ids, connection, created);
+    }
+    if (data.setores_ids !== undefined) {
+      await syncProfileTeams(result.insertId, data.setores_ids, connection, created);
+    }
     await connection.commit();
     return getProfileById(result.insertId);
   } catch (err) {
@@ -215,7 +452,15 @@ async function updateProfile(id, data) {
 
     if (data.permissions !== undefined) {
       await replacePermissions(id, data.permissions, connection);
-      await revokeUsersOfProfile(id);
+    }
+    if (data.usuarios_ids !== undefined) {
+      await syncProfileUsers(id, data.usuarios_ids, connection, existing);
+    }
+    if (data.setores_ids !== undefined) {
+      await syncProfileTeams(id, data.setores_ids, connection, existing);
+    }
+    if (data.permissions !== undefined) {
+      await revokeUsersOfProfile(id, connection);
     }
 
     await connection.commit();
@@ -235,9 +480,10 @@ async function deleteProfile(id) {
     throw new AppError("Perfis do sistema não podem ser excluídos.", 400);
   }
 
-  const userCount = await countUsersByProfile(id);
-  if (userCount > 0) {
-    throw new AppError("Não é possível excluir perfil com usuários vinculados.", 400);
+  const directCount = await countDirectUsersByProfile(id);
+  const teamCount = await countTeamsByProfile(id);
+  if (directCount > 0 || teamCount > 0) {
+    throw new AppError("Não é possível excluir perfil com usuários ou times vinculados.", 400);
   }
 
   await db.execute("DELETE FROM perfis WHERE id = ?", [id]);
@@ -251,9 +497,12 @@ async function getProfileByCodigo(codigo) {
 async function loadUserProfileContext(userId) {
   const [rows] = await db.execute(
     `SELECT u.id, u.ativo, u.departamento, u.id_company, u.id_perfil, u.is_ad_user,
-            p.codigo, p.nome AS perfil_nome, p.is_super_admin, p.requires_company
+            p.codigo, p.nome AS perfil_nome, p.is_super_admin, p.requires_company,
+            ct.description AS company_type
      FROM usuarios u
      LEFT JOIN perfis p ON p.id = u.id_perfil
+     LEFT JOIN company c ON c.id_company = u.id_company
+     LEFT JOIN company_type ct ON ct.id_company_type = c.id_company_type
      WHERE u.id = ? LIMIT 1`,
     [userId],
   );
@@ -264,20 +513,84 @@ async function loadUserProfileContext(userId) {
   if (row.id_perfil) {
     permissions = await loadPermissionsForProfile(row.id_perfil);
   }
+  const [teamPermissions] = await db.execute(
+    `SELECT DISTINCT pp.modulo, pp.acao
+     FROM setor_usuarios su
+     INNER JOIN setores s ON s.id = su.id_setor AND s.ativo = 1
+     INNER JOIN perfil_setores ps ON ps.id_setor = su.id_setor
+     INNER JOIN perfil_permissoes pp ON pp.id_perfil = ps.id_perfil
+     WHERE su.id_usuario = ? AND su.ativo = 1`,
+    [userId],
+  );
+  const permissionKeys = new Set(permissions.map((perm) => permissionKey(perm.modulo, perm.acao)));
+  for (const perm of teamPermissions) {
+    permissionKeys.add(permissionKey(perm.modulo, perm.acao));
+  }
 
   return {
     id: row.id,
     ativo: row.ativo,
     departamento: row.departamento,
     id_company: row.id_company != null ? row.id_company : null,
+    company_type: row.company_type || null,
     id_perfil: row.id_perfil,
     codigo: row.codigo || "USER",
     perfil_nome: row.perfil_nome || "Usuário",
     is_super_admin: !!row.is_super_admin,
     requires_company: !!row.requires_company,
     is_ad_user: !!row.is_ad_user,
-    permissions: permissions.map((p) => permissionKey(p.modulo, p.acao)),
+    permissions: Array.from(permissionKeys),
   };
+}
+
+async function lookupAssignees({ tipo, q }) {
+  const term = String(q || "").trim();
+  if (term.length < 2) return [];
+  const like = `%${term}%`;
+
+  if (tipo === "usuario") {
+    const [rows] = await db.execute(
+      `SELECT u.id, u.public_id, u.nome_completo, u.email, u.departamento, u.id_perfil,
+              p.nome AS perfil_nome
+       FROM usuarios u
+       LEFT JOIN perfis p ON p.id = u.id_perfil
+       WHERE u.ativo = 1
+         AND (u.nome_completo LIKE ? OR u.email LIKE ? OR u.username LIKE ?)
+       ORDER BY u.nome_completo ASC
+       LIMIT 20`,
+      [like, like, like],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      public_id: row.public_id,
+      nome_completo: row.nome_completo,
+      email: row.email,
+      departamento: row.departamento || null,
+      id_perfil: row.id_perfil,
+      perfil_nome: row.perfil_nome || null,
+    }));
+  }
+
+  if (tipo === "time") {
+    const [rows] = await db.execute(
+      `SELECT s.id, s.public_id, s.nome,
+              (SELECT COUNT(*) FROM setor_usuarios su
+                WHERE su.id_setor = s.id AND su.ativo = 1) AS membros_ativos
+       FROM setores s
+       WHERE s.ativo = 1 AND s.nome LIKE ?
+       ORDER BY s.nome ASC
+       LIMIT 20`,
+      [like],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      public_id: row.public_id,
+      nome: row.nome,
+      membros_ativos: Number(row.membros_ativos) || 0,
+    }));
+  }
+
+  throw new AppError("Informe o tipo usuario ou time.", 400);
 }
 
 module.exports = {
@@ -289,6 +602,7 @@ module.exports = {
   getModulesCatalog,
   getProfileByCodigo,
   loadUserProfileContext,
+  lookupAssignees,
   countActiveSuperAdmins: async (excludeUserId = null) => {
     let sql = `SELECT COUNT(*) AS total FROM usuarios u
                INNER JOIN perfis p ON p.id = u.id_perfil

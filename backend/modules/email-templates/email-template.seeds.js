@@ -2,6 +2,7 @@
 
 const {
   FOOTER_INVITE,
+  FOOTER_EMAIL,
   emphasis,
   buildLinkNote,
   buildDetailNote,
@@ -32,6 +33,30 @@ const EMAIL_TEMPLATE_SEEDS = [
     }),
     corpo_texto:
       "Olá {{nome}},\n\nVocê foi convidado(a) para acessar o sistema {{organization_name}} como {{perfil_label}}{{company_suffix}}.\n\nAcesse o link abaixo para definir sua senha (válido por {{invite_ttl_hours}} horas):\n{{invite_url}}\n\nSe você não esperava este e-mail, ignore esta mensagem.",
+  },
+  {
+    codigo: "password_reset",
+    nome: "Redefinir senha",
+    descricao: "E-mail enviado quando uma conta de empresa pede para recuperar a senha.",
+    assunto: "Redefinir senha — {{organization_name}}",
+    corpo_html: buildBrandedEmail({
+      preheader:
+        "Link para redefinir a senha da sua conta de empresa. Válido por {{reset_ttl_hours}} horas.",
+      title: "Redefinir senha",
+      kicker: "Acesso de empresas",
+      paragraphs: [
+        `Olá ${emphasis("{{nome}}")},`,
+        "Recebemos um pedido para redefinir a senha da sua conta de empresa no Credenciamento.",
+      ],
+      cta: { href: "{{reset_url}}", label: "Redefinir senha" },
+      noteHtml: buildLinkNote({
+        validFor: "{{reset_ttl_hours}} horas",
+        url: "{{reset_url}}",
+      }),
+      footerDisclaimer: FOOTER_EMAIL,
+    }),
+    corpo_texto:
+      "Olá {{nome}},\n\nRecebemos um pedido para redefinir a senha da sua conta de empresa.\n\nAcesse o link abaixo para criar uma nova senha (válido por {{reset_ttl_hours}} horas):\n{{reset_url}}\n\nSe você não pediu esta alteração, ignore esta mensagem. Sua senha atual continua valendo.",
   },
   {
     codigo: "company_self_register",

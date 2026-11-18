@@ -6,6 +6,7 @@ const PDFDocument = require("pdfkit");
 const db = require("../../config/db");
 const { safePicturePath } = require("../storage/picture-src");
 const AppError = require("../../utils/AppError");
+const { isUuid } = require("../../utils/publicId");
 const companyService = require("../companies/company.service");
 const collaboratorService = require("../collaborators/collaborator.service");
 const blocklistPolicy = require("../collaborator-blocklist/blocklist.policy");
@@ -165,6 +166,20 @@ function isInscriptionOpen(row, now = new Date()) {
     ? row.inscription_end
     : new Date(row.inscription_end);
   return now >= start && now <= end;
+}
+
+function isInscriptionEnded(row, now = new Date()) {
+  if (!row?.inscription_end) return false;
+  const end = row.inscription_end instanceof Date ? row.inscription_end : new Date(row.inscription_end);
+  return !Number.isNaN(end.getTime()) && now > end;
+}
+
+/** Convite só faz sentido enquanto a empresa ainda pode indicar. */
+function assertCanInviteCompanies(row) {
+  assertActive(row);
+  if (isInscriptionEnded(row)) {
+    throw new AppError("As indicações deste credenciamento já foram encerradas.", 409);
+  }
 }
 
 function assertActive(row) {
@@ -698,7 +713,9 @@ async function countCompanyStatuses(linkId, conn = db) {
 
 async function userIsSectorApprover(idSetor, userId) {
   if (!idSetor || !userId) return false;
-  const approvers = await approvalsService.listEligibleApprovers(idSetor, 1);
+  const approvers = await approvalsService.listEligibleApprovers(idSetor, 1, {
+    tipoEntidade: "CREDENCIAMENTO_EVENTO",
+  });
   return approvers.some((a) => Number(a.id) === Number(userId));
 }
 
@@ -771,7 +788,7 @@ async function listCompaniesOf(id, partnerOnlyCompanyId = null) {
     params.push(partnerOnlyCompanyId);
   }
   const [rows] = await db.execute(
-    `SELECT eac.*, c.company_name, c.fancy_name,
+    `SELECT eac.*, c.company_name, c.fancy_name, c.logo,
             s.nome AS setor_nome,
             a.id AS id_aprovacao, a.status AS aprovacao_status
        FROM event_accreditation_company eac
@@ -1085,6 +1102,7 @@ async function hydrateDetail(req, row) {
       setor_nome: c.setor_nome || null,
       company_name: c.company_name,
       fancy_name: c.fancy_name || null,
+      logo: c.logo || null,
       indication_status: c.indication_status,
       indicated_complete_at: formatDateTimeField(c.indicated_complete_at),
       id_aprovacao: c.id_aprovacao != null ? Number(c.id_aprovacao) : null,
@@ -1133,15 +1151,15 @@ async function hydrateDetail(req, row) {
   const internals = internalEnabled
     ? await listInternalRegistrations(fresh.id_event_accreditation)
     : [];
-  const myInternal =
-    internals.find((r) => Number(r.id_usuario) === Number(req.user?.id)) || null;
+  const myInternals = internals.filter((r) => Number(r.id_usuario) === Number(req.user?.id));
+  const myInternal = myInternals[0] || null;
   const canRegisterInternal =
     internalEnabled &&
     isAdInternalUser(req.user) &&
     isInscriptionOpen(fresh) &&
     !!Number(fresh.ativo) &&
-    !myInternal;
-  const visibleInternals = decideInternal ? internals : myInternal ? [myInternal] : [];
+    myInternals.length === 0;
+  const visibleInternals = decideInternal ? internals : myInternals;
   const internalsPending = visibleInternals.some((r) => isPendingStatus(r.id_access_status));
   const internalsTerminal =
     !internalEnabled ||
@@ -1157,17 +1175,21 @@ async function hydrateDetail(req, row) {
   const setores = [];
   for (const s of visibleSetorList) {
     const canManageSector = await canManageSectorCompanies(req, fresh, s.id_setor);
-    const approvers = await approvalsService.listEligibleApprovers(s.id_setor, 1);
+    const approvers = await approvalsService.listEligibleApprovers(s.id_setor, 1, {
+      tipoEntidade: "CREDENCIAMENTO_EVENTO",
+    });
     setorApproversCount += approvers.length;
     setores.push({
       ...s,
       approvers_count: approvers.length,
       can_add_companies: canManageSector && isInscriptionOpen(fresh) && !!Number(fresh.ativo),
-      can_notify_companies: canManageSector,
+      can_notify_companies: canManageSector && !isInscriptionEnded(fresh) && !!Number(fresh.ativo),
     });
   }
   if (!setores.length && fresh.id_setor && seesAll) {
-    const approvers = await approvalsService.listEligibleApprovers(fresh.id_setor, 1);
+    const approvers = await approvalsService.listEligibleApprovers(fresh.id_setor, 1, {
+      tipoEntidade: "CREDENCIAMENTO_EVENTO",
+    });
     setorApproversCount = approvers.length;
   }
 
@@ -1182,13 +1204,14 @@ async function hydrateDetail(req, row) {
     companies: visibleCompanies,
     internals: visibleInternals,
     my_internal: myInternal,
+    my_internals: myInternals,
     can_register_internal: canRegisterInternal,
     kpis: buildKpis(visibleCompanies, decideInternal ? internals : []),
     setor_approvers_count: setorApproversCount,
     can_manage: canManage,
     can_decide: canDecide,
     can_decide_internal: decideInternal,
-    can_notify: canManage,
+    can_notify: canManage && !isInscriptionEnded(fresh) && !!Number(fresh.ativo),
     can_toggle_active:
       (isSuperAdmin(req.user) || Number(fresh.id_solicitante) === Number(req.user?.id)) &&
       hasPermission(req.user, "event_accreditation", "edit"),
@@ -2005,6 +2028,36 @@ function uniquePositiveIdsOrNull(ids) {
   return uniquePositiveIds(ids);
 }
 
+/**
+ * Ids de linha de colaborador (empresa/interno) recebidos como public_id (UUID)
+ * ou id numérico → ids internos únicos. UUID desconhecido → 400.
+ */
+async function resolveCollaboratorRowIds(target, raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const uuids = [];
+  const numeric = [];
+  for (const value of list) {
+    if (value == null || value === "") continue;
+    if (isUuid(value)) uuids.push(String(value).trim().toLowerCase());
+    else numeric.push(value);
+  }
+  const ids = uniquePositiveIds(numeric);
+  if (!uuids.length) return ids;
+  const spec =
+    target === "internal"
+      ? { table: "event_accreditation_internal", pk: "id_event_accreditation_internal" }
+      : { table: "event_accreditation_collaborator", pk: "id_event_accreditation_collaborator" };
+  const placeholders = uuids.map(() => "?").join(",");
+  const [rows] = await db.query(
+    `SELECT \`${spec.pk}\` AS pk FROM \`${spec.table}\` WHERE public_id IN (${placeholders})`,
+    uuids,
+  );
+  if (rows.length !== uuids.length) {
+    throw new AppError("Um ou mais colaboradores não pertencem a este credenciamento.", 400);
+  }
+  return uniquePositiveIds([...ids, ...rows.map((r) => r.pk)]);
+}
+
 function nextIndicationStatus(link, counts) {
   if (counts.pending > 0) {
     if (link.indication_status === INDICATION.INDICACAO && !link.indicated_complete_at) {
@@ -2183,23 +2236,34 @@ async function registerInternal(req, id, payload) {
   if (!isInscriptionOpen(row)) {
     throw new AppError("O prazo de inscrição já encerrou.", 409);
   }
-  const braceletId = Number(payload.id_bracelet_type);
+  const braceletIds = uniquePositiveIds(payload.id_bracelet_types);
+  if (!braceletIds.length) throw new AppError("Selecione ao menos uma pulseira.", 400);
+  const braceletPlaceholders = braceletIds.map(() => "?").join(",");
   const [bracelets] = await db.execute(
-    `SELECT * FROM bracelet_type WHERE id_bracelet_type = ? AND ativo = 1 LIMIT 1`,
-    [braceletId],
+    `SELECT * FROM bracelet_type
+      WHERE id_bracelet_type IN (${braceletPlaceholders}) AND ativo = 1`,
+    braceletIds,
   );
-  if (!bracelets.length) throw new AppError("Tipo de pulseira inválido.", 400);
-  if (!braceletMatchesKind(bracelets[0].event_kind, row.event_kind)) {
+  if (bracelets.length !== braceletIds.length) throw new AppError("Tipo de pulseira inválido.", 400);
+  if (bracelets.some((b) => !braceletMatchesKind(b.event_kind, row.event_kind))) {
     throw new AppError("Tipo de pulseira não permitido para este tipo de evento.", 400);
   }
   const [allowed] = await db.execute(
-    `SELECT 1 FROM event_accreditation_internal_bracelet
-      WHERE id_event_accreditation = ? AND id_bracelet_type = ?
-      LIMIT 1`,
-    [itemId, braceletId],
+    `SELECT id_bracelet_type FROM event_accreditation_internal_bracelet
+      WHERE id_event_accreditation = ? AND id_bracelet_type IN (${braceletPlaceholders})`,
+    [itemId, ...braceletIds],
   );
-  if (!allowed.length) {
+  if (allowed.length !== braceletIds.length) {
     throw new AppError("Tipo de pulseira não habilitado para colaboradores internos.", 400);
+  }
+  const [already] = await db.execute(
+    `SELECT id_bracelet_type FROM event_accreditation_internal
+      WHERE id_event_accreditation = ? AND id_usuario = ?
+        AND id_bracelet_type IN (${braceletPlaceholders})`,
+    [itemId, req.user.id, ...braceletIds],
+  );
+  if (already.length) {
+    throw new AppError("Você já está inscrito com uma destas pulseiras.", 409);
   }
 
   const conn = await db.getConnection();
@@ -2207,15 +2271,17 @@ async function registerInternal(req, id, payload) {
   try {
     await conn.beginTransaction();
     try {
-      await conn.execute(
-        `INSERT INTO event_accreditation_internal
-           (id_event_accreditation, id_usuario, id_bracelet_type, id_access_status)
-         VALUES (?, ?, ?, ?)`,
-        [itemId, req.user.id, braceletId, STATUS_AGUARDANDO_APROVACAO],
-      );
+      for (const braceletId of braceletIds) {
+        await conn.execute(
+          `INSERT INTO event_accreditation_internal
+             (id_event_accreditation, id_usuario, id_bracelet_type, id_access_status)
+           VALUES (?, ?, ?, ?)`,
+          [itemId, req.user.id, braceletId, STATUS_AGUARDANDO_APROVACAO],
+        );
+      }
     } catch (err) {
       if (err && err.code === "ER_DUP_ENTRY") {
-        throw new AppError("Você já está inscrito neste credenciamento.", 409);
+        throw new AppError("Você já está inscrito com uma destas pulseiras.", 409);
       }
       throw err;
     }
@@ -2360,7 +2426,10 @@ async function changeBracelet(req, id, payload) {
     throw new AppError("Tipo de pulseira não permitido para este tipo de evento.", 400);
   }
 
-  const ids = uniquePositiveIds(payload.ids || (payload.id != null ? [payload.id] : []));
+  const ids = await resolveCollaboratorRowIds(
+    payload.target,
+    payload.ids || (payload.id != null ? [payload.id] : []),
+  );
   if (!ids.length) throw new AppError("Selecione ao menos um colaborador.", 400);
   const placeholders = ids.map(() => "?").join(",");
 
@@ -2390,12 +2459,19 @@ async function changeBracelet(req, id, payload) {
     if (rows.some((r) => !isPendingStatus(Number(r.id_access_status)))) {
       throw new AppError("Só é possível trocar a pulseira de inscrições pendentes.", 409);
     }
-    await db.execute(
-      `UPDATE event_accreditation_internal SET id_bracelet_type = ?
-        WHERE id_event_accreditation = ?
-          AND id_event_accreditation_internal IN (${placeholders})`,
-      [braceletId, itemId, ...ids],
-    );
+    try {
+      await db.execute(
+        `UPDATE event_accreditation_internal SET id_bracelet_type = ?
+          WHERE id_event_accreditation = ?
+            AND id_event_accreditation_internal IN (${placeholders})`,
+        [braceletId, itemId, ...ids],
+      );
+    } catch (err) {
+      if (err && err.code === "ER_DUP_ENTRY") {
+        throw new AppError("Este colaborador já possui esta pulseira.", 409);
+      }
+      throw err;
+    }
     return getById(req, itemId);
   }
 
@@ -2624,13 +2700,16 @@ async function sendCompanyInvites(req, item, companyIds, { reminder = false } = 
   const mapped = mapItemRow(item);
   const invite = await findInviteByAccreditation(item.id_event_accreditation);
   const files = invite ? await listInviteFiles(invite.id_event_accreditation_invite) : [];
+  const inviteHtml = notifications.isUsableInviteHtml(invite?.html)
+    ? invite.html
+    : await notifications.buildDefaultInviteHtml(mapped);
   return notifications.sendInviteToCompanies({
     item: mapped,
     companyIds,
     subject: reminder
       ? `Lembrete: ${invite?.subject || notifications.buildDefaultInviteSubject(mapped)}`
       : invite?.subject || notifications.buildDefaultInviteSubject(mapped),
-    html: invite?.html || notifications.buildDefaultInviteHtml(mapped),
+    html: inviteHtml,
     files,
     usuarioId: req.user?.id,
     requestId: req.requestId,
@@ -2783,6 +2862,7 @@ async function notifySectorCompanies(req, id, idSetor, payload = {}) {
   if (!(await canManageSectorCompanies(req, row, setorId))) {
     throw new AppError("Sem permissão para notificar empresas deste setor.", 403);
   }
+  assertCanInviteCompanies(row);
   const [links] = await db.execute(
     `SELECT id_company, id_event_accreditation_company FROM event_accreditation_company
       WHERE id_event_accreditation = ? AND id_setor = ? AND indication_status = ?`,
@@ -2880,6 +2960,13 @@ async function notifyOwnerValidated(req, id, idCompany) {
   ) {
     throw new AppError("Valide a indicação antes de notificar o responsável.", 409);
   }
+  const [[{ total: indicados }]] = await db.execute(
+    "SELECT COUNT(*) AS total FROM event_accreditation_collaborator WHERE id_event_accreditation_company = ?",
+    [link.id_event_accreditation_company],
+  );
+  if (!Number(indicados)) {
+    throw new AppError("Esta empresa não indicou colaboradores; não há resultado para avisar ao responsável.", 409);
+  }
   if (isPhotoRequiredActive(row)) {
     const missing = await countMissingPhotos(link.id_event_accreditation_company);
     if (missing > 0) {
@@ -2915,6 +3002,7 @@ async function notifyCompanies(req, id, payload = {}) {
   if (!canManage && !canSector) {
     throw new AppError("Sem permissão para notificar empresas deste credenciamento.", 403);
   }
+  assertCanInviteCompanies(row);
 
   const sectorFilter = !canManage
     ? memberships.filter((m) => SECTOR_MANAGE_PAPEIS.includes(m.papel)).map((m) => m.id_setor)
@@ -2942,11 +3030,14 @@ async function notifyCompanies(req, id, payload = {}) {
   const mapped = mapItemRow(row);
   const invite = await findInviteByAccreditation(itemId);
   const files = invite ? await listInviteFiles(invite.id_event_accreditation_invite) : [];
+  const inviteHtml = notifications.isUsableInviteHtml(invite?.html)
+    ? invite.html
+    : await notifications.buildDefaultInviteHtml(mapped);
   const results = await notifications.sendInviteToCompanies({
     item: mapped,
     companyIds,
     subject: invite?.subject || notifications.buildDefaultInviteSubject(mapped),
-    html: invite?.html || notifications.buildDefaultInviteHtml(mapped),
+    html: inviteHtml,
     files,
     usuarioId: req.user?.id,
     requestId: req.requestId,
@@ -3566,9 +3657,17 @@ async function listInviteFiles(inviteId, conn = db) {
 
 async function ensureInviteDraft(item, conn = db) {
   const existing = await findInviteByAccreditation(item.id_event_accreditation, conn);
-  if (existing) return existing;
+  if (existing && notifications.isUsableInviteHtml(existing.html)) return existing;
+  const html = await notifications.buildDefaultInviteHtml(item);
+  if (existing) {
+    await conn.execute(
+      `UPDATE event_accreditation_invite SET html = ? WHERE id_event_accreditation_invite = ?`,
+      [html, existing.id_event_accreditation_invite],
+    );
+    existing.html = html;
+    return existing;
+  }
   const subject = notifications.buildDefaultInviteSubject(item);
-  const html = notifications.buildDefaultInviteHtml(item);
   const [result] = await conn.execute(
     `INSERT INTO event_accreditation_invite
        (id_event_accreditation, subject, html, status)
@@ -3930,6 +4029,7 @@ module.exports = {
   parseListFilters,
   listItems,
   getById,
+  assertCanRead,
   createItem,
   duplicateItem,
   updateItem,

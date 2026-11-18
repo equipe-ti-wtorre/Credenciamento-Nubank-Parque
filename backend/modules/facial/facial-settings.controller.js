@@ -2,11 +2,13 @@
 
 const AppError = require("../../utils/AppError");
 const { logAudit } = require("../../utils/auditLogger");
-const { facialGatewaySettingsSchema, enrollmentStatusSchema } = require("./facial.schema");
+const { facialGatewaySettingsSchema, enrollmentStatusSchema, facialDeviceSchema } = require("./facial.schema");
 const facialGatewayConfig = require("./facial-gateway-config.service");
 const facialStatusService = require("./facial-status.service");
 const facialSyncService = require("./facial.sync.service");
 const enrollmentService = require("./facial.enrollment.service");
+const devicesService = require("./facial.devices.service");
+const dahuaClient = require("./dahua.client");
 const { parseEnrollmentStatus } = require("./facial.contract");
 
 exports.getSettings = async (req, res, next) => {
@@ -138,5 +140,118 @@ exports.forceSync = async (req, res, next) => {
     res.json(result);
   } catch (err) {
     next(err);
+  }
+};
+
+function normalizeDeviceHost(host) {
+  let value = String(host || "").trim().replace(/^https?:\/\//i, "");
+  const slash = value.indexOf("/");
+  if (slash >= 0) value = value.slice(0, slash);
+  return value;
+}
+
+function parseDeviceBody(body, { requirePassword }) {
+  const { error, value } = facialDeviceSchema.validate(body || {}, { abortEarly: false });
+  if (error) {
+    throw new AppError(error.details.map((d) => d.message).join("; "), 400);
+  }
+  value.host = normalizeDeviceHost(value.host);
+  if (!value.host || /[\s/]/.test(value.host)) {
+    throw new AppError("Host do terminal inválido. Use o IP alcançável pela VPN.", 400);
+  }
+  const password = String(value.password || "").trim();
+  if (requirePassword && !password) {
+    throw new AppError("Senha do terminal é obrigatória.", 400);
+  }
+  value.password = password || null;
+  return value;
+}
+
+exports.listDevices = async (req, res, next) => {
+  try {
+    const devices = await devicesService.listPublic();
+    res.json({ devices });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.createDevice = async (req, res, next) => {
+  try {
+    const value = parseDeviceBody(req.body, { requirePassword: true });
+    const device = await devicesService.createDevice(value);
+    await logAudit({
+      userId: req.user?.id,
+      action: "CREATE",
+      module: "facial_settings",
+      req,
+      metadata: { event: "facial.device.create", device_key: device.device_key, host: device.host },
+    });
+    res.status(201).json({ device });
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return next(new AppError("Já existe um aparelho com esse identificador.", 409));
+    }
+    next(err);
+  }
+};
+
+exports.updateDevice = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) throw new AppError("Aparelho inválido.", 400);
+    const value = parseDeviceBody(req.body, { requirePassword: false });
+    const device = await devicesService.updateDevice(id, value);
+    if (!device) throw new AppError("Aparelho não encontrado.", 404);
+    await logAudit({
+      userId: req.user?.id,
+      action: "UPDATE",
+      module: "facial_settings",
+      req,
+      metadata: { event: "facial.device.update", id, device_key: device.device_key, host: device.host },
+    });
+    res.json({ device });
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return next(new AppError("Já existe um aparelho com esse identificador.", 409));
+    }
+    next(err);
+  }
+};
+
+exports.deleteDevice = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) throw new AppError("Aparelho inválido.", 400);
+    const removed = await devicesService.deleteDevice(id);
+    if (!removed) throw new AppError("Aparelho não encontrado.", 404);
+    await logAudit({
+      userId: req.user?.id,
+      action: "DELETE",
+      module: "facial_settings",
+      req,
+      metadata: { event: "facial.device.delete", id },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.testDevice = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) throw new AppError("Aparelho inválido.", 400);
+    const row = await devicesService.getById(id);
+    if (!row) throw new AppError("Aparelho não encontrado.", 404);
+    const device = devicesService.mapRuntime(row);
+    if (!device.password) {
+      throw new AppError("Senha do terminal indisponível.", 400);
+    }
+    const result = await dahuaClient.testConnection(device);
+    res.json(result);
+  } catch (err) {
+    if (err.statusCode) return next(err);
+    res.json({ ok: false, error: err.message || "Falha ao testar o terminal" });
   }
 };

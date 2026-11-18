@@ -1,6 +1,7 @@
 const {
   tableExists,
   columnExists,
+  indexExists,
   allTablesExist,
   allColumnsExist,
 } = require("./schemaHelpers");
@@ -492,7 +493,10 @@ const migrations = [
         `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
           WHERE TABLE_SCHEMA = DATABASE()
             AND TABLE_NAME = 'event_accreditation_internal'
-            AND INDEX_NAME = 'uk_eai_accreditation_usuario'
+            AND INDEX_NAME IN (
+              'uk_eai_accreditation_usuario',
+              'uk_eai_accreditation_usuario_bracelet'
+            )
           LIMIT 1`,
       );
       return uk.length > 0 && (await tableExists(conn, "event_accreditation_day"));
@@ -670,6 +674,126 @@ const migrations = [
   {
     filename: "084_event_accreditation_photo_required.sql",
     validate: (conn) => columnExists(conn, "event_accreditation", "photo_required"),
+  },
+  {
+    filename: "085_perfil_setores.sql",
+    validate: (conn) => tableExists(conn, "perfil_setores"),
+  },
+  {
+    filename: "086_company_origem.sql",
+    validate: (conn) => columnExists(conn, "company", "id_company_origem"),
+  },
+  {
+    filename: "087_facial_devices.sql",
+    validate: (conn) => tableExists(conn, "facial_devices"),
+  },
+  {
+    filename: "088_public_id.sql",
+    validate: async (conn) => {
+      const tables = [
+        "event",
+        "event_accreditation",
+        "service_access",
+        "setores",
+        "aprovacoes",
+        "company",
+        "collaborator",
+        "usuarios",
+        "perfis",
+        "azure_tenants",
+        "vehicle",
+        "teams_integrations",
+        "alertas",
+        "product",
+        "storage_location",
+        "external_company",
+        "bracelet_type",
+        "collaborator_role",
+        "collaborator_block_list",
+        "event_day",
+        "event_day_company",
+        "event_day_company_vehicle",
+        "event_day_company_collaborator",
+        "setor_contatos",
+        "setor_usuarios",
+        "event_accreditation_company",
+        "event_accreditation_collaborator",
+        "event_accreditation_invite_file",
+        "event_accreditation_day",
+        "event_accreditation_setor",
+        "service_access_collaborator",
+        "service_access_vehicle",
+        "company_contact",
+        "aprovacao_decisoes",
+        "material_movement",
+        "material_movement_item",
+        "company_type",
+        "collaborator_document_type",
+        "event_day_type",
+        "access_status",
+      ];
+      for (const table of tables) {
+        if (!(await columnExists(conn, table, "public_id"))) return false;
+      }
+      return true;
+    },
+  },
+  {
+    filename: "089_event_accreditation_internal_multi_bracelet.sql",
+    validate: async (conn) => {
+      const [multi] = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'event_accreditation_internal'
+            AND INDEX_NAME = 'uk_eai_accreditation_usuario_bracelet'
+          LIMIT 1`,
+      );
+      const [single] = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'event_accreditation_internal'
+            AND INDEX_NAME = 'uk_eai_accreditation_usuario'
+          LIMIT 1`,
+      );
+      return multi.length > 0 && single.length === 0;
+    },
+  },
+  {
+    filename: "090_setor_usuario_fluxos.sql",
+    validate: (conn) => tableExists(conn, "setor_usuario_fluxos"),
+  },
+  {
+    filename: "091_facial_device_access_cursor.sql",
+    validate: (conn) => columnExists(conn, "facial_devices", "last_rec_no"),
+  },
+  {
+    filename: "092_facial_devices_public_id.sql",
+    validate: (conn) => columnExists(conn, "facial_devices", "public_id"),
+  },
+  {
+    filename: "093_whatsapp_provider.sql",
+    validate: (conn) =>
+      allTablesExist(conn, ["whatsapp_provider_config", "whatsapp_send_logs"]),
+  },
+  {
+    filename: "094_event_accreditation_internal_public_id.sql",
+    validate: (conn) => columnExists(conn, "event_accreditation_internal", "public_id"),
+  },
+  {
+    filename: "095_refresh_tokens_gateway_sid.sql",
+    validate: (conn) => columnExists(conn, "refresh_tokens", "gateway_sid"),
+  },
+  {
+    filename: "096_password_reset_tokens.sql",
+    validate: (conn) => tableExists(conn, "password_reset_tokens"),
+  },
+  {
+    filename: "097_collaborator_picture_index.sql",
+    validate: (conn) => indexExists(conn, "collaborator", "idx_collaborator_picture"),
+  },
+  {
+    filename: "098_directory_sync_since.sql",
+    validate: (conn) => columnExists(conn, "system_settings", "directory_sync_since"),
   },
 ];
 

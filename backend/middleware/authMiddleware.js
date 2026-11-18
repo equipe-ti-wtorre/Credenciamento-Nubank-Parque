@@ -1,27 +1,70 @@
-const db = require("../config/db");
+const jwt = require("jsonwebtoken");
 const { verifyAccessToken } = require("../modules/auth/token.service");
 const AppError = require("../utils/AppError");
 const { assertUserCanAccess, DEPARTMENT_REQUIRED_MESSAGE } = require("../utils/userDepartment");
 const profilesService = require("../modules/profiles/profiles.service");
+const gatewayService = require("../modules/auth/gateway.service");
+const env = require("../config/env");
 
-async function authMiddleware(req, res, next) {
-  const authHeader = req.headers.authorization || req.headers.Authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({
-      message: "Token de autenticação não fornecido.",
-      requestId: req.requestId,
-    });
+function deny(res, req, status, code, message) {
+  return res.status(status).json({ message, code, requestId: req.requestId });
+}
+
+function readBearer(req) {
+  const header = String(req.headers.authorization || "");
+  return header.startsWith("Bearer ") ? header.slice(7).trim() : null;
+}
+
+/**
+ * Quem está chamando:
+ * - usuário interno: cookie nbp_session do auth-gateway (ou Bearer com o JWT do gateway, para scripts),
+ *   validado localmente (RS256, iss, aud, sessões encerradas);
+ * - empresa terceira, conta admin local e aba do Teams: Bearer com o JWT local (HS256).
+ */
+async function resolveCaller(req) {
+  const bearer = readBearer(req);
+  const bearerIsGateway = bearer && jwt.decode(bearer, { complete: true })?.header?.alg === "RS256";
+
+  if (bearer && !bearerIsGateway) {
+    const decoded = verifyAccessToken(bearer);
+    // Tokens trocados pelo cookie do gateway (fluxo antigo) não valem mais: o navegador usa o cookie.
+    if (decoded.gw_sid) throw new AppError("Sua sessão foi encerrada. Entre novamente.", 401);
+    return { userId: decoded.id, via: "local" };
   }
 
-  const token = authHeader.split(" ")[1];
+  const gatewayToken = bearer || (env.authGateway.enabled ? gatewayService.readGatewayCookie(req) : null);
+  if (!gatewayToken) return null;
+  let payload;
   try {
-    const decoded = verifyAccessToken(token);
-    const ctx = await profilesService.loadUserProfileContext(decoded.id);
+    payload = await gatewayService.verifyGatewayToken(gatewayToken);
+  } catch {
+    throw new AppError("Sua sessão expirou. Entre novamente.", 401, true, null, "SESSION_INVALID");
+  }
+  const authService = require("../modules/auth/auth.service");
+  const user = await authService.resolveGatewayUser(payload, req);
+  return { userId: user.id, via: "gateway" };
+}
+
+async function authMiddleware(req, res, next) {
+  try {
+    const caller = await resolveCaller(req);
+    if (!caller) {
+      return deny(res, req, 401, "UNAUTHENTICATED", "Faça login para continuar.");
+    }
+
+    const ctx = await profilesService.loadUserProfileContext(caller.userId);
     if (!ctx || !ctx.ativo) {
-      return res.status(403).json({
-        message: "Usuário inativo ou não encontrado.",
-        requestId: req.requestId,
-      });
+      return deny(res, req, 403, "FORBIDDEN", "Usuário inativo ou não encontrado.");
+    }
+    // 1º acesso entra sem perfil: o administrador do sistema libera.
+    if (!ctx.id_perfil && !(ctx.permissions || []).length) {
+      return deny(
+        res,
+        req,
+        403,
+        "AWAITING_ACCESS",
+        "Seu acesso está aguardando liberação do administrador do Credenciamento.",
+      );
     }
 
     assertUserCanAccess(ctx);
@@ -32,9 +75,11 @@ async function authMiddleware(req, res, next) {
       perfil: ctx.codigo,
       id_perfil: ctx.id_perfil,
       id_company: ctx.id_company,
+      company_type: ctx.company_type || null,
       is_super_admin: ctx.is_super_admin,
       requires_company: ctx.requires_company,
       is_ad_user: !!ctx.is_ad_user,
+      auth_via: caller.via,
       profile: {
         id: ctx.id_perfil,
         codigo: ctx.codigo,
@@ -45,15 +90,9 @@ async function authMiddleware(req, res, next) {
     next();
   } catch (err) {
     if (err instanceof AppError) {
-      return res.status(err.statusCode).json({
-        message: err.message,
-        requestId: req.requestId,
-      });
+      return deny(res, req, err.statusCode, err.code || (err.statusCode === 401 ? "SESSION_INVALID" : "FORBIDDEN"), err.message);
     }
-    return res.status(401).json({
-      message: "Token inválido ou expirado.",
-      requestId: req.requestId,
-    });
+    return deny(res, req, 401, "SESSION_INVALID", "Token inválido ou expirado.");
   }
 }
 

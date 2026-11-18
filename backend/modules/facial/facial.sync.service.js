@@ -3,10 +3,9 @@
 const db = require("../../config/db");
 const AppError = require("../../utils/AppError");
 const { child } = require("../../config/logger");
-const facialGatewayConfig = require("./facial-gateway-config.service");
 const jobsService = require("./facial.jobs.service");
 const facialCommand = require("./facial.command.service");
-const serviceBusClient = require("./service-bus.client");
+const devicesService = require("./facial.devices.service");
 const enrollmentService = require("./facial.enrollment.service");
 const { STATUS_APROVADO } = require("../credentials/credentials.schema");
 const { existsActiveBlockSql } = require("../collaborator-blocklist/blocklist.policy");
@@ -85,66 +84,39 @@ async function listEligibleCollaborators() {
 }
 
 async function testSync() {
-  const config = await facialGatewayConfig.getPublicConfig();
   const jobs = await jobsService.getQueueStats();
   const eligibleCount = await countEligibleCollaborators();
+  const directDevices = await devicesService.countEnabled();
   const checks = [];
 
   checks.push({
-    key: "enabled",
-    ok: !!config.enabled,
-    label: config.enabled ? "Integração facial ativa" : "Integração facial inativa",
+    key: "devices",
+    ok: directDevices > 0,
+    label:
+      directDevices > 0
+        ? `${directDevices} terminal(is) Dahua ativo(s)`
+        : "Nenhum terminal Dahua ativo",
   });
 
-  checks.push({
-    key: "secret",
-    ok: !!config.has_events_secret,
-    label: config.has_events_secret
-      ? "Secret Bearer configurado (.env)"
-      : "Secret Bearer ausente no .env",
-  });
-
-  const transport = config.transport || "http_poll";
   checks.push({
     key: "transport",
-    ok: true,
+    ok: directDevices > 0,
     label:
-      transport === "service_bus"
-        ? "Transporte: Azure Service Bus"
-        : "Transporte: HTTP",
+      directDevices > 0
+        ? "Transporte: direto nos terminais Dahua"
+        : "Transporte direto indisponível sem terminal ativo",
   });
 
-  if (transport === "service_bus") {
-    const probe = await serviceBusClient.probeConnection();
-    checks.push({
-      key: "service_bus",
-      ok: !!probe.ok,
-      label: probe.ok
-        ? "Conexão Service Bus (comandos) ok"
-        : `Service Bus indisponível: ${probe.reason || "falha"}`,
-    });
-  } else {
-    const oldestAge = ageMs(jobs.oldestQueuedAt);
-    const lastClaimAge = ageMs(jobs.lastClaimedAt);
-    const queueStale =
-      jobs.queued > 0 && oldestAge != null && oldestAge > STALE_QUEUE_WARN_MS;
-    const neverClaimed = jobs.queued > 0 && !jobs.lastClaimedAt;
-    const warning = queueStale || neverClaimed;
-    let label = `Fila HTTP: ${jobs.queued} queued, ${jobs.processing} em processamento`;
-    if (neverClaimed) {
-      label += " — nenhum claim do Gateway ainda";
-    } else if (queueStale) {
-      label += ` — job mais antigo há ${formatAge(oldestAge)}`;
-    } else if (jobs.lastClaimedAt) {
-      label += ` — último claim há ${formatAge(lastClaimAge)}`;
-    }
-    checks.push({
-      key: "queue",
-      ok: true,
-      warning,
-      label,
-    });
-  }
+  const oldestAge = ageMs(jobs.oldestQueuedAt);
+  const queueStale = jobs.queued > 0 && oldestAge != null && oldestAge > STALE_QUEUE_WARN_MS;
+  checks.push({
+    key: "queue",
+    ok: true,
+    warning: queueStale,
+    label: queueStale
+      ? `Fila local: ${jobs.queued} aguardando há ${formatAge(oldestAge)}`
+      : `Fila local: ${jobs.queued} aguardando, ${jobs.processing} em processamento`,
+  });
 
   checks.push({
     key: "eligible",
@@ -163,13 +135,9 @@ async function testSync() {
 
   const result = {
     ok,
-    enabled: !!config.enabled,
-    configComplete: !!(
-      config.has_events_secret &&
-      (transport !== "service_bus" ||
-        (config.has_commands_connection_string && config.has_status_connection_string))
-    ),
-    transport,
+    enabled: directDevices > 0,
+    configComplete: directDevices > 0,
+    transport: "direct_dahua",
     eligibleCount,
     jobs,
     checks,
@@ -181,7 +149,7 @@ async function testSync() {
     {
       ok,
       overallStatus,
-      transport,
+      transport: "direct_dahua",
       eligibleCount,
       warningCount: warnings.length,
       errorCount: failed.length,
@@ -207,7 +175,7 @@ async function testSync() {
       overallStatus,
       error,
       ok,
-      transport,
+      transport: "direct_dahua",
       eligibleCount,
       jobs,
       checks,
@@ -224,15 +192,8 @@ async function forceSync() {
     return { ok: false, alreadyRunning: true, message: "Sincronização já em execução." };
   }
 
-  const runtime = await facialGatewayConfig.getRuntimeConfig();
-  if (!runtime.enabled) {
-    throw new AppError("Ative a integração facial antes de forçar o sync.", 400);
-  }
-  if (!runtime.eventsSecret) {
-    throw new AppError(
-      "Configure FACIAL_GATEWAY_EVENTS_SECRET no .env antes de forçar o sync.",
-      400,
-    );
+  if (!(await devicesService.hasEnabled())) {
+    throw new AppError("Cadastre um terminal Dahua ativo antes de forçar o sync.", 400);
   }
 
   forceSyncInProgress = true;

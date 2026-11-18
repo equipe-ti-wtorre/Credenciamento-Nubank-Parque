@@ -12,6 +12,11 @@ exports.messages = async (req, res) => {
   const activityType = req.body?.type || null;
   const activityName = req.body?.name || null;
 
+  // O Bot Framework sempre manda o JWT; sem ele nem chega ao adapter (antes respondia 500).
+  if (!/^Bearer\s+\S+/i.test(String(req.headers.authorization || ""))) {
+    return res.status(401).json({ error: "Não autorizado pelo Bot Framework." });
+  }
+
   if (!(await isBotConfigured({ appId: appIdHint || undefined }))) {
     log.warn(
       { appIdHint, activityType, activityName },

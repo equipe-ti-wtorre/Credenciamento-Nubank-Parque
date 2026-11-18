@@ -9,6 +9,8 @@ const {
   merchandisePhotoMiddleware,
   merchandisePhotosMiddleware,
 } = require("../../middleware/upload.middleware");
+const { resolverPublicId } = require("../../middleware/resolverPublicId");
+const { autorizar } = require("../../middleware/autorizar");
 
 const router = express.Router();
 const auth = authMiddleware;
@@ -46,6 +48,13 @@ const parseInvoiceAccess = [
     { modulo: "merchandise_exit", acao: "view" },
   ]),
 ];
+const locationId = resolverPublicId({ param: "id", table: "storage_location", pk: "id_storage_location" });
+const productId = resolverPublicId({ param: "id", table: "product", pk: "id_product" });
+const externalCompanyId = resolverPublicId({
+  param: "id",
+  table: "external_company",
+  pk: "id_external_company",
+});
 
 router.get("/companies/select", ...movementCatalogView, materialsController.listCompaniesSelect);
 router.get("/vehicles/select", ...movementCatalogView, materialsController.listVehiclesSelect);
@@ -54,11 +63,11 @@ router.get("/products/select", ...movementCatalogView, materialsController.listP
 
 router.get("/locations", ...locationsView, materialsController.listLocations);
 router.post("/locations", ...locationsCreate, materialsController.createLocation);
-router.put("/locations/:id", ...locationsEdit, materialsController.updateLocation);
+router.put("/locations/:id", auth, locationId, autorizar({ modulo: "merchandise_locations", acao: "edit" }), materialsController.updateLocation);
 
 router.get("/products", ...productsView, materialsController.listProducts);
 router.post("/products", ...productsCreate, materialsController.createProduct);
-router.put("/products/:id", ...productsEdit, materialsController.updateProduct);
+router.put("/products/:id", auth, productId, autorizar({ modulo: "merchandise_products", acao: "edit" }), materialsController.updateProduct);
 
 router.get(
   "/movements/lookup-plate",
@@ -92,12 +101,16 @@ router.get(
 router.get("/external-companies", ...extCompaniesView, materialsController.listExternalCompanies);
 router.patch(
   "/external-companies/:id",
-  ...extCompaniesEdit,
+  auth,
+  externalCompanyId,
+  autorizar({ modulo: "merchandise_external_companies", acao: "edit" }),
   materialsController.patchExternalCompany,
 );
 router.post(
   "/external-companies/:id/merge",
-  ...extCompaniesEdit,
+  auth,
+  externalCompanyId,
+  autorizar({ modulo: "merchandise_external_companies", acao: "edit" }),
   materialsController.mergeExternalCompanies,
 );
 

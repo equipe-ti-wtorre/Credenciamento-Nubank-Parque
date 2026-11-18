@@ -36,7 +36,9 @@ Botões do topo: **Atualizar**, **Enviar link de cadastro** e **+ Nova empresa**
 4. Em **Contatos**, use **+ Contato**. Cada contato pede nome (obrigatório), departamento, telefone e e-mail. **Remover** tira o contato da lista.
 5. Clique em **Salvar empresa**.
 
-Mensagem: **Empresa criada. Você já pode enviar o acesso.** Na edição, **Salvar alterações** responde **Empresa atualizada.**
+Cada contato com e-mail recebe o convite para definir a senha de gestor. E-mails repetidos recebem um único convite. Contato sem e-mail não recebe mensagem.
+
+Mensagem quando há envio: **Empresa criada. Convite de senha enviado para {e-mails}.** Se algum destinatário falhar, a empresa permanece salva e o aviso lista o motivo. Sem contato com e-mail: **Empresa criada. Você já pode enviar o acesso.** Na edição, **Salvar alterações** responde **Empresa atualizada.** e não reenvia o convite.
 
 ### Enviar acesso a um contato já cadastrado
 
@@ -241,4 +243,4 @@ O cabeçalho do setor mostra quantos dos quatro fluxos estão ativos.
 
 ### O que acontece em seguida
 
-O setor ativo, com o fluxo ligado, passa a aparecer como **Setor aprovador** no acesso de serviço, no evento e no credenciamento. As pendências caem em **Aprovações** para os aprovadores e gestores daquele setor.
+O setor ativo, com o fluxo ligado, passa a aparecer como **Time aprovador** no acesso de serviço, no evento e no credenciamento. As pendências caem em **Aprovações** para os aprovadores e gestores daquele setor.

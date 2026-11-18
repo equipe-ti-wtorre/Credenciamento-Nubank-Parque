@@ -8,7 +8,7 @@
       @if (!fullscreenMode()) {
         <div class="welcome-main">
           <h2>Bem-vindo, {{ userName }}</h2>
-          <p>Aqui está um resumo da operação de acessos de hoje.</p>
+          <p>{{ welcomeSubtitle }}</p>
           @if (todayLabel) {
             <div class="date">{{ todayLabel }}</div>
           }
@@ -300,7 +300,7 @@
           </div>
         </div>
 
-        @if (isAdmin() && companiesByType().length > 0) {
+        @if (companiesByType().length > 0) {
           <div class="card">
             <div class="card-head">
               <div>
@@ -320,7 +320,7 @@
               }
             </div>
           </div>
-        } @else if (isAdmin() && topCompanies().length > 0) {
+        } @else if (topCompanies().length > 0) {
           <div class="card">
             <div class="card-head">
               <div>
@@ -340,6 +340,37 @@
               }
             </div>
           </div>
+        } @else if (isCompanyView()) {
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Atalhos</h3>
+                <p class="c-sub">Cadastros da empresa</p>
+              </div>
+            </div>
+            <div class="list">
+              <a class="list-item link" routerLink="/admin/colaboradores">
+                <span class="dot" style="background: var(--db-blue)"></span>
+                <span class="l">Colaboradores</span>
+                <span class="v">{{ m.masters.activeCollaborators }}</span>
+              </a>
+              <a class="list-item link" routerLink="/admin/credenciamento-eventos">
+                <span class="dot" style="background: var(--db-amber)"></span>
+                <span class="l">Credenciamento</span>
+                <span class="v">{{ m.kpis.pendingApproval }}</span>
+              </a>
+              <a class="list-item link" routerLink="/admin/eventos">
+                <span class="dot" style="background: var(--db-green)"></span>
+                <span class="l">Eventos ativos</span>
+                <span class="v">{{ m.kpis.activeEvents }}</span>
+              </a>
+              <a class="list-item link" routerLink="/aprovacoes">
+                <span class="dot" style="background: var(--db-core)"></span>
+                <span class="l">Aprovações na inbox</span>
+                <span class="v">{{ m.kpis.pendingWorkflowApprovals }}</span>
+              </a>
+            </div>
+          </div>
         } @else {
           <div class="card">
             <div class="card-head">
@@ -354,16 +385,32 @@
                 <span class="l">Aprovações na inbox</span>
                 <span class="v">{{ m.kpis.pendingWorkflowApprovals }}</span>
               </a>
-              <a class="list-item link" routerLink="/operacao/negacoes-credenciamento">
-                <span class="dot" style="background: var(--db-rose)"></span>
-                <span class="l">Negativas (7 dias)</span>
-                <span class="v">{{ m.kpis.denialsLast7Days }}</span>
-              </a>
-              <a class="list-item link" routerLink="/operacao/relatorio-acessos">
-                <span class="dot" style="background: var(--db-green)"></span>
-                <span class="l">Dentro agora</span>
-                <span class="v">{{ m.kpis.currentlyInside }}</span>
-              </a>
+              @if (canOpenDenials()) {
+                <a class="list-item link" routerLink="/operacao/negacoes-credenciamento">
+                  <span class="dot" style="background: var(--db-rose)"></span>
+                  <span class="l">Negativas (7 dias)</span>
+                  <span class="v">{{ m.kpis.denialsLast7Days }}</span>
+                </a>
+              } @else {
+                <div class="list-item">
+                  <span class="dot" style="background: var(--db-rose)"></span>
+                  <span class="l">Negativas (7 dias)</span>
+                  <span class="v">{{ m.kpis.denialsLast7Days }}</span>
+                </div>
+              }
+              @if (canOpenAccessReport()) {
+                <a class="list-item link" routerLink="/operacao/relatorio-acessos">
+                  <span class="dot" style="background: var(--db-green)"></span>
+                  <span class="l">Dentro agora</span>
+                  <span class="v">{{ m.kpis.currentlyInside }}</span>
+                </a>
+              } @else {
+                <div class="list-item">
+                  <span class="dot" style="background: var(--db-green)"></span>
+                  <span class="l">Dentro agora</span>
+                  <span class="v">{{ m.kpis.currentlyInside }}</span>
+                </div>
+              }
             </div>
           </div>
         }

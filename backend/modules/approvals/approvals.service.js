@@ -8,6 +8,7 @@
 const pool = require('../../config/db');
 const AppError = require('../../utils/AppError');
 const { child } = require('../../config/logger');
+const { formatUuid, isUuid } = require('../../utils/publicId');
 
 const log = child({ module: 'approvals' });
 
@@ -27,6 +28,34 @@ const STATUS = Object.freeze({
 
 const PAPEIS_CAN_APPROVE = ['APROVADOR', 'GESTOR'];
 const PAPEIS_CAN_OPEN = ['SOLICITANTE', 'APROVADOR', 'GESTOR'];
+const MEMBER_FLOW_TYPES = Object.freeze([
+  'ACESSO_SERVICO',
+  'CREDENCIAMENTO_EVENTO',
+  'CREDENCIAMENTO_EVENTO_INTERNO',
+]);
+
+function isMemberFlowType(tipoEntidade) {
+  return MEMBER_FLOW_TYPES.includes(tipoEntidade);
+}
+
+function memberFlowExistsSql(suAlias = 'su') {
+  return `EXISTS (
+    SELECT 1 FROM setor_usuario_fluxos suf
+     WHERE suf.id_setor_usuario = ${suAlias}.id
+       AND suf.tipo_entidade = ?
+       AND suf.ativo = 1
+  )`;
+}
+
+const MEMBER_FLOW_MATCH_SQL = `(
+  a.tipo_entidade = 'EVENTO'
+  OR EXISTS (
+    SELECT 1 FROM setor_usuario_fluxos suf
+     WHERE suf.id_setor_usuario = su.id
+       AND suf.tipo_entidade = a.tipo_entidade
+       AND suf.ativo = 1
+  )
+)`;
 
 /** Usuários de empresa (PRODUTORA/PADRAO/EMPRESA_*) abrem solicitações sem vínculo em setor_usuarios. */
 function isCompanyScopedUser(user) {
@@ -246,7 +275,12 @@ function mapApprovalRow(row) {
     tipoEntidade: row.tipo_entidade,
     idEntidade: row.id_entidade,
     setor: { id: row.id_setor, nome: row.setor_nome },
-    solicitante: { id: row.id_solicitante, nome: row.solicitante_nome || null },
+    solicitante: {
+      id: row.id_solicitante,
+      nome: row.solicitante_nome || null,
+      empresa: row.solicitante_empresa || null,
+    },
+    ciclo: row.ciclo != null ? Number(row.ciclo) : 1,
     nivelAtual: row.nivel_atual,
     niveisExigidos: row.niveis_exigidos,
     status: row.status,
@@ -590,14 +624,26 @@ const ENTITY_SUMMARY_JOINS = `
     ON eac_co.id_company = eac_e.id_company
   LEFT JOIN event_accreditation ea_int
     ON a.tipo_entidade = 'CREDENCIAMENTO_EVENTO_INTERNO'
-   AND ea_int.id_event_accreditation = a.id_entidade`;
+   AND ea_int.id_event_accreditation = a.id_entidade
+  LEFT JOIN company sol_co ON sol_co.id_company = sol.id_company`;
 
 const ENTITY_SUMMARY_SELECT = `
   , COALESCE(sa_e.finalidade, sa_e.service_type, ev_e.name,
       CONCAT(ea_e.name, ' — ', COALESCE(eac_co.fancy_name, eac_co.company_name)),
       CONCAT(ea_int.name, ' — Internos')) AS entidade_nome
   , COALESCE(sa_e.start_date, ev_e.start, ea_e.start, ea_int.start) AS entidade_start
-  , COALESCE(sa_e.end_date, ev_e.end, ea_e.end, ea_int.end) AS entidade_end`;
+  , COALESCE(sa_e.end_date, ev_e.end, ea_e.end, ea_int.end) AS entidade_end
+  , COALESCE(
+      NULLIF(TRIM(sol_co.fancy_name), ''),
+      NULLIF(TRIM(sol_co.company_name), ''),
+      NULLIF(TRIM(sol.departamento), '')
+    ) AS solicitante_empresa
+  , (
+      SELECT COUNT(*)
+        FROM aprovacoes a_ciclo
+       WHERE a_ciclo.tipo_entidade = a.tipo_entidade
+         AND a_ciclo.id_entidade = a.id_entidade
+    ) AS ciclo`;
 
 function liberacaoStatus(accessId, approvalStatus) {
   if (accessId) return 'APROVADO';
@@ -629,6 +675,7 @@ async function loadServiceAccessEntity(idEntidade, { approvalStatus = null } = {
 
   const [collabRows] = await pool.query(
     `SELECT sac.id_service_access_collaborator, sac.id_collaborator, sac.id_collaborator_role,
+            CAST(sac.public_id AS CHAR) AS public_id,
             sac.access_id, sac.criado_em, sac.atualizado_em,
             c.name AS collaborator_name, c.document AS collaborator_document,
             c.picture AS collaborator_picture,
@@ -643,6 +690,7 @@ async function loadServiceAccessEntity(idEntidade, { approvalStatus = null } = {
 
   const [vehicleRows] = await pool.query(
     `SELECT sav.id_service_access_vehicle, sav.id_vehicle, sav.access_id,
+            CAST(sav.public_id AS CHAR) AS public_id,
             v.plate, v.brand, v.model
        FROM service_access_vehicle sav
        INNER JOIN vehicle v ON v.id_vehicle = sav.id_vehicle
@@ -664,6 +712,7 @@ async function loadServiceAccessEntity(idEntidade, { approvalStatus = null } = {
     atualizadoEm: row.atualizado_em,
     collaborators: collabRows.map((r) => ({
       id: r.id_service_access_collaborator,
+      public_id: r.public_id,
       idCollaborator: r.id_collaborator,
       nome: r.collaborator_name,
       documento: r.collaborator_document,
@@ -674,6 +723,7 @@ async function loadServiceAccessEntity(idEntidade, { approvalStatus = null } = {
     })),
     vehicles: vehicleRows.map((r) => ({
       id: r.id_service_access_vehicle,
+      public_id: r.public_id,
       idVehicle: r.id_vehicle,
       placa: r.plate,
       marca: r.brand || null,
@@ -699,6 +749,7 @@ async function loadEventEntity(idEntidade, { approvalStatus = null } = {}) {
 
   const [collabRows] = await pool.query(
     `SELECT edcc.id_event_day_company_collaborator, edcc.id_collaborator, edcc.id_collaborator_role,
+            CAST(edcc.public_id AS CHAR) AS public_id,
             edcc.access_id, edcc.criado_em,
             c.name AS collaborator_name, c.document AS collaborator_document,
             c.picture AS collaborator_picture,
@@ -720,6 +771,7 @@ async function loadEventEntity(idEntidade, { approvalStatus = null } = {}) {
 
   const [vehicleRows] = await pool.query(
     `SELECT edcv.id_event_day_company_vehicle, edcv.id_vehicle, edcv.access_id,
+            CAST(edcv.public_id AS CHAR) AS public_id,
             v.plate, v.brand, v.model,
             co.company_name, co.fancy_name AS company_fancy_name,
             ed.date AS day_date, edt.description AS phase_description
@@ -748,6 +800,7 @@ async function loadEventEntity(idEntidade, { approvalStatus = null } = {}) {
     atualizadoEm: row.atualizado_em,
     collaborators: collabRows.map((r) => ({
       id: r.id_event_day_company_collaborator,
+      public_id: r.public_id,
       idCollaborator: r.id_collaborator,
       nome: r.collaborator_name,
       documento: r.collaborator_document,
@@ -761,6 +814,7 @@ async function loadEventEntity(idEntidade, { approvalStatus = null } = {}) {
     })),
     vehicles: vehicleRows.map((r) => ({
       id: r.id_event_day_company_vehicle,
+      public_id: r.public_id,
       idVehicle: r.id_vehicle,
       placa: r.plate,
       marca: r.brand || null,
@@ -792,9 +846,15 @@ function liberacaoStatusFromAccessStatus(idAccessStatus, approvalStatus) {
 const DEFAULT_BRACELET_ICON = 'chevrons';
 const DEFAULT_BRACELET_COLOR = '#6B4C9A';
 
+/**
+ * Opção de pulseira exposta na aprovação. `public_id` acompanha o id numérico
+ * para o serializador trocar `id_bracelet_type` pelo UUID (bracelet_type_public_id),
+ * casando com `idBraceletType` dos colaboradores (também UUID).
+ */
 function mapApprovalBracelet(r) {
   return {
     id_bracelet_type: r.id_bracelet_type,
+    public_id: r.public_id,
     name: r.name,
     icon: r.icon || DEFAULT_BRACELET_ICON,
     color: r.color || DEFAULT_BRACELET_COLOR,
@@ -803,12 +863,12 @@ function mapApprovalBracelet(r) {
 
 async function listAccreditationBraceletTypes(idAccreditation, { internal = false } = {}) {
   const sql = internal
-    ? `SELECT bt.id_bracelet_type, bt.name, bt.icon, bt.color
+    ? `SELECT bt.id_bracelet_type, CAST(bt.public_id AS CHAR) AS public_id, bt.name, bt.icon, bt.color
          FROM event_accreditation_internal_bracelet eab
          INNER JOIN bracelet_type bt ON bt.id_bracelet_type = eab.id_bracelet_type
         WHERE eab.id_event_accreditation = ?
         ORDER BY bt.name ASC`
-    : `SELECT bt.id_bracelet_type, bt.name, bt.icon, bt.color
+    : `SELECT bt.id_bracelet_type, CAST(bt.public_id AS CHAR) AS public_id, bt.name, bt.icon, bt.color
          FROM event_accreditation_bracelet eab
          INNER JOIN bracelet_type bt ON bt.id_bracelet_type = eab.id_bracelet_type
         WHERE eab.id_event_accreditation = ?
@@ -820,7 +880,8 @@ async function listAccreditationBraceletTypes(idAccreditation, { internal = fals
 async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {}) {
   const [rows] = await pool.query(
     `SELECT eac.id_event_accreditation_company, eac.id_company,
-            ea.id_event_accreditation, ea.name, ea.start, ea.end, ea.event_kind,
+            ea.id_event_accreditation, CAST(ea.public_id AS CHAR) AS accreditation_public_id,
+            ea.name, ea.start, ea.end, ea.event_kind,
             ea.criado_em, ea.atualizado_em,
             c.fancy_name AS company_fancy_name, c.company_name
        FROM event_accreditation_company eac
@@ -836,11 +897,13 @@ async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {
 
   const [collabRows] = await pool.query(
     `SELECT eacol.id_event_accreditation_collaborator, eacol.id_collaborator,
+            CAST(eacol.public_id AS CHAR) AS public_id,
             eacol.id_collaborator_role, eacol.id_access_status, eacol.criado_em,
             c.name AS collaborator_name, c.document AS collaborator_document,
             c.picture AS collaborator_picture,
             cr.description AS role_description,
             eacol.id_bracelet_type,
+            CAST(bt.public_id AS CHAR) AS bracelet_public_id,
             bt.name AS bracelet_name,
             bt.icon AS bracelet_icon,
             bt.color AS bracelet_color
@@ -858,7 +921,8 @@ async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {
   return {
     tipo: 'CREDENCIAMENTO_EVENTO',
     id: row.id_event_accreditation_company,
-    idAccreditation: row.id_event_accreditation,
+    // UUID: a rota PATCH /event-accreditations/:id/... resolve public_id na URL.
+    idAccreditation: row.accreditation_public_id || row.id_event_accreditation,
     nome: [row.name, row.company_fancy_name || row.company_name].filter(Boolean).join(' — '),
     startDate: formatDateOnly(row.start),
     endDate: formatDateOnly(row.end),
@@ -870,11 +934,12 @@ async function loadAccreditationEntity(idEntidade, { approvalStatus = null } = {
     braceletTypes,
     collaborators: collabRows.map((r) => ({
       id: r.id_event_accreditation_collaborator,
+      public_id: r.public_id,
       idCollaborator: r.id_collaborator,
       nome: r.collaborator_name,
       documento: r.collaborator_document,
       funcao: r.role_description,
-      idBraceletType: r.id_bracelet_type || null,
+      idBraceletType: r.bracelet_public_id || null,
       pulseira: r.bracelet_name || null,
       braceletIcon: r.bracelet_icon || DEFAULT_BRACELET_ICON,
       braceletColor: r.bracelet_color || DEFAULT_BRACELET_COLOR,
@@ -901,8 +966,10 @@ async function loadAccreditationInternalEntity(idEntidade, opts = {}) {
   const row = rows[0];
   const [collabRows] = await pool.query(
     `SELECT eai.id_event_accreditation_internal, eai.id_usuario, eai.id_access_status, eai.criado_em,
+            CAST(eai.public_id AS CHAR) AS public_id,
             u.nome_completo, u.email, u.departamento,
             eai.id_bracelet_type,
+            CAST(bt.public_id AS CHAR) AS bracelet_public_id,
             bt.name AS bracelet_name,
             bt.icon AS bracelet_icon,
             bt.color AS bracelet_color
@@ -919,7 +986,8 @@ async function loadAccreditationInternalEntity(idEntidade, opts = {}) {
   return {
     tipo: 'CREDENCIAMENTO_EVENTO_INTERNO',
     id: row.id_event_accreditation,
-    idAccreditation: row.id_event_accreditation,
+    // UUID: a rota PATCH /event-accreditations/:id/... resolve public_id na URL.
+    idAccreditation: formatUuid(row.public_id) || row.id_event_accreditation,
     nome: `${row.name} — Internos`,
     startDate: formatDateOnly(row.start),
     endDate: formatDateOnly(row.end),
@@ -931,11 +999,12 @@ async function loadAccreditationInternalEntity(idEntidade, opts = {}) {
     braceletTypes,
     collaborators: collabRows.map((r) => ({
       id: r.id_event_accreditation_internal,
+      public_id: r.public_id,
       idCollaborator: r.id_usuario,
       nome: r.nome_completo,
       documento: r.email,
       funcao: r.departamento || 'Interno AD',
-      idBraceletType: r.id_bracelet_type || null,
+      idBraceletType: r.bracelet_public_id || null,
       pulseira: r.bracelet_name || null,
       braceletIcon: r.bracelet_icon || DEFAULT_BRACELET_ICON,
       braceletColor: r.bracelet_color || DEFAULT_BRACELET_COLOR,
@@ -1266,6 +1335,8 @@ async function listEligibleSectors(tipoEntidade, user) {
       [tipoEntidade],
     );
   } else {
+    const flowSql = isMemberFlowType(tipoEntidade) ? ` AND ${memberFlowExistsSql('su')}` : '';
+    const flowParams = isMemberFlowType(tipoEntidade) ? [tipoEntidade] : [];
     [rows] = await pool.query(
       `SELECT s.id, s.nome, 1 AS niveis_exigidos
          FROM setor_fluxos sf
@@ -1273,15 +1344,16 @@ async function listEligibleSectors(tipoEntidade, user) {
          JOIN setor_usuarios su ON su.id_setor = s.id AND su.id_usuario = ? AND su.ativo = 1
          JOIN usuarios u ON u.id = su.id_usuario AND u.ativo = 1
         WHERE sf.tipo_entidade = ? AND sf.ativo = 1 AND s.ativo = 1
+          ${flowSql}
           AND su.papel IN (${PAPEIS_CAN_OPEN.map(() => '?').join(',')})
         ORDER BY s.nome`,
-      [userId, tipoEntidade, ...PAPEIS_CAN_OPEN],
+      [userId, tipoEntidade, ...flowParams, ...PAPEIS_CAN_OPEN],
     );
   }
   return rows.map((r) => ({ id: r.id, nome: r.nome, niveisExigidos: 1 }));
 }
 
-async function assertUserCanOpenForSector(conn, idSetor, user) {
+async function assertUserCanOpenForSector(conn, idSetor, user, tipoEntidade = null) {
   const dbConn = conn || pool;
   const userId = typeof user === 'object' ? user.id : user;
   const isAdmin = typeof user === 'object' ? !!user.is_super_admin : false;
@@ -1311,10 +1383,28 @@ async function assertUserCanOpenForSector(conn, idSetor, user) {
   if (!rows.length || !PAPEIS_CAN_OPEN.includes(rows[0].papel)) {
     throw new AppError('Usuário não é membro deste setor ou não pode abrir solicitações', 403);
   }
+  if (!isMemberFlowType(tipoEntidade)) return;
+
+  const [flowRows] = await dbConn.query(
+    `SELECT 1
+       FROM setor_usuarios su
+      WHERE su.id_setor = ? AND su.id_usuario = ? AND su.ativo = 1
+        AND ${memberFlowExistsSql('su')}
+      LIMIT 1`,
+    [idSetor, userId, tipoEntidade],
+  );
+  if (!flowRows.length) {
+    throw new AppError('Você não tem acesso a este fluxo neste time.', 403);
+  }
 }
 
-async function listEligibleApprovers(idSetor, _nivel, { excludeUserIds = [] } = {}) {
+async function listEligibleApprovers(idSetor, _nivel, { excludeUserIds = [], tipoEntidade = null } = {}) {
   const params = [idSetor, ...PAPEIS_CAN_APPROVE];
+  let flowSql = '';
+  if (isMemberFlowType(tipoEntidade)) {
+    flowSql = ` AND ${memberFlowExistsSql('su')}`;
+    params.push(tipoEntidade);
+  }
   let exclusion = '';
   if (excludeUserIds.length) {
     exclusion = ` AND su.id_usuario NOT IN (${excludeUserIds.map(() => '?').join(',')})`;
@@ -1325,7 +1415,7 @@ async function listEligibleApprovers(idSetor, _nivel, { excludeUserIds = [] } = 
        FROM setor_usuarios su
        JOIN usuarios u ON u.id = su.id_usuario
       WHERE su.id_setor = ? AND su.ativo = 1 AND su.papel IN (${PAPEIS_CAN_APPROVE.map(() => '?').join(',')})
-        AND u.ativo = 1${exclusion}`,
+        AND u.ativo = 1${flowSql}${exclusion}`,
     params,
   );
   return rows.map((r) => ({ id: r.id_usuario, nome: r.nome, email: r.email }));
@@ -1346,6 +1436,7 @@ async function createApprovalFor(conn, { tipoEntidade, idEntidade, idSetor, idSo
   if (!flowRows.length) {
     throw new AppError('Setor não possui fluxo de aprovação ativo para este tipo de solicitação', 422);
   }
+  await assertSolicitanteHasFlow(conn, idSetor, idSolicitante, tipoEntidade);
   const niveisExigidos = 1;
 
   try {
@@ -1361,6 +1452,29 @@ async function createApprovalFor(conn, { tipoEntidade, idEntidade, idSetor, idSo
       throw new AppError('Já existe uma aprovação pendente para esta solicitação', 409);
     }
     throw err;
+  }
+}
+
+async function assertSolicitanteHasFlow(conn, idSetor, userId, tipoEntidade) {
+  if (!isMemberFlowType(tipoEntidade) || !userId) return;
+  const [members] = await conn.query(
+    `SELECT p.is_super_admin,
+            EXISTS (
+              SELECT 1 FROM setor_usuario_fluxos suf
+               WHERE suf.id_setor_usuario = su.id
+                 AND suf.tipo_entidade = ?
+                 AND suf.ativo = 1
+            ) AS has_flow
+       FROM setor_usuarios su
+       JOIN usuarios u ON u.id = su.id_usuario
+       LEFT JOIN perfis p ON p.id = u.id_perfil
+      WHERE su.id_setor = ? AND su.id_usuario = ? AND su.ativo = 1 AND u.ativo = 1
+      LIMIT 1`,
+    [tipoEntidade, idSetor, userId],
+  );
+  if (!members.length || members[0].is_super_admin) return;
+  if (!Number(members[0].has_flow)) {
+    throw new AppError('O solicitante não tem acesso a este fluxo neste time.', 403);
   }
 }
 
@@ -1408,6 +1522,7 @@ async function listPendingForUser(user, query = {}) {
       LEFT JOIN usuarios sol ON sol.id = a.id_solicitante
       ${ENTITY_SUMMARY_JOINS}
      WHERE a.status = 'PENDENTE'
+       AND ${MEMBER_FLOW_MATCH_SQL}
        ${r4Filter}`;
 
     params = ALLOW_SAME_USER_MULTIPLE_LEVELS
@@ -1710,6 +1825,19 @@ async function loadAndAssertCanDecide(conn, idAprovacao, user) {
     if (!memberRows.length || !PAPEIS_CAN_APPROVE.includes(memberRows[0].papel)) {
       throw new AppError('Usuário sem permissão para decidir esta aprovação', 403);
     }
+    if (isMemberFlowType(aprovacao.tipo_entidade)) {
+      const [flowRows] = await conn.query(
+        `SELECT 1
+           FROM setor_usuarios su
+          WHERE su.id_setor = ? AND su.id_usuario = ? AND su.ativo = 1
+            AND ${memberFlowExistsSql('su')}
+          LIMIT 1`,
+        [aprovacao.id_setor, user.id, aprovacao.tipo_entidade],
+      );
+      if (!flowRows.length) {
+        throw new AppError('Você não tem acesso a este fluxo neste time.', 403);
+      }
+    }
 
     if (!ALLOW_SAME_USER_MULTIPLE_LEVELS) {
       const [priorRows] = await conn.query(
@@ -1726,11 +1854,82 @@ async function loadAndAssertCanDecide(conn, idAprovacao, user) {
   return aprovacao;
 }
 
+/** Tabelas de vínculo cujos ids a aprovação seletiva recebe (UUID público ou numérico). */
+const SELECTIVE_ITEM_TABLES = Object.freeze({
+  ACESSO_SERVICO: {
+    collaborators: { table: 'service_access_collaborator', pk: 'id_service_access_collaborator' },
+    vehicles: { table: 'service_access_vehicle', pk: 'id_service_access_vehicle' },
+  },
+  EVENTO: {
+    collaborators: { table: 'event_day_company_collaborator', pk: 'id_event_day_company_collaborator' },
+    vehicles: { table: 'event_day_company_vehicle', pk: 'id_event_day_company_vehicle' },
+  },
+  CREDENCIAMENTO_EVENTO: {
+    collaborators: { table: 'event_accreditation_collaborator', pk: 'id_event_accreditation_collaborator' },
+    vehicles: null,
+  },
+  CREDENCIAMENTO_EVENTO_INTERNO: {
+    collaborators: { table: 'event_accreditation_internal', pk: 'id_event_accreditation_internal' },
+    vehicles: null,
+  },
+});
+
+/**
+ * Converte a lista recebida na aprovação seletiva (public_id UUID e/ou id numérico)
+ * para ids internos. Mantém `undefined`/não-array (sem filtro) e UUID desconhecido → 400.
+ */
+async function resolveSelectiveIds(conn, spec, raw, label) {
+  if (!Array.isArray(raw)) return raw;
+  const numeric = [];
+  const uuids = [];
+  for (const value of raw) {
+    if (value == null || value === '') continue;
+    if (isUuid(value)) {
+      uuids.push(String(value).trim().toLowerCase());
+      continue;
+    }
+    const n = Number(value);
+    if (Number.isInteger(n) && n > 0) numeric.push(n);
+  }
+  if (uuids.length) {
+    if (!spec) throw new AppError(`Esta solicitação não possui ${label}.`, 400);
+    const placeholders = uuids.map(() => '?').join(',');
+    const [rows] = await conn.query(
+      `SELECT \`${spec.pk}\` AS pk, CAST(public_id AS CHAR) AS public_id
+         FROM \`${spec.table}\`
+        WHERE public_id IN (${placeholders})`,
+      uuids,
+    );
+    if (rows.length !== uuids.length) {
+      throw new AppError(`Um ou mais ${label} não pertencem a esta solicitação.`, 400);
+    }
+    for (const r of rows) numeric.push(Number(r.pk));
+  }
+  return [...new Set(numeric)];
+}
+
+async function resolveSelectiveApprovalIds(conn, tipoEntidade, {
+  approvedCollaboratorIds,
+  approvedVehicleIds,
+} = {}) {
+  const specs = SELECTIVE_ITEM_TABLES[tipoEntidade];
+  if (!specs) return { approvedCollaboratorIds, approvedVehicleIds };
+  return {
+    approvedCollaboratorIds: await resolveSelectiveIds(
+      conn,
+      specs.collaborators,
+      approvedCollaboratorIds,
+      'colaboradores',
+    ),
+    approvedVehicleIds: await resolveSelectiveIds(conn, specs.vehicles, approvedVehicleIds, 'veículos'),
+  };
+}
+
 async function approve(idAprovacao, user, options = {}) {
   const comentario = typeof options === 'string' || options == null ? options : options.comentario;
-  const approvedCollaboratorIds =
+  let approvedCollaboratorIds =
     typeof options === 'object' && options ? options.approvedCollaboratorIds : undefined;
-  const approvedVehicleIds =
+  let approvedVehicleIds =
     typeof options === 'object' && options ? options.approvedVehicleIds : undefined;
 
   const conn = await pool.getConnection();
@@ -1744,6 +1943,11 @@ async function approve(idAprovacao, user, options = {}) {
       committed = true;
       throw expirationDecisionError();
     }
+    ({ approvedCollaboratorIds, approvedVehicleIds } = await resolveSelectiveApprovalIds(
+      conn,
+      aprovacao.tipo_entidade,
+      { approvedCollaboratorIds, approvedVehicleIds },
+    ));
     const nivel = aprovacao.nivel_atual;
     const isFinalLevel = nivel >= aprovacao.niveis_exigidos;
 
@@ -1956,6 +2160,7 @@ async function countPendingForUser(user) {
         AND su.ativo = 1
         AND su.papel IN (${PAPEIS_CAN_APPROVE.map(() => '?').join(',')})
       WHERE a.status = 'PENDENTE'
+        AND ${MEMBER_FLOW_MATCH_SQL}
         ${r4Filter}`,
     params,
   );
@@ -1964,6 +2169,8 @@ async function countPendingForUser(user) {
 
 module.exports = {
   ENTITY_TYPES,
+  MEMBER_FLOW_TYPES,
+  memberFlowExistsSql,
   STATUS,
   PAPEIS_CAN_APPROVE,
   PAPEIS_CAN_OPEN,

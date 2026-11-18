@@ -1,7 +1,9 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
+import { redirecionarSeAcessoNegado } from '../../../core/utils/acesso-negado';
 import {
   SECTOR_PAPEL_LABELS,
   SectorContact,
@@ -15,6 +17,7 @@ import { NotificationService } from '../../../core/services/notification.service
 import { ActionBtnComponent, ActionMenuComponent } from '../../../shared/actions';
 
 const ENTITY_TYPES = ['EVENTO', 'ACESSO_SERVICO', 'CREDENCIAMENTO_EVENTO', 'CREDENCIAMENTO_EVENTO_INTERNO'] as const;
+const MEMBER_FLOW_TYPES = ['ACESSO_SERVICO', 'CREDENCIAMENTO_EVENTO', 'CREDENCIAMENTO_EVENTO_INTERNO'] as const;
 const PAPEL_OPTIONS: SectorPapel[] = ['SOLICITANTE', 'APROVADOR', 'GESTOR'];
 
 const FLOW_META: Record<(typeof ENTITY_TYPES)[number], { title: string; desc: string }> = {
@@ -160,7 +163,7 @@ const FLOW_META: Record<(typeof ENTITY_TYPES)[number], { title: string; desc: st
             <div class="card__head">
               <div>
                 <h2 id="h-membros">Membros</h2>
-                <p class="card__hint">O papel define o que a pessoa pode fazer nas solicitações do setor.</p>
+                <p class="card__hint">O papel define o que a pessoa pode fazer. Marque, em cada participante, acesso de serviço, credenciamento e credenciamento interno.</p>
               </div>
             </div>
 
@@ -216,29 +219,55 @@ const FLOW_META: Record<(typeof ENTITY_TYPES)[number], { title: string; desc: st
                 </select>
                 <span class="field__hint">{{ papelDescricao(newMemberPapel) }}</span>
               </label>
+              <div class="vincular__flows">
+                <span class="field__label">Fluxos deste participante</span>
+                <div class="member-flows">
+                  <label class="flow-chip" *ngFor="let tipo of memberFlowTypes">
+                    <input
+                      type="checkbox"
+                      [(ngModel)]="newMemberFlows[tipo]"
+                      [name]="'novo_fluxo_' + tipo"
+                    />
+                    <span>{{ flowMeta(tipo).title }}</span>
+                  </label>
+                </div>
+              </div>
               <button type="button" class="btn-action-primary" (click)="adicionarMembro()">Vincular membro</button>
             </div>
 
             <ul class="rows" role="list" *ngIf="members().length > 0; else emptyMembers">
-              <li class="row" *ngFor="let m of members()">
-                <span class="avatar" aria-hidden="true">{{ iniciais(m.nome) }}</span>
-                <div class="row__main">
-                  <p class="row__title">{{ m.nome }}</p>
-                  <p class="row__sub"><span>{{ m.email }}</span></p>
+              <li class="row row--member" *ngFor="let m of members()">
+                <div class="row__top">
+                  <span class="avatar" aria-hidden="true">{{ iniciais(m.nome) }}</span>
+                  <div class="row__main">
+                    <p class="row__title">{{ m.nome }}</p>
+                    <p class="row__sub"><span>{{ m.email }}</span></p>
+                  </div>
+                  <label class="field field--inline">
+                    <span class="sr-only">Papel de {{ m.nome }}</span>
+                    <select
+                      class="form-select"
+                      [ngModel]="m.papel"
+                      (ngModelChange)="alterarPapel(m, $event)"
+                      [name]="'papel_' + m.public_id"
+                    >
+                      <option *ngFor="let p of papelOptions" [ngValue]="p">{{ papelLabel(p) }}</option>
+                    </select>
+                  </label>
+                  <div class="row__actions">
+                    <app-action-btn icon="delete" title="Remover {{ m.nome }} do setor" variant="danger" (action)="removerMembro(m)" />
+                  </div>
                 </div>
-                <label class="field field--inline">
-                  <span class="sr-only">Papel de {{ m.nome }}</span>
-                  <select
-                    class="form-select"
-                    [ngModel]="m.papel"
-                    (ngModelChange)="alterarPapel(m, $event)"
-                    [name]="'papel_' + m.linkId"
-                  >
-                    <option *ngFor="let p of papelOptions" [ngValue]="p">{{ papelLabel(p) }}</option>
-                  </select>
-                </label>
-                <div class="row__actions">
-                  <app-action-btn icon="delete" title="Remover {{ m.nome }} do setor" variant="danger" (action)="removerMembro(m)" />
+                <div class="member-flows" role="group" [attr.aria-label]="'Fluxos de ' + m.nome">
+                  <label class="flow-chip" *ngFor="let tipo of memberFlowTypes">
+                    <input
+                      type="checkbox"
+                      [checked]="temFluxo(m, tipo)"
+                      (change)="alternarFluxoMembro(m, tipo, $any($event.target).checked)"
+                      [name]="'fluxo_' + m.public_id + '_' + tipo"
+                    />
+                    <span>{{ flowMeta(tipo).title }}</span>
+                  </label>
                 </div>
               </li>
             </ul>
@@ -296,7 +325,9 @@ export class SectorDetailComponent implements OnInit {
   private userSearchTimer: ReturnType<typeof setTimeout> | null = null;
   private savedFlowState: Record<string, boolean> = {};
 
-  sectorId = 0;
+  sectorId = '';
+  private readonly nav = inject(NavigationStateService);
+  private readonly router = inject(Router);
   sectorNome = signal('');
   contacts = signal<SectorContact[]>([]);
   editingContact = signal<SectorContact | null>(null);
@@ -313,9 +344,15 @@ export class SectorDetailComponent implements OnInit {
   flowsDirty = signal(false);
   savingFlows = signal(false);
 
-  newMemberUserId: number | null = null;
+  newMemberUserId: string | null = null;
   newMemberPapel: SectorPapel = 'SOLICITANTE';
+  newMemberFlows: Record<(typeof MEMBER_FLOW_TYPES)[number], boolean> = {
+    ACESSO_SERVICO: false,
+    CREDENCIAMENTO_EVENTO: false,
+    CREDENCIAMENTO_EVENTO_INTERNO: false,
+  };
   readonly papelOptions = PAPEL_OPTIONS;
+  readonly memberFlowTypes = MEMBER_FLOW_TYPES;
   readonly papelLabel = (p: SectorPapel) => SECTOR_PAPEL_LABELS[p];
 
   flowForms: SectorFlow[] = ENTITY_TYPES.map((tipo) => ({
@@ -330,7 +367,11 @@ export class SectorDetailComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.sectorId = Number(this.route.snapshot.paramMap.get('id'));
+    this.sectorId = this.nav.obter('/admin/setores/detalhe')?.public_id || '';
+    if (!this.sectorId) {
+      void this.router.navigate(['/admin/setores']);
+      return;
+    }
     this.carregarMembros();
     this.carregarContatos();
     this.carregarFluxos();
@@ -400,8 +441,12 @@ export class SectorDetailComponent implements OnInit {
   buscarUsuarios(term: string) {
     this.userService.list(1, 50, { search: term }).subscribe({
       next: (res) => {
-        const memberIds = new Set(this.members().filter((m) => m.ativo).map((m) => m.idUsuario));
-        this.userSearchResults.set(res.users.filter((u) => !memberIds.has(u.id)));
+        const memberIds = new Set(
+          this.members()
+            .filter((m) => m.ativo && m.usuario_public_id)
+            .map((m) => m.usuario_public_id as string),
+        );
+        this.userSearchResults.set(res.users.filter((u) => !u.public_id || !memberIds.has(u.public_id)));
         this.userSearchLoading.set(false);
         this.cdr.markForCheck();
       },
@@ -414,8 +459,12 @@ export class SectorDetailComponent implements OnInit {
   }
 
   selecionarUsuario(user: UserItem) {
+    if (!user.public_id) {
+      this.notification.error('Não foi possível identificar este usuário.');
+      return;
+    }
     this.selectedUser.set(user);
-    this.newMemberUserId = user.id;
+    this.newMemberUserId = user.public_id;
     this.userSearchQuery = '';
     this.userSearchResults.set([]);
     this.cdr.markForCheck();
@@ -426,7 +475,36 @@ export class SectorDetailComponent implements OnInit {
     this.newMemberUserId = null;
     this.userSearchQuery = '';
     this.userSearchResults.set([]);
+    this.resetNovosFluxos();
     this.cdr.markForCheck();
+  }
+
+  temFluxo(m: SectorMember, tipo: string): boolean {
+    return (m.fluxos || []).some((fluxo) => fluxo === tipo);
+  }
+
+  alternarFluxoMembro(m: SectorMember, tipo: (typeof MEMBER_FLOW_TYPES)[number], ativo: boolean) {
+    this.sectorService
+      .patchMemberFlow(this.sectorId, m.public_id, { tipoEntidade: tipo, ativo })
+      .subscribe({
+        next: (res) => {
+          this.members.set(res.members);
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.carregarMembros();
+          this.notification.notifyHttpError(err, 'Falha ao atualizar o fluxo do participante.');
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  private resetNovosFluxos() {
+    this.newMemberFlows = {
+      ACESSO_SERVICO: false,
+      CREDENCIAMENTO_EVENTO: false,
+      CREDENCIAMENTO_EVENTO_INTERNO: false,
+    };
   }
 
   carregarMembros() {
@@ -442,6 +520,10 @@ export class SectorDetailComponent implements OnInit {
         this.sectorNome.set(res.sector.nome);
         this.contacts.set(res.sector.contacts || []);
         this.cdr.markForCheck();
+      },
+      error: (err) => {
+        if (redirecionarSeAcessoNegado(err, this.router, this.notification, '/admin/setores')) return;
+        this.notification.notifyHttpError(err, 'Falha ao carregar o time.');
       },
     });
   }
@@ -486,10 +568,14 @@ export class SectorDetailComponent implements OnInit {
       email: this.formContatoEmail.trim() || null,
     };
     const editing = this.editingContact();
-    const req =
-      editing?.id != null
-        ? this.sectorService.updateContact(this.sectorId, editing.id, payload)
-        : this.sectorService.addContact(this.sectorId, payload);
+    const contactRef = editing?.public_id || (editing?.id != null ? String(editing.id) : '');
+    if (editing && !contactRef) {
+      this.notification.error('Não foi possível identificar este contato.');
+      return;
+    }
+    const req = editing
+      ? this.sectorService.updateContact(this.sectorId, contactRef, payload)
+      : this.sectorService.addContact(this.sectorId, payload);
     req.subscribe({
       next: (res) => {
         this.contacts.set(res.contacts);
@@ -502,11 +588,13 @@ export class SectorDetailComponent implements OnInit {
   }
 
   removerContato(c: SectorContact) {
-    if (c.id == null) return;
-    this.sectorService.removeContact(this.sectorId, c.id).subscribe({
+    const contactRef = c.public_id || (c.id != null ? String(c.id) : '');
+    if (!contactRef) return;
+    this.sectorService.removeContact(this.sectorId, contactRef).subscribe({
       next: (res) => {
         this.contacts.set(res.contacts);
-        if (this.editingContact()?.id === c.id) this.fecharFormContato();
+        const editingRef = this.editingContact()?.public_id || this.editingContact()?.id;
+        if (editingRef != null && String(editingRef) === contactRef) this.fecharFormContato();
         this.notification.success('Contato removido.');
         this.cdr.markForCheck();
       },
@@ -546,8 +634,9 @@ export class SectorDetailComponent implements OnInit {
     }
     this.sectorService
       .addMember(this.sectorId, {
-        idUsuario: this.newMemberUserId,
+        usuario_public_id: this.newMemberUserId,
         papel: this.newMemberPapel,
+        fluxos: this.memberFlowTypes.filter((tipo) => this.newMemberFlows[tipo]),
       })
       .subscribe({
         next: (res) => {
@@ -561,7 +650,7 @@ export class SectorDetailComponent implements OnInit {
   }
 
   alterarPapel(m: SectorMember, papel: SectorPapel) {
-    this.sectorService.updateMember(this.sectorId, m.linkId, { papel }).subscribe({
+    this.sectorService.updateMember(this.sectorId, m.public_id, { papel }).subscribe({
       next: (res) => {
         this.members.set(res.members);
         this.cdr.markForCheck();
@@ -571,7 +660,7 @@ export class SectorDetailComponent implements OnInit {
   }
 
   removerMembro(m: SectorMember) {
-    this.sectorService.removeMember(this.sectorId, m.linkId).subscribe({
+    this.sectorService.removeMember(this.sectorId, m.public_id).subscribe({
       next: (res) => {
         this.members.set(res.members);
         this.notification.success('Vínculo removido.');

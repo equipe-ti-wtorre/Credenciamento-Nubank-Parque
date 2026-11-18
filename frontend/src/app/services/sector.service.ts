@@ -12,6 +12,7 @@ export interface SectorSelectItem {
 }
 
 export interface SectorContact {
+  public_id?: string;
   id?: number;
   idSetor?: number;
   nome: string;
@@ -28,7 +29,8 @@ export interface SectorContactPayload {
 }
 
 export interface SectorItem {
-  id: number;
+  public_id?: string;
+  id?: number;
   nome: string;
   descricao: string | null;
   ativo: boolean;
@@ -41,23 +43,23 @@ export interface SectorItem {
 }
 
 export interface SectorMember {
-  linkId: number;
-  idUsuario: number;
+  public_id: string;
+  usuario_public_id?: string;
   nome: string;
   email: string;
   papel: SectorPapel;
   ativo: boolean;
+  fluxos?: ApprovalEntityType[];
 }
 
 export interface SectorFlow {
-  id?: number;
   tipoEntidade: ApprovalEntityType;
   niveisExigidos?: number;
   ativo: boolean;
 }
 
 export interface SectorListResponse {
-  data: SectorItem[];
+  sectors: SectorItem[];
   pagination: { page: number; limit: number; total: number };
 }
 
@@ -80,7 +82,7 @@ export class SectorService {
     return this.api.get<SectorListResponse>('/sectors', params);
   }
 
-  getById(id: number): Observable<{ sector: SectorItem }> {
+  getById(id: string): Observable<{ sector: SectorItem }> {
     return this.api.get<{ sector: SectorItem }>(`/sectors/${id}`);
   }
 
@@ -93,61 +95,75 @@ export class SectorService {
   }
 
   update(
-    id: number,
+    id: string,
     data: { nome?: string; descricao?: string; contacts?: SectorContactPayload[] },
   ): Observable<{ sector: SectorItem }> {
     return this.api.put(`/sectors/${id}`, data);
   }
 
-  listContacts(id: number): Observable<{ contacts: SectorContact[] }> {
+  listContacts(id: string): Observable<{ contacts: SectorContact[] }> {
     return this.api.get<{ contacts: SectorContact[] }>(`/sectors/${id}/contacts`);
   }
 
-  addContact(id: number, data: SectorContactPayload): Observable<{ contacts: SectorContact[] }> {
+  addContact(id: string, data: SectorContactPayload): Observable<{ contacts: SectorContact[] }> {
     return this.api.post(`/sectors/${id}/contacts`, data);
   }
 
   updateContact(
-    id: number,
-    contactId: number,
+    id: string,
+    contactId: string,
     data: SectorContactPayload,
   ): Observable<{ contacts: SectorContact[] }> {
     return this.api.put(`/sectors/${id}/contacts/${contactId}`, data);
   }
 
-  removeContact(id: number, contactId: number): Observable<{ contacts: SectorContact[] }> {
+  removeContact(id: string, contactId: string): Observable<{ contacts: SectorContact[] }> {
     return this.api.delete(`/sectors/${id}/contacts/${contactId}`);
   }
 
-  patchStatus(id: number, ativo: boolean): Observable<{ sector: SectorItem }> {
+  patchStatus(id: string, ativo: boolean): Observable<{ sector: SectorItem }> {
     return this.api.patch(`/sectors/${id}/status`, { ativo });
   }
 
-  listMembers(id: number): Observable<{ members: SectorMember[] }> {
+  listMembers(id: string): Observable<{ members: SectorMember[] }> {
     return this.api.get<{ members: SectorMember[] }>(`/sectors/${id}/members`);
   }
 
-  addMember(id: number, data: { idUsuario: number; papel: SectorPapel }): Observable<{ members: SectorMember[] }> {
+  addMember(
+    id: string,
+    data: { usuario_public_id: string; papel: SectorPapel; fluxos?: ApprovalEntityType[] },
+  ): Observable<{ members: SectorMember[] }> {
     return this.api.post(`/sectors/${id}/members`, data);
   }
 
+  patchMemberFlow(
+    id: string,
+    linkId: string,
+    data: { tipoEntidade: ApprovalEntityType; ativo: boolean },
+  ): Observable<{ members: SectorMember[] }> {
+    return this.api.patch(`/sectors/${id}/members/${linkId}/flows`, data);
+  }
+
   updateMember(
-    id: number,
-    linkId: number,
+    id: string,
+    linkId: string,
     data: { papel?: SectorPapel; ativo?: boolean },
   ): Observable<{ members: SectorMember[] }> {
     return this.api.patch(`/sectors/${id}/members/${linkId}`, data);
   }
 
-  removeMember(id: number, linkId: number): Observable<{ members: SectorMember[] }> {
+  removeMember(id: string, linkId: string): Observable<{ members: SectorMember[] }> {
     return this.api.delete(`/sectors/${id}/members/${linkId}`);
   }
 
-  getFlows(id: number): Observable<{ flows: SectorFlow[] }> {
+  getFlows(id: string): Observable<{ flows: SectorFlow[] }> {
     return this.api.get<{ flows: SectorFlow[] }>(`/sectors/${id}/flows`);
   }
 
-  updateFlows(id: number, flows: Pick<SectorFlow, 'tipoEntidade' | 'ativo'>[]): Observable<{ flows: SectorFlow[] }> {
+  updateFlows(
+    id: string,
+    flows: Pick<SectorFlow, 'tipoEntidade' | 'ativo'>[],
+  ): Observable<{ flows: SectorFlow[] }> {
     return this.api.put(`/sectors/${id}/flows`, { flows });
   }
 }

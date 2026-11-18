@@ -18,6 +18,8 @@ import { MicrosoftProfileService } from './microsoft-profile.service';
 import { SessionIdleService } from './session-idle.service';
 import { TeamsContextService } from '../../services/teams-context.service';
 import { consumeReturnUrl } from '../guards/auth.guard';
+import { NavigationStateService } from './navigation-state.service';
+import { GatewayAuthService } from './gateway-auth.service';
 
 import { PermissionAction, permissionKey } from '../../config/modules.config';
 
@@ -38,6 +40,7 @@ export interface SectorMembership {
 }
 
 export interface AuthUser {
+  public_id?: string;
   id: number;
   username: string;
   nome_completo: string;
@@ -134,6 +137,15 @@ export function isAdInternalUser(user: AuthUser | null | undefined): boolean {
   return true;
 }
 
+/** idle: inatividade; expired: sessão recusada pela API (sem sair do gateway). */
+export type LogoutReason = 'idle' | 'expired';
+
+/**
+ * Sessão do auth-gateway: o navegador manda o cookie httpOnly nbp_session à API e o front não guarda
+ * token. Este marcador só indica que há sessão (guards, inatividade); nunca vai no Authorization.
+ */
+export const GATEWAY_SESSION_MARKER = 'gateway-cookie';
+
 export interface AuthSession {
   auth?: boolean;
   accessToken?: string;
@@ -151,12 +163,13 @@ export class AuthService {
   private backendValidationInFlight: Promise<void> | null = null;
   private lastProcessedRedirectId: string | null = null;
   private logoutPromise: Promise<void> | null = null;
-  private logoutReason: 'idle' | null = null;
+  private logoutReason: LogoutReason | null = null;
   private msalHandlingPaused = false;
   private cachedPhotoObjectUrl: string | null = null;
 
   private static readonly MSAL_INTERACTION_KEY = 'msal.interaction.status';
   private static readonly MSAL_REDIRECT_PROCESSED_KEY = 'msal.redirect.processed';
+  private static readonly AUTH_PROVIDER_KEY = 'authProvider';
 
   constructor(
     private api: ApiService,
@@ -168,6 +181,7 @@ export class AuthService {
     private microsoftProfile: MicrosoftProfileService,
     private injector: Injector,
     private teamsContext: TeamsContextService,
+    private gateway: GatewayAuthService,
   ) {
     this.tokensReady = this.loadTokensFromStorage();
   }
@@ -182,10 +196,10 @@ export class AuthService {
   }
 
   getAccessTokenSync(): string | null {
-    return this.accessTokenCache;
+    return this.accessTokenCache === GATEWAY_SESSION_MARKER ? null : this.accessTokenCache;
   }
 
-  async saveSession(response: AuthSession) {
+  async saveSession(response: AuthSession, provider?: 'gateway') {
     const access =
       response.accessToken || response.token || null;
     const refresh = response.refreshToken || null;
@@ -196,6 +210,7 @@ export class AuthService {
 
     if (access) await this.storage.set('token', access);
     if (refresh) await this.storage.set('refreshToken', refresh);
+    if (provider) await this.storage.set(AuthService.AUTH_PROVIDER_KEY, provider);
     if (response.user) {
       await this.storage.set('currentUser', JSON.stringify(response.user));
     }
@@ -203,8 +218,72 @@ export class AuthService {
     void this.injector.get(SessionIdleService).resetAfterLogin();
   }
 
+  /**
+   * Entra com a sessão do auth-gateway: a API lê o cookie nbp_session, então só carrega o usuário
+   * (permissões) pelo /auth/me. false se o gateway não tem sessão ativa.
+   */
+  async loginWithGateway(options: { navigate?: boolean } = {}): Promise<boolean> {
+    if (!(await this.gateway.hasSession())) return false;
+    await this.startGatewaySession();
+    let res: { user: AuthUser };
+    try {
+      res = await firstValueFrom(this.api.get<{ user: AuthUser }>('/auth/me'));
+    } catch (err) {
+      // Ex.: 403 AWAITING_ACCESS (1º acesso sem perfil): não fica com sessão pela metade.
+      await this.clearLocalSession();
+      throw err;
+    }
+    await this.storage.set('currentUser', JSON.stringify(res.user));
+    void this.injector.get(SessionIdleService).resetAfterLogin();
+    if (options.navigate !== false) {
+      this.navigateAfterLogin();
+    }
+    return true;
+  }
+
+  /** Troca qualquer token guardado pelo marcador da sessão do gateway. */
+  private async startGatewaySession(): Promise<void> {
+    this.msalHandlingPaused = false;
+    this.accessTokenCache = GATEWAY_SESSION_MARKER;
+    this.refreshTokenCache = null;
+    await this.storage.set('token', GATEWAY_SESSION_MARKER);
+    await this.storage.remove('refreshToken');
+    await this.storage.set(AuthService.AUTH_PROVIDER_KEY, 'gateway');
+  }
+
+  private async clearLocalSession(): Promise<void> {
+    this.accessTokenCache = null;
+    this.refreshTokenCache = null;
+    await this.storage.remove('token');
+    await this.storage.remove('refreshToken');
+    await this.storage.remove('currentUser');
+    await this.storage.remove(AuthService.AUTH_PROVIDER_KEY);
+  }
+
+  private async isGatewaySession(): Promise<boolean> {
+    return (await this.storage.get(AuthService.AUTH_PROVIDER_KEY)) === 'gateway';
+  }
+
   loginManual(credentials: { username: string; password: string }) {
     return this.api.post<AuthSession>('/auth/login', credentials).pipe(
+      tap((response) => {
+        void this.saveSession(response);
+      }),
+    );
+  }
+
+  requestPasswordReset(email: string) {
+    return this.api.post<{ message: string }>('/auth/forgot-password', { email });
+  }
+
+  getPasswordReset(token: string) {
+    return this.api.get<{ reset: { email_masked: string; expires_at: string } }>(
+      `/auth/reset-password/${encodeURIComponent(token)}`,
+    );
+  }
+
+  resetPassword(payload: { token: string; password: string; password_confirm: string }) {
+    return this.api.post<AuthSession>('/auth/reset-password', payload).pipe(
       tap((response) => {
         void this.saveSession(response);
       }),
@@ -715,7 +794,17 @@ export class AuthService {
     return !!token;
   }
 
+  /**
+   * 401 da API. Sessão do gateway: o /me do gateway renova o cookie e a chamada é refeita
+   * (devolve o marcador). Sessão local (empresa, admin local, Teams): usa o refresh token.
+   */
   async refreshSession(): Promise<string | null> {
+    if (await this.isGatewaySession()) {
+      if (!(await this.gateway.hasSession())) return null;
+      await this.startGatewaySession();
+      return GATEWAY_SESSION_MARKER;
+    }
+
     const refreshToken =
       this.refreshTokenCache || (await this.storage.get('refreshToken'));
     if (!refreshToken) return null;
@@ -731,7 +820,7 @@ export class AuthService {
     }
   }
 
-  logout(options?: { reason?: 'idle' }): Promise<void> {
+  logout(options?: { reason?: LogoutReason }): Promise<void> {
     if (options?.reason) {
       this.logoutReason = options.reason;
     }
@@ -761,6 +850,7 @@ export class AuthService {
 
     const user = await this.getCurrentUser();
     const isMicrosoftUser = !!user?.is_ad_user;
+    const isGatewaySession = await this.isGatewaySession();
     const refreshToken =
       this.refreshTokenCache || (await this.storage.get('refreshToken'));
 
@@ -770,12 +860,15 @@ export class AuthService {
     await this.storage.remove('token');
     await this.storage.remove('refreshToken');
     await this.storage.remove('currentUser');
+    await this.storage.remove(AuthService.AUTH_PROVIDER_KEY);
     this.clearRedirectProcessedMarker();
     this.clearStuckMsalInteraction();
 
     this.injector.get(SessionIdleService).clearOnLogout();
+    this.injector.get(NavigationStateService).limpar();
 
-    const loginUrl = this.logoutReason === 'idle' ? '/login?reason=idle' : '/login';
+    const reason = this.logoutReason;
+    const loginUrl = reason === 'idle' ? '/login?reason=idle' : '/login';
     this.logoutReason = null;
 
     if (refreshToken) {
@@ -786,6 +879,11 @@ export class AuthService {
 
     if (isMicrosoftUser && this.msalConfigService.hasClientId()) {
       await this.clearMicrosoftSession();
+    }
+
+    // Sair por ação do usuário encerra a sessão no gateway (todos os sistemas e Microsoft).
+    if (isGatewaySession && !reason && (await this.gateway.redirectToLogout())) {
+      return;
     }
 
     // Full reload zera o cache em memória do handleRedirectPromise (evita re-login SPA).

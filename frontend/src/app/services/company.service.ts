@@ -18,6 +18,7 @@ export interface CompanyContact {
 }
 
 export interface CompanyItem {
+  public_id?: string;
   id_company: number;
   id_company_type: number;
   cnpj: string;
@@ -58,6 +59,18 @@ export interface CompanyCreatePayload {
 
 export type CompanyUpdatePayload = Partial<CompanyCreatePayload>;
 
+export interface CompanyInviteResult {
+  id_usuario: number;
+  email: string;
+  profile_codigo: string;
+  expires_in_hours: number;
+}
+
+export interface CompanyInviteError {
+  email: string;
+  message: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CompanyService {
   constructor(private api: ApiService) {}
@@ -78,8 +91,12 @@ export class CompanyService {
     return this.api.get<{ company: CompanyItem }>(`/companies/${id}`);
   }
 
-  create(data: CompanyCreatePayload): Observable<{ company: CompanyItem }> {
-    return this.api.post<{ company: CompanyItem }>('/companies', data);
+  create(data: CompanyCreatePayload): Observable<{
+    company: CompanyItem;
+    invites: CompanyInviteResult[];
+    invite_errors: CompanyInviteError[];
+  }> {
+    return this.api.post('/companies', data);
   }
 
   update(id: number, data: CompanyUpdatePayload): Observable<{ company: CompanyItem }> {

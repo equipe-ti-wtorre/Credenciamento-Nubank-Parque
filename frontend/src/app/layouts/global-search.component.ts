@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router } from '@angular/router';
+import { NavigationStateService } from '../core/services/navigation-state.service';
 import { Subscription, filter, forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { AuthService, hasPermission } from '../core/services/auth.service';
@@ -145,6 +146,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly nav = inject(NavigationStateService);
   private readonly companyService = inject(CompanyService);
   private readonly collaboratorService = inject(CollaboratorService);
 
@@ -255,7 +257,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.collaborators.set([]);
     this.close();
     const path = hit.kind === 'company' ? '/admin/empresas' : '/admin/colaboradores';
-    void this.router.navigate([path], { queryParams: { open: hit.id } });
+    void this.nav.navegar(path, { public_id: String(hit.id) });
   }
 
   @HostListener('document:click', ['$event'])

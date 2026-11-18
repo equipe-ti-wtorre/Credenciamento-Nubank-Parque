@@ -48,7 +48,14 @@ export interface ServiceAccessHistoryItem {
 
 export type AccessScheduleType = 'MANUAL' | 'COMERCIAL' | 'NOTURNO';
 
+export interface ServiceAccessCompanyOption {
+  id_company: number;
+  fancy_name: string | null;
+  company_name: string;
+}
+
 export interface ServiceAccessItem {
+  public_id?: string;
   id_service_access: number;
   id_company: number;
   id_access_status: number;
@@ -113,6 +120,12 @@ export interface ServiceAccessBulkResult {
 @Injectable({ providedIn: 'root' })
 export class PatrimonialService {
   constructor(private api: ApiService) {}
+
+  listCompanyOptions(): Observable<{ companies: ServiceAccessCompanyOption[] }> {
+    return this.api.get<{ companies: ServiceAccessCompanyOption[] }>(
+      '/patrimonial/services/companies',
+    );
+  }
 
   list(
     page = 1,

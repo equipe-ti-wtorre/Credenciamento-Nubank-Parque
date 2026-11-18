@@ -11,7 +11,7 @@ import {
 import { BraceletChipComponent } from './bracelet-chip.component';
 
 export interface BraceletSelectOption {
-  id_bracelet_type: number;
+  id_bracelet_type: number | string;
   name: string;
   icon?: string | null;
   color?: string | null;
@@ -21,6 +21,9 @@ export interface BraceletSelectOption {
   selector: 'app-bracelet-select',
   standalone: true,
   imports: [BraceletChipComponent],
+  host: {
+    '[class.brs-host--open]': 'open()',
+  },
   template: `
     <div class="brs" [class.brs--open]="open()" [class.brs--disabled]="disabled">
       <button
@@ -69,9 +72,9 @@ export interface BraceletSelectOption {
               <button
                 type="button"
                 class="brs__opt"
-                [class.on]="value === b.id_bracelet_type"
+                [class.on]="isSame(b.id_bracelet_type)"
                 role="option"
-                [attr.aria-selected]="value === b.id_bracelet_type"
+                [attr.aria-selected]="isSame(b.id_bracelet_type)"
                 (click)="pick(b.id_bracelet_type)"
               >
                 <app-bracelet-chip
@@ -79,7 +82,7 @@ export interface BraceletSelectOption {
                   [icon]="b.icon"
                   [color]="b.color"
                   [selectable]="true"
-                  [selected]="value === b.id_bracelet_type"
+                  [selected]="isSame(b.id_bracelet_type)"
                 />
               </button>
             </li>
@@ -92,9 +95,14 @@ export interface BraceletSelectOption {
     `
       :host {
         display: block;
-        min-width: 10.5rem;
+        width: 100%;
+        min-width: 0;
         max-width: 18rem;
         position: relative;
+        z-index: 1;
+      }
+      :host.brs-host--open {
+        z-index: 40;
       }
       .brs {
         position: relative;
@@ -122,6 +130,10 @@ export interface BraceletSelectOption {
       .brs__btn:disabled {
         opacity: 0.65;
         cursor: not-allowed;
+      }
+      .brs__btn app-bracelet-chip {
+        flex: 1 1 auto;
+        min-width: 0;
       }
       .brs__ph {
         flex: 1;
@@ -176,18 +188,22 @@ export class BraceletSelectComponent {
   private readonly host = inject(ElementRef<HTMLElement>);
 
   @Input() options: BraceletSelectOption[] = [];
-  @Input() value: number | null = null;
+  @Input() value: number | string | null = null;
   @Input() placeholder = 'Pulseira';
   @Input() allowEmpty = false;
   @Input() disabled = false;
   @Input() ariaLabel = 'Pulseira';
-  @Output() valueChange = new EventEmitter<number | null>();
+  @Output() valueChange = new EventEmitter<number | string | null>();
 
   readonly open = signal(false);
 
   selected(): BraceletSelectOption | null {
     if (this.value == null) return null;
-    return this.options.find((b) => b.id_bracelet_type === this.value) || null;
+    return this.options.find((b) => this.sameId(b.id_bracelet_type, this.value)) || null;
+  }
+
+  isSame(id: number | string | null): boolean {
+    return this.sameId(id, this.value);
   }
 
   toggle(): void {
@@ -195,10 +211,15 @@ export class BraceletSelectComponent {
     this.open.update((v) => !v);
   }
 
-  pick(id: number | null): void {
+  pick(id: number | string | null): void {
     this.open.set(false);
-    if (id === this.value) return;
+    if (this.sameId(id, this.value)) return;
     this.valueChange.emit(id);
+  }
+
+  private sameId(a: number | string | null | undefined, b: number | string | null | undefined): boolean {
+    if (a == null || b == null) return a == null && b == null;
+    return String(a) === String(b);
   }
 
   @HostListener('document:click', ['$event'])

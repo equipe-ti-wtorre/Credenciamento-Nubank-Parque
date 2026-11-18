@@ -20,6 +20,19 @@ exports.getModules = async (req, res, next) => {
   }
 };
 
+exports.lookup = async (req, res, next) => {
+  try {
+    const tipo = String(req.query.tipo || "");
+    if (tipo !== "usuario" && tipo !== "time") {
+      throw new AppError("Informe o tipo usuario ou time.", 400);
+    }
+    const results = await profilesService.lookupAssignees({ tipo, q: req.query.q });
+    res.json({ results });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.getById = async (req, res, next) => {
   try {
     const profile = await profilesService.getProfileById(req.params.id);

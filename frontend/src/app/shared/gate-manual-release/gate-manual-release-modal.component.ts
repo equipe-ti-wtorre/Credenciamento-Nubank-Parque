@@ -162,7 +162,7 @@ export class GateManualReleaseModalComponent implements OnChanges {
       return;
     }
     if (!this.idSetor) {
-      this.notify.error('Selecione o setor aprovador.');
+      this.notify.error('Selecione o time aprovador.');
       return;
     }
     if (!this.finalidade.trim()) {
@@ -330,8 +330,8 @@ export class GateManualReleaseModalComponent implements OnChanges {
         const n = res.release.collaborators?.length || 1;
         this.notify.success(
           n > 1
-            ? `Solicitação com ${n} colaboradores enviada ao setor ${res.release.setor_nome}.`
-            : `Solicitação enviada ao setor ${res.release.setor_nome}. Aguardando aprovação.`,
+            ? `Solicitação com ${n} colaboradores enviada ao time ${res.release.setor_nome}.`
+            : `Solicitação enviada ao time ${res.release.setor_nome}. Aguardando aprovação.`,
         );
         this.submitted.emit(res.release);
         this.close.emit();

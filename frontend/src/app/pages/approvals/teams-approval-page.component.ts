@@ -1,3 +1,7 @@
+import { inject } from '@angular/core';
+import { Router } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
+import { redirecionarSeAcessoNegado } from '../../core/utils/acesso-negado';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -29,6 +33,7 @@ import { CollaboratorService } from '../../services/collaborator.service';
 import { EventAccreditationService } from '../../services/event-accreditation.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { TeamsContextService } from '../../services/teams-context.service';
+import { MicrosoftProfileService } from '../../core/services/microsoft-profile.service';
 import {
   BraceletChipComponent,
   BraceletSelectComponent,
@@ -44,11 +49,14 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, RouterLink, BraceletChipComponent, BraceletSelectComponent],
   template: `
-    <div class="min-h-[calc(100vh-0px)] bg-slate-100" [class.min-h-screen]="standaloneShell()">
+    <div [class.min-h-screen]="standaloneShell()" [class.bg-slate-100]="standaloneShell()">
       <header
-        class="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur px-4 py-3"
+        class="border-b border-slate-200 bg-white px-4 py-3"
+        [class.sticky]="standaloneShell()"
+        [class.top-0]="standaloneShell()"
+        [class.z-10]="standaloneShell()"
       >
-        <div class="max-w-3xl mx-auto flex items-center justify-between gap-3">
+        <div class="mx-auto flex items-center justify-between gap-3" [ngClass]="frameClass()">
           <div class="min-w-0">
             <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               Credenciamento · Aprovação
@@ -59,15 +67,16 @@ import {
           </div>
           <a
             *ngIf="!inTeams()"
-            routerLink="/aprovacoes"
-            class="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-700"
+            [routerLink]="listRoute()"
+            [queryParams]="listQueryParams()"
+            class="btn-action-secondary shrink-0"
           >
-            Lista
+            Voltar
           </a>
         </div>
       </header>
 
-      <main class="max-w-3xl mx-auto px-4 py-5 pb-28">
+      <main class="mx-auto w-full px-4 py-5" [ngClass]="frameClass()" [class.pb-28]="standaloneShell()">
         <div *ngIf="loading()" class="rounded-xl bg-white p-8 text-center text-slate-500 text-sm">
           Carregando aprovação…
         </div>
@@ -133,6 +142,13 @@ import {
               Não é possível uma nova decisão.
             </div>
 
+            <div
+              *ngIf="scopeTab() === 'team'"
+              class="mx-4 mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600"
+            >
+              Visão da equipe. Esta página é somente leitura.
+            </div>
+
             <div class="px-4 py-4 space-y-4" *ngIf="d.entidade as ent">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-slate-700">
                 <p>
@@ -144,11 +160,45 @@ import {
                   {{ ent.startDate | date: 'dd/MM/yyyy' }} – {{ ent.endDate | date: 'dd/MM/yyyy' }}
                 </p>
                 <p *ngIf="ent.empresa"><span class="text-slate-500">Empresa:</span> {{ ent.empresa }}</p>
-                <p><span class="text-slate-500">Setor:</span> {{ d.setor.nome }}</p>
+                <p *ngIf="ent.departamento">
+                  <span class="text-slate-500">Departamento:</span> {{ ent.departamento }}
+                </p>
+                <p><span class="text-slate-500">Time aprovador:</span> {{ d.setor.nome }}</p>
                 <p><span class="text-slate-500">Solicitante:</span> {{ d.solicitante.nome || '—' }}</p>
+                <p *ngIf="d.status === 'PENDENTE'">
+                  <span class="text-slate-500">Nível:</span> {{ d.nivelAtual || 1 }} de {{ d.niveisExigidos || 1 }}
+                </p>
                 <p class="sm:col-span-2" *ngIf="ent.observacao">
                   <span class="text-slate-500">Observação:</span> {{ ent.observacao }}
                 </p>
+              </div>
+
+              <div
+                *ngIf="d.liberacaoResumo"
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"
+              >
+                <div class="rounded-lg bg-slate-50 px-3 py-2.5">
+                  <p class="text-xs font-bold text-slate-500 uppercase mb-1">Colaboradores</p>
+                  <p *ngIf="d.status === 'APROVADO'">
+                    <span class="font-semibold text-emerald-700">{{ d.liberacaoResumo.colaboradores.liberados }} liberados</span>
+                    <span class="text-slate-400 mx-1">·</span>
+                    <span class="font-semibold text-red-700">{{ d.liberacaoResumo.colaboradores.bloqueados }} bloqueados</span>
+                  </p>
+                  <p *ngIf="d.status !== 'APROVADO'" class="font-semibold text-slate-800">
+                    {{ d.liberacaoResumo.colaboradores.total }}
+                  </p>
+                </div>
+                <div class="rounded-lg bg-slate-50 px-3 py-2.5">
+                  <p class="text-xs font-bold text-slate-500 uppercase mb-1">Veículos</p>
+                  <p *ngIf="d.status === 'APROVADO'">
+                    <span class="font-semibold text-emerald-700">{{ d.liberacaoResumo.veiculos.liberados }} liberados</span>
+                    <span class="text-slate-400 mx-1">·</span>
+                    <span class="font-semibold text-red-700">{{ d.liberacaoResumo.veiculos.bloqueados }} bloqueados</span>
+                  </p>
+                  <p *ngIf="d.status !== 'APROVADO'" class="font-semibold text-slate-800">
+                    {{ d.liberacaoResumo.veiculos.total }}
+                  </p>
+                </div>
               </div>
 
               <div
@@ -166,11 +216,24 @@ import {
                     *ngFor="let c of ent.collaborators"
                     class="flex flex-wrap items-center gap-2 text-sm rounded-lg bg-slate-50 px-3 py-2"
                   >
+                    <img
+                      *ngIf="pictureUrl(c) as url"
+                      [src]="url"
+                      [alt]="'Foto de ' + c.nome"
+                      class="shrink-0 w-9 h-9 rounded-full object-cover border border-slate-200"
+                    />
+                    <span
+                      *ngIf="!pictureUrl(c)"
+                      class="shrink-0 w-9 h-9 rounded-full grid place-items-center text-[12px] font-semibold bg-slate-200 text-slate-600"
+                    >
+                      {{ initials(c.nome) }}
+                    </span>
                     <span class="font-medium text-slate-800">{{ c.nome }}</span>
                     <span class="text-slate-500">
                       {{ c.documento }} · {{ c.funcao }}
                       <ng-container *ngIf="c.empresa"> · {{ c.empresa }}</ng-container>
                       <ng-container *ngIf="c.fase"> · {{ c.fase }}</ng-container>
+                      <ng-container *ngIf="c.dataDia"> · {{ c.dataDia | date: 'dd/MM/yyyy' }}</ng-container>
                     </span>
                     <app-bracelet-select
                       *ngIf="canEditBracelet(c)"
@@ -205,9 +268,11 @@ import {
                     class="flex flex-wrap items-center gap-2 text-sm rounded-lg bg-slate-50 px-3 py-2"
                   >
                     <span class="font-medium text-slate-800">{{ v.placa }}</span>
-                    <span class="text-slate-500" *ngIf="v.marca || v.modelo"
-                      >{{ v.marca }} {{ v.modelo }}</span
-                    >
+                    <span class="text-slate-500" *ngIf="v.marca || v.modelo || v.empresa || v.fase">
+                      <ng-container *ngIf="v.marca || v.modelo">{{ v.marca }} {{ v.modelo }}</ng-container>
+                      <ng-container *ngIf="v.empresa"> · {{ v.empresa }}</ng-container>
+                      <ng-container *ngIf="v.fase"> · {{ v.fase }}</ng-container>
+                    </span>
                     <span
                       class="ml-auto inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
                       [ngClass]="liberacaoBadgeClass(v.statusLiberacao)"
@@ -218,10 +283,14 @@ import {
                 </ul>
               </div>
 
+              <div *ngIf="!d.historico?.length">
+                <p class="text-xs font-bold text-slate-500 uppercase mb-2">Histórico</p>
+                <p class="text-sm text-slate-500">Nenhum evento registrado.</p>
+              </div>
               <div *ngIf="d.historico?.length">
                 <p class="text-xs font-bold text-slate-500 uppercase mb-3">Histórico</p>
                 <ol class="relative border-l border-slate-200 ml-2 space-y-3">
-                  <li *ngFor="let h of d.historico" class="relative ml-4">
+                  <li *ngFor="let h of d.historico; let i = index" class="relative ml-4">
                     <span
                       class="absolute -left-[1.4rem] mt-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-white"
                       [ngClass]="historyDotClass(h.tipo)"
@@ -231,6 +300,17 @@ import {
                       {{ h.data | date: 'dd/MM/yyyy HH:mm' }}
                       <span *ngIf="h.usuario?.nome"> · {{ h.usuario?.nome }}</span>
                     </p>
+                    <button
+                      *ngIf="h.detalhe"
+                      type="button"
+                      class="mt-1 text-xs font-semibold text-[var(--brand)] hover:underline"
+                      (click)="toggleHistory(i)"
+                    >
+                      {{ isHistoryOpen(i) ? 'Ocultar detalhes' : 'Ver detalhes' }}
+                    </button>
+                    <p class="text-sm text-slate-600 mt-1 whitespace-pre-line" *ngIf="h.detalhe && isHistoryOpen(i)">
+                      {{ h.detalhe }}
+                    </p>
                   </li>
                 </ol>
               </div>
@@ -239,7 +319,7 @@ import {
 
           <!-- Painel de decisão -->
           <section
-            *ngIf="d.status === 'PENDENTE' && actionMode() as mode"
+            *ngIf="canDecide() && d.status === 'PENDENTE' && actionMode() as mode"
             class="mt-4 rounded-xl bg-white shadow-sm border border-slate-200/80 p-4 space-y-4"
           >
             <p class="text-sm font-semibold text-slate-800">
@@ -615,24 +695,38 @@ import {
       </main>
 
       <footer
-        *ngIf="approval()?.status === 'PENDENTE' && !actionMode()"
-        class="fixed bottom-0 inset-x-0 border-t border-slate-200 bg-white px-4 py-3 safe-pb"
+        *ngIf="approval()?.status === 'PENDENTE' && !actionMode() && (canDecide() || canCancel())"
+        class="border-t border-slate-200 bg-white px-4 py-3"
+        [class.fixed]="standaloneShell()"
+        [class.bottom-0]="standaloneShell()"
+        [class.inset-x-0]="standaloneShell()"
       >
-        <div class="max-w-3xl mx-auto flex gap-2">
+        <div class="mx-auto flex gap-2" [ngClass]="frameClass()">
           <button
+            *ngIf="canCancel()"
             type="button"
-            class="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-red-200 text-red-700 bg-red-50"
-            (click)="startAction('reject')"
+            class="btn-action-secondary"
+            [disabled]="acting()"
+            (click)="cancelar()"
           >
-            Reprovar
+            Cancelar solicitação
           </button>
-          <button
-            type="button"
-            class="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white bg-emerald-600"
-            (click)="startAction('approve')"
-          >
-            Aprovar
-          </button>
+          <ng-container *ngIf="canDecide()">
+            <button
+              type="button"
+              class="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-red-200 text-red-700 bg-red-50"
+              (click)="startAction('reject')"
+            >
+              Reprovar
+            </button>
+            <button
+              type="button"
+              class="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white bg-[var(--brand)]"
+              (click)="startAction('approve')"
+            >
+              Aprovar
+            </button>
+          </ng-container>
         </div>
       </footer>
     </div>
@@ -649,9 +743,14 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
   readonly thumbnailUrls = signal<Record<number, string>>({});
   readonly inTeams = signal(false);
   readonly standaloneShell = signal(false);
+  readonly listRoute = signal('/aprovacoes');
+  readonly scopeTab = signal<'pending' | 'mine' | 'team' | null>(null);
+  readonly historyOpen = signal<Set<number>>(new Set());
 
   comment = '';
   private approvalId = 0;
+  private readonly nav = inject(NavigationStateService);
+  private readonly router = inject(Router);
   private lastSilentLoadAt = 0;
   private thumbnailLoadId = 0;
 
@@ -662,6 +761,7 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     private eventAccreditation: EventAccreditationService,
     private notification: NotificationService,
     private teamsContext: TeamsContextService,
+    private profilePhotos: MicrosoftProfileService,
     private cdr: ChangeDetectorRef,
   ) {}
 
@@ -678,18 +778,28 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     this.inTeams.set(inTeams);
     this.standaloneShell.set(inTeams || !document.querySelector('app-main-layout'));
 
-    const id = Number(this.route.snapshot.paramMap.get('id'));
-    if (!Number.isFinite(id) || id <= 0) {
+    const navRoute = String(this.route.snapshot.data['navRoute'] || '/aprovacoes/detalhe');
+    const listRoute = String(this.route.snapshot.data['listRoute'] || '/aprovacoes');
+    this.listRoute.set(listRoute);
+    const tab = this.route.snapshot.queryParamMap.get('tab');
+    if (tab === 'pending' || tab === 'mine' || tab === 'team') this.scopeTab.set(tab);
+    const aberto = this.nav.obter(navRoute);
+    const id = aberto?.public_id || '';
+    if (!id) {
       this.error.set('Aprovação inválida.');
       this.loading.set(false);
+      void this.router.navigate(['/aprovacoes']);
       return;
     }
-    this.approvalId = id;
+    this.approvalId = id as never;
 
-    const action = this.route.snapshot.queryParamMap.get('action');
+    const action = aberto?.action || this.route.snapshot.queryParamMap.get('action');
     this.carregar({
       after: () => {
-        if (action === 'reject' || action === 'approve' || action === 'decide') {
+        if (
+          this.canDecide() &&
+          (action === 'reject' || action === 'approve' || action === 'decide')
+        ) {
           this.startAction(action === 'reject' ? 'reject' : 'approve');
         }
       },
@@ -700,9 +810,57 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     this.revokeThumbnails();
   }
 
+  frameClass(): string {
+    return this.standaloneShell() ? 'max-w-3xl' : 'max-w-6xl w-full';
+  }
+
+  listQueryParams(): { tab: string } | null {
+    const tab = this.scopeTab();
+    return tab && tab !== 'pending' ? { tab } : null;
+  }
+
+  canDecide(): boolean {
+    const tab = this.scopeTab();
+    return tab == null || tab === 'pending';
+  }
+
+  canCancel(): boolean {
+    return this.scopeTab() === 'mine';
+  }
+
+  isHistoryOpen(index: number): boolean {
+    return this.historyOpen().has(index);
+  }
+
+  toggleHistory(index: number) {
+    const next = new Set(this.historyOpen());
+    if (next.has(index)) next.delete(index);
+    else next.add(index);
+    this.historyOpen.set(next);
+    this.cdr.markForCheck();
+  }
+
+  cancelar() {
+    const id = this.approval()?.id;
+    if (id == null) return;
+    this.acting.set(true);
+    this.approvalService.cancel(id).subscribe({
+      next: () => {
+        this.acting.set(false);
+        this.notification.success('Solicitação cancelada.');
+        void this.router.navigate([this.listRoute()], { queryParams: { tab: 'mine' } });
+      },
+      error: (err) => {
+        this.acting.set(false);
+        this.notification.notifyHttpError(err, 'Falha ao cancelar.');
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
   title(): string {
     const d = this.approval();
-    return d ? approvalItemTitle(d) : `Aprovação #${this.approvalId || ''}`;
+    return d ? approvalItemTitle(d) : 'Aprovação';
   }
 
   lastDecisionLabel(): string | null {
@@ -736,6 +894,7 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
       error: (err) => {
         this.loading.set(false);
         if (!options.silent) {
+          if (redirecionarSeAcessoNegado(err, this.router, this.notification, '/aprovacoes')) return;
           this.error.set(
             this.notification.extractErrorMessage(err, 'Não foi possível carregar a aprovação.'),
           );
@@ -812,7 +971,7 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
     return (this.braceletOptions().length || 0) > 0;
   }
 
-  onPickBracelet(c: ApprovalEntityCollaborator, idBracelet: number | null): void {
+  onPickBracelet(c: ApprovalEntityCollaborator, idBracelet: number | string | null): void {
     const d = this.approval();
     const accreditationId = toPositiveId(d?.entidade?.idAccreditation);
     const braceletId = toPositiveId(idBracelet);
@@ -904,13 +1063,24 @@ export class TeamsApprovalPageComponent implements OnInit, OnDestroy {
   private loadThumbnails(list: ApprovalEntityCollaborator[]) {
     this.revokeThumbnails();
     const loadId = ++this.thumbnailLoadId;
+    const internal = this.approval()?.tipoEntidade === 'CREDENCIAMENTO_EVENTO_INTERNO';
     for (const c of list) {
+      if (internal) {
+        const userId = c.idCollaborator;
+        if (userId == null || String(userId) === '0') continue;
+        void this.profilePhotos.fetchUserPhotoObjectUrl(userId).then((url) => {
+          if (loadId !== this.thumbnailLoadId || !url) return;
+          this.thumbnailUrls.update((map) => ({ ...map, [c.idCollaborator]: url }));
+          this.cdr.markForCheck();
+        });
+        continue;
+      }
       if (!c.picture) continue;
       this.collaboratorService.getPictureBlob(c.picture).subscribe({
         next: (url) => {
           if (loadId !== this.thumbnailLoadId) return;
           this.thumbnailUrls.update((map) => ({ ...map, [c.idCollaborator]: url }));
-          this.cdr.detectChanges();
+          this.cdr.markForCheck();
         },
         error: () => {},
       });

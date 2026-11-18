@@ -2,10 +2,13 @@ import { ChangeDetectorRef, Component, computed, inject, OnDestroy, OnInit, sign
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
 import { Subscription } from 'rxjs';
 import Swal from 'sweetalert2';
 import {
   CompanyContact,
+  CompanyInviteError,
+  CompanyInviteResult,
   CompanyItem,
   CompanyService,
   CompanyType,
@@ -18,6 +21,7 @@ import { ActionMenuComponent } from '../../../shared/actions/action-menu.compone
 import { ActionDropdownComponent } from '../../../shared/actions/action-dropdown.component';
 import { ActionDropdownItemDirective } from '../../../shared/actions/action-dropdown-item.directive';
 import { ModalComponent } from '../../../shared/modal/modal.component';
+import { FaceCropModalComponent } from '../../../shared/face-crop/face-crop-modal.component';
 
 interface CompanyFormState {
   id_company_type: number | null;
@@ -38,6 +42,7 @@ interface CompanyFormState {
     ActionDropdownComponent,
     ActionDropdownItemDirective,
     ModalComponent,
+    FaceCropModalComponent,
   ],
   template: `
     <div class="w-full">
@@ -120,7 +125,7 @@ interface CompanyFormState {
         <table class="w-full text-sm">
           <thead class="table-head sticky top-0 bg-slate-50 z-10">
             <tr>
-              <th class="px-4 py-3 text-left w-14">Logo</th>
+              <th class="px-4 py-3 text-left w-24 whitespace-nowrap">Logo</th>
               <th class="px-4 py-3 text-left">Razão social</th>
               <th class="px-4 py-3 text-left">Nome fantasia</th>
               <th class="px-4 py-3 text-left">CNPJ</th>
@@ -132,19 +137,23 @@ interface CompanyFormState {
           <tbody>
             <ng-container *ngIf="!loading(); else loadingRow">
               <tr *ngFor="let c of companies()" class="border-t border-slate-100 hover:bg-slate-50">
-                <td class="px-4 py-3">
-                  <img
-                    *ngIf="thumbnailUrls()[c.id_company] as url"
-                    [src]="url"
-                    [alt]="'Logo de ' + c.company_name"
-                    class="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 shrink-0"
-                  />
+                <td class="px-4 py-3 w-24">
                   <div
-                    *ngIf="!thumbnailUrls()[c.id_company]"
-                    class="w-10 h-10 rounded-lg bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center shrink-0 border border-slate-200"
-                    aria-hidden="true"
+                    class="w-16 h-16 min-w-16 min-h-16 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white"
                   >
-                    {{ initials(c.fancy_name || c.company_name) }}
+                    <img
+                      *ngIf="thumbnailUrls()[c.id_company] as url"
+                      [src]="url"
+                      [alt]="'Logo de ' + c.company_name"
+                      class="w-full h-full object-cover"
+                    />
+                    <div
+                      *ngIf="!thumbnailUrls()[c.id_company]"
+                      class="w-full h-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center"
+                      aria-hidden="true"
+                    >
+                      {{ initials(c.fancy_name || c.company_name) }}
+                    </div>
                   </div>
                 </td>
                 <td class="px-4 py-3 font-medium text-slate-800">{{ c.company_name }}</td>
@@ -266,7 +275,7 @@ interface CompanyFormState {
                     <path d="M4 20h16" />
                   </svg>
                 </span>
-                <span *ngIf="logoPreviewUrl()" class="upload-dropzone__preview" aria-hidden="true">
+                <span *ngIf="logoPreviewUrl()" class="upload-dropzone__preview upload-dropzone__preview--lg" aria-hidden="true">
                   <img [src]="logoPreviewUrl()!" alt="" />
                 </span>
                 <span class="upload-dropzone__text">
@@ -284,6 +293,14 @@ interface CompanyFormState {
                 </span>
               </div>
             </div>
+            <button
+              *ngIf="logoPreviewUrl()"
+              type="button"
+              class="mt-2 text-sm font-semibold text-[var(--wtorre)] underline underline-offset-2"
+              (click)="ajustarLogoEnquadramento()"
+            >
+              Ajustar enquadramento
+            </button>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -401,6 +418,26 @@ interface CompanyFormState {
       </div>
     </app-modal>
 
+    <app-face-crop-modal
+      [open]="showLogoCropModal()"
+      [imageUrl]="logoCropSourceUrl()"
+      [fileName]="logoCropSourceName()"
+      title="Ajustar logo"
+      subtitle="Afaste o zoom para caber o logo inteiro. Aproxime para recortar."
+      hint="Use − para afastar se o quadro estiver cortando. Arraste os cantos para ajustar. O preview mostra o tamanho da lista."
+      [initialAspectH]="1"
+      [initialSizeRatio]="1"
+      [lockAspectRatio]="1"
+      [centerInitialCrop]="true"
+      [showOutputPreview]="true"
+      [minZoom]="0.25"
+      [allowCropOutside]="true"
+      previewLabel="Na lista"
+      outputSuffix="-logo"
+      (cancel)="cancelLogoCrop()"
+      (cropped)="onLogoCropped($event)"
+    />
+
     <app-modal
       [open]="showInviteModal()"
       title="Enviar link de cadastro"
@@ -479,10 +516,15 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   showModal = signal(false);
   showInviteModal = signal(false);
   editingId = signal<number | null>(null);
+  private readonly nav = inject(NavigationStateService);
   logoPreviewUrl = signal<string | null>(null);
   pendingLogoFile = signal<File | null>(null);
   logoDragOver = signal(false);
   thumbnailUrls = signal<Record<number, string>>({});
+  showLogoCropModal = signal(false);
+  logoCropSourceUrl = signal<string | null>(null);
+  logoCropSourceName = signal('logo.jpg');
+  private logoCropSourceOwned = false;
 
   pagination = signal({
     page: 1,
@@ -528,18 +570,20 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    const aberto = this.nav.obter('/admin/empresas');
+    if (aberto?.public_id) this.consumeOpenQuery(aberto.public_id as never);
     this.routeSub = this.route.queryParamMap.subscribe((params) => {
       const raw = params.get('open');
       if (!raw) return;
-      const id = Number(raw);
-      if (!Number.isInteger(id) || id <= 0) return;
-      this.consumeOpenQuery(id);
+      if (!/^[0-9a-f-]{36}$/i.test(raw)) return;
+      this.consumeOpenQuery(raw as never);
     });
   }
 
   ngOnDestroy() {
     this.routeSub?.unsubscribe();
     this.clearFilterDebounce();
+    this.revokeLogoCropSource();
     this.revokeLogoPreview();
     this.revokeThumbnails();
   }
@@ -645,6 +689,7 @@ export class CompanyListComponent implements OnInit, OnDestroy {
 
   novaEmpresa() {
     this.editingId.set(null);
+    this.nav.remover('/admin/empresas');
     this.form = this.emptyForm();
     this.resetLogoState();
     if (this.types().length > 0) {
@@ -690,6 +735,7 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   fecharModal() {
     this.showModal.set(false);
     this.editingId.set(null);
+    this.nav.remover('/admin/empresas');
     this.form = this.emptyForm();
     this.resetLogoState();
   }
@@ -733,9 +779,39 @@ export class CompanyListComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.openLogoCrop(URL.createObjectURL(file), file.name || 'logo.jpg', true);
+  }
+
+  ajustarLogoEnquadramento() {
+    const url = this.logoPreviewUrl();
+    if (!url) return;
+    const name = this.pendingLogoFile()?.name || 'logo.jpg';
+    this.openLogoCrop(url, name, false);
+  }
+
+  cancelLogoCrop() {
+    this.showLogoCropModal.set(false);
+    this.revokeLogoCropSource();
+  }
+
+  onLogoCropped(file: File) {
+    this.showLogoCropModal.set(false);
+    this.revokeLogoCropSource();
+    if (file.size > this.logoMaxBytes) {
+      this.notification.error('O recorte excede 2 MB. Tente um enquadramento menor.');
+      return;
+    }
     this.pendingLogoFile.set(file);
     this.revokeLogoPreview();
     this.logoPreviewUrl.set(URL.createObjectURL(file));
+  }
+
+  private openLogoCrop(url: string, name: string, owned: boolean) {
+    this.revokeLogoCropSource();
+    this.logoCropSourceOwned = owned;
+    this.logoCropSourceName.set(name);
+    this.logoCropSourceUrl.set(url);
+    this.showLogoCropModal.set(true);
   }
 
   adicionarContato() {
@@ -809,7 +885,15 @@ export class CompanyListComponent implements OnInit, OnDestroy {
 
         this.uploadLogoIfNeeded(company.id_company, () => {
           this.saving.set(false);
-          this.notification.success(id ? 'Empresa atualizada.' : 'Empresa criada. Você já pode enviar o acesso.');
+          if (id) {
+            this.notification.success('Empresa atualizada.');
+          } else {
+            const created = res as {
+              invites?: CompanyInviteResult[];
+              invite_errors?: CompanyInviteError[];
+            };
+            this.notifyCreateInvites(created.invites || [], created.invite_errors || []);
+          }
           this.carregar(id ? this.pagination().page : 1);
           this.cdr.markForCheck();
         });
@@ -819,6 +903,25 @@ export class CompanyListComponent implements OnInit, OnDestroy {
         this.notification.error(this.extractError(err) || 'Falha ao salvar empresa.');
       },
     });
+  }
+
+  private notifyCreateInvites(invites: CompanyInviteResult[], errors: CompanyInviteError[]) {
+    if (invites.length === 0 && errors.length === 0) {
+      this.notification.success('Empresa criada. Você já pode enviar o acesso.');
+      return;
+    }
+
+    if (invites.length > 0) {
+      const list = invites.map((invite) => invite.email).join(', ');
+      this.notification.success(`Empresa criada. Convite de senha enviado para ${list}.`);
+    } else {
+      this.notification.success('Empresa criada.');
+    }
+
+    if (errors.length > 0) {
+      const detail = errors.map((item) => `${item.email}: ${item.message}`).join(' ');
+      this.notification.warning('Alguns convites não foram enviados.', detail);
+    }
   }
 
   private uploadLogoIfNeeded(id: number, onDone: () => void) {
@@ -856,9 +959,18 @@ export class CompanyListComponent implements OnInit, OnDestroy {
   }
 
   private resetLogoState() {
+    this.showLogoCropModal.set(false);
     this.pendingLogoFile.set(null);
     this.logoDragOver.set(false);
+    this.revokeLogoCropSource();
     this.revokeLogoPreview();
+  }
+
+  private revokeLogoCropSource() {
+    const url = this.logoCropSourceUrl();
+    if (url && this.logoCropSourceOwned) URL.revokeObjectURL(url);
+    this.logoCropSourceUrl.set(null);
+    this.logoCropSourceOwned = false;
   }
 
   private revokeLogoPreview() {

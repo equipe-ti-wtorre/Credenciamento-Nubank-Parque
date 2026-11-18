@@ -1,7 +1,9 @@
-import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
+import { redirecionarSeAcessoNegado } from '../../core/utils/acesso-negado';
 import { switchMap } from 'rxjs/operators';
 import {
   AccessScheduleType,
@@ -475,7 +477,7 @@ type ModalMode = 'search' | 'create';
                     <path d="M4 20V8a2 2 0 0 1 2-2h3l2-3h2l2 3h3a2 2 0 0 1 2 2v12" />
                     <path d="M3 20h18" />
                   </svg>
-                  Setor: <strong>{{ service()!.setor_nome || service()!.requesting_department || '—' }}</strong>
+                  Time aprovador: <strong>{{ service()!.setor_nome || service()!.requesting_department || '—' }}</strong>
                 </span>
                 <span class="meta-sep"></span>
                 <span class="meta-item">
@@ -1303,7 +1305,7 @@ type ModalMode = 'search' | 'create';
     <app-modal
       [open]="showEditModal()"
       title="Editar acesso"
-      subtitle="Atualize período, nome do evento, setor aprovador e descrição do serviço."
+      subtitle="Atualize período, nome do evento, time aprovador e descrição do serviço."
       size="lg"
       (close)="fecharModalEditar()"
     >
@@ -1385,7 +1387,7 @@ type ModalMode = 'search' | 'create';
               ></textarea>
             </div>
             <div>
-              <label class="form-label" for="edit-setor">Setor aprovador</label>
+              <label class="form-label" for="edit-setor">Time aprovador</label>
               <select
                 id="edit-setor"
                 [(ngModel)]="editForm.id_setor"
@@ -1393,7 +1395,7 @@ type ModalMode = 'search' | 'create';
                 required
                 class="form-select"
               >
-                <option [ngValue]="null" disabled>Selecione o setor</option>
+                <option [ngValue]="null" disabled>Selecione o time</option>
                 <option *ngFor="let s of sectors()" [ngValue]="s.id">{{ s.nome }}</option>
               </select>
             </div>
@@ -1442,7 +1444,7 @@ type ModalMode = 'search' | 'create';
       [title]="decisionMode() === 'approve' ? 'Aprovar acesso' : 'Reprovar acesso'"
       [subtitle]="
         decisionMode() === 'reject'
-          ? 'Informe o motivo da reprovação. A decisão segue o fluxo do setor aprovador.'
+          ? 'Informe o motivo da reprovação. A decisão segue o fluxo do time aprovador.'
           : 'Marque quem recebe acesso. Desmarque para bloquear na portaria.'
       "
       [size]="decisionMode() === 'approve' ? 'md' : 'sm'"
@@ -1699,6 +1701,8 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   private draftLinkSeq = -1;
 
   serviceId = 0;
+  private readonly nav = inject(NavigationStateService);
+  private readonly router = inject(Router);
 
   constructor(
     private route: ActivatedRoute,
@@ -1714,7 +1718,11 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
 
   async ngOnInit() {
     this.currentUser = await this.authService.getCurrentUser();
-    this.serviceId = Number(this.route.snapshot.paramMap.get('id'));
+    this.serviceId = (this.nav.obter('/admin/acessos-servico/detalhe')?.public_id || 0) as never;
+    if (!this.serviceId) {
+      void this.router.navigate(['/admin/acessos-servico']);
+      return;
+    }
     this.carregar();
     this.carregarSetores();
     this.systemSettings.getAccessScheduleSettings().subscribe({
@@ -1917,6 +1925,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       error: (err) => {
         this.loading.set(false);
         if (!options.silent) {
+          if (redirecionarSeAcessoNegado(err, this.router, this.notification, '/admin/acessos-servico')) return;
           this.notification.notifyHttpError(err, 'Falha ao carregar acesso.');
         }
       },
@@ -1935,11 +1944,11 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
   ): string {
     return JSON.stringify({
       c: collaborators
-        .map((x) => [Number(x.id_collaborator), Number(x.id_collaborator_role)] as const)
-        .sort((a, b) => a[0] - b[0]),
+        .map((x) => [String(x.id_collaborator), String(x.id_collaborator_role)] as const)
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
       v: vehicles
-        .map((x) => Number(x.id_vehicle))
-        .sort((a, b) => a - b),
+        .map((x) => String(x.id_vehicle))
+        .sort((a, b) => String(a).localeCompare(String(b))),
     });
   }
 
@@ -2363,11 +2372,11 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
 
   private removeOverlapCollaboratorFromDraft(err: unknown): void {
     const details = this.notification.getServiceOverlapDetails(err);
-    const idCollaborator = Number(details?.id_collaborator);
-    if (!Number.isFinite(idCollaborator) || idCollaborator <= 0) return;
+    const idCollaborator = String(details?.id_collaborator || '');
+    if (!idCollaborator) return;
     const before = this.draftCollaborators().length;
     this.draftCollaborators.update((list) =>
-      list.filter((c) => c.id_collaborator !== idCollaborator),
+      list.filter((c) => String(c.id_collaborator) !== idCollaborator),
     );
     if (this.draftCollaborators().length < before) {
       this.markRelationsDirty();
@@ -2386,7 +2395,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
         if (svc?.id_setor && !list.some((s) => s.id === svc.id_setor)) {
           list.unshift({
             id: svc.id_setor,
-            nome: svc.setor_nome || `Setor #${svc.id_setor}`,
+            nome: svc.setor_nome || `Time #${svc.id_setor}`,
             niveisExigidos: 1,
           });
         }
@@ -2412,7 +2421,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
       return;
     }
     if (!this.editForm.id_setor) {
-      this.notification.error('Selecione o setor aprovador.');
+      this.notification.error('Selecione o time aprovador.');
       return;
     }
     if (fim < inicio) {
@@ -2429,7 +2438,7 @@ export class ServiceAccessDetailComponent implements OnInit, OnDestroy {
     }
     const setorNome = this.sectors().find((s) => s.id === this.editForm.id_setor)?.nome?.trim();
     if (!setorNome) {
-      this.notification.error('Setor aprovador inválido.');
+      this.notification.error('Time aprovador inválido.');
       return;
     }
     this.editSaving.set(true);

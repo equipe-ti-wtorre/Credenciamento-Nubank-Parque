@@ -67,6 +67,14 @@ Cenário típico (Gateway em rede interna, Credenciamento em servidor público):
 
 O Credenciamento **não precisa** alcançar o Gateway. Todas as conexões de integração são iniciadas pelo Gateway (modo HTTP poll).
 
+### Cadastro direto nos Dahua
+
+Com pelo menos um terminal ativo em **Admin → Configurações → Integração facial**, o enroll e o revoke vão direto ao aparelho pelo IP da VPN (HTTP Digest, `AccessUser.cgi` / `AccessFace.cgi`). Sem terminal ativo, o comando é ignorado. A VPN em si é configurada no servidor, fora deste sistema.
+
+As passagens são lidas no próprio terminal a cada 20 segundos (`recordFinder.cgi`, no máximo 30 registros, timeout de 5 segundos, um aparelho por vez). Se o ciclo anterior ainda estiver rodando, o próximo é ignorado. A primeira leitura só marca o cursor e não reimporta o histórico.
+
+A face é removida dos terminais quando **todos** os acessos aprovados da pessoa já passaram de `23:59:59` do último dia, mais `FACIAL_REVOKE_GRACE_HOURS` (padrão 4). Esse prazo é independente da tolerância da portaria (`GATE_ACCESS_TOLERANCE_HOURS`).
+
 ---
 
 ## 3. Stack e requisitos

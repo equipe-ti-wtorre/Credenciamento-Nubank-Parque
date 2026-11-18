@@ -10,129 +10,184 @@ const {
   bulkUploadMiddleware,
   coverUploadMiddleware,
 } = require("../../middleware/upload.middleware");
+const { resolverPublicId } = require("../../middleware/resolverPublicId");
+const { autorizar } = require("../../middleware/autorizar");
+const { vinculoEvento } = require("../../middleware/vinculos");
 
 const router = express.Router();
 const auth = authMiddleware;
-const canView = [auth, authorizePermission("events", "view")];
-const canViewOrApprove = [
-  auth,
-  authorizeAnyPermission([
-    { modulo: "events", acao: "view" },
-    { modulo: "approvals", acao: "view" },
-  ]),
+const eventView = [
+  { modulo: "events", acao: "view" },
+  { modulo: "approvals", acao: "view" },
 ];
+const eventDelete = [
+  { modulo: "events", acao: "delete" },
+  { modulo: "events", acao: "edit" },
+];
+const eventToggle = [
+  { modulo: "events", acao: "edit" },
+  { modulo: "events", acao: "create" },
+];
+const canView = [auth, authorizePermission("events", "view")];
+const canViewOrApprove = [auth, authorizeAnyPermission(eventView)];
 const canCreate = [auth, authorizePermission("events", "create")];
 const canEdit = [auth, authorizePermission("events", "edit")];
-const canDelete = [
-  auth,
-  authorizeAnyPermission([
-    { modulo: "events", acao: "delete" },
-    { modulo: "events", acao: "edit" },
-  ]),
-];
-const canToggleActive = [
-  auth,
-  authorizeAnyPermission([
-    { modulo: "events", acao: "edit" },
-    { modulo: "events", acao: "create" },
-  ]),
-];
+const canDelete = [auth, authorizeAnyPermission(eventDelete)];
+const canToggleActive = [auth, authorizeAnyPermission(eventToggle)];
+
+const eventId = resolverPublicId({ param: "id", table: "event", pk: "id_event" });
+const companyId = resolverPublicId({ param: "idCompany", table: "company", pk: "id_company" });
+const vehicleId = resolverPublicId({ param: "idVehicle", table: "vehicle", pk: "id_vehicle" });
+const eventDayId = resolverPublicId({
+  param: "id_event_day",
+  table: "event_day",
+  pk: "id_event_day",
+});
+const eventDayCompanyId = resolverPublicId({
+  param: "id_event_day_company",
+  table: "event_day_company",
+  pk: "id_event_day_company",
+});
+const readEvent = autorizar({ any: eventView, vinculo: vinculoEvento });
+const editEvent = autorizar({ modulo: "events", acao: "edit", vinculo: vinculoEvento });
+const deleteEvent = autorizar({ any: eventDelete, vinculo: vinculoEvento });
+const toggleEvent = autorizar({ any: eventToggle, vinculo: vinculoEvento });
 
 router.use(typesRoutes);
 
 router.get("/producers", ...canCreate, eventController.listProducers);
 router.get("/", ...canViewOrApprove, eventController.list);
 router.post("/", ...canCreate, eventController.create);
-router.get("/:id/linkable-companies", ...canEdit, eventController.listLinkableCompanies);
-router.post("/:id/cover", ...canToggleActive, coverUploadMiddleware, eventController.uploadCover);
-router.patch("/:id/period", ...canEdit, eventController.updatePeriod);
-router.patch("/:id/responsavel", ...canEdit, eventController.updateResponsavel);
-router.patch("/:id/status", ...canToggleActive, eventController.patchStatus);
-router.patch("/:id/preferences", ...canViewOrApprove, eventController.updatePreferences);
-router.post("/:id/submit-approval", ...canEdit, eventController.submitApproval);
+router.get("/:id/linkable-companies", auth, eventId, editEvent, eventController.listLinkableCompanies);
+router.post("/:id/cover", auth, eventId, toggleEvent, coverUploadMiddleware, eventController.uploadCover);
+router.patch("/:id/period", auth, eventId, editEvent, eventController.updatePeriod);
+router.patch("/:id/responsavel", auth, eventId, editEvent, eventController.updateResponsavel);
+router.patch("/:id/status", auth, eventId, toggleEvent, eventController.patchStatus);
+router.patch("/:id/preferences", auth, eventId, readEvent, eventController.updatePreferences);
+router.post("/:id/submit-approval", auth, eventId, editEvent, eventController.submitApproval);
 router.post(
   "/:id/companies/:idCompany/notify-complete",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.notifyCompanyComplete,
 );
 router.post(
   "/days/:id_event_day/companies",
-  ...canEdit,
+  auth,
+  eventDayId,
+  editEvent,
   eventController.addCompanyToDay,
 );
 router.delete(
   "/days/companies/:id_event_day_company",
-  ...canEdit,
+  auth,
+  eventDayCompanyId,
+  editEvent,
   eventController.removeCompanyFromDay,
 );
 router.put(
   "/:id/companies/:idCompany/phases",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.syncCompanyPhases,
 );
 router.delete(
   "/:id/companies/:idCompany",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.removeCompanyFromEvent,
 );
 router.post(
   "/:id/companies/:idCompany/credentials/bulk/preview",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   bulkUploadMiddleware,
   eventController.bulkPreviewCompanyCredentials,
 );
 router.post(
   "/:id/companies/:idCompany/credentials/bulk/commit",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.bulkCommitCompanyCredentials,
 );
-router.get(
-  "/:id/vehicle-counts",
-  ...canViewOrApprove,
-  eventController.listVehicleCounts,
-);
+router.get("/:id/vehicle-counts", auth, eventId, readEvent, eventController.listVehicleCounts);
 router.get(
   "/:id/companies/:idCompany/vehicles",
-  ...canViewOrApprove,
+  auth,
+  eventId,
+  companyId,
+  readEvent,
   eventController.listCompanyVehicles,
 );
 router.post(
   "/:id/companies/:idCompany/vehicles",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.addCompanyVehicle,
 );
 router.delete(
   "/:id/companies/:idCompany/vehicles/:idVehicle",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  vehicleId,
+  editEvent,
   eventController.removeCompanyVehicle,
 );
 router.delete(
   "/:id/companies/:idCompany/vehicles",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.removeCompanyVehicles,
 );
 router.delete(
   "/:id/companies/:idCompany/credentials",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.removeCompanyCredentials,
 );
 router.get(
   "/:id/companies/:idCompany/bulk-import/template",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.downloadCompanyBulkTemplate,
 );
 router.post(
   "/:id/companies/:idCompany/bulk-import/preview",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   bulkUploadMiddleware,
   eventController.previewCompanyBulkImport,
 );
 router.post(
   "/:id/companies/:idCompany/bulk-import/confirm",
-  ...canEdit,
+  auth,
+  eventId,
+  companyId,
+  editEvent,
   eventController.confirmCompanyBulkImport,
 );
-router.delete("/:id", ...canDelete, eventController.remove);
-router.get("/:id", ...canViewOrApprove, eventController.getById);
+router.delete("/:id", auth, eventId, deleteEvent, eventController.remove);
+router.get("/:id", auth, eventId, readEvent, eventController.getById);
 
 module.exports = router;

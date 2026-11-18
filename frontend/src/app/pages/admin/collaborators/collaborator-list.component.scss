@@ -874,6 +874,43 @@
   }
 }
 
+.collab-row-open {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+}
+
+.collab-row-open--photo {
+  display: inline-flex;
+  border-radius: 999px;
+
+  &:hover img,
+  &:hover > div {
+    box-shadow: 0 0 0 2px var(--brand);
+  }
+}
+
+.collab-row-open--name {
+  border-radius: 6px;
+  max-width: 100%;
+
+  &:hover {
+    color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
 .collab-btn-pill {
   border-radius: 999px !important;
   padding-left: 22px;

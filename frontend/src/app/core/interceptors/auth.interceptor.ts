@@ -16,7 +16,7 @@ import {
   finalize,
   take,
 } from 'rxjs';
-import { AuthService } from '../services/auth.service';
+import { AuthService, GATEWAY_SESSION_MARKER } from '../services/auth.service';
 import { ApiService } from '../services/api.service';
 import { SessionIdleService } from '../services/session-idle.service';
 
@@ -40,6 +40,7 @@ export class AuthInterceptor implements HttpInterceptor {
       req.url.includes('/tenants/msal-config') ||
       req.url.includes('/auth/login') ||
       req.url.includes('/auth/refresh') ||
+      req.url.includes('/auth/gateway') ||
       req.url.includes('/auth/invite') ||
       req.url.includes('/auth/company-register') ||
       req.url.includes('/error-logs/client') ||
@@ -104,18 +105,20 @@ export class AuthInterceptor implements HttpInterceptor {
       switchMap((newToken) => {
         if (!newToken) {
           if (!authService.isLoggingOut()) {
-            void authService.logout();
+            void authService.logout({ reason: 'expired' });
           }
           return throwError(() => error);
         }
-        const retry = req.clone({
-          setHeaders: { Authorization: `Bearer ${newToken}` },
-        });
+        // Sessão do gateway: o cookie renovado vai sozinho; nada de Authorization.
+        const retry =
+          newToken === GATEWAY_SESSION_MARKER
+            ? req
+            : req.clone({ setHeaders: { Authorization: `Bearer ${newToken}` } });
         return next.handle(retry);
       }),
       catchError((refreshErr) => {
         if (!authService.isLoggingOut()) {
-          void authService.logout();
+          void authService.logout({ reason: 'expired' });
         }
         return throwError(() => refreshErr);
       }),

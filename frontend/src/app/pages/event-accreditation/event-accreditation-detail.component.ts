@@ -2,6 +2,9 @@ import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { entityId } from '../../core/public-id.adapter';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
+import { redirecionarSeAcessoNegado } from '../../core/utils/acesso-negado';
 import { Subscription } from 'rxjs';
 import Swal from 'sweetalert2';
 import { NotificationService } from '../../core/services/notification.service';
@@ -13,7 +16,8 @@ import {
   formatCpf,
 } from '../../services/collaborator.service';
 import { STATUS_APROVADO, STATUS_NEGADO } from '../../services/credential.service';
-import { formatCnpj } from '../../services/company.service';
+import { CompanyService, formatCnpj } from '../../services/company.service';
+import { MicrosoftProfileService } from '../../core/services/microsoft-profile.service';
 import {
   AccreditationCompany,
   AccreditationCompanyBrief,
@@ -524,19 +528,19 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                 <div class="ead-empresa__logo" aria-hidden="true">AD</div>
                 <div>
                   <h3 class="ead-empresa__nome">Inscrever-me neste evento</h3>
-                  <p class="ead-self__d">Escolha uma pulseira disponível para colaboradores internos.</p>
+                  <p class="ead-self__d">Escolha uma ou mais pulseiras disponíveis para colaboradores internos.</p>
                 </div>
               </div>
             </div>
             <div class="ead-indicate ead-indicate--internal">
-              <div class="ead-pick-chips" role="radiogroup" aria-label="Pulseira">
+              <div class="ead-pick-chips" role="group" aria-label="Pulseiras">
                 @for (b of ev.internal_bracelet_types || []; track b.id_bracelet_type) {
                   <button
                     type="button"
                     class="ead-br-pick"
-                    role="radio"
-                    [attr.aria-checked]="pickInternalBracelet === b.id_bracelet_type"
-                    [class.on]="pickInternalBracelet === b.id_bracelet_type"
+                    role="checkbox"
+                    [attr.aria-checked]="pickedInternalBracelets().has(b.id_bracelet_type)"
+                    [class.on]="pickedInternalBracelets().has(b.id_bracelet_type)"
                     (click)="togglePickInternalBracelet(b.id_bracelet_type)"
                   >
                     <app-bracelet-chip
@@ -544,7 +548,7 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       [icon]="b.icon"
                       [color]="b.color"
                       [selectable]="true"
-                      [selected]="pickInternalBracelet === b.id_bracelet_type"
+                      [selected]="pickedInternalBracelets().has(b.id_bracelet_type)"
                     />
                   </button>
                 }
@@ -552,35 +556,41 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
               <button
                 type="button"
                 class="ead-btn ead-btn--primary"
-                [disabled]="acting() || !pickInternalBracelet"
+                [disabled]="acting() || pickedInternalBracelets().size === 0"
                 (click)="inscreverInterno()"
               >
                 Inscrever-me
               </button>
             </div>
           </article>
-        } @else if (ev.my_internal && !ev.can_manage && !ev.can_decide_internal) {
+        } @else if (myInternalsOf(ev).length && !ev.can_manage && !ev.can_decide_internal) {
           <article class="ead-empresa ead-self">
             <div class="ead-empresa__head">
               <div class="ead-empresa__id">
-                <div class="ead-empresa__logo" aria-hidden="true">AD</div>
+                <div class="ead-empresa__logo">
+                  @if (ownInternalPhoto(ev); as url) {
+                    <img [src]="url" alt="" />
+                  } @else {
+                    AD
+                  }
+                </div>
                 <div>
                   <h3 class="ead-empresa__nome">Sua inscrição</h3>
                   <p class="ead-self__d">
-                    Pulseira
-                    <app-bracelet-chip
-                      [name]="ev.my_internal.bracelet_name"
-                      [icon]="ev.my_internal.bracelet_icon"
-                      [color]="ev.my_internal.bracelet_color"
-                    />
-                    ·
-                    <span class="ead-chip" [ngClass]="'ead-chip--' + internalPillClass(ev.my_internal)">
-                      {{ internalPillLabel(ev.my_internal) }}
-                    </span>
+                    @for (row of myInternalsOf(ev); track row.id_event_accreditation_internal) {
+                      <app-bracelet-chip
+                        [name]="row.bracelet_name"
+                        [icon]="row.bracelet_icon"
+                        [color]="row.bracelet_color"
+                      />
+                      <span class="ead-chip" [ngClass]="'ead-chip--' + internalPillClass(row)">
+                        {{ internalPillLabel(row) }}
+                      </span>
+                    }
                   </p>
                 </div>
               </div>
-              @if (ev.inscription_open && isPendingInternal(ev.my_internal)) {
+              @if (ev.inscription_open && hasPendingOwnInternal(ev)) {
                 <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="cancelarInterno()">
                   Cancelar inscrição
                 </button>
@@ -704,10 +714,18 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       }
                       <td>
                         <div class="ead-pessoa">
-                          <div class="ead-avatar" aria-hidden="true">{{ personInitials(c.nome_completo) }}</div>
-                          <span>{{ c.nome_completo }}</span>
+                          <div class="ead-avatar">
+                            @if (userPhoto(c.id_usuario); as url) {
+                              <img [src]="url" alt="" />
+                            } @else {
+                              {{ personInitials(c.nome_completo) }}
+                            }
+                          </div>
+                          <span class="ead-pessoa__meta">
+                            <span>{{ c.nome_completo }}</span>
+                            <span class="ead-doc">{{ c.email }}</span>
+                          </span>
                         </div>
-                        <span class="ead-doc">{{ c.email }}</span>
                       </td>
                       <td>{{ c.departamento || '—' }}</td>
                       <td>
@@ -732,12 +750,14 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                       </td>
                       <td class="ead-acoes">
                         @if ((ev.can_manage || ev.can_decide_internal) && isPendingInternal(c)) {
-                          <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivoInterno([c.id_event_accreditation_internal])">
-                            Recusar
-                          </button>
-                          <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_internal], 'approve', undefined, undefined, 'internal')">
-                            Aprovar
-                          </button>
+                          <div class="ead-acoes__row">
+                            <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivoInterno([c.id_event_accreditation_internal])">
+                              Recusar
+                            </button>
+                            <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_internal], 'approve', undefined, undefined, 'internal')">
+                              Aprovar
+                            </button>
+                          </div>
                         }
                       </td>
                     </tr>
@@ -813,7 +833,13 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
           <article class="ead-empresa">
             <div class="ead-empresa__head">
               <div class="ead-empresa__id">
-                <div class="ead-empresa__logo" aria-hidden="true">{{ companyInitials(company) }}</div>
+                <div class="ead-empresa__logo">
+                  @if (companyLogo(company); as url) {
+                    <img [src]="url" [alt]="company.fancy_name || company.company_name" />
+                  } @else {
+                    {{ companyInitials(company) }}
+                  }
+                </div>
                 <div>
                   <h3 class="ead-empresa__nome">{{ company.fancy_name || company.company_name }}</h3>
                   @if (company.setor_nome) {
@@ -1133,27 +1159,29 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
                         </div>
                       </td>
                       <td class="ead-acoes">
-                        @if (company.can_decide && isPending(c)) {
-                          <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
-                            Recusar
-                          </button>
-                          <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'approve')">
-                            Aprovar
-                          </button>
-                        }
-                        @if (company.can_decide && isApproved(c)) {
-                          <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
-                            Bloquear
-                          </button>
-                        }
-                        @if (company.can_decide && isBlocked(c)) {
-                          <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'unblock')">
-                            Desbloquear
-                          </button>
-                        }
-                        @if (canAddCollaborators(ev, company) && (company.indication_status === 'INDICACAO' || isPending(c))) {
-                          <app-action-btn icon="delete" title="Remover" variant="danger" (action)="remover(company, c.id_event_accreditation_collaborator)" />
-                        }
+                        <div class="ead-acoes__row">
+                          @if (company.can_decide && isPending(c)) {
+                            <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
+                              Recusar
+                            </button>
+                            <button type="button" class="ead-btn ead-btn--sm ead-btn--primary" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'approve')">
+                              Aprovar
+                            </button>
+                          }
+                          @if (company.can_decide && isApproved(c)) {
+                            <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="abrirMotivo(company, [c.id_event_accreditation_collaborator])">
+                              Bloquear
+                            </button>
+                          }
+                          @if (company.can_decide && isBlocked(c)) {
+                            <button type="button" class="ead-btn ead-btn--sm" [disabled]="acting()" (click)="decidir([c.id_event_accreditation_collaborator], 'unblock')">
+                              Desbloquear
+                            </button>
+                          }
+                          @if (canAddCollaborators(ev, company) && (company.indication_status === 'INDICACAO' || isPending(c))) {
+                            <app-action-btn icon="delete" title="Remover" variant="danger" (action)="remover(company, c.id_event_accreditation_collaborator)" />
+                          }
+                        </div>
                       </td>
                     </tr>
                   }
@@ -1901,6 +1929,13 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         font-weight: 600;
         font-size: 14px;
         flex: 0 0 38px;
+        overflow: hidden;
+      }
+      .ead-empresa__logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
       }
       .ead-empresa__nome {
         font-family: var(--font-display);
@@ -2034,6 +2069,10 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         border-bottom: 1px solid var(--ead-line-soft);
         vertical-align: middle;
       }
+      .ead-tabela tr:has(app-bracelet-select.brs-host--open) {
+        position: relative;
+        z-index: 4;
+      }
       .ead-sit {
         display: flex;
         flex-wrap: wrap;
@@ -2055,8 +2094,22 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         display: flex;
         align-items: center;
         gap: 10px;
+        min-width: 0;
       }
-      .ead-pessoa span {
+      .ead-pessoa__meta {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        gap: 1px;
+      }
+      .ead-pessoa__meta > span:first-child {
+        font-weight: 600;
+      }
+      .ead-pessoa__meta .ead-doc {
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+      .ead-pessoa > span {
         font-weight: 600;
       }
       .ead-avatar {
@@ -2070,14 +2123,25 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
         font-size: 12px;
         font-weight: 600;
         flex: 0 0 32px;
+        overflow: hidden;
       }
-      .ead-acoes {
-        display: flex;
+      .ead-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .ead-tabela thead th.ead-acoes,
+      .ead-tabela td.ead-acoes {
+        text-align: right;
+        white-space: nowrap;
+      }
+      .ead-acoes__row {
+        display: inline-flex;
         align-items: center;
         justify-content: flex-end;
         flex-wrap: wrap;
         gap: 8px;
-        white-space: nowrap;
       }
       .ead-rodape {
         padding: 12px 20px;
@@ -2673,7 +2737,11 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
           border-bottom: 1px solid var(--ead-line-soft);
           padding: 8px 0;
         }
-        .ead-acoes {
+        .ead-tabela thead th.ead-acoes,
+        .ead-tabela td.ead-acoes {
+          text-align: left;
+        }
+        .ead-acoes__row {
           justify-content: flex-start;
         }
         .ead-edit__grid,
@@ -2695,13 +2763,20 @@ function fromIsoToSp(iso?: string | null): { date: string; time: string } {
 })
 export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   private readonly service = inject(EventAccreditationService);
+  private readonly companiesApi = inject(CompanyService);
+  private readonly profilePhotos = inject(MicrosoftProfileService);
   private readonly collaborators = inject(CollaboratorService);
   private readonly notification = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
+  private readonly nav = inject(NavigationStateService);
   private readonly router = inject(Router);
 
   readonly item = signal<EventAccreditationItem | null>(null);
   readonly coverSrc = signal<string | null>(null);
+  readonly companyLogos = signal<Record<string, string>>({});
+  readonly userPhotos = signal<Record<string, string>>({});
+  private companyLogoLoad = 0;
+  private userPhotoLoad = 0;
   readonly editCoverPreview = signal<string | null>(null);
   editCoverFile: File | null = null;
   private editCoverObjectUrl: string | null = null;
@@ -2738,8 +2813,8 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   readonly companyQuery = signal('');
   readonly sectorsExpanded = signal(false);
   readonly heroSetorLimit = 4;
-  bulkInternalBracelet: number | null = null;
-  bulkCompanyBracelet: Record<number, number | null> = {};
+  bulkInternalBracelet: number | string | null = null;
+  bulkCompanyBracelet: Record<number, number | string | null> = {};
   readonly showBulkModal = signal(false);
   readonly bulkCompany = signal<AccreditationCompany | null>(null);
   readonly reasonFor = signal<{ companyId: number; ids: number[]; target?: 'company' | 'internal' } | null>(null);
@@ -2771,7 +2846,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     templateFilename: 'template-credenciamento-evento-colaboradores.xlsx',
     confirmLabel: 'Importar indicações',
   };
-  pickInternalBracelet: number | null = null;
+  readonly pickedInternalBracelets = signal<Set<number>>(new Set());
 
   isInternalOnlyView(ev: EventAccreditationItem): boolean {
     return !ev.can_manage && !ev.can_decide && !(ev.companies || []).length;
@@ -2816,7 +2891,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     const filterByPerson = !!q && !companyName.includes(q);
     return (company.collaborators || []).filter((c) => {
       if (roleId != null && c.id_collaborator_role !== roleId) return false;
-      if (braceletId != null && c.id_bracelet_type !== braceletId) return false;
+      if (braceletId != null && String(c.id_bracelet_type) !== String(braceletId)) return false;
       if (filterByPerson) {
         const name = (c.collaborator_name || '').toLowerCase();
         const doc = (c.collaborator_document || '').toLowerCase();
@@ -2848,6 +2923,52 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   companyInitials(company: AccreditationCompany): string {
     return this.personInitials(company.fancy_name || company.company_name);
+  }
+
+  companyLogo(company: AccreditationCompany): string | null {
+    return this.companyLogos()[String(company.id_company)] || null;
+  }
+
+  userPhoto(idUsuario: number | string | null | undefined): string | null {
+    if (idUsuario == null || idUsuario === '') return null;
+    return this.userPhotos()[String(idUsuario)] || null;
+  }
+
+  ownInternalPhoto(ev: EventAccreditationItem): string | null {
+    const id = this.myInternalsOf(ev)[0]?.id_usuario;
+    return this.userPhoto(id);
+  }
+
+  private loadCompanyLogos(item: EventAccreditationItem): void {
+    const loadId = ++this.companyLogoLoad;
+    this.companyLogos.set({});
+    for (const company of item.companies || []) {
+      if (!company.logo) continue;
+      const key = String(company.id_company);
+      this.companiesApi.getLogoBlob(company.logo).subscribe({
+        next: (url) => {
+          if (loadId !== this.companyLogoLoad) return;
+          this.companyLogos.update((map) => ({ ...map, [key]: url }));
+        },
+        error: () => {},
+      });
+    }
+  }
+
+  private loadInternalPhotos(item: EventAccreditationItem): void {
+    const loadId = ++this.userPhotoLoad;
+    this.userPhotos.set({});
+    const ids = new Set<string>();
+    for (const row of [...(item.internals || []), ...(item.my_internals || [])]) {
+      if (row.id_usuario != null && row.id_usuario !== ('' as never)) ids.add(String(row.id_usuario));
+    }
+    if (item.my_internal?.id_usuario != null) ids.add(String(item.my_internal.id_usuario));
+    for (const id of ids) {
+      void this.profilePhotos.fetchUserPhotoObjectUrl(id).then((url) => {
+        if (loadId !== this.userPhotoLoad || !url) return;
+        this.userPhotos.update((map) => ({ ...map, [id]: url }));
+      });
+    }
   }
 
   personInitials(name?: string | null): string {
@@ -2932,7 +3053,19 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   }
 
   togglePickInternalBracelet(id: number): void {
-    this.pickInternalBracelet = this.pickInternalBracelet === id ? null : id;
+    const next = new Set(this.pickedInternalBracelets());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.pickedInternalBracelets.set(next);
+  }
+
+  myInternalsOf(ev: EventAccreditationItem): AccreditationInternal[] {
+    if (ev.my_internals?.length) return ev.my_internals;
+    return ev.my_internal ? [ev.my_internal] : [];
+  }
+
+  hasPendingOwnInternal(ev: EventAccreditationItem): boolean {
+    return this.myInternalsOf(ev).some((row) => this.isPendingInternal(row));
   }
   insTimeStart = '00:00';
   insTimeEnd = '18:00';
@@ -2946,9 +3079,9 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   readonly pickedSearchItem = signal<Record<number, CollaboratorItem | null>>({});
   pickCollaborator: Record<number, number | null> = {};
   readonly pickRole = signal<Record<number, number | null>>({});
-  pickBracelet: Record<number, number | null> = {};
+  pickBracelet: Record<number, number | string | null> = {};
   filterRole: Record<number, number | null> = {};
-  filterBracelet: Record<number, number | null> = {};
+  filterBracelet: Record<number, number | string | null> = {};
   readonly formatCpf = formatCpf;
   private readonly searchDebounceMs = 500;
   private searchTimers: Record<number, ReturnType<typeof setTimeout> | undefined> = {};
@@ -3002,14 +3135,12 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     this.collaborators.listRoles().subscribe({
       next: (res) => this.roles.set(res.roles || []),
     });
-    this.routeSub = this.route.paramMap.subscribe((params) => {
-      const id = Number(params.get('id'));
-      if (!Number.isInteger(id) || id <= 0) {
-        void this.router.navigate(['/admin/credenciamento-eventos']);
-        return;
-      }
-      this.carregar(id);
-    });
+    const id = this.nav.obter('/admin/credenciamento-eventos/detalhe')?.public_id;
+    if (!id) {
+      void this.router.navigate(['/admin/credenciamento-eventos']);
+      return;
+    }
+    this.carregar(id as never);
     this.nowTimer = setInterval(() => this.now.set(Date.now()), 60_000);
   }
 
@@ -3030,6 +3161,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.loading.set(false);
+        if (redirecionarSeAcessoNegado(err, this.router, this.notification, '/admin/credenciamento-eventos')) return;
         this.notification.notifyHttpError(err, 'Falha ao carregar credenciamento.');
         void this.router.navigate(['/admin/credenciamento-eventos']);
       },
@@ -3055,10 +3187,9 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.acting.set(false);
           this.notification.success('Credenciamento duplicado.');
-          void this.router.navigate([
-            '/admin/credenciamento-eventos',
-            res.item.id_event_accreditation,
-          ]);
+          void this.nav.navegar('/admin/credenciamento-eventos/detalhe', {
+            public_id: String(res.item.public_id || res.item.id_event_accreditation),
+          });
         },
         error: (err) => {
           this.acting.set(false);
@@ -3127,6 +3258,8 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   private applyItem(item: EventAccreditationItem): void {
     this.item.set(item);
+    this.loadCompanyLogos(item);
+    this.loadInternalPhotos(item);
     this.coverSrc.set(null);
     if (item.cover) {
       this.service.getCoverBlob(item.cover).subscribe({
@@ -3210,6 +3343,7 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   canShowNotifyOwner(company: AccreditationCompany): boolean {
     return (
       !!company.can_decide &&
+      (company.collaborators?.length ?? 0) > 0 &&
       (company.indication_status === 'APROVADO' || company.indication_status === 'NEGADO')
     );
   }
@@ -3318,11 +3452,11 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
   }
 
   companiesOfSector(ev: EventAccreditationItem, idSetor: number): AccreditationCompany[] {
-    return (ev.companies || []).filter((c) => Number(c.id_setor) === Number(idSetor));
+    return (ev.companies || []).filter((c) => String(c.id_setor) === String(idSetor));
   }
 
   companySectorCanNotify(ev: EventAccreditationItem, company: AccreditationCompany): boolean {
-    const setor = (ev.setores || []).find((s) => Number(s.id_setor) === Number(company.id_setor));
+    const setor = (ev.setores || []).find((s) => String(s.id_setor) === String(company.id_setor));
     return !!setor?.can_notify_companies;
   }
 
@@ -3405,15 +3539,15 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   aplicarPulseiraInternos(): void {
     const ids = this.pickedInternalIds();
-    const braceletId = Number(this.bulkInternalBracelet);
-    if (!ids.length || !braceletId) return;
+    const braceletId = entityId(this.bulkInternalBracelet);
+    if (!ids.length || braceletId == null) return;
     this.trocarPulseira('internal', ids, braceletId);
   }
 
   aplicarPulseiraEmpresa(company: AccreditationCompany): void {
     const ids = this.pickedIds(company);
-    const braceletId = Number(this.bulkCompanyBracelet[company.id_event_accreditation_company]);
-    if (!ids.length || !braceletId) return;
+    const braceletId = entityId(this.bulkCompanyBracelet[company.id_event_accreditation_company]);
+    if (!ids.length || braceletId == null) return;
     this.trocarPulseira('company', ids, braceletId);
   }
 
@@ -3549,16 +3683,26 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     if (internalIds.length) this.decidir(internalIds, action, undefined, undefined, 'internal');
   }
 
-  onPickBracelet(target: 'company' | 'internal', idOrIds: number | number[], idBracelet: number | null): void {
+  onPickBracelet(
+    target: 'company' | 'internal',
+    idOrIds: number | string | Array<number | string>,
+    idBracelet: number | string | null,
+  ): void {
     if (idBracelet == null) return;
     this.trocarPulseira(target, idOrIds, idBracelet);
   }
 
-  trocarPulseira(target: 'company' | 'internal', idOrIds: number | number[], idBracelet: number): void {
+  trocarPulseira(
+    target: 'company' | 'internal',
+    idOrIds: number | string | Array<number | string>,
+    idBracelet: number | string,
+  ): void {
     const ev = this.item();
-    const braceletId = Number(idBracelet);
-    const ids = (Array.isArray(idOrIds) ? idOrIds : [idOrIds]).filter((n) => Number.isInteger(n) && n > 0);
-    if (!ev || !Number.isInteger(braceletId) || braceletId <= 0 || !ids.length) return;
+    const braceletId = entityId(idBracelet);
+    const ids = (Array.isArray(idOrIds) ? idOrIds : [idOrIds])
+      .map((n) => entityId(n))
+      .filter((n): n is number | string => n != null);
+    if (!ev || braceletId == null || !ids.length) return;
     this.acting.set(true);
     this.service
       .changeBracelet(ev.id_event_accreditation, {
@@ -3696,17 +3840,22 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
 
   inscreverInterno(): void {
     const ev = this.item();
-    if (!ev || !this.pickInternalBracelet) {
-      this.notification.error('Selecione uma pulseira.');
+    const braceletIds = [...this.pickedInternalBracelets()];
+    if (!ev || !braceletIds.length) {
+      this.notification.error('Selecione ao menos uma pulseira.');
       return;
     }
     this.acting.set(true);
-    this.service.registerInternal(ev.id_event_accreditation, { id_bracelet_type: this.pickInternalBracelet }).subscribe({
+    this.service.registerInternal(ev.id_event_accreditation, { id_bracelet_types: braceletIds }).subscribe({
       next: (res) => {
         this.acting.set(false);
-        this.pickInternalBracelet = null;
+        this.pickedInternalBracelets.set(new Set());
         this.applyItem(res.item);
-        this.notification.success('Inscrição enviada para aprovação.');
+        this.notification.success(
+          braceletIds.length === 1
+            ? 'Inscrição enviada para aprovação.'
+            : `${braceletIds.length} inscrições enviadas para aprovação.`,
+        );
       },
       error: (err) => {
         this.acting.set(false);
@@ -4168,19 +4317,19 @@ export class EventAccreditationDetailComponent implements OnInit, OnDestroy {
     this.setPickRole(idCompany, roleId);
     const label = item.role?.description?.trim();
     if (!roleId || !label) return;
-    if (this.roles().some((r) => Number(r.id_collaborator_role) === roleId)) return;
+    if (this.roles().some((r) => String(r.id_collaborator_role) === String(roleId))) return;
     this.roles.update((list) => [...list, { id_collaborator_role: roleId, description: label }]);
   }
 
   private loadCompanyCollaborators(company: AccreditationCompany, q: string): void {
     const idCompany = company.id_company;
-    const taken = new Set((company.collaborators || []).map((c) => Number(c.id_collaborator)));
+    const taken = new Set((company.collaborators || []).map((c) => String(c.id_collaborator)));
     const apply = (rows: CollaboratorItem[]) => {
       if ((this.search[idCompany] || '').trim() !== q) return;
       this.patchSearching(idCompany, false);
       this.patchSearchResults(
         idCompany,
-        (rows || []).filter((c) => !taken.has(Number(c.id_collaborator))),
+        (rows || []).filter((c) => !taken.has(String(c.id_collaborator))),
       );
     };
     this.collaborators.searchByTerm(q).subscribe({

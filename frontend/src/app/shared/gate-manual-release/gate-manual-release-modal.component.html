@@ -1,7 +1,7 @@
 <app-modal
   [open]="open"
   title="Liberação manual"
-  subtitle="Solicite aprovação do setor para liberar a entrada de colaboradores."
+  subtitle="Solicite aprovação do time para liberar a entrada de colaboradores."
   size="lg"
   (close)="onClose()"
 >
@@ -41,7 +41,7 @@
         </select>
       </div>
       <div>
-        <label class="form-label" for="gmr-setor">Setor aprovador</label>
+        <label class="form-label" for="gmr-setor">Time aprovador</label>
         <select id="gmr-setor" class="form-select mt-1" [(ngModel)]="idSetor" name="gmrSetor">
           <option [ngValue]="null">Selecione…</option>
           <option *ngFor="let s of sectors()" [ngValue]="s.id">{{ s.nome }}</option>
@@ -265,7 +265,7 @@
           <dd>{{ companyLabel() }}</dd>
         </div>
         <div>
-          <dt>Setor</dt>
+          <dt>Time aprovador</dt>
           <dd>{{ sectorLabel() }}</dd>
         </div>
         <div>
@@ -296,7 +296,7 @@
         </div>
       </dl>
       <p class="gmr-hint">
-        A solicitação será enviada ao setor com status <strong>aguardando aprovação</strong>. Após a
+        A solicitação será enviada ao time com status <strong>aguardando aprovação</strong>. Após a
         aprovação, os colaboradores poderão entrar pela portaria.
       </p>
     </div>

@@ -8,6 +8,7 @@ const { startAuditLogsRetentionCron } = require("./jobs/auditLogsRetentionCron")
 const { startErrorLogsRetentionCron } = require("./jobs/errorLogsRetentionCron");
 const { startApprovalsExpirationCron } = require("./jobs/approvalsExpirationCron");
 const { startFacialJobsStaleCron } = require("./jobs/facialJobsStaleCron");
+const { startFacialDirectCron } = require("./jobs/facialDirectCron");
 const { startEventAccreditationInviteCron } = require("./jobs/eventAccreditationInviteCron");
 const { startExternalCompanyEnrichCron } = require("./jobs/externalCompanyEnrichCron");
 const { registerProcessErrorHandlers } = require("./modules/error-logs/error-logs.process");
@@ -75,9 +76,17 @@ async function start() {
     startFacialJobsStaleCron();
     startupCron("Requeue de jobs facial stale a cada 5 min.");
 
+    startFacialDirectCron();
+    startupCron("Cadastro facial direto nos Dahua a cada 1 min; passagens a cada 20 s; remoção com prazo extra a cada 15 min.");
+
     if (env.eventAccreditationInviteEnabled) {
       startEventAccreditationInviteCron();
       startupCron(`Convites de credenciamento agendados (${env.eventAccreditationInviteCron}).`);
+    }
+
+    if (env.authGateway.enabled) {
+      require("./modules/auth/gateway.service").startRevokedPoller();
+      startupCron(`Login centralizado ativo (${env.authGateway.url}); sessões encerradas lidas a cada 1 min.`);
     }
 
     startExternalCompanyEnrichCron();

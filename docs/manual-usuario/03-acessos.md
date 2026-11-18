@@ -97,8 +97,8 @@ Bloqueio e **Fora do horário** aparecem só como informação: a portaria não 
 Use quando a pessoa não está na lista do dia e o setor precisa autorizar na hora.
 
 1. Clique em **Liberação manual**.
-2. O painel explica: **Solicite aprovação do setor para liberar a entrada de colaboradores.**
-3. **Dados:** empresa, setor aprovador, nome do evento e descrição do serviço (obrigatória).
+2. O painel explica: **Solicite aprovação do time para liberar a entrada de colaboradores.**
+3. **Dados:** empresa, time aprovador, nome do evento e descrição do serviço (obrigatória).
 4. **Colaboradores:** busque alguém já cadastrado ou cadastre na hora (nome, documento, tipo, função).
 5. **Confirmar** envia o pedido para aprovação.
 
@@ -143,7 +143,7 @@ O assistente tem três passos.
 - **Período do acesso**
 - **Horário do acesso:** Manual, Comercial ou Noturno (os intervalos Comercial e Noturno vêm de **Configurações → Horários de acesso**)
 - **Empresa** (quando o seu perfil escolhe a empresa)
-- **Setor aprovador**
+- **Time aprovador**
 - **Nome do evento**
 - **Descrição do serviço**
 - Marque **Entrada de colaborador** e/ou **Entrada de veículo**
@@ -160,13 +160,13 @@ Confira o resumo e clique em **Enviar para aprovação**.
 
 ### O que acontece em seguida
 
-O setor aprovador recebe a solicitação em **Aprovações** e também pode decidir na própria ficha do acesso. Enquanto estiver pendente, a portaria mostra **Liberação pendente** se alguém tentar tratar o caso no dia. Depois de aprovado, colaboradores e veículos liberados aparecem na aba **Patrimonial** da portaria, nos dias do período e dentro do horário.
+O time aprovador recebe a solicitação em **Aprovações** e também pode decidir na própria ficha do acesso. Enquanto estiver pendente, a portaria mostra **Liberação pendente** se alguém tentar tratar o caso no dia. Depois de aprovado, colaboradores e veículos liberados aparecem na aba **Patrimonial** da portaria, nos dias do período e dentro do horário.
 
 ### Gerenciar um acesso já criado
 
 Abra **Gerenciar**. O cabeçalho mostra o chip de aprovação, período, horário, empresa, setor e solicitante.
 
-- **Editar** altera período, horário, nome do evento, descrição e setor aprovador.
+- **Editar** altera período, horário, nome do evento, descrição e time aprovador.
 - **Adicionar colaborador** e **Adicionar veículo** incluem gente nova.
 - A orientação da tela: inclua ou remova e clique em **Salvar** para gravar e avisar os aprovadores uma única vez.
 - Com status pendente, **Aprovar acesso** ou **Reprovar** abrem um comentário. Na reprovação o comentário é obrigatório.
@@ -206,7 +206,7 @@ Ações: **Abrir**, **Ativar** / **Desativar** e **Excluir**.
 - Período (início e término no calendário)
 - **Nome**
 - **Empresa responsável**
-- **Setor aprovador**
+- **Time aprovador**
 - **Foto do evento** (JPEG, PNG ou WebP, até 2 MB)
 
 A tela avisa: o setor só é notificado quando a produtora responsável clicar em **Notificar**.
@@ -238,7 +238,7 @@ Ações: **Colaboradores** ou **Ver**, e **Notificar término** quando a fase da
 1. A produtora responsável conclui o cadastro da parceira.
 2. Clica em **Notificar**.
 3. Confirma **Notificar setor de aprovação?**
-4. O setor aprovador decide. O status vai de **Aguardando aprovação** para **Aprovado** (ou reprovado, se o setor negar).
+4. O time aprovador decide. O status vai de **Aguardando aprovação** para **Aprovado** (ou reprovado, se o time negar).
 
 A mesma fila também aparece em **Aprovações**, na coluna **Eventos**.
 

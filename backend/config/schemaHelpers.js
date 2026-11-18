@@ -18,6 +18,15 @@ async function columnExists(connection, table, column) {
   return rows.length > 0;
 }
 
+async function indexExists(connection, table, indexName) {
+  const [rows] = await connection.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1`,
+    [env.db.name, table, indexName],
+  );
+  return rows.length > 0;
+}
+
 async function allTablesExist(connection, tables) {
   for (const table of tables) {
     if (!(await tableExists(connection, table))) return false;
@@ -35,6 +44,7 @@ async function allColumnsExist(connection, table, columns) {
 module.exports = {
   tableExists,
   columnExists,
+  indexExists,
   allTablesExist,
   allColumnsExist,
 };

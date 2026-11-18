@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular
 import { CommonModule } from '@angular/common';
 import { FormControl, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
 import { switchMap } from 'rxjs/operators';
 import { EditorComponent, TINYMCE_SCRIPT_SRC } from '@tinymce/tinymce-angular';
 import { NotificationService } from '../../core/services/notification.service';
@@ -2384,6 +2385,7 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
   private readonly auth = inject(AuthService);
   private readonly notification = inject(NotificationService);
   private readonly router = inject(Router);
+  private readonly nav = inject(NavigationStateService);
 
   readonly step = signal<WizardStep>('dados');
   readonly sectors = signal<EligibleSector[]>([]);
@@ -3237,7 +3239,7 @@ export class EventAccreditationCreateComponent implements OnInit, OnDestroy {
       void this.router.navigate(['/admin/credenciamento-eventos']);
       return;
     }
-    void this.router.navigate(['/admin/credenciamento-eventos', id]);
+    void this.nav.navegar('/admin/credenciamento-eventos/detalhe', { public_id: String(id) });
   }
 
   salvar(): void {

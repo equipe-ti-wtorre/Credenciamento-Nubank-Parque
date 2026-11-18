@@ -51,7 +51,14 @@
 
     <!-- Card da pessoa -->
     <div class="grl-person">
-      <span class="grl-person__avatar" aria-hidden="true">{{ initials(t.collaborator.name) }}</span>
+      <span
+        class="grl-person__avatar"
+        [class.grl-person__avatar--photo]="!!photoUrl()"
+        aria-hidden="true"
+      >
+        <img *ngIf="photoUrl() as avatarUrl" [src]="avatarUrl" alt="" />
+        <ng-container *ngIf="!photoUrl()">{{ initials(t.collaborator.name) }}</ng-container>
+      </span>
       <div class="grl-person__text">
         <div class="grl-person__name">{{ t.collaborator.name }}</div>
         <div class="grl-person__meta">

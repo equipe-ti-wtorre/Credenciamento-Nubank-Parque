@@ -1,5 +1,5 @@
 import { Component, inject } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Router, RouterOutlet } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { ThemeService } from '../core/services/theme.service';
 
@@ -9,7 +9,11 @@ import { ThemeService } from '../core/services/theme.service';
   imports: [CommonModule, RouterOutlet],
   styleUrl: './auth-layout.component.scss',
   template: `
-    @if (isNubank) {
+    @if (isNubank && isLoginPage) {
+      <div class="auth-login-frame">
+        <router-outlet />
+      </div>
+    } @else if (isNubank) {
       <div class="auth-nubank">
         <section class="auth-nubank__hero">
           <div class="auth-nubank__bars" aria-hidden="true">
@@ -73,11 +77,18 @@ import { ThemeService } from '../core/services/theme.service';
 })
 export class AuthLayoutComponent {
   readonly theme = inject(ThemeService);
+  private readonly router = inject(Router);
   readonly currentYear = new Date().getFullYear();
   readonly loginSrc = 'assets/login.png';
 
   get isNubank(): boolean {
     return this.theme.palette() === 'nubank-parque';
+  }
+
+  /** Login Nubank ocupa a página; o convite continua no shell anterior. */
+  get isLoginPage(): boolean {
+    const path = this.router.url.split('?')[0].replace(/\/$/, '') || '/';
+    return path === '/login';
   }
 
   get loginBg(): string {

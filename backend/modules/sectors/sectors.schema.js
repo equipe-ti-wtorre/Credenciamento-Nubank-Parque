@@ -29,9 +29,24 @@ const sectorStatusSchema = Joi.object({
   ativo: Joi.boolean().required(),
 });
 
+const MEMBER_FLOW_TYPES = [
+  "ACESSO_SERVICO",
+  "CREDENCIAMENTO_EVENTO",
+  "CREDENCIAMENTO_EVENTO_INTERNO",
+];
+
 const memberCreateSchema = Joi.object({
-  idUsuario: Joi.number().integer().positive().required(),
+  id_usuario: Joi.number().integer().positive().required(),
   papel: Joi.string().valid(...SECTOR_PAPEIS).required(),
+  fluxos: Joi.array()
+    .items(Joi.string().valid(...MEMBER_FLOW_TYPES))
+    .unique()
+    .optional(),
+});
+
+const memberFlowSchema = Joi.object({
+  tipoEntidade: Joi.string().valid(...MEMBER_FLOW_TYPES).required(),
+  ativo: Joi.boolean().required(),
 });
 
 const memberUpdateSchema = Joi.object({
@@ -65,7 +80,9 @@ module.exports = {
   sectorCreateSchema,
   sectorUpdateSchema,
   sectorStatusSchema,
+  MEMBER_FLOW_TYPES,
   memberCreateSchema,
+  memberFlowSchema,
   memberUpdateSchema,
   flowsUpdateSchema,
 };

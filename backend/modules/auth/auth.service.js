@@ -6,10 +6,13 @@ const {
   fetchUserPhotoBuffer,
 } = require("../../utils/microsoftGraph");
 const { fetchMicrosoftProfile } = require("../../utils/userProfileSync");
+const gatewayApi = require("../../utils/authGatewayApi");
 const { assertUserCanAccess, hasValidDepartment, DEPARTMENT_REQUIRED_MESSAGE } = require("../../utils/userDepartment");
 const { createTokenPair } = require("./token.service");
 const { setAuditLoginContext } = require("../../observability/audit.auth");
 const profilesService = require("../profiles/profiles.service");
+const { logAudit } = require("../../utils/auditLogger");
+const { AUDIT_MODULES, AUDIT_ACTIONS } = require("../../observability/audit.constants");
 
 async function mapUserResponse(user) {
   const ctx = await profilesService.loadUserProfileContext(user.id);
@@ -69,8 +72,9 @@ async function loginLocal(username, password, req) {
     new AppError("Usuário ou senha inválidos.", 401);
 
   if (!user) throw credentialsError();
-  if (user.is_ad_user === 1 && !user.senha_hash) {
-    throw new AppError('Use "Entrar com Microsoft".', 400);
+  // Conta do Entra entra só pelo login corporativo (auth-gateway), nunca por senha.
+  if (Number(user.is_ad_user) === 1) {
+    throw new AppError('Conta corporativa: use "Entrar com Microsoft".', 400);
   }
   if (!user.senha_hash) throw credentialsError();
 
@@ -98,19 +102,91 @@ async function loginLocal(username, password, req) {
 async function loginMicrosoft(azureUser, req) {
   setAuditLoginContext(req, { provider: "microsoft" });
 
-  const oid = azureUser.oid;
   const email =
     azureUser.preferred_username ||
     azureUser.upn ||
     azureUser.email ||
     azureUser.unique_name ||
     null;
-  const nome = azureUser.name || azureUser.displayName;
+  const userLocal = await resolveMicrosoftUser(
+    {
+      oid: azureUser.oid,
+      email,
+      nome: azureUser.name || azureUser.displayName,
+      tid: azureUser.tid || null,
+    },
+    req,
+    "microsoft",
+  );
+  const tokens = await createTokenPair(userLocal, req);
+  return await buildAuthResponse(tokens, userLocal);
+}
+
+const seenGatewaySessions = new Set();
+
+/** Registra o login uma vez por sessão do gateway (jti), no 1º uso da API. */
+function noteGatewayLogin(payload, user, req) {
+  const key = payload.jti || `${payload.oid}:${payload.iat}`;
+  if (seenGatewaySessions.has(key)) return;
+  if (seenGatewaySessions.size > 5000) seenGatewaySessions.clear();
+  seenGatewaySessions.add(key);
+  Promise.resolve(
+    logAudit({
+      userId: user.id,
+      action: AUDIT_ACTIONS.LOGIN_MICROSOFT,
+      module: AUDIT_MODULES.AUTH,
+      req,
+      metadata: { event: "auth.login_gateway", outcome: "success", provider: "gateway" },
+    }),
+  ).catch(() => undefined);
+}
+
+/**
+ * Usuário da sessão do auth-gateway (payload já validado), pelo oid. No 1º acesso cria o usuário
+ * sem perfil, pelo mesmo caminho do login Microsoft (departamento obrigatório).
+ */
+async function resolveGatewayUser(payload, req) {
+  const findByOid = async () => {
+    const [rows] = await db.execute(
+      "SELECT id, ativo FROM usuarios WHERE microsoft_id = ? LIMIT 1",
+      [payload.oid],
+    );
+    return rows[0] || null;
+  };
+  let user = await findByOid();
+  if (!user) {
+    try {
+      user = await resolveMicrosoftUser(
+        {
+          oid: payload.oid,
+          email: payload.email || payload.sub || null,
+          nome: payload.name,
+          tid: payload.tid || null,
+        },
+        req,
+        "gateway",
+      );
+    } catch (err) {
+      // Várias chamadas simultâneas no 1º acesso: só uma insere.
+      if (err.code !== "ER_DUP_ENTRY") throw err;
+      user = await findByOid();
+      if (!user) throw err;
+    }
+  }
+  noteGatewayLogin(payload, user, req);
+  return user;
+}
+
+/**
+ * Localiza o usuário pelo oid (microsoft_id); senão vincula por e-mail ou cria com perfil USER.
+ * O e-mail de usuários já existentes não é sobrescrito (notificações Teams usam o e-mail).
+ */
+async function resolveMicrosoftUser({ oid, email, nome, tid }, req, provider) {
   if (!oid) {
     throw new AppError("Dados não retornados pela Microsoft.", 400);
   }
 
-  setAuditLoginContext(req, { provider: "microsoft", loginHint: email || oid });
+  setAuditLoginContext(req, { provider, loginHint: email || oid });
 
   let userLocal = null;
   const [byOid] = await db.execute(
@@ -125,14 +201,13 @@ async function loginMicrosoft(azureUser, req) {
       assertUserCanAccess(userLocal);
     } catch (err) {
       setAuditLoginContext(req, {
-        provider: "microsoft",
+        provider,
         userId: userLocal.id,
         loginHint: email || oid,
       });
       throw err;
     }
-    const tokens = await createTokenPair(userLocal, req);
-    return await buildAuthResponse(tokens, userLocal);
+    return userLocal;
   }
 
   if (!email) {
@@ -142,15 +217,15 @@ async function loginMicrosoft(azureUser, req) {
     );
   }
 
-  const graphProfile = await fetchMicrosoftProfile(oid, azureUser.tid || null);
+  const graphProfile = await fetchMicrosoftProfile(oid, tid || null);
   if (!graphProfile.ok || !hasValidDepartment(graphProfile.departamento)) {
     throw new AppError(DEPARTMENT_REQUIRED_MESSAGE, 403);
   }
 
   const departamento = graphProfile.departamento;
   const nomeCompleto = graphProfile.displayName || nome || email.split("@")[0];
-  const defaultProfile = await profilesService.getProfileByCodigo("USER");
-  const defaultProfileId = defaultProfile?.id || null;
+  // 1º acesso entra sem perfil ("aguardando liberação"); o administrador do sistema define o perfil.
+  const defaultProfileId = null;
 
   if (!userLocal) {
     const [byEmail] = await db.execute(
@@ -189,19 +264,18 @@ async function loginMicrosoft(azureUser, req) {
   }
 
   if (!userLocal.ativo) {
-    setAuditLoginContext(req, { provider: "microsoft", userId: userLocal.id, loginHint: email });
+    setAuditLoginContext(req, { provider, userId: userLocal.id, loginHint: email });
     throw new AppError("Usuário inativo.", 403);
   }
 
   try {
     assertUserCanAccess(userLocal);
   } catch (err) {
-    setAuditLoginContext(req, { provider: "microsoft", userId: userLocal.id, loginHint: email });
+    setAuditLoginContext(req, { provider, userId: userLocal.id, loginHint: email });
     throw err;
   }
 
-  const tokens = await createTokenPair(userLocal, req);
-  return await buildAuthResponse(tokens, userLocal);
+  return userLocal;
 }
 
 async function getMe(userId) {
@@ -224,6 +298,13 @@ async function getProfilePhoto(userId) {
   if (!user) throw new AppError("Usuário não encontrado.", 404);
   if (!user.is_ad_user || !user.microsoft_id) {
     throw new AppError("Foto de perfil não disponível.", 404);
+  }
+
+  // Foto pelo diretório do auth-gateway (sem Graph).
+  if (gatewayApi.isConfigured()) {
+    const photo = await gatewayApi.getDirectoryUserPhoto(user.microsoft_id).catch(() => null);
+    if (photo) return photo;
+    throw new AppError("Foto de perfil não encontrada.", 404);
   }
 
   const [tenants] = await db.execute(
@@ -259,6 +340,7 @@ module.exports = {
   buildAuthResponse,
   loginLocal,
   loginMicrosoft,
+  resolveGatewayUser,
   getMe,
   getProfilePhoto,
 };

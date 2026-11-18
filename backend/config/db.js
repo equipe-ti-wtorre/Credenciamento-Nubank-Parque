@@ -24,10 +24,42 @@ pool.on("connection", (connection) => {
 
 const promisePool = pool.promise();
 const originalGetConnection = promisePool.getConnection.bind(promisePool);
+const { injectPublicId } = require("../utils/publicId");
+
+const LIMIT_PARAM_RE = /\b(?:LIMIT|OFFSET)\s+\?/i;
+
+function wrapPublicId(executor) {
+  if (!executor || executor.__publicIdWrapped) return executor;
+  const origExecute = executor.execute.bind(executor);
+  const origQuery = executor.query.bind(executor);
+
+  function apply(orig, sql, values, cb) {
+    if (typeof sql !== "string" || typeof values === "function") {
+      return orig(sql, values, cb);
+    }
+    const next = injectPublicId(sql, values);
+    if (typeof cb === "function") return orig(next.sql, next.values, cb);
+    return orig(next.sql, next.values);
+  }
+
+  // MySQL 8 recusa LIMIT/OFFSET como parâmetro de prepared statement ("Incorrect arguments to
+  // mysqld_stmt_execute"); nesses casos usa query(), que também escapa os valores.
+  executor.execute = function executeWithPublicId(sql, values, cb) {
+    const orig = typeof sql === "string" && LIMIT_PARAM_RE.test(sql) ? origQuery : origExecute;
+    return apply(orig, sql, values, cb);
+  };
+  executor.query = function queryWithPublicId(sql, values, cb) {
+    return apply(origQuery, sql, values, cb);
+  };
+  executor.__publicIdWrapped = true;
+  return executor;
+}
+
+wrapPublicId(promisePool);
 
 promisePool.getConnection = () =>
   Promise.race([
-    originalGetConnection(),
+    originalGetConnection().then((conn) => wrapPublicId(conn)),
     new Promise((_, reject) => {
       setTimeout(
         () =>

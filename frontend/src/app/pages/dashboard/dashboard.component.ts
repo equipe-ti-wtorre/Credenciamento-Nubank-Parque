@@ -13,7 +13,7 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
-import { AuthService } from '../../core/services/auth.service';
+import { AuthService, hasPermission, isCompanyScopedAuthUser } from '../../core/services/auth.service';
 import {
   CredentialStatusKey,
   DashboardMetrics,
@@ -97,6 +97,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   user: Awaited<ReturnType<AuthService['getCurrentUser']>> = null;
   userName = '';
   todayLabel = '';
+  welcomeSubtitle = 'Aqui está um resumo da operação de acessos de hoje.';
   canLoadMetrics = false;
   loading = signal(true);
   refreshing = signal(false);
@@ -122,6 +123,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
   masterRows = signal<MasterRow[]>([]);
   companiesByType = signal<RankRow[]>([]);
   isAdmin = signal(false);
+  isCompanyView = signal(false);
+  canOpenAccessReport = signal(false);
+  canOpenDenials = signal(false);
 
   totalCredenciais = computed(() => this.slices().reduce((acc, s) => acc + s.value, 0));
   lastUpdatedLabel = computed(() => {
@@ -149,6 +153,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/>',
     ban: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   };
 
   constructor(
@@ -176,9 +181,21 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.userName = this.user?.nome_completo || this.user?.email || 'Usuário';
     this.todayLabel = this.formatToday();
     const role = String(this.user?.role || '').toUpperCase();
+    const companyScoped = isCompanyScopedAuthUser(this.user);
+    const seesGlobalMetrics =
+      !companyScoped &&
+      (role === 'ADMIN' ||
+        hasPermission(this.user, 'companies', 'view') ||
+        hasPermission(this.user, 'fleet', 'view'));
     this.isAdmin.set(role === 'ADMIN');
+    this.isCompanyView.set(companyScoped && role !== 'ADMIN' && role !== 'PRODUTORA');
+    this.canOpenAccessReport.set(hasPermission(this.user, 'access_reports', 'view'));
+    this.canOpenDenials.set(hasPermission(this.user, 'credential_denials', 'view'));
+    this.welcomeSubtitle = this.isCompanyView()
+      ? 'Aqui está o resumo da sua empresa.'
+      : 'Aqui está um resumo da operação de acessos de hoje.';
     document.addEventListener('fullscreenchange', this.onFullscreenChange);
-    this.canLoadMetrics = ['ADMIN', 'PRODUTORA', 'PADRAO'].includes(role);
+    this.canLoadMetrics = seesGlobalMetrics || companyScoped;
     if (this.canLoadMetrics) {
       this.loadMetrics(true);
       this.startAutoRefresh();
@@ -297,6 +314,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   private buildStats(m: DashboardMetrics): StatCard[] {
+    if (this.isCompanyView()) return this.buildCompanyStats(m);
     const delta = this.accessesDelta(m.accessesLast7Days);
     return [
       {
@@ -325,7 +343,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
         value: m.kpis.currentlyInside,
         iconHtml: this.icon('inside'),
         tone: 'green',
-        link: '/operacao/relatorio-acessos',
+        link: this.canOpenAccessReport() ? '/operacao/relatorio-acessos' : undefined,
       },
       {
         label: 'Negativas (7 dias)',
@@ -333,7 +351,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
         iconHtml: this.icon('ban'),
         tone: 'rose',
         highlight: m.kpis.denialsLast7Days > 0,
-        link: '/operacao/negacoes-credenciamento',
+        link: this.canOpenDenials() ? '/operacao/negacoes-credenciamento' : undefined,
       },
       {
         label: 'Alertas não lidos',
@@ -344,6 +362,55 @@ export class DashboardComponent implements OnInit, OnDestroy {
           m.kpis.pendingWorkflowApprovals > 0
             ? `${m.kpis.pendingWorkflowApprovals} aprovações`
             : undefined,
+        link: '/aprovacoes',
+      },
+    ];
+  }
+
+  private buildCompanyStats(m: DashboardMetrics): StatCard[] {
+    const delta = this.accessesDelta(m.accessesLast7Days);
+    return [
+      {
+        label: 'Colaboradores ativos',
+        value: m.masters?.activeCollaborators || 0,
+        iconHtml: this.icon('userplus'),
+        tone: 'blue',
+        link: '/admin/colaboradores',
+      },
+      {
+        label: 'Aguardando aprovação',
+        value: m.kpis.pendingApproval,
+        iconHtml: this.icon('clock'),
+        tone: 'amber',
+        tag: 'Credenciais',
+        link: '/admin/credenciamento-eventos',
+      },
+      {
+        label: 'Acessos hoje',
+        value: m.kpis.accessesToday,
+        iconHtml: this.icon('pulse'),
+        tone: '',
+        trend: delta.trend,
+        trendDown: delta.trendDown,
+      },
+      {
+        label: 'Dentro agora',
+        value: m.kpis.currentlyInside,
+        iconHtml: this.icon('inside'),
+        tone: 'green',
+      },
+      {
+        label: 'Negativas (7 dias)',
+        value: m.kpis.denialsLast7Days,
+        iconHtml: this.icon('ban'),
+        tone: 'rose',
+        highlight: m.kpis.denialsLast7Days > 0,
+      },
+      {
+        label: 'Aprovações na inbox',
+        value: m.kpis.pendingWorkflowApprovals,
+        iconHtml: this.icon('bell'),
+        tone: 'gray',
         link: '/aprovacoes',
       },
     ];

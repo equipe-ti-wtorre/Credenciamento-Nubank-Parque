@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { NavigationStateService } from '../../core/services/navigation-state.service';
 import Swal from 'sweetalert2';
 import { NotificationService } from '../../core/services/notification.service';
 import { AuthService, hasPermission } from '../../core/services/auth.service';
@@ -924,6 +925,7 @@ export class EventAccreditationListComponent implements OnInit {
   private readonly service = inject(EventAccreditationService);
   private readonly notification = inject(NotificationService);
   private readonly router = inject(Router);
+  private readonly nav = inject(NavigationStateService);
   private readonly auth = inject(AuthService);
 
   readonly items = signal<EventAccreditationItem[]>([]);
@@ -1055,7 +1057,7 @@ export class EventAccreditationListComponent implements OnInit {
   }
 
   abrir(item: EventAccreditationItem): void {
-    void this.router.navigate(['/admin/credenciamento-eventos', item.id_event_accreditation]);
+    void this.nav.navegar('/admin/credenciamento-eventos/detalhe', { public_id: String(item.public_id || item.id_event_accreditation) });
   }
 
   alterarStatus(item: EventAccreditationItem): void {

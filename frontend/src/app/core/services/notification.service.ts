@@ -165,7 +165,8 @@ export class NotificationService {
           ? [details]
           : [];
 
-    const canRemove = items.length === 1 && Number(items[0]?.id_collaborator) > 0;
+    const rawId = items[0]?.id_collaborator;
+    const canRemove = items.length === 1 && rawId != null && String(rawId) !== '' && String(rawId) !== '0';
 
     const rowsHtml = items
       .map((item) => {

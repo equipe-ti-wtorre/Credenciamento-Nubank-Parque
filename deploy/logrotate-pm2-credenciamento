@@ -1,0 +1,12 @@
+# Logs do Credenciamento no PM2 do root (API e worker facial).
+# copytruncate: o PM2 continua escrevendo no mesmo arquivo, sem reiniciar o processo.
+/root/.pm2/logs/backend-*.log /root/.pm2/logs/facial-worker-*.log {
+    daily
+    maxsize 50M
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}

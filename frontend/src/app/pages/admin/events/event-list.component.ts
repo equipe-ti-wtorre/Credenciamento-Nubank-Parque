@@ -2,6 +2,7 @@ import { ChangeDetectorRef, Component, computed, inject, OnInit, signal } from '
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { NavigationStateService } from '../../../core/services/navigation-state.service';
 import Swal from 'sweetalert2';
 import {
   EventItem,
@@ -241,6 +242,7 @@ import { ActionDropdownItemDirective } from '../../../shared/actions/action-drop
 export class EventListComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly router = inject(Router);
+  private readonly nav = inject(NavigationStateService);
   readonly formatDateBr = formatDateBr;
   readonly statusBadgeClass = statusBadgeClass;
   readonly STATUS_APROVADO = STATUS_APROVADO;
@@ -347,7 +349,7 @@ export class EventListComponent implements OnInit {
   }
 
   configurar(e: EventItem) {
-    void this.router.navigate(['/admin/eventos', e.id_event]);
+    void this.nav.navegar('/admin/eventos/detalhe', { public_id: String(e.public_id || e.id_event) });
   }
 
   alterarStatus(e: EventItem) {

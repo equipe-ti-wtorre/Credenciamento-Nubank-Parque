@@ -21,6 +21,7 @@ import { routes } from './app.routes';
 import { AuthInterceptor } from './core/interceptors/auth.interceptor';
 import { RequestIdInterceptor } from './core/interceptors/request-id.interceptor';
 import { ErrorInterceptor } from './core/interceptors/error.interceptor';
+import { PublicIdAdapterInterceptor } from './core/interceptors/public-id.interceptor';
 import { AppErrorHandler } from './core/app-error.handler';
 import { MsalConfigService } from './services/msal-config.service';
 import { PlatformService } from './core/services/platform.service';
@@ -75,6 +76,7 @@ export const appConfig: ApplicationConfig = {
     { provide: HTTP_INTERCEPTORS, useClass: RequestIdInterceptor, multi: true },
     { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
     { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
+    { provide: HTTP_INTERCEPTORS, useClass: PublicIdAdapterInterceptor, multi: true },
     { provide: ErrorHandler, useClass: AppErrorHandler },
     importProvidersFrom(BrowserModule, MsalModule),
     provideAnimations(),

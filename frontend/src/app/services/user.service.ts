@@ -12,6 +12,7 @@ export interface UserProfileRef {
 }
 
 export interface UserItem {
+  public_id?: string;
   id: number;
   username: string;
   nome_completo: string;

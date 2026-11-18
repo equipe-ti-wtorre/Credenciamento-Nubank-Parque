@@ -7,6 +7,9 @@ const {
   authorizeAnyPermission,
 } = require("../../middleware/permissionMiddleware");
 const { bulkUploadMiddleware, pictureUploadMiddleware } = require("../../middleware/upload.middleware");
+const { resolverPublicId } = require("../../middleware/resolverPublicId");
+const { autorizar } = require("../../middleware/autorizar");
+const { vinculoColaborador } = require("../../middleware/vinculos");
 
 const router = express.Router();
 const auth = authMiddleware;
@@ -33,6 +36,33 @@ const canSearch = [
     { modulo: "event_accreditation", acao: "edit" },
   ]),
 ];
+const collaboratorId = resolverPublicId({
+  param: "id",
+  table: "collaborator",
+  pk: "id_collaborator",
+});
+const viewCollaborator = autorizar({
+  modulo: "collaborators",
+  acao: "view",
+  vinculo: vinculoColaborador,
+});
+const editCollaborator = autorizar({
+  modulo: "collaborators",
+  acao: "edit",
+  vinculo: vinculoColaborador,
+});
+const uploadCollaborator = autorizar({
+  any: [
+    { modulo: "collaborators", acao: "edit" },
+    { modulo: "collaborators", acao: "create" },
+  ],
+  vinculo: vinculoColaborador,
+});
+const deleteCollaborator = autorizar({
+  modulo: "collaborators",
+  acao: "delete",
+  vinculo: vinculoColaborador,
+});
 
 router.use(domainRoutes);
 
@@ -63,24 +93,28 @@ router.post(
 );
 router.get(
   "/:id/access-details",
-  ...canView,
+  auth,
+  collaboratorId,
+  viewCollaborator,
   collaboratorController.getAccessDetails,
 );
-router.get("/:id", ...canView, collaboratorController.getById);
+router.get("/:id", auth, collaboratorId, viewCollaborator, collaboratorController.getById);
 router.post("/", ...canCreate, collaboratorController.create);
 router.post(
   "/:id/picture",
-  ...canUploadPicture,
+  auth,
+  collaboratorId,
+  uploadCollaborator,
   pictureUploadMiddleware,
   collaboratorController.uploadPicture,
 );
-router.delete("/:id/picture", ...canEdit, collaboratorController.deletePicture);
-router.get("/:id/facial-status", ...canView, collaboratorController.getFacialStatus);
-router.post("/:id/facial-enroll", ...canEdit, collaboratorController.facialEnroll);
-router.post("/:id/facial-revoke", ...canEdit, collaboratorController.facialRevoke);
-router.post("/:id/facial-retry", ...canEdit, collaboratorController.facialRetry);
-router.put("/:id", ...canEdit, collaboratorController.update);
-router.patch("/:id/status", ...canEdit, collaboratorController.patchStatus);
-router.delete("/:id", ...canDelete, collaboratorController.deleteCollaborator);
+router.delete("/:id/picture", auth, collaboratorId, editCollaborator, collaboratorController.deletePicture);
+router.get("/:id/facial-status", auth, collaboratorId, viewCollaborator, collaboratorController.getFacialStatus);
+router.post("/:id/facial-enroll", auth, collaboratorId, editCollaborator, collaboratorController.facialEnroll);
+router.post("/:id/facial-revoke", auth, collaboratorId, editCollaborator, collaboratorController.facialRevoke);
+router.post("/:id/facial-retry", auth, collaboratorId, editCollaborator, collaboratorController.facialRetry);
+router.put("/:id", auth, collaboratorId, editCollaborator, collaboratorController.update);
+router.patch("/:id/status", auth, collaboratorId, editCollaborator, collaboratorController.patchStatus);
+router.delete("/:id", auth, collaboratorId, deleteCollaborator, collaboratorController.deleteCollaborator);
 
 module.exports = router;

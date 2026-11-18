@@ -7,6 +7,7 @@ const {
 } = require("./microsoftGraph");
 const { syncUserProfileFromGraph, resolveDepartment } = require("./userProfileSync");
 const { hasValidDepartment } = require("./userDepartment");
+const gatewayApi = require("./authGatewayApi");
 
 const logger = child({ module: "ad-users-sync" });
 
@@ -33,10 +34,8 @@ function normalizeGraphUser(graphUser) {
 }
 
 async function upsertAdUser(adUser) {
-  const [[userProfile]] = await db.execute(
-    "SELECT id FROM perfis WHERE codigo = 'USER' LIMIT 1",
-  );
-  const defaultProfileId = userProfile?.id || null;
+  // Pré-cadastro sem perfil: quem libera o acesso é o administrador do Credenciamento.
+  const defaultProfileId = null;
 
   const [byOid] = await db.execute(
     "SELECT id, ativo, id_perfil FROM usuarios WHERE microsoft_id = ? LIMIT 1",
@@ -188,6 +187,78 @@ async function syncTenantAdUsers(tenantRow) {
   };
 }
 
+/** Pessoa do diretório do gateway no mesmo formato de normalizeGraphUser. */
+function normalizeGatewayUser(person) {
+  const email = String(person.mail || person.upn || "").trim().toLowerCase();
+  if (!email || !person.oid) return null;
+  // Convidado externo (B2B) não é funcionário: fica de fora, como no Graph (userType Member).
+  if (String(person.upn || "").includes("#EXT#")) return null;
+  const departamento = resolveDepartment(person);
+  if (!hasValidDepartment(departamento)) return null;
+  return {
+    microsoftId: person.oid,
+    email,
+    nomeCompleto: person.displayName || email.split("@")[0],
+    departamento,
+    accountEnabled: person.accountEnabled !== false,
+  };
+}
+
+/**
+ * Sincronização pelo diretório do auth-gateway (sem Graph): incremental por `changedSince`.
+ * Conta desativada ou removida no Entra é desativada aqui; quem já existe não é reativado sozinho.
+ */
+async function syncFromGateway(triggeredBy, startedAt) {
+  const [[settings]] = await db.execute(
+    "SELECT directory_sync_since FROM system_settings WHERE id = 1",
+  );
+  const since = settings?.directory_sync_since || null;
+  const { users, serverTime } = await gatewayApi.listDirectoryUsers({ changedSince: since });
+
+  const counts = { created: 0, updated: 0, linked: 0, skipped: 0, deactivated: 0 };
+  for (const person of users) {
+    try {
+      if (person.deleted || person.accountEnabled === false) {
+        const [res] = await db.execute(
+          "UPDATE usuarios SET ativo = 0 WHERE microsoft_id = ? AND ativo = 1",
+          [person.oid],
+        );
+        counts.deactivated += res.affectedRows;
+        continue;
+      }
+      const adUser = normalizeGatewayUser(person);
+      if (!adUser) {
+        counts.skipped += 1;
+        continue;
+      }
+      const result = await upsertAdUser(adUser);
+      if (result.action === "created") counts.created += 1;
+      else if (result.action === "linked") counts.linked += 1;
+      else counts.updated += 1;
+    } catch (err) {
+      counts.skipped += 1;
+      logger.warn({ err: err.message, oid: person.oid }, "Falha ao sincronizar pessoa do diretório");
+    }
+  }
+
+  if (serverTime) {
+    await db.execute("UPDATE system_settings SET directory_sync_since = ? WHERE id = 1", [serverTime]);
+  }
+  const result = {
+    ok: true,
+    source: "auth-gateway",
+    triggeredBy,
+    incremental: !!since,
+    startedAt: startedAt.toISOString(),
+    finishedAt: new Date().toISOString(),
+    durationMs: Date.now() - startedAt.getTime(),
+    received: users.length,
+    ...counts,
+  };
+  logger.info(result, "Sync do diretório (gateway) concluída");
+  return result;
+}
+
 async function runAdUsersSync({ triggeredBy = "manual" } = {}) {
   if (syncInProgress) {
     logger.warn({ triggeredBy }, "Sincronização AD já em execução — ignorando");
@@ -198,6 +269,12 @@ async function runAdUsersSync({ triggeredBy = "manual" } = {}) {
   const startedAt = new Date();
 
   try {
+    if (gatewayApi.isConfigured()) {
+      const result = await syncFromGateway(triggeredBy, startedAt);
+      lastSyncResult = result;
+      return result;
+    }
+
     const [tenants] = await db.execute(
       `SELECT id, nome, azure_tenant_id, client_id, client_secret_ciphertext
        FROM azure_tenants
@@ -288,5 +365,6 @@ module.exports = {
   runAdUsersSync,
   syncTenantAdUsers,
   normalizeGraphUser,
+  normalizeGatewayUser,
   getAdUsersSyncStatus,
 };
