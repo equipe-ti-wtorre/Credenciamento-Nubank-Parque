@@ -392,7 +392,7 @@ async function assertCredentialReadable(req, row) {
   await assertCredentialInScope(req, row);
 }
 
-async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId = null) {
+async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId = null, conn = db) {
   let sql = `
     SELECT edcc.id_event_day_company_collaborator
     FROM event_day_company_collaborator edcc
@@ -409,7 +409,7 @@ async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId
     params.push(excludeId);
   }
   sql += " LIMIT 1";
-  const [rows] = await db.execute(sql, params);
+  const [rows] = await conn.execute(sql, params);
   if (rows.length > 0) {
     throw new AppError(
       "Colaborador já possui credencial solicitada para este dia do evento.",
@@ -421,9 +421,17 @@ async function assertNoDuplicateOnEventDay(idCollaborator, idEventDay, excludeId
   }
 }
 
+/** Usuário de empresa não vê qual outra empresa indicou a pessoa. */
+function otherCompanyMessage(req, companyName) {
+  if (req?.user?.requires_company) {
+    return "Colaborador já está indicado neste evento por outra empresa.";
+  }
+  return `Colaborador já está indicado neste evento por ${companyName}.`;
+}
+
 /** Uma pessoa só pode ser indicada por uma empresa dentro do mesmo evento. */
-async function assertSingleCompanyOnEvent(idCollaborator, idEvent, idCompany) {
-  const [rows] = await db.execute(
+async function assertSingleCompanyOnEvent(req, idCollaborator, idEvent, idCompany, conn = db) {
+  const [rows] = await conn.execute(
     `SELECT co.company_name
        FROM event_day_company_collaborator edcc
        INNER JOIN event_day_company edc ON edc.id_event_day_company = edcc.id_event_day_company
@@ -437,7 +445,7 @@ async function assertSingleCompanyOnEvent(idCollaborator, idEvent, idCompany) {
   );
   if (rows.length > 0) {
     throw new AppError(
-      `Colaborador já está indicado neste evento por ${rows[0].company_name}.`,
+      otherCompanyMessage(req, rows[0].company_name),
       409,
       true,
       null,
@@ -648,6 +656,7 @@ async function createCredential(req, data) {
   await assertCanOperateOnLink(req, link);
 
   await assertSingleCompanyOnEvent(
+    req,
     data.id_collaborator,
     link.id_event,
     link.id_company,
@@ -668,21 +677,49 @@ async function createCredential(req, data) {
     link.event_access_status,
   );
 
-  const [result] = await db.execute(
-    `INSERT INTO event_day_company_collaborator (
-       id_event_day_company, id_collaborator, id_access_status, id_collaborator_role, access_id
-     ) VALUES (?, ?, ?, ?, ?)`,
-    [data.id_event_day_company, data.id_collaborator, initialStatus, idRole, accessId],
-  );
-
-  if (link.id_company != null) {
-    await collaboratorService.linkCollaboratorToCompany(
-      data.id_collaborator,
-      link.id_company,
+  // Trava o colaborador para que pedidos simultâneos (várias fases, várias empresas) sejam
+  // conferidos um de cada vez; as regras de duplicidade rodam de novo dentro da transação.
+  const conn = await db.getConnection();
+  let insertId;
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      "SELECT id_collaborator FROM collaborator WHERE id_collaborator = ? FOR UPDATE",
+      [data.id_collaborator],
     );
+    await assertSingleCompanyOnEvent(
+      req,
+      data.id_collaborator,
+      link.id_event,
+      link.id_company,
+      conn,
+    );
+    await assertNoDuplicateOnEventDay(data.id_collaborator, link.id_event_day, null, conn);
+
+    const [result] = await conn.execute(
+      `INSERT INTO event_day_company_collaborator (
+         id_event_day_company, id_collaborator, id_access_status, id_collaborator_role, access_id
+       ) VALUES (?, ?, ?, ?, ?)`,
+      [data.id_event_day_company, data.id_collaborator, initialStatus, idRole, accessId],
+    );
+    insertId = result.insertId;
+
+    if (link.id_company != null) {
+      await collaboratorService.linkCollaboratorToCompany(
+        data.id_collaborator,
+        link.id_company,
+        conn,
+      );
+    }
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
 
-  const credential = await getCredentialById(req, result.insertId);
+  const credential = await getCredentialById(req, insertId);
 
   if (initialStatus === STATUS_AGUARDANDO_APROVACAO) {
     scheduleTeamsNotification(credential);
@@ -1105,7 +1142,7 @@ async function previewEventCompanyCredentialsBulk(req, idEvent, idCompany, file)
       );
       if (otherCompany.length) {
         status = "error";
-        message = `Colaborador já está indicado neste evento por ${otherCompany[0].company_name}.`;
+        message = otherCompanyMessage(req, otherCompany[0].company_name);
       }
     }
     const item = {

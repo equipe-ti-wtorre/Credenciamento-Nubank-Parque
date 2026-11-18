@@ -1299,29 +1299,36 @@ export class EventCollaboratorsComponent implements OnInit {
         this.cdr.markForCheck();
       }
     };
-    for (const linkId of linkIds) {
+    // Uma fase por vez: fases na mesma data são recusadas pela API (CREDENTIAL_SAME_DAY).
+    const enviar = (index: number) => {
+      if (index >= linkIds.length) return;
+      const next = () => {
+        finish();
+        enviar(index + 1);
+      };
       this.credentialService
         .create({
-          id_event_day_company: linkId,
+          id_event_day_company: linkIds[index],
           id_collaborator: idCollaborator,
           id_collaborator_role: roleId,
         })
         .subscribe({
           next: () => {
             ok += 1;
-            finish();
+            next();
           },
           error: (err) => {
             if (err instanceof HttpErrorResponse && err.status === 409) {
               if (!conflictMessage) conflictMessage = this.extractError(err) || '';
-              finish();
+              next();
               return;
             }
             this.notification.error(this.extractError(err) || 'Falha ao solicitar credencial.');
-            finish();
+            next();
           },
         });
-    }
+    };
+    enviar(0);
   }
 
   onVeicSearch(term: string) {
