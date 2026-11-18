@@ -220,7 +220,8 @@ Hoje o nginx manda `/` para `127.0.0.1:4207`, que é o `ng serve` (a página pú
   - 1º acesso entra sem perfil (403 `AWAITING_ACCESS`, "aguardando liberação").
   - Conta do Entra não entra mais por senha (`POST /auth/login` responde 400).
   - Continuam com JWT local: empresas terceiras, a conta admin local e a aba do Teams (`/auth/login-microsoft`).
-  - Pendente: trocar o Microsoft Graph (sincronização de usuários, departamento e foto) pela API do gateway, quando a `AUTH_API_KEY` estiver no `.env`.
+  - Diretório pela API do gateway (`AUTH_API_KEY`, pacotes basic/org/photo, diretório todo): sincronização de hora em hora incremental (`changedSince` em `system_settings.directory_sync_since`, migração 098), departamento do 1º acesso e fotos. Conta desativada ou removida no Entra é desativada aqui; pessoa nova entra sem perfil. Na 1ª rodada (18/11): 1 criada, 1 vinculada, 320 atualizadas, 55 desativadas (nenhuma em setor ou com aprovação pendente).
+  - O Graph segue só para o Teams (notificações, cards de aprovação e bot), com o segredo do tenant em `azure_tenants`. Sem `AUTH_API_KEY`, o diretório volta a usar o Graph.
 - **Fase 3:** concluída. Listagens de aprovação com `approvals.view`, fotos com escopo de empresa, bot do Teams com 401 sem JWT, `/health` público reduzido. As rotas que só exigem login são dados do próprio usuário, listas auxiliares ou têm escopo no service (`GET /companies`, alertas).
 - **Fase 4:** aguardando definição.
 - **Fase 5:**
@@ -237,4 +238,5 @@ Hoje o nginx manda `/` para `127.0.0.1:4207`, que é o `ng serve` (a página pú
 | CSP completa em Report-Only | Precisa ser observada com usuário logado (TinyMCE, Teams, gateway) antes de bloquear. | Fase 1 / 18/11/2026 |
 | Conta admin local (senha) | Acesso de emergência ao sistema, decidido pelo responsável. | Daniel Lemes / 18/11/2026 |
 | Aba do Teams com SSO próprio (`/auth/login-microsoft`, MSAL) | O cookie do gateway não chega ao iframe do Teams (cookie de terceiro). Vale só dentro do Teams. | Daniel Lemes / 18/11/2026 |
+| Graph e segredo do tenant para o Teams (feed, chat, cards, bot) | O gateway não oferece notificação do Teams. Diretório e foto já saíram do Graph. | Fase 2 / 18/11/2026 |
 | API e worker no PM2 do root | A tela WhatsApp → Limites grava o `.env` do OpenWA e reinicia o processo dele. | Fase 5 / 18/11/2026 |

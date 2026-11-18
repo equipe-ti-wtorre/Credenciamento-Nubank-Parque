@@ -2,16 +2,21 @@ const db = require("../config/db");
 const { decrypt } = require("../config/cryptoSecrets");
 const { child } = require("../config/logger");
 const { getApplicationToken, fetchUserProfileById } = require("./microsoftGraph");
+const gatewayApi = require("./authGatewayApi");
 
 const logger = child({ module: "user-profile-sync" });
 
 function resolveDepartment(profile) {
   if (!profile) return null;
+  // `ad`: dados do RH do AD local que o gateway junta à pessoa (WTorre/PNU vêm como contato).
   const candidates = [
     profile.department,
+    profile.ad?.department,
     profile.companyName,
+    profile.ad?.companyName,
     profile.officeLocation,
     profile.jobTitle,
+    profile.ad?.jobTitle,
   ];
   for (const value of candidates) {
     const trimmed = value != null ? String(value).trim() : "";
@@ -48,9 +53,34 @@ async function getActiveTenantsOrdered(preferredAzureTenantId = null) {
   });
 }
 
+/** Perfil pelo diretório do auth-gateway (sem Graph); null quando a chave não está configurada. */
+async function fetchGatewayProfile(microsoftId) {
+  if (!gatewayApi.isConfigured()) return null;
+  try {
+    const profile = await gatewayApi.getDirectoryUser(microsoftId);
+    if (!profile) return { ok: false, message: "Usuário não encontrado no diretório corporativo." };
+    return { ok: true, profile };
+  } catch (err) {
+    logger.warn({ err: err.message, code: err.code }, "Falha ao consultar o diretório no gateway");
+    return { ok: false, message: "Diretório corporativo indisponível. Tente novamente em instantes." };
+  }
+}
+
 async function syncUserProfileFromGraph(userId, microsoftId, preferredAzureTenantId = null) {
   if (!userId || !microsoftId) {
     return { ok: false, message: "Usuário sem vínculo Microsoft." };
+  }
+
+  const fromGateway = await fetchGatewayProfile(microsoftId);
+  if (fromGateway) {
+    if (!fromGateway.ok) return fromGateway;
+    const department = resolveDepartment(fromGateway.profile);
+    const displayName = fromGateway.profile.displayName || null;
+    await db.execute(
+      `UPDATE usuarios SET departamento = ?, nome_completo = COALESCE(?, nome_completo) WHERE id = ?`,
+      [department, displayName, userId],
+    );
+    return { ok: true, department, displayName };
   }
 
   const tenants = await getActiveTenantsOrdered(preferredAzureTenantId);
@@ -99,6 +129,16 @@ async function syncUserProfileFromGraph(userId, microsoftId, preferredAzureTenan
 
 /** Busca perfil no Graph sem persistir (uso no login). */
 async function fetchMicrosoftProfile(microsoftId, preferredAzureTenantId = null) {
+  const fromGateway = await fetchGatewayProfile(microsoftId);
+  if (fromGateway) {
+    if (!fromGateway.ok) return fromGateway;
+    return {
+      ok: true,
+      departamento: resolveDepartment(fromGateway.profile),
+      displayName: fromGateway.profile.displayName || null,
+    };
+  }
+
   const tenants = await getActiveTenantsOrdered(preferredAzureTenantId);
   let lastError = "Usuário não encontrado no Azure AD.";
 

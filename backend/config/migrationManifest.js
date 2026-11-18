@@ -791,6 +791,10 @@ const migrations = [
     filename: "097_collaborator_picture_index.sql",
     validate: (conn) => indexExists(conn, "collaborator", "idx_collaborator_picture"),
   },
+  {
+    filename: "098_directory_sync_since.sql",
+    validate: (conn) => columnExists(conn, "system_settings", "directory_sync_since"),
+  },
 ];
 
 module.exports = migrations;

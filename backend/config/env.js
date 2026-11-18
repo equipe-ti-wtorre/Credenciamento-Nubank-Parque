@@ -106,6 +106,8 @@ const env = {
       audience: (process.env.AUTH_GATEWAY_AUDIENCE || "").trim() || "nbp-systems",
     };
   })(),
+  /** Chave da API do auth-gateway (diretório e foto); só no backend. */
+  authApiKey: (process.env.AUTH_API_KEY || "").trim(),
   /** URL https aberta ao clicar na notificação do Teams (feed de atividades). */
   teamsActivityWebUrl: process.env.TEAMS_ACTIVITY_WEB_URL || process.env.MSAL_REDIRECT_URI_WEB || "",
   /** ID do app no catálogo Graph (appCatalogs/teamsApps/{id}) após publicar o pacote Teams. */

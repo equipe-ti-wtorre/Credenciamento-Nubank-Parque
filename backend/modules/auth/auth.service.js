@@ -6,6 +6,7 @@ const {
   fetchUserPhotoBuffer,
 } = require("../../utils/microsoftGraph");
 const { fetchMicrosoftProfile } = require("../../utils/userProfileSync");
+const gatewayApi = require("../../utils/authGatewayApi");
 const { assertUserCanAccess, hasValidDepartment, DEPARTMENT_REQUIRED_MESSAGE } = require("../../utils/userDepartment");
 const { createTokenPair } = require("./token.service");
 const { setAuditLoginContext } = require("../../observability/audit.auth");
@@ -297,6 +298,13 @@ async function getProfilePhoto(userId) {
   if (!user) throw new AppError("Usuário não encontrado.", 404);
   if (!user.is_ad_user || !user.microsoft_id) {
     throw new AppError("Foto de perfil não disponível.", 404);
+  }
+
+  // Foto pelo diretório do auth-gateway (sem Graph).
+  if (gatewayApi.isConfigured()) {
+    const photo = await gatewayApi.getDirectoryUserPhoto(user.microsoft_id).catch(() => null);
+    if (photo) return photo;
+    throw new AppError("Foto de perfil não encontrada.", 404);
   }
 
   const [tenants] = await db.execute(
