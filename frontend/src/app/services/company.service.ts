@@ -109,7 +109,7 @@ export class CompanyService {
 
   inviteAccess(
     id: number,
-    data: { id_company_contact?: number; email?: string; name?: string },
+    data: { id_company_contact?: number | string; email?: string; name?: string },
   ): Observable<{ invite: { id_usuario: number; email: string; profile_codigo: string } }> {
     return this.api.post(`/companies/${id}/invite-access`, data);
   }

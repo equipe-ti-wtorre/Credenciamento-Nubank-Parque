@@ -1083,14 +1083,15 @@ export class CompanyListComponent implements OnInit, OnDestroy {
       if (!result.isConfirmed || !result.value) return;
 
       const selectedKey = String(result.value);
-      let payload: { id_company_contact?: number; email?: string; name?: string };
+      let payload: { id_company_contact?: number | string; email?: string; name?: string };
 
       if (selectedKey.startsWith('email:')) {
         const idx = Number(selectedKey.replace('email:', ''));
         const contact = withEmail[idx];
         payload = { email: contact.email!.trim(), name: contact.name.trim() };
       } else {
-        payload = { id_company_contact: Number(selectedKey) };
+        // id público (UUID) do contato; a API converte para o id interno.
+        payload = { id_company_contact: selectedKey };
       }
 
       this.inviting.set(true);
