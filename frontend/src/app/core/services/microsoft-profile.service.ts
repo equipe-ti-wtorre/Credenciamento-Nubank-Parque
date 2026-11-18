@@ -19,11 +19,13 @@ export class MicrosoftProfileService {
     }
   }
 
-  /** Foto de outro usuário autenticado (Microsoft Graph via backend). */
-  async fetchUserPhotoObjectUrl(userId: number): Promise<string | null> {
-    if (!Number.isFinite(userId) || userId <= 0) return null;
+  /** Foto de outro usuário autenticado (Microsoft Graph via backend). Aceita id numérico ou public_id. */
+  async fetchUserPhotoObjectUrl(userId: number | string): Promise<string | null> {
+    const key = String(userId ?? '').trim();
+    if (!key || key === '0') return null;
+    if (/^\d+$/.test(key) && Number(key) <= 0) return null;
     try {
-      const blob = await firstValueFrom(this.api.getBlob(`/auth/users/${userId}/photo`));
+      const blob = await firstValueFrom(this.api.getBlob(`/auth/users/${encodeURIComponent(key)}/photo`));
       return this.toSrc(blob);
     } catch {
       return null;

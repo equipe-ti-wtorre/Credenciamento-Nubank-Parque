@@ -100,6 +100,7 @@ export interface AccreditationCompany {
   setor_nome?: string | null;
   company_name: string;
   fancy_name?: string | null;
+  logo?: string | null;
   indication_status: IndicationStatus;
   indicated_complete_at: string | null;
   id_aprovacao: number | null;

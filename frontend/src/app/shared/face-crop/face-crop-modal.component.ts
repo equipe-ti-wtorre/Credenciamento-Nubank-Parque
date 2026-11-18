@@ -33,8 +33,8 @@ interface CropBox {
   template: `
     <app-modal
       [open]="open"
-      title="Enquadrar o rosto"
-      subtitle="Arraste o quadro e ajuste largura e altura. Use o zoom para aproximações."
+      [title]="title"
+      [subtitle]="subtitle"
       size="lg"
       [closeOnBackdrop]="false"
       [focusFirstField]="false"
@@ -65,10 +65,12 @@ interface CropBox {
               [style.height.px]="displayBox().h"
               (pointerdown)="onBoxPointerDown($event, 'move')"
             >
-              <span class="face-crop__handle face-crop__handle--n" (pointerdown)="onBoxPointerDown($event, 'n')"></span>
-              <span class="face-crop__handle face-crop__handle--s" (pointerdown)="onBoxPointerDown($event, 's')"></span>
-              <span class="face-crop__handle face-crop__handle--e" (pointerdown)="onBoxPointerDown($event, 'e')"></span>
-              <span class="face-crop__handle face-crop__handle--w" (pointerdown)="onBoxPointerDown($event, 'w')"></span>
+              @if (!lockAspectRatio) {
+                <span class="face-crop__handle face-crop__handle--n" (pointerdown)="onBoxPointerDown($event, 'n')"></span>
+                <span class="face-crop__handle face-crop__handle--s" (pointerdown)="onBoxPointerDown($event, 's')"></span>
+                <span class="face-crop__handle face-crop__handle--e" (pointerdown)="onBoxPointerDown($event, 'e')"></span>
+                <span class="face-crop__handle face-crop__handle--w" (pointerdown)="onBoxPointerDown($event, 'w')"></span>
+              }
               <span class="face-crop__handle face-crop__handle--nw" (pointerdown)="onBoxPointerDown($event, 'nw')"></span>
               <span class="face-crop__handle face-crop__handle--ne" (pointerdown)="onBoxPointerDown($event, 'ne')"></span>
               <span class="face-crop__handle face-crop__handle--sw" (pointerdown)="onBoxPointerDown($event, 'sw')"></span>
@@ -118,10 +120,23 @@ interface CropBox {
           </button>
         </div>
 
-        <p class="face-crop__hint">
-          Puxe as bordas para mudar a altura ou a largura do recorte (ombros para cima). Com zoom,
-          arraste o fundo para posicionar a foto; a roda do mouse também aproxima/afasta.
-        </p>
+        @if (showOutputPreview && ready()) {
+          <div class="face-crop__result">
+            <span class="face-crop__result-label">{{ previewLabel }}</span>
+            <div class="face-crop__result-thumb" aria-hidden="true">
+              <img
+                [src]="imageUrl"
+                alt=""
+                draggable="false"
+                [style.width.px]="previewLayout().imgW"
+                [style.height.px]="previewLayout().imgH"
+                [style.transform]="previewLayout().transform"
+              />
+            </div>
+          </div>
+        }
+
+        <p class="face-crop__hint">{{ hint }}</p>
       </div>
 
       <div modal-footer class="modal-footer">
@@ -280,6 +295,30 @@ interface CropBox {
         line-height: 1.35;
         color: #64748b;
       }
+      .face-crop__result {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .face-crop__result-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #64748b;
+      }
+      .face-crop__result-thumb {
+        width: 4rem;
+        height: 4rem;
+        border-radius: 0.5rem;
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        overflow: hidden;
+        flex: none;
+      }
+      .face-crop__result-thumb img {
+        display: block;
+        max-width: none;
+        transform-origin: top left;
+      }
     `,
   ],
 })
@@ -287,6 +326,25 @@ export class FaceCropModalComponent implements OnChanges {
   @Input() open = false;
   @Input() imageUrl: string | null = null;
   @Input() fileName = 'foto-rosto.jpg';
+  @Input() title = 'Enquadrar o rosto';
+  @Input() subtitle = 'Arraste o quadro e ajuste largura e altura. Use o zoom para aproximações.';
+  @Input() hint =
+    'Puxe as bordas para mudar a altura ou a largura do recorte (ombros para cima). Com zoom, arraste o fundo para posicionar a foto; a roda do mouse também aproxima/afasta.';
+  /** Altura inicial relativa à largura. 1 = quadrado; 1.28 = retrato (rosto). */
+  @Input() initialAspectH = 1.28;
+  /** Fração do lado menor para a largura inicial do quadro. */
+  @Input() initialSizeRatio = 0.42;
+  /** Se definido (ex.: 1), o quadro mantém a proporção e só os cantos redimensionam. */
+  @Input() lockAspectRatio: number | null = null;
+  /** Centraliza o quadro no eixo vertical (logos). Rosto usa o recuo padrão de 18%. */
+  @Input() centerInitialCrop = false;
+  @Input() outputSuffix = '-rosto';
+  @Input() showOutputPreview = false;
+  @Input() previewLabel = 'Como vai aparecer';
+  /** Piso do zoom. Logos usam valor abaixo de 1 para afastar e caber o arquivo inteiro. */
+  @Input() minZoom = 1;
+  /** Permite o quadro ultrapassar a imagem (padding) para não cortar logos largos. */
+  @Input() allowCropOutside = false;
 
   @Output() cancel = new EventEmitter<void>();
   @Output() cropped = new EventEmitter<File>();
@@ -301,16 +359,12 @@ export class FaceCropModalComponent implements OnChanges {
   panX = signal(0);
   panY = signal(0);
 
-  readonly minZoom = 1;
   readonly maxZoom = 4;
 
   /** Fração do lado menor: piso ao redimensionar. */
   private readonly minSizeRatio = 0.12;
-  /** Fração do lado menor: largura inicial do quadro (rosto + margem). */
-  private readonly initialSizeRatio = 0.42;
-  /** Altura inicial relativa à largura (retrato, ombros para cima). */
-  private readonly initialAspectH = 1.28;
   private readonly zoomStep = 1.25;
+  private readonly previewSize = 64;
 
   private naturalW = 0;
   private naturalH = 0;
@@ -386,11 +440,21 @@ export class FaceCropModalComponent implements OnChanges {
     };
   }
 
+  previewLayout(): { imgW: number; imgH: number; transform: string } {
+    const c = this.crop();
+    const scale = this.previewSize / Math.max(c.w, 1);
+    return {
+      imgW: this.naturalW * scale,
+      imgH: this.naturalH * scale,
+      transform: `translate(${-c.x * scale}px, ${-c.y * scale}px)`,
+    };
+  }
+
   onStagePointerDown(event: PointerEvent): void {
     if (!this.ready() || this.dragMode) return;
     if ((event.target as HTMLElement)?.closest?.('.face-crop__box')) return;
 
-    if (this.zoom() > 1) {
+    if (this.zoom() !== 1) {
       event.preventDefault();
       this.dragMode = 'pan';
       this.dragStartX = event.clientX;
@@ -447,6 +511,11 @@ export class FaceCropModalComponent implements OnChanges {
 
     if (this.dragMode === 'move') {
       this.crop.set(this.clampCrop({ x: o.x + dx, y: o.y + dy, w: o.w, h: o.h }));
+      return;
+    }
+
+    if (this.lockAspectRatio) {
+      this.crop.set(this.resizeLocked(this.dragMode, o, dx));
       return;
     }
 
@@ -520,13 +589,26 @@ export class FaceCropModalComponent implements OnChanges {
       const downscaling = scale < 1;
       ctx.imageSmoothingEnabled = downscaling;
       if (downscaling) ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, c.x, c.y, c.w, c.h, 0, 0, outW, outH);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, outW, outH);
+      ctx.drawImage(
+        img,
+        0,
+        0,
+        this.naturalW,
+        this.naturalH,
+        -c.x * scale,
+        -c.y * scale,
+        this.naturalW * scale,
+        this.naturalH * scale,
+      );
       const blob = await new Promise<Blob | null>((resolve) =>
         canvas.toBlob(resolve, 'image/jpeg', 0.95),
       );
       if (!blob) throw new Error('Falha ao gerar recorte');
       const base = (this.fileName || 'foto').replace(/\.[^.]+$/, '') || 'foto';
-      const file = new File([blob], `${base}-rosto.jpg`, { type: 'image/jpeg' });
+      const suffix = this.outputSuffix || '';
+      const file = new File([blob], `${base}${suffix}.jpg`, { type: 'image/jpeg' });
       this.cropped.emit(file);
     } catch {
       this.exporting.set(false);
@@ -536,7 +618,7 @@ export class FaceCropModalComponent implements OnChanges {
   private setZoom(next: number): void {
     const z = Math.min(this.maxZoom, Math.max(this.minZoom, next));
     this.zoom.set(Number(z.toFixed(3)));
-    if (this.zoom() <= 1) {
+    if (this.zoom() === 1) {
       this.panX.set(0);
       this.panY.set(0);
     } else {
@@ -552,19 +634,19 @@ export class FaceCropModalComponent implements OnChanges {
 
   private clampPan(): void {
     const z = this.zoom();
-    if (z <= 1) {
-      this.panX.set(0);
-      this.panY.set(0);
-      return;
-    }
     const stage = this.stageEl?.nativeElement;
     const img = this.imgEl?.nativeElement;
-    if (!stage || !img) return;
-    // Limite aproximado: quanto a imagem ampliada “ultrapassa” o stage.
+    if (!stage || !img) {
+      if (z === 1) {
+        this.panX.set(0);
+        this.panY.set(0);
+      }
+      return;
+    }
     const baseW = img.offsetWidth || stage.clientWidth;
     const baseH = img.offsetHeight || stage.clientHeight;
-    const maxX = Math.max(0, (baseW * (z - 1)) / 2 + 40);
-    const maxY = Math.max(0, (baseH * (z - 1)) / 2 + 40);
+    const maxX = Math.max(0, (baseW * Math.abs(z - 1)) / 2 + 40);
+    const maxY = Math.max(0, (baseH * Math.abs(z - 1)) / 2 + 40);
     this.panX.set(Math.max(-maxX, Math.min(maxX, this.panX())));
     this.panY.set(Math.max(-maxY, Math.min(maxY, this.panY())));
   }
@@ -573,23 +655,115 @@ export class FaceCropModalComponent implements OnChanges {
     return Math.min(this.naturalW, this.naturalH) * this.minSizeRatio;
   }
 
+  private aspectH(): number {
+    return this.lockAspectRatio ?? this.initialAspectH;
+  }
+
   private initialCropBox(): CropBox {
+    const aspect = this.aspectH();
+    if (this.allowCropOutside) {
+      let w = this.naturalW;
+      let h = w * aspect;
+      if (h < this.naturalH) {
+        h = this.naturalH;
+        w = h / aspect;
+      }
+      return {
+        x: (this.naturalW - w) / 2,
+        y: (this.naturalH - h) / 2,
+        w,
+        h,
+      };
+    }
     const minSide = Math.min(this.naturalW, this.naturalH);
     const minSize = this.minCropSize();
     const w = Math.max(minSize, Math.min(this.naturalW, minSide * this.initialSizeRatio));
-    const h = Math.max(minSize, Math.min(this.naturalH, w * this.initialAspectH));
+    const h = Math.max(minSize, Math.min(this.naturalH, w * aspect));
+    const yRatio = this.centerInitialCrop ? 0.5 : 0.18;
     return {
       x: (this.naturalW - w) / 2,
-      y: Math.max(0, (this.naturalH - h) * 0.18),
+      y: Math.max(0, (this.naturalH - h) * yRatio),
       w,
       h,
     };
   }
 
+  private resizeLocked(mode: DragMode, origin: CropBox, dx: number): CropBox {
+    const ratio = this.aspectH();
+    const minSize = this.minCropSize();
+    const right = origin.x + origin.w;
+    const bottom = origin.y + origin.h;
+    const fromWest = mode === 'nw' || mode === 'sw' || mode === 'w';
+    const fromNorth = mode === 'nw' || mode === 'ne' || mode === 'n';
+    let w = fromWest ? origin.w - dx : origin.w + dx;
+    w = Math.max(minSize, w);
+    let h = w * ratio;
+    if (h < minSize) {
+      h = minSize;
+      w = h / ratio;
+    }
+
+    let x = fromWest ? right - w : origin.x;
+    let y = fromNorth ? bottom - h : origin.y;
+
+    if (!this.allowCropOutside) {
+      if (x < 0) {
+        w += x;
+        x = 0;
+        h = w * ratio;
+        if (fromNorth) y = bottom - h;
+      }
+      if (y < 0) {
+        h += y;
+        y = 0;
+        w = h / ratio;
+        if (fromWest) x = right - w;
+      }
+      if (x + w > this.naturalW) {
+        w = this.naturalW - x;
+        h = w * ratio;
+        if (fromNorth) y = bottom - h;
+      }
+      if (y + h > this.naturalH) {
+        h = this.naturalH - y;
+        w = h / ratio;
+        if (fromWest) x = right - w;
+      }
+    }
+
+    return this.clampCrop({ x, y, w, h });
+  }
+
   private clampCrop(box: CropBox): CropBox {
     const minSize = Math.min(this.minCropSize(), this.naturalW, this.naturalH);
-    const w = Math.max(minSize, Math.min(box.w, this.naturalW));
-    const h = Math.max(minSize, Math.min(box.h, this.naturalH));
+    if (this.allowCropOutside) {
+      const maxSide = Math.max(this.naturalW, this.naturalH) * 3;
+      let w = Math.max(minSize, Math.min(box.w, maxSide));
+      let h = this.lockAspectRatio ? w * this.aspectH() : Math.max(minSize, Math.min(box.h, maxSide));
+      if (this.lockAspectRatio && h > maxSide) {
+        h = maxSide;
+        w = h / this.aspectH();
+      }
+      const x = Math.max(-w + minSize, Math.min(box.x, this.naturalW - minSize));
+      const y = Math.max(-h + minSize, Math.min(box.y, this.naturalH - minSize));
+      return { x, y, w, h };
+    }
+    let w = Math.max(minSize, Math.min(box.w, this.naturalW));
+    let h = Math.max(minSize, Math.min(box.h, this.naturalH));
+    if (this.lockAspectRatio) {
+      const ratio = this.aspectH();
+      h = w * ratio;
+      if (h > this.naturalH) {
+        h = this.naturalH;
+        w = h / ratio;
+      }
+      if (w > this.naturalW) {
+        w = this.naturalW;
+        h = w * ratio;
+      }
+      w = Math.max(minSize, Math.min(w, this.naturalW));
+      h = Math.max(minSize, Math.min(h, this.naturalH));
+    }
     const x = Math.max(0, Math.min(box.x, this.naturalW - w));
     const y = Math.max(0, Math.min(box.y, this.naturalH - h));
     return { x, y, w, h };

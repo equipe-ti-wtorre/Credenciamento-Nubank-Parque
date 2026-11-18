@@ -246,21 +246,33 @@ interface CollaboratorFormState {
             <ng-container *ngIf="!loading(); else loadingRow">
               <tr *ngFor="let c of collaborators()" class="border-t border-slate-100 hover:bg-slate-50">
                 <td class="px-4 py-3">
-                  <img
-                    *ngIf="thumbnailUrls()[c.id_collaborator] as url"
-                    [src]="url"
-                    [alt]="'Foto de ' + c.name"
-                    class="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
-                  />
-                  <div
-                    *ngIf="!thumbnailUrls()[c.id_collaborator]"
-                    class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center shrink-0 border border-slate-200"
-                    aria-hidden="true"
+                  <button
+                    type="button"
+                    class="collab-row-open collab-row-open--photo"
+                    title="Editar"
+                    [attr.aria-label]="'Editar ' + c.name"
+                    (click)="editar(c)"
                   >
-                    {{ initials(c.name) }}
-                  </div>
+                    <img
+                      *ngIf="thumbnailUrls()[c.id_collaborator] as url"
+                      [src]="url"
+                      [alt]="'Foto de ' + c.name"
+                      class="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
+                    />
+                    <div
+                      *ngIf="!thumbnailUrls()[c.id_collaborator]"
+                      class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center shrink-0 border border-slate-200"
+                      aria-hidden="true"
+                    >
+                      {{ initials(c.name) }}
+                    </div>
+                  </button>
                 </td>
-                <td class="px-4 py-3 font-medium text-slate-800">{{ c.name }}</td>
+                <td class="px-4 py-3 font-medium text-slate-800">
+                  <button type="button" class="collab-row-open collab-row-open--name" title="Editar" (click)="editar(c)">
+                    {{ c.name }}
+                  </button>
+                </td>
                 <td class="px-4 py-3 font-mono text-slate-600">{{ formatDocument(c) }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ c.document_type?.description || '—' }}</td>
                 <td class="px-4 py-3 text-slate-600">{{ c.role?.description || '—' }}</td>

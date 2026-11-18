@@ -80,6 +80,8 @@ interface DraftCollaborator {
   } | null;
   source?: 'manual' | 'planilha';
   sheetLine?: number;
+  /** Arquivo da foto no cadastro. Sem arquivo, a miniatura cai nas iniciais. */
+  picture?: string | null;
   cellErrors: CellError[];
 }
 
@@ -428,13 +430,25 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                       @if (!colabSearching() && colabResults().length > 0) {
                         <ul class="wcrt-dropdown wcrt-dropdown--list">
                           @for (c of colabResults(); track c.id_collaborator) {
-                            <li>
+                            <li
+                              class="wcrt-dropdown__item"
+                              [class.is-disabled]="c.is_blocklisted"
+                              (click)="addCollaborator(c)"
+                            >
+                              <span class="wcrt-dropdown__photo">
+                                <app-collaborator-photo
+                                  size="sm"
+                                  [editable]="false"
+                                  [name]="c.name"
+                                  [picture]="c.picture"
+                                />
+                              </span>
                               <button
                                 type="button"
                                 class="wcrt-dropdown__btn"
                                 [disabled]="c.is_blocklisted"
                                 [class.is-disabled]="c.is_blocklisted"
-                                (click)="addCollaborator(c)"
+                                (click)="$event.stopPropagation(); addCollaborator(c)"
                               >
                                 <span class="wcrt-dropdown__name">{{ c.name }}</span>
                                 <span class="wcrt-dropdown__meta">
@@ -471,6 +485,13 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                   </div>
                   <button
                     type="button"
+                    class="btn-action-secondary wcrt-cadastrar-btn"
+                    (click)="abrirModalColabEmpresa()"
+                  >
+                    Colaboradores da empresa
+                  </button>
+                  <button
+                    type="button"
                     class="btn-action-tonal wcrt-cadastrar-btn"
                     (click)="abrirModalColabCreate()"
                   >
@@ -497,6 +518,12 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                       >
                         <td>
                           <span class="wcrt-name-row">
+                            <app-collaborator-photo
+                              size="sm"
+                              [editable]="false"
+                              [name]="c.collaborator_name"
+                              [picture]="c.picture"
+                            />
                             <span class="wcrt-name">{{ c.collaborator_name }}</span>
                             @if (c.source === 'planilha') {
                               <span class="wcrt-tag wcrt-tag--sheet">planilha · linha {{ c.sheetLine }}</span>
@@ -724,7 +751,12 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
                   <ul class="wcrt-list">
                     @for (c of draftCollaborators(); track c.clientKey) {
                       <li class="wcrt-list__item">
-                        <span class="wcrt-avatar">{{ initials(c.collaborator_name) }}</span>
+                        <app-collaborator-photo
+                          size="sm"
+                          [editable]="false"
+                          [name]="c.collaborator_name"
+                          [picture]="c.picture"
+                        />
                         <span class="wcrt-list__info">
                           <span class="font-medium">{{ c.collaborator_name }}</span>
                           <span class="wcrt-list__meta">{{ c.collaborator_document }} · {{ c.role_description }}</span>
@@ -914,6 +946,92 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         <button type="submit" form="wizard-colab-create-form" class="btn-action-primary" [disabled]="colabSaving()">
           {{ colabSaving() ? 'Salvando...' : 'Salvar colaborador' }}
         </button>
+      </div>
+    </app-modal>
+
+    <app-modal
+      [open]="showColabEmpresaModal()"
+      title="Colaboradores da empresa"
+      [subtitle]="companyName() || 'Vinculados à empresa deste acesso.'"
+      size="lg"
+      (close)="fecharModalColabEmpresa()"
+    >
+      <div class="wcrt-empresa">
+        <input
+          type="search"
+          class="form-field"
+          [ngModel]="colabEmpresaQuery"
+          (ngModelChange)="onColabEmpresaSearch($event)"
+          name="colabEmpresaQuery"
+          placeholder="Nome ou documento..."
+          autocomplete="off"
+        />
+        @if (colabEmpresaLoading()) {
+          <p class="wcrt-hint">Carregando...</p>
+        } @else if (colabEmpresaItems().length === 0) {
+          <p class="wcrt-hint">Nenhum colaborador vinculado a esta empresa.</p>
+        } @else {
+          <ul class="wcrt-empresa-list">
+            @for (c of colabEmpresaItems(); track c.id_collaborator) {
+              <li class="wcrt-empresa-list__item">
+                <app-collaborator-photo
+                  size="sm"
+                  [editable]="false"
+                  [name]="c.name"
+                  [picture]="c.picture"
+                />
+                <span class="wcrt-list__info">
+                  <span class="font-medium">{{ c.name }}</span>
+                  <span class="wcrt-list__meta">
+                    {{ c.document }}
+                    @if (c.role?.description; as funcao) {
+                      <span> · {{ funcao }}</span>
+                    }
+                    @if (c.is_blocklisted) {
+                      <span class="text-rose-600"> · blocklist</span>
+                    }
+                  </span>
+                </span>
+                @if (colabJaIncluido(c.id_collaborator)) {
+                  <span class="wcrt-empresa-list__done">Já incluído</span>
+                } @else {
+                  <button
+                    type="button"
+                    class="btn-action-secondary"
+                    [disabled]="c.is_blocklisted"
+                    (click)="addCollaborator(c)"
+                  >
+                    Adicionar
+                  </button>
+                }
+              </li>
+            }
+          </ul>
+          @if (colabEmpresaTotalPages() > 1) {
+            <div class="wcrt-empresa-pager">
+              <button
+                type="button"
+                class="btn-action-secondary"
+                [disabled]="colabEmpresaPage() <= 1 || colabEmpresaLoading()"
+                (click)="colabEmpresaPagina(-1)"
+              >
+                Anterior
+              </button>
+              <span>{{ colabEmpresaPage() }} / {{ colabEmpresaTotalPages() }}</span>
+              <button
+                type="button"
+                class="btn-action-secondary"
+                [disabled]="colabEmpresaPage() >= colabEmpresaTotalPages() || colabEmpresaLoading()"
+                (click)="colabEmpresaPagina(1)"
+              >
+                Próxima
+              </button>
+            </div>
+          }
+        }
+      </div>
+      <div modal-footer class="modal-footer">
+        <button type="button" class="btn-action-secondary" (click)="fecharModalColabEmpresa()">Fechar</button>
       </div>
     </app-modal>
 
@@ -1414,6 +1532,7 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
       .wcrt-block__tools {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 0.5rem;
         margin-left: auto;
         min-width: 0;
@@ -1510,6 +1629,31 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         padding: 0;
         list-style: none;
         margin: 0;
+      }
+      .wcrt-dropdown__item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-left: 10px;
+        border-bottom: 1px solid #f1f5f9;
+        cursor: pointer;
+      }
+      .wcrt-dropdown__item:hover {
+        background: #f8fafc;
+      }
+      .wcrt-dropdown__item.is-disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .wcrt-dropdown__photo {
+        flex: none;
+        display: inline-flex;
+        pointer-events: none;
+      }
+      .wcrt-dropdown__item .wcrt-dropdown__btn {
+        flex: 1;
+        border-bottom: 0;
+        padding-left: 0;
       }
       .wcrt-dropdown__btn {
         width: 100%;
@@ -1811,19 +1955,44 @@ function daysBetweenInclusive(inicio: string, fim: string): number {
         font-size: 0.75rem;
         color: var(--ink-2);
       }
-      .wcrt-avatar {
-        display: inline-flex;
+      .wcrt-empresa {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .wcrt-empresa-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        max-height: 24rem;
+        overflow-y: auto;
+      }
+      .wcrt-empresa-list__item {
+        display: flex;
         align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
+        gap: 10px;
+        padding: 8px 2px;
+        border-bottom: 1px solid var(--line, #e2e8f0);
+      }
+      .wcrt-empresa-list__item .wcrt-list__info {
+        flex: 1;
+        min-width: 0;
+      }
+      .wcrt-empresa-list__done {
         flex: none;
-        border-radius: 50%;
-        background: var(--wtorre);
-        color: #fff;
-        font-weight: 700;
         font-size: 0.75rem;
-        font-family: var(--font-display, Sora, system-ui, sans-serif);
+        font-weight: 600;
+        color: var(--ink-2, #64748b);
+      }
+      .wcrt-empresa-pager {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 12px;
+        font-size: 0.8125rem;
+        color: var(--ink-2, #64748b);
       }
       .wcrt-vehicle-icon {
         display: inline-flex;
@@ -2073,6 +2242,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   colabResults = signal<CollaboratorItem[]>([]);
   veicResults = signal<VehicleItem[]>([]);
   showColabCreateModal = signal(false);
+  showColabEmpresaModal = signal(false);
   showVeicCreateModal = signal(false);
   colabSaving = signal(false);
   veicSaving = signal(false);
@@ -2083,10 +2253,21 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   readonly colorOptions = VEHICLE_SUGGESTED_COLORS;
   readonly typeOptions = VEHICLE_SUGGESTED_TYPES;
 
+  colabEmpresaQuery = '';
+  colabEmpresaLoading = signal(false);
+  colabEmpresaItems = signal<CollaboratorItem[]>([]);
+  colabEmpresaPage = signal(1);
+  colabEmpresaTotalPages = signal(1);
+  private readonly colabEmpresaPageSize = 20;
+  private colabEmpresaLoadSeq = 0;
+
   private colabTimer: ReturnType<typeof setTimeout> | null = null;
   private veicTimer: ReturnType<typeof setTimeout> | null = null;
+  private colabEmpresaTimer: ReturnType<typeof setTimeout> | null = null;
   private companyLabel = '';
   private clientKeySeq = 0;
+  /** Ids já consultados para não buscar a mesma foto de novo. */
+  private pictureLookup = new Set<string>();
 
   formatDateBr = formatDateBr;
 
@@ -2153,6 +2334,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.colabEmpresaTimer) clearTimeout(this.colabEmpresaTimer);
     const id = this.createdId();
     if (!id || this.submitted || this.leaving) return;
     this.patrimonialService.deleteDraft(id).subscribe({ next: () => {}, error: () => {} });
@@ -2275,13 +2457,6 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
 
   periodDays(): number {
     return daysBetweenInclusive(this.startDate, this.endDate);
-  }
-
-  initials(name: string): string {
-    const parts = (name || '').trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return '?';
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
   finalidadeInvalid(): boolean {
@@ -2416,6 +2591,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
           return merged;
         });
         this.pendingFromSheet.set(pending);
+        this.hydrateMissingPictures();
       }
       this.applyPendingRoleProposals();
       this.resolveMissingCollaboratorIds(() => this.dedupeCollaboratorsById());
@@ -2826,8 +3002,10 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
         cadastro_role_description: role,
         source: 'manual',
         cellErrors: [],
+        picture: item.picture || null,
       },
     ]);
+    this.rememberPicture(item.id_collaborator);
     this.colabQuery = '';
     this.filterQuery.set('');
     this.colabResults.set([]);
@@ -3108,6 +3286,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
             role_description: currentRole ? c.role_description : masterDesc || c.role_description,
             cadastro_role_id: c.cadastro_role_id ?? masterRoleId ?? null,
             cadastro_role_description: c.cadastro_role_description || masterDesc,
+            picture: c.picture || found.picture || null,
             cellErrors: c.cellErrors.filter(
               (e) =>
                 e.field !== 'document' &&
@@ -3117,6 +3296,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
           };
         }),
       );
+      this.rememberPicture(found.id_collaborator);
     };
 
     for (const row of missing) {
@@ -3312,6 +3492,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
                 : masterDesc || c.role_description,
               cadastro_role_id: masterRoleId || c.cadastro_role_id || null,
               cadastro_role_description: masterDesc || c.cadastro_role_description || null,
+              picture: c.picture || found.picture || null,
               roleChange: needsDecision
                 ? {
                     fromId: masterRoleId,
@@ -3330,6 +3511,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
             };
           }),
         );
+        this.rememberPicture(found.id_collaborator);
       },
       error: () => {
         /* silencioso — usuário ainda pode adicionar via busca */
@@ -3398,6 +3580,71 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     return modelsForBrand(this.veicForm.brand);
   }
 
+  abrirModalColabEmpresa() {
+    if (this.canPickCompany && !this.idCompany) {
+      this.notification.error('Selecione a empresa do acesso no passo anterior.');
+      return;
+    }
+    this.colabEmpresaQuery = '';
+    this.colabEmpresaPage.set(1);
+    this.showColabEmpresaModal.set(true);
+    this.carregarColaboradoresEmpresa();
+  }
+
+  fecharModalColabEmpresa() {
+    if (this.colabEmpresaTimer) clearTimeout(this.colabEmpresaTimer);
+    this.showColabEmpresaModal.set(false);
+  }
+
+  onColabEmpresaSearch(term: string) {
+    this.colabEmpresaQuery = term;
+    if (this.colabEmpresaTimer) clearTimeout(this.colabEmpresaTimer);
+    this.colabEmpresaTimer = setTimeout(() => {
+      this.colabEmpresaPage.set(1);
+      this.carregarColaboradoresEmpresa();
+    }, 500);
+  }
+
+  colabEmpresaPagina(delta: number) {
+    const next = this.colabEmpresaPage() + delta;
+    if (next < 1 || next > this.colabEmpresaTotalPages() || this.colabEmpresaLoading()) return;
+    this.colabEmpresaPage.set(next);
+    this.carregarColaboradoresEmpresa();
+  }
+
+  colabJaIncluido(id: number): boolean {
+    return this.draftCollaborators().some((c) => sameEntityId(c.id_collaborator, id));
+  }
+
+  private carregarColaboradoresEmpresa() {
+    if (this.canPickCompany && !this.idCompany) return;
+    const seq = ++this.colabEmpresaLoadSeq;
+    const page = this.colabEmpresaPage();
+    this.colabEmpresaLoading.set(true);
+    const q = this.colabEmpresaQuery.trim();
+    this.collaboratorService
+      .list(page, this.colabEmpresaPageSize, {
+        status: true,
+        ...(this.idCompany ? { id_company: this.idCompany } : {}),
+        ...(q ? { q } : {}),
+      })
+      .subscribe({
+        next: (res) => {
+          if (seq !== this.colabEmpresaLoadSeq) return;
+          this.colabEmpresaLoading.set(false);
+          this.colabEmpresaItems.set(res.collaborators || []);
+          this.colabEmpresaTotalPages.set(res.pagination?.totalPages || 1);
+        },
+        error: (err) => {
+          if (seq !== this.colabEmpresaLoadSeq) return;
+          this.colabEmpresaLoading.set(false);
+          this.colabEmpresaItems.set([]);
+          this.colabEmpresaTotalPages.set(1);
+          this.notification.notifyHttpError(err, 'Falha ao listar colaboradores da empresa.');
+        },
+      });
+  }
+
   abrirModalColabCreate(prefill = '') {
     this.colabForm = this.emptyColabForm();
     const types = this.documentTypes();
@@ -3459,7 +3706,13 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
             return;
           }
           this.collaboratorService.uploadPicture(res.collaborator.id_collaborator, file).subscribe({
-            next: (up) => finish(up.collaborator || res.collaborator),
+            next: (up) => {
+              const col = up.collaborator || res.collaborator;
+              finish({
+                ...col,
+                picture: col.picture || up.picture || null,
+              });
+            },
             error: (err) => {
               this.notification.notifyHttpError(err, 'Colaborador salvo, mas a foto não foi enviada.');
               finish(res.collaborator);
@@ -3648,6 +3901,41 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
       }
       return next;
     });
+    this.hydrateMissingPictures();
+  }
+
+  private rememberPicture(id: number | string | null | undefined) {
+    const key = entityId(id);
+    if (key == null) return;
+    this.pictureLookup.add(String(key));
+  }
+
+  /** Preenche a foto das linhas da planilha que já têm id, sem travar a tela. */
+  private hydrateMissingPictures() {
+    const missing = this.draftCollaborators().filter((row) => {
+      const id = entityId(row.id_collaborator);
+      if (id == null || row.picture) return false;
+      const key = String(id);
+      if (this.pictureLookup.has(key)) return false;
+      this.pictureLookup.add(key);
+      return true;
+    });
+    for (const row of missing) {
+      const id = Number(entityId(row.id_collaborator));
+      if (!Number.isFinite(id) || id <= 0) continue;
+      this.collaboratorService.get(id).subscribe({
+        next: (res) => {
+          const picture = res.collaborator?.picture || null;
+          if (!picture) return;
+          this.draftCollaborators.update((list) =>
+            list.map((c) =>
+              sameEntityId(c.id_collaborator, id) && !c.picture ? { ...c, picture } : c,
+            ),
+          );
+        },
+        error: () => {},
+      });
+    }
   }
 
   private nextClientKey(prefix: string): string {
@@ -3733,6 +4021,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
       c.role_description ||
       this.roles().find((r) => sameEntityId(r.id_collaborator_role, masterRoleId))?.description ||
       '—';
+    this.rememberPicture(c.id_collaborator);
     return {
       clientKey: `srv-c-${c.id_collaborator}`,
       id_collaborator: c.id_collaborator,
@@ -3744,6 +4033,7 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
       cadastro_role_description: masterRoleDesc,
       source: 'manual',
       cellErrors: [],
+      picture: c.collaborator_picture || null,
     };
   }
 
@@ -3826,11 +4116,18 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     this.filterQuery.set('');
     this.colabQuery = '';
     this.veicQuery = '';
+    this.colabEmpresaQuery = '';
+    this.colabEmpresaItems.set([]);
+    this.colabEmpresaPage.set(1);
+    this.colabEmpresaTotalPages.set(1);
+    this.colabEmpresaLoading.set(false);
+    this.pictureLookup.clear();
     this.colabResults.set([]);
     this.veicResults.set([]);
     this.colabSearching.set(false);
     this.veicSearching.set(false);
     this.showColabCreateModal.set(false);
+    this.showColabEmpresaModal.set(false);
     this.showVeicCreateModal.set(false);
     this.colabSaving.set(false);
     this.veicSaving.set(false);
@@ -3838,5 +4135,6 @@ export class ServiceAccessCreateWizardComponent implements OnInit, OnDestroy {
     this.veicForm = this.emptyVeicForm();
     if (this.colabTimer) clearTimeout(this.colabTimer);
     if (this.veicTimer) clearTimeout(this.veicTimer);
+    if (this.colabEmpresaTimer) clearTimeout(this.colabEmpresaTimer);
   }
 }
