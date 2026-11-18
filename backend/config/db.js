@@ -26,6 +26,8 @@ const promisePool = pool.promise();
 const originalGetConnection = promisePool.getConnection.bind(promisePool);
 const { injectPublicId } = require("../utils/publicId");
 
+const LIMIT_PARAM_RE = /\b(?:LIMIT|OFFSET)\s+\?/i;
+
 function wrapPublicId(executor) {
   if (!executor || executor.__publicIdWrapped) return executor;
   const origExecute = executor.execute.bind(executor);
@@ -40,8 +42,11 @@ function wrapPublicId(executor) {
     return orig(next.sql, next.values);
   }
 
+  // MySQL 8 recusa LIMIT/OFFSET como parâmetro de prepared statement ("Incorrect arguments to
+  // mysqld_stmt_execute"); nesses casos usa query(), que também escapa os valores.
   executor.execute = function executeWithPublicId(sql, values, cb) {
-    return apply(origExecute, sql, values, cb);
+    const orig = typeof sql === "string" && LIMIT_PARAM_RE.test(sql) ? origQuery : origExecute;
+    return apply(orig, sql, values, cb);
   };
   executor.query = function queryWithPublicId(sql, values, cb) {
     return apply(origQuery, sql, values, cb);
