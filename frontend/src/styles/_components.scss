@@ -883,3 +883,41 @@
     transition: none !important;
   }
 }
+
+/* =========================================================
+   Tabelas em telas estreitas (notebook com zoom 125%/150%)
+   .tabela-rolavel: rola na horizontal em vez de cortar colunas.
+   .tabela-rolavel--acoes: a última coluna (Ações) fica fixa à direita.
+   O fundo da célula fixa herda o da linha (hover, linha destacada).
+   ========================================================= */
+.tabela-rolavel {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+:where(.tabela-rolavel--acoes) thead {
+  background-color: var(--color-bg-surface-alt);
+}
+
+:where(.tabela-rolavel--acoes) tbody tr {
+  background-color: var(--color-bg-surface);
+}
+
+.tabela-rolavel--acoes thead tr,
+.tabela-rolavel--acoes thead th:last-child {
+  background-color: inherit;
+}
+
+.tabela-rolavel--acoes th:last-child,
+.tabela-rolavel--acoes td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  white-space: nowrap;
+  background-color: inherit;
+  box-shadow: inset 1px 0 0 var(--app-border);
+}
+
+.tabela-rolavel--acoes thead th:last-child {
+  z-index: 2;
+}

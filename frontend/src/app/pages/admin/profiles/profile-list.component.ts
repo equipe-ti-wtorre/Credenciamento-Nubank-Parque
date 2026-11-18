@@ -47,7 +47,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
             Configure perfis e defina permissões por módulo e ação.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="carregar()" class="btn-secondary">Atualizar</button>
           <button
             *ngIf="canCreate"
@@ -60,7 +60,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
         </div>
       </div>
 
-      <div class="card-surface overflow-hidden">
+      <div class="card-surface tabela-rolavel tabela-rolavel--acoes">
         <table class="w-full text-sm">
           <thead class="table-head sticky top-0 bg-slate-50 z-10">
             <tr>
@@ -328,7 +328,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
           </button>
         </div>
 
-        <div class="border border-[var(--app-border)] rounded-xl overflow-hidden max-h-[50vh] overflow-y-auto">
+        <div class="border border-[var(--app-border)] rounded-xl max-h-[50vh] overflow-auto">
           <table class="w-full text-xs">
             <thead class="bg-slate-50 sticky top-0">
               <tr>

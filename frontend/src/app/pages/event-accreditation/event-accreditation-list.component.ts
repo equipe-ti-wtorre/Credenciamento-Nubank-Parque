@@ -119,7 +119,7 @@ function fmtDateTimeShort(value?: string | null): string {
         }
       </div>
 
-      <div class="eal-tablecard">
+      <div class="eal-tablecard tabela-rolavel tabela-rolavel--acoes">
         <table>
           <thead>
             <tr>
@@ -476,7 +476,7 @@ function fmtDateTimeShort(value?: string | null): string {
         background: var(--eal-surface);
         border: 1px solid var(--eal-line);
         border-radius: var(--eal-r-card);
-        overflow: hidden;
+        overflow-x: auto;
       }
       .eal table {
         width: 100%;
@@ -871,6 +871,10 @@ function fmtDateTimeShort(value?: string | null): string {
       @media (max-width: 920px) {
         .eal thead {
           display: none;
+        }
+        .eal tbody td:last-child {
+          position: static;
+          box-shadow: none;
         }
         .eal tbody tr {
           display: grid;

@@ -78,7 +78,7 @@ const LOGS_REFRESH_MS = 5000;
             A face é gravada e lida direto nos terminais Dahua ativos, pelo IP da VPN.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button
             type="button"
             (click)="testarSync()"

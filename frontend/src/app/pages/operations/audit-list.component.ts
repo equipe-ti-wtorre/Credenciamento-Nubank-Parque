@@ -75,7 +75,7 @@ const MODULE_LABELS: Record<string, string> = {
             Consulte todas as consultas, logins e alterações feitas no sistema, com o usuário responsável.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button
             type="button"
             (click)="recarregar()"

@@ -50,7 +50,7 @@ import { ModalComponent } from '../../../shared/modal/modal.component';
         </div>
       </div>
 
-      <div class="card-surface overflow-hidden">
+      <div class="card-surface tabela-rolavel tabela-rolavel--acoes">
         <table class="w-full text-sm">
           <thead class="table-head bg-slate-50">
             <tr>

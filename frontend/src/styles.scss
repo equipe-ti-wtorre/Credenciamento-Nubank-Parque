@@ -120,6 +120,19 @@ select.field,
     @apply text-sm text-slate-500 mt-1;
   }
 
+  /* Pouca altura útil (zoom 125%/150%): o título já aparece no topo da tela */
+  @media (max-height: 800px) {
+    .page-title {
+      @apply text-xl;
+    }
+  }
+
+  @media (max-height: 640px) {
+    .page-subtitle {
+      display: none;
+    }
+  }
+
   .page-section-title {
     @apply text-xl font-bold text-slate-800;
     font-family: var(--font-display);
@@ -225,6 +238,12 @@ select.field,
 
   .stat-card {
     @apply card-surface p-4 flex items-center gap-3;
+  }
+
+  @media (max-height: 800px) {
+    .stat-card {
+      @apply py-3;
+    }
   }
 
   .stat-card__icon {

@@ -30,7 +30,7 @@ type TinyInitEvent = { editor: TinyMCEEditor };
             <code class="text-xs">{{ placeholderHint }}</code>.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0" *ngIf="form">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end" *ngIf="form">
           <button type="button" class="btn-action-secondary" (click)="abrirPreview()" [disabled]="busy">
             Preview
           </button>

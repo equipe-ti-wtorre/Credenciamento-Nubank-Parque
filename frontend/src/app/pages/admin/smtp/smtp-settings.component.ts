@@ -54,7 +54,7 @@ import Swal from 'sweetalert2';
             Configure o provedor de e-mail e acompanhe o histórico de envios.
           </p>
         </div>
-        <div *ngIf="activeTab === 'config'" class="flex flex-wrap gap-2 shrink-0">
+        <div *ngIf="activeTab === 'config'" class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button
             *ngIf="form.provider === 'smtp'"
             type="button"
@@ -68,7 +68,7 @@ import Swal from 'sweetalert2';
             {{ saving ? 'Salvando...' : 'Salvar configuração' }}
           </button>
         </div>
-        <div *ngIf="activeTab === 'historico'" class="flex flex-wrap gap-2 shrink-0">
+        <div *ngIf="activeTab === 'historico'" class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="abrirTeste()" class="btn-secondary">Testar envio</button>
           <button type="button" (click)="carregarLogs(pagination.page)" class="btn-secondary">
             Atualizar
@@ -352,7 +352,7 @@ import Swal from 'sweetalert2';
           </div>
         </div>
 
-        <div class="card-surface overflow-hidden">
+        <div class="card-surface tabela-rolavel">
           <table class="w-full text-sm">
             <thead class="table-head sticky top-0 bg-slate-50 z-10">
               <tr>

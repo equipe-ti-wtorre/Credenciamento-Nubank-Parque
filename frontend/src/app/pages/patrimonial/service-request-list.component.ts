@@ -56,7 +56,7 @@ function formatPeriodBr(
             Cadastro de acessos com período, finalidade e vínculo de colaboradores e veículos.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" class="btn-secondary" (click)="carregar()" [disabled]="loading()">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
@@ -65,7 +65,7 @@ function formatPeriodBr(
       </div>
 
       <div class="card-surface overflow-hidden sa-list__desktop">
-        <div class="sa-list__scroll">
+        <div class="sa-list__scroll tabela-rolavel--acoes">
           <table class="w-full text-sm sa-list__table">
             <thead class="table-head bg-slate-50">
               <tr>

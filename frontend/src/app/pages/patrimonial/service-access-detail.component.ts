@@ -665,68 +665,70 @@ type ModalMode = 'search' | 'create';
           <p class="text-xs text-slate-500 mb-3">
             Inclua ou remova na lista e clique em <strong>Salvar</strong> para gravar e notificar os aprovadores uma única vez.
           </p>
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-xs uppercase text-slate-500 border-b">
-                <th class="py-2 text-left w-14">Foto</th>
-                <th class="py-2 text-left">Nome</th>
-                <th class="py-2 text-left">Documento</th>
-                <th class="py-2 text-left">Função</th>
-                <th class="py-2 text-left">Status</th>
-                <th class="py-2 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let c of draftCollaborators()" class="border-b border-slate-100">
-                <td class="py-2">
-                  <img
-                    *ngIf="pictureUrl(c) as url"
-                    [src]="url"
-                    [alt]="'Foto de ' + c.collaborator_name"
-                    class="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
-                  />
-                  <div
-                    *ngIf="!pictureUrl(c)"
-                    class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center shrink-0 border border-slate-200"
-                    aria-hidden="true"
-                  >
-                    {{ initials(c.collaborator_name) }}
-                  </div>
-                </td>
-                <td class="py-2">
-                  {{ c.collaborator_name }}
-                  <span
-                    *ngIf="c.id_service_access_collaborator < 0"
-                    class="ml-1 text-[10px] uppercase tracking-wide text-amber-700"
-                    >novo</span
-                  >
-                </td>
-                <td class="py-2 font-mono text-xs">{{ c.collaborator_document }}</td>
-                <td class="py-2">{{ c.role_description }}</td>
-                <td class="py-2">
-                  <span
-                    class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
-                    [ngClass]="liberacaoBadgeClass(itemLiberacaoStatus(c.access_id))"
-                  >
-                    {{ liberacaoLabel(itemLiberacaoStatus(c.access_id)) }}
-                  </span>
-                </td>
-                <td class="py-2 text-right">
-                  <div class="inline-flex justify-end">
-                    <app-action-btn
-                      icon="delete"
-                      title="Remover"
-                      variant="danger"
-                      (action)="removerColaborador(c)"
+          <div class="tabela-rolavel tabela-rolavel--acoes">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-xs uppercase text-slate-500 border-b">
+                  <th class="py-2 text-left w-14">Foto</th>
+                  <th class="py-2 text-left">Nome</th>
+                  <th class="py-2 text-left">Documento</th>
+                  <th class="py-2 text-left">Função</th>
+                  <th class="py-2 text-left">Status</th>
+                  <th class="py-2 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let c of draftCollaborators()" class="border-b border-slate-100">
+                  <td class="py-2">
+                    <img
+                      *ngIf="pictureUrl(c) as url"
+                      [src]="url"
+                      [alt]="'Foto de ' + c.collaborator_name"
+                      class="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
                     />
-                  </div>
-                </td>
-              </tr>
-              <tr *ngIf="draftCollaborators().length === 0">
-                <td colspan="6" class="py-4 text-center text-slate-500">Nenhum colaborador vinculado.</td>
-              </tr>
-            </tbody>
-          </table>
+                    <div
+                      *ngIf="!pictureUrl(c)"
+                      class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center shrink-0 border border-slate-200"
+                      aria-hidden="true"
+                    >
+                      {{ initials(c.collaborator_name) }}
+                    </div>
+                  </td>
+                  <td class="py-2">
+                    {{ c.collaborator_name }}
+                    <span
+                      *ngIf="c.id_service_access_collaborator < 0"
+                      class="ml-1 text-[10px] uppercase tracking-wide text-amber-700"
+                      >novo</span
+                    >
+                  </td>
+                  <td class="py-2 font-mono text-xs">{{ c.collaborator_document }}</td>
+                  <td class="py-2">{{ c.role_description }}</td>
+                  <td class="py-2">
+                    <span
+                      class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                      [ngClass]="liberacaoBadgeClass(itemLiberacaoStatus(c.access_id))"
+                    >
+                      {{ liberacaoLabel(itemLiberacaoStatus(c.access_id)) }}
+                    </span>
+                  </td>
+                  <td class="py-2 text-right">
+                    <div class="inline-flex justify-end">
+                      <app-action-btn
+                        icon="delete"
+                        title="Remover"
+                        variant="danger"
+                        (action)="removerColaborador(c)"
+                      />
+                    </div>
+                  </td>
+                </tr>
+                <tr *ngIf="draftCollaborators().length === 0">
+                  <td colspan="6" class="py-4 text-center text-slate-500">Nenhum colaborador vinculado.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div class="card-surface p-5">
@@ -834,58 +836,60 @@ type ModalMode = 'search' | 'create';
           <p class="text-xs text-slate-500 mb-3">
             Inclua ou remova na lista e clique em <strong>Salvar</strong> para gravar e notificar os aprovadores uma única vez.
           </p>
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-xs uppercase text-slate-500 border-b">
-                <th class="py-2 text-left">Placa</th>
-                <th class="py-2 text-left">Marca</th>
-                <th class="py-2 text-left">Modelo</th>
-                <th class="py-2 text-left hidden sm:table-cell">Cor</th>
-                <th class="py-2 text-left hidden md:table-cell">Tipo</th>
-                <th class="py-2 text-left hidden lg:table-cell">Descrição</th>
-                <th class="py-2 text-left">Status</th>
-                <th class="py-2 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let v of draftVehicles()" class="border-b border-slate-100">
-                <td class="py-2 font-medium font-mono">
-                  {{ v.plate }}
-                  <span
-                    *ngIf="v.id_service_access_vehicle < 0"
-                    class="ml-1 text-[10px] uppercase tracking-wide text-amber-700"
-                    >novo</span
-                  >
-                </td>
-                <td class="py-2 text-slate-600">{{ v.brand || '—' }}</td>
-                <td class="py-2 text-slate-600">{{ v.model || '—' }}</td>
-                <td class="py-2 text-slate-600 hidden sm:table-cell">{{ v.color || '—' }}</td>
-                <td class="py-2 text-slate-600 hidden md:table-cell">{{ v.type || '—' }}</td>
-                <td class="py-2 text-slate-600 hidden lg:table-cell">{{ v.vehicle_description || '—' }}</td>
-                <td class="py-2">
-                  <span
-                    class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
-                    [ngClass]="liberacaoBadgeClass(itemLiberacaoStatus(v.access_id))"
-                  >
-                    {{ liberacaoLabel(itemLiberacaoStatus(v.access_id)) }}
-                  </span>
-                </td>
-                <td class="py-2 text-right">
-                  <div class="inline-flex justify-end">
-                    <app-action-btn
-                      icon="delete"
-                      title="Remover"
-                      variant="danger"
-                      (action)="removerVeiculo(v)"
-                    />
-                  </div>
-                </td>
-              </tr>
-              <tr *ngIf="draftVehicles().length === 0">
-                <td colspan="8" class="py-4 text-center text-slate-500">Nenhum veículo vinculado.</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="tabela-rolavel tabela-rolavel--acoes">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-xs uppercase text-slate-500 border-b">
+                  <th class="py-2 text-left">Placa</th>
+                  <th class="py-2 text-left">Marca</th>
+                  <th class="py-2 text-left">Modelo</th>
+                  <th class="py-2 text-left hidden sm:table-cell">Cor</th>
+                  <th class="py-2 text-left hidden md:table-cell">Tipo</th>
+                  <th class="py-2 text-left hidden lg:table-cell">Descrição</th>
+                  <th class="py-2 text-left">Status</th>
+                  <th class="py-2 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let v of draftVehicles()" class="border-b border-slate-100">
+                  <td class="py-2 font-medium font-mono">
+                    {{ v.plate }}
+                    <span
+                      *ngIf="v.id_service_access_vehicle < 0"
+                      class="ml-1 text-[10px] uppercase tracking-wide text-amber-700"
+                      >novo</span
+                    >
+                  </td>
+                  <td class="py-2 text-slate-600">{{ v.brand || '—' }}</td>
+                  <td class="py-2 text-slate-600">{{ v.model || '—' }}</td>
+                  <td class="py-2 text-slate-600 hidden sm:table-cell">{{ v.color || '—' }}</td>
+                  <td class="py-2 text-slate-600 hidden md:table-cell">{{ v.type || '—' }}</td>
+                  <td class="py-2 text-slate-600 hidden lg:table-cell">{{ v.vehicle_description || '—' }}</td>
+                  <td class="py-2">
+                    <span
+                      class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+                      [ngClass]="liberacaoBadgeClass(itemLiberacaoStatus(v.access_id))"
+                    >
+                      {{ liberacaoLabel(itemLiberacaoStatus(v.access_id)) }}
+                    </span>
+                  </td>
+                  <td class="py-2 text-right">
+                    <div class="inline-flex justify-end">
+                      <app-action-btn
+                        icon="delete"
+                        title="Remover"
+                        variant="danger"
+                        (action)="removerVeiculo(v)"
+                      />
+                    </div>
+                  </td>
+                </tr>
+                <tr *ngIf="draftVehicles().length === 0">
+                  <td colspan="8" class="py-4 text-center text-slate-500">Nenhum veículo vinculado.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </ng-container>
 

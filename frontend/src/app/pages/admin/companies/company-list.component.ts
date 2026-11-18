@@ -53,7 +53,7 @@ interface CompanyFormState {
             Cadastro de produtoras, empresas padrão e fornecedores vinculados ao credenciamento.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 shrink-0">
+        <div class="flex flex-wrap gap-2 min-w-0 md:justify-end">
           <button type="button" (click)="carregar()" [disabled]="loading()" class="btn-secondary disabled:opacity-50">
             {{ loading() ? 'Atualizando...' : 'Atualizar' }}
           </button>
@@ -121,7 +121,7 @@ interface CompanyFormState {
         </div>
       </div>
 
-      <div class="card-surface overflow-hidden">
+      <div class="card-surface tabela-rolavel tabela-rolavel--acoes">
         <table class="w-full text-sm">
           <thead class="table-head sticky top-0 bg-slate-50 z-10">
             <tr>

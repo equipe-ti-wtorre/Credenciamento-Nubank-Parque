@@ -678,6 +678,40 @@ app-main-layout {
       width: 160px;
     }
   }
+
+  /* Notebook com zoom 125%/150%: menos margem para sobrar espaço ao conteúdo */
+  @media (max-width: 1199.98px) {
+    .wt-topbar {
+      gap: 14px;
+      padding: 14px 22px;
+    }
+
+    .wt-content {
+      padding: 20px 22px 18px;
+    }
+  }
+
+  /* Pouca altura útil: topo e margens mais baixos */
+  @media (max-height: 800px) {
+    .wt-topbar {
+      padding-top: 10px;
+      padding-bottom: 10px;
+
+      h1 {
+        font-size: 18px;
+      }
+    }
+
+    .wt-content {
+      padding-top: 16px;
+      padding-bottom: 14px;
+    }
+
+    .brand {
+      padding-top: 16px;
+      padding-bottom: 12px;
+    }
+  }
 }
 
 /* Kiosk / fullscreen: hide chrome (sidebar + topbar) */
