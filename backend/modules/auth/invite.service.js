@@ -181,6 +181,7 @@ async function inviteCompanyUser({
   profileCodigo,
   usuarioId,
   requestId,
+  keepActiveAccess = false,
 }) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   if (!normalizedEmail) {
@@ -220,29 +221,52 @@ async function inviteCompanyUser({
       throw new AppError("Este e-mail já pertence a um usuário do sistema.", 409);
     }
 
-    await db.execute(
-      `UPDATE usuarios
-       SET id_company = ?, id_perfil = ?, nome_completo = COALESCE(NULLIF(?, ''), nome_completo),
-           email = ?, ativo = 0, senha_hash = NULL, is_ad_user = 0
-       WHERE id = ?`,
-      [idCompany, idPerfil, nome || null, normalizedEmail, user.id],
-    );
-  } else {
-    const username = await ensureUniqueUsername(buildUsernameFromEmail(normalizedEmail));
-    const [result] = await db.execute(
-      `INSERT INTO usuarios
-         (username, nome_completo, email, departamento, senha_hash, id_perfil, id_company, ativo, is_ad_user)
-       VALUES (?, ?, ?, NULL, NULL, ?, ?, 0, 0)`,
-      [username, nome || normalizedEmail, normalizedEmail, idPerfil, idCompany],
-    );
-    user = {
-      id: result.insertId,
-      email: normalizedEmail,
-      nome_completo: nome || normalizedEmail,
-    };
+    // Convite automático (cadastro da empresa) não derruba quem já entra no sistema.
+    if (keepActiveAccess && Number(user.ativo) && user.senha_hash) {
+      throw new AppError(
+        "Este e-mail já tem acesso ativo e não recebeu convite. Para trocar o vínculo, use \"Enviar acesso\" na empresa.",
+        409,
+      );
+    }
   }
 
-  const { rawToken } = await createInviteToken(user.id);
+  const username = user
+    ? null
+    : await ensureUniqueUsername(buildUsernameFromEmail(normalizedEmail));
+  const conn = await db.getConnection();
+  let rawToken;
+  try {
+    await conn.beginTransaction();
+    if (user) {
+      await conn.execute(
+        `UPDATE usuarios
+         SET id_company = ?, id_perfil = ?, nome_completo = COALESCE(NULLIF(?, ''), nome_completo),
+             email = ?, ativo = 0, senha_hash = NULL, is_ad_user = 0
+         WHERE id = ?`,
+        [idCompany, idPerfil, nome || null, normalizedEmail, user.id],
+      );
+    } else {
+      const [result] = await conn.execute(
+        `INSERT INTO usuarios
+           (username, nome_completo, email, departamento, senha_hash, id_perfil, id_company, ativo, is_ad_user)
+         VALUES (?, ?, ?, NULL, NULL, ?, ?, 0, 0)`,
+        [username, nome || normalizedEmail, normalizedEmail, idPerfil, idCompany],
+      );
+      user = {
+        id: result.insertId,
+        email: normalizedEmail,
+        nome_completo: nome || normalizedEmail,
+      };
+    }
+    ({ rawToken } = await createInviteToken(user.id, conn));
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
   await sendInviteEmail({
     to: normalizedEmail,
     nome: nome || user.nome_completo,

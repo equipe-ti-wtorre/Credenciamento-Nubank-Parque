@@ -371,7 +371,11 @@ async function findActiveCompanyById(id) {
   return row;
 }
 
-async function inviteCompanyAccess(companyId, data, { usuarioId, requestId } = {}) {
+async function inviteCompanyAccess(
+  companyId,
+  data,
+  { usuarioId, requestId, keepActiveAccess = false } = {},
+) {
   const company = await findCompanyById(companyId);
   if (!company) throw new AppError("Empresa não encontrada.", 404);
   if (!company.status) throw new AppError("Empresa inativa.", 400);
@@ -409,7 +413,45 @@ async function inviteCompanyAccess(companyId, data, { usuarioId, requestId } = {
     profileCodigo: "EMPRESA_GESTOR",
     usuarioId,
     requestId,
+    keepActiveAccess,
   });
+}
+
+/**
+ * Convite de senha para cada contato com e-mail (sem repetir e-mail). Falhas não desfazem o cadastro:
+ * voltam em `invite_errors`. Quem já tem acesso ativo não é alterado.
+ */
+async function sendContactInvites(company, { usuarioId, requestId } = {}) {
+  const invites = [];
+  const inviteErrors = [];
+  const seen = new Set();
+  const contacts = Array.isArray(company.contacts) ? company.contacts : [];
+
+  for (const contact of contacts) {
+    const email = String(contact.email || "").trim().toLowerCase();
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+
+    try {
+      const invite = await inviteCompanyAccess(
+        company.id_company,
+        {
+          id_company_contact: contact.id_company_contact,
+          email,
+          name: contact.name,
+        },
+        { usuarioId, requestId, keepActiveAccess: true },
+      );
+      invites.push(invite);
+    } catch (err) {
+      inviteErrors.push({
+        email,
+        message: err.message || "Falha ao enviar o convite.",
+      });
+    }
+  }
+
+  return { invites, invite_errors: inviteErrors };
 }
 
 async function updateCompanyLogo(id, filename) {
@@ -451,4 +493,5 @@ module.exports = {
   findCompanyById,
   mapCompanyRow,
   inviteCompanyAccess,
+  sendContactInvites,
 };

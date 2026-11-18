@@ -10,39 +10,6 @@ const {
 } = require("./company.schema");
 const selfRegisterService = require("./company-self-register.service");
 
-async function sendPasswordInvites(company, { usuarioId, requestId }) {
-  const invites = [];
-  const inviteErrors = [];
-  const seen = new Set();
-  const contacts = Array.isArray(company.contacts) ? company.contacts : [];
-
-  for (const contact of contacts) {
-    const email = String(contact.email || "").trim().toLowerCase();
-    if (!email || seen.has(email)) continue;
-    seen.add(email);
-
-    try {
-      const invite = await companyService.inviteCompanyAccess(
-        company.id_company,
-        {
-          id_company_contact: contact.id_company_contact,
-          email,
-          name: contact.name,
-        },
-        { usuarioId, requestId },
-      );
-      invites.push(invite);
-    } catch (err) {
-      inviteErrors.push({
-        email,
-        message: err.message || "Falha ao enviar o convite.",
-      });
-    }
-  }
-
-  return { invites, invite_errors: inviteErrors };
-}
-
 exports.listTypes = async (req, res, next) => {
   try {
     const types = await companyService.listCompanyTypes();
@@ -81,7 +48,7 @@ exports.create = async (req, res, next) => {
       idCompanyOrigem: companyService.producerOriginFromUser(req.user),
     });
 
-    const { invites, invite_errors } = await sendPasswordInvites(company, {
+    const { invites, invite_errors } = await companyService.sendContactInvites(company, {
       usuarioId: req.user?.id,
       requestId: req.requestId,
     });
