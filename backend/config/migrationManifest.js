@@ -1,6 +1,7 @@
 const {
   tableExists,
   columnExists,
+  indexExists,
   allTablesExist,
   allColumnsExist,
 } = require("./schemaHelpers");
@@ -785,6 +786,10 @@ const migrations = [
   {
     filename: "096_password_reset_tokens.sql",
     validate: (conn) => tableExists(conn, "password_reset_tokens"),
+  },
+  {
+    filename: "097_collaborator_picture_index.sql",
+    validate: (conn) => indexExists(conn, "collaborator", "idx_collaborator_picture"),
   },
 ];
 

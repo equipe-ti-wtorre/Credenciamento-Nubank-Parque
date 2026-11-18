@@ -4,6 +4,8 @@ const express = require("express");
 const AppError = require("../../utils/AppError");
 const { authMiddleware } = require("../../middleware/authMiddleware");
 const { readPictureJson } = require("./picture-src");
+const db = require("../../config/db");
+const { vinculoColaborador } = require("../../middleware/vinculos");
 
 const router = express.Router();
 const picturesDir = path.join(__dirname, "../../storage/pictures");
@@ -40,8 +42,30 @@ function wantsJson(req) {
   return String(req.query.format || "").toLowerCase() === "json";
 }
 
+/**
+ * Foto facial é dado biométrico: usuário de empresa só baixa a de colaborador vinculado à própria
+ * empresa (mesma regra de GET /collaborators/:id). Usuário interno segue liberado.
+ */
+async function pictureScope(req, res, next) {
+  try {
+    if (!req.user?.requires_company) return next();
+    const raw = req.params.filename ?? req.query.filename;
+    const filename = path.basename(String((Array.isArray(raw) ? raw[0] : raw) || ""));
+    const [rows] = await db.execute(
+      "SELECT id_collaborator, id_company FROM collaborator WHERE picture = ? LIMIT 1",
+      [filename],
+    );
+    if (!rows.length) throw new AppError("Imagem não encontrada.", 404);
+    req.recurso = rows[0];
+    await vinculoColaborador(req);
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 // Query `?filename=` evita que o Nginx trate a URL como arquivo estático (.jpg/.png).
-router.get("/pictures", authMiddleware, async (req, res, next) => {
+router.get("/pictures", authMiddleware, pictureScope, async (req, res, next) => {
   try {
     if (wantsJson(req)) {
       const payload = await readPictureJson(req.query.filename);
@@ -54,7 +78,7 @@ router.get("/pictures", authMiddleware, async (req, res, next) => {
     next(err);
   }
 });
-router.get("/pictures/:filename", authMiddleware, serveDir(picturesDir));
+router.get("/pictures/:filename", authMiddleware, pictureScope, serveDir(picturesDir));
 
 router.get("/merchandise", authMiddleware, (req, res, next) => {
   try {

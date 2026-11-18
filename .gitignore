@@ -9,7 +9,7 @@ dist/
 .DS_Store
 .angular/
 backend/storage/
-storage/
+/storage/
 tmp/
 *.zip
 *.pem
