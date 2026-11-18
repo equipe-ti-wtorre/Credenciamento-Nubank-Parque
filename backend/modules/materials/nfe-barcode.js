@@ -1,4 +1,4 @@
-const { LuminanceSource, HybridBinarizer, BinaryBitmap, MultiFormatReader, DecodeHintType, BarcodeFormat } =
+const { LuminanceSource, HybridBinarizer, BinaryBitmap, Code128Reader, DecodeHintType } =
   require("@zxing/library");
 
 class GrayLuminanceSource extends LuminanceSource {
@@ -36,11 +36,11 @@ async function decodeCode128FromBuffer(imageBuffer) {
     return null;
   }
 
+  // Leitor só de CODE_128: o MultiFormatReader testava todos os formatos e escrevia um
+  // console.warn com stack de cada leitor (PDF417, MaxiCode...) a cada foto sem código.
   const hints = new Map();
-  hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]);
   hints.set(DecodeHintType.TRY_HARDER, true);
-  const reader = new MultiFormatReader();
-  reader.setHints(hints);
+  const reader = new Code128Reader();
 
   const angles = [0, 90, 180, 270];
   for (const angle of angles) {
@@ -52,7 +52,7 @@ async function decodeCode128FromBuffer(imageBuffer) {
         .toBuffer({ resolveWithObject: true });
       const source = new GrayLuminanceSource(data, info.width, info.height);
       const bitmap = new BinaryBitmap(new HybridBinarizer(source));
-      const result = reader.decode(bitmap);
+      const result = reader.decode(bitmap, hints);
       const text = String(result?.getText?.() || result?.text || "").replace(/\D/g, "");
       if (text) return text;
     } catch {

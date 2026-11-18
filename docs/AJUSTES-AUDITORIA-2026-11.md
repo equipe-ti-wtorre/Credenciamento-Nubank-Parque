@@ -211,9 +211,23 @@ Hoje o nginx manda `/` para `127.0.0.1:4207`, que é o `ng serve` (a página pú
 
 ---
 
+## Situação em 18/11/2026
+
+- **Fase 0:** concluída.
+- **Fase 1:** concluída. O nginx serve `frontend/dist-prod`; o `ng serve` da 4207 foi desligado. A config real está em `deploy/nginx/cred.nbpdev.com.br.conf` (editada fora do aaPanel). TLS 1.2/1.3 sem 3DES e sem 0-RTT. CSP aplicada só com `frame-ancestors`, `object-src` e `base-uri`; a CSP completa está em `Content-Security-Policy-Report-Only` até alguém navegar logado sem violações no console.
+- **Fase 2:** decisão tomada: as empresas terceiras continuam com login próprio (usuário e senha, convite e recuperação de senha). Usuário interno passa a entrar só pelo auth-gateway. Implementação pendente.
+- **Fase 3:** concluída. Listagens de aprovação com `approvals.view`, fotos com escopo de empresa, bot do Teams com 401 sem JWT, `/health` público reduzido. As rotas que só exigem login são dados do próprio usuário, listas auxiliares ou têm escopo no service (`GET /companies`, alertas).
+- **Fase 4:** aguardando definição.
+- **Fase 5:**
+  - Feito: rotação dos logs do PM2 (`deploy/logrotate-pm2-credenciamento`, instalado em `/etc/logrotate.d/`), leitor de código de barras só CODE_128 (sem o log do zxing), `backend/.env` com permissão 600. O worker facial só caiu em 11–12/11, durante a troca para o MySQL 8.
+  - Pendente: tirar a API do root. A tela WhatsApp → Limites grava o `.env` do OpenWA (do root) e reinicia o processo no PM2 do root; com outro usuário essa função para.
+
 ## Desvios aceitos (preencher)
 
 | Item | Motivo | Decidido por / data |
 |---|---|---|
 | CSP `connect-src` inclui `https://login.microsoftonline.com` | MSAL ainda no front; sem isso o login quebra. Sai na Fase 2. | Fase 1 / 01/11/2026 |
 | `npm ci --legacy-peer-deps` | Peer do `ng2-charts` conflita com Angular 21. | Fase 1 / 01/11/2026 |
+| Login próprio (senha, convite, recuperação) para usuários de empresa terceira | As empresas terceiras não estão no Entra dos tenants do gateway. Vale só para perfis com `requires_company`; usuário interno entra pelo gateway. | Daniel Lemes / 18/11/2026 |
+| CSP completa em Report-Only | Precisa ser observada com usuário logado (TinyMCE, Teams, gateway) antes de bloquear. | Fase 1 / 18/11/2026 |
+| API e worker no PM2 do root | A tela WhatsApp → Limites grava o `.env` do OpenWA e reinicia o processo dele. | Fase 5 / 18/11/2026 |
