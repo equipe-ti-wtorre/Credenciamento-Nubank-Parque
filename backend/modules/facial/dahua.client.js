@@ -27,6 +27,7 @@ const TEST_TIMEOUT_MS = 8000;
 const ENROLL_TIMEOUT_MS = 20000;
 /** device_key -> true quando o firmware é o FaceInfoManager (ASI7213Y 2022). */
 const legacyApiByDevice = new Map();
+const LEGACY_API_CACHE_MS = 60 * 60 * 1000;
 
 function md5(value) {
   return crypto.createHash("md5").update(value).digest("hex");
@@ -167,8 +168,9 @@ function responseText(data) {
  * FaceInfoManager.cgi?action=startFind devolve Token nesse firmware.
  */
 async function usesLegacyFaceApi(device) {
-  if (legacyApiByDevice.has(device.device_key)) {
-    return legacyApiByDevice.get(device.device_key);
+  const cached = legacyApiByDevice.get(device.device_key);
+  if (cached && Date.now() - cached.at < LEGACY_API_CACHE_MS) {
+    return cached.legacy;
   }
   const res = await requestCgi(device, {
     method: "GET",
@@ -187,7 +189,10 @@ async function usesLegacyFaceApi(device) {
       }).catch(() => undefined);
     }
   }
-  if (res.status) legacyApiByDevice.set(device.device_key, legacy);
+  // Só guarda resposta conclusiva: 401/5xx/timeout não dizem nada sobre o firmware.
+  if (res.status === 200 || res.status === 400 || res.status === 404) {
+    legacyApiByDevice.set(device.device_key, { legacy, at: Date.now() });
+  }
   return legacy;
 }
 
@@ -205,6 +210,7 @@ async function getCgi(device, path) {
 
 async function findLegacyCards(device, userId) {
   const found = await getCgi(device, buildLegacyCardFindPath(userId));
+  if (found.interpreted.notFound) return [];
   if (!found.interpreted.ok) {
     throw new Error(found.interpreted.error || "Falha ao consultar o usuário no terminal");
   }
